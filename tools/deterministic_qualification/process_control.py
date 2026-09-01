@@ -7,6 +7,7 @@ import subprocess
 import time
 from dataclasses import dataclass
 from io import StringIO
+from pathlib import Path
 
 
 PROCESS_NAME = "SoulcaliburVI.exe"
@@ -96,6 +97,19 @@ def launch_game() -> None:
         ["cmd", "/d", "/c", "start", "", "steam://rungameid/544750"],
         check=True,
         capture_output=True,
+    )
+
+
+def launch_game_executable(executable: Path) -> None:
+    """Launch SC6 directly without shell/UI automation or focus operations."""
+    resolved = executable.resolve()
+    if not resolved.is_file():
+        raise FileNotFoundError(f"SoulcaliburVI executable not found: {resolved}")
+    subprocess.Popen(
+        [str(resolved)], cwd=resolved.parent,
+        creationflags=(subprocess.CREATE_NEW_PROCESS_GROUP
+                       | subprocess.DETACHED_PROCESS),
+        close_fds=True,
     )
 
 

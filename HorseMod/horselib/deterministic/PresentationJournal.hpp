@@ -56,6 +56,7 @@ public:
             * (sizeof(Slot) + sizeof(Watermark) + sizeof(bool));
     }
     [[nodiscard]] Statistics statistics() const noexcept;
+    [[nodiscard]] Status ResetStatistics() noexcept;
 
 private:
     struct EventKey

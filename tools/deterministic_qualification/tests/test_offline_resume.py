@@ -7,13 +7,14 @@ from tools.deterministic_qualification.configuration import (
     expected_fields,
 )
 from tools.deterministic_qualification.offline_campaign import (
-    _load_reusable_capture,
+    _compose_persistent_row, _load_reusable_capture,
+    _persistent_campaign_reusable,
 )
 from tools.deterministic_qualification.offline_capture import (
     _read_current_run_tail, capture_log_artifact_is_intact,
 )
 from tools.deterministic_qualification.trace_parser import capture_log_offset
-from tools.deterministic_qualification.offline_matrix import build_rows
+from tools.deterministic_qualification.offline_matrix import build_rows, evaluate_row
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -181,3 +182,101 @@ def test_composed_capture_reuse_requires_stored_log_artifact(tmp_path):
     assert capture_log_artifact_is_intact(report)
     bounded_log.write_text("changed\n", encoding="utf-8")
     assert not capture_log_artifact_is_intact(report)
+
+
+def _persistent_campaign_fixture(tmp_path, rows):
+    config = expected_fields(enabled=False, trace=True)
+    expected = {
+        "dll": "dll", "schema": "schema", "capture_harness": "capture",
+        "replay_mod": "bridge", "executable": "game",
+    }
+    path = tmp_path / "persistent.json"
+    bounded_log = path.with_suffix(".log")
+    bounded_log.write_text("bounded campaign evidence\n", encoding="utf-8")
+    cycles = []
+    for index, row in enumerate(rows, 1):
+        cycles.append({
+            "run_id": f"cycle-{index}", "replay_entry": index,
+            "depth": row.depth,
+            "location": ("near_round_start", "active_combat",
+                         "confirmed_hit", "round_end").index(row.location) + 1,
+            "status": 3, "completed": "600/600", "failure": 0,
+            "capacity_growth": 0, "duplicates": 0, "publish_failures": 0,
+            "pending": "0/0", "terminal_coverage": 1,
+            "presentation_activity": "12/12/0",
+            "owned_bytes": "100->200", "capture_p99_us": 100,
+            "capture_max_us": 200, "cycle_p99_us": 300,
+            "cycle_max_us": 400, "drift_ms": index,
+            "working_set_bytes": 1000 + index,
+            "private_bytes": 2000 + index,
+            "cleanup": {"stale_mask": 0, "pending": "0/0",
+                        "owned_bytes": 100},
+        })
+    report = {
+        "report_schema": 2, "certifying": True, "result": "pass",
+        "source": {"commit": "frozen"}, "case_id": rows[0].case_id,
+        "display_map_name": rows[0].display_map_name,
+        "stage_package_root": rows[0].stage_package_root,
+        "parent_run_ids": [f"parent-{index}"
+                           for index in range(1, len(rows) + 1)],
+        "cycles": cycles,
+        "runtime": {
+            "process_restarts": 0, "replay_entries": len(rows),
+            "normal_render_tick_rate": 60.0,
+            "active_battle_tick_rate": 60.0,
+            "native_stage": rows[0].replay_metadata_stage,
+            "native_map": rows[0].replay_metadata_map,
+            "native_left_character": rows[0].replay_metadata_fighters[0],
+            "native_right_character": rows[0].replay_metadata_fighters[1],
+        },
+        "artifacts": {
+            "horsemod_dll_sha256": "dll", "schema_sha256": "schema",
+            "capture_harness_sha256": "capture",
+            "replay": {"sha256": rows[0].replay_sha256},
+            "replay_qualification_mod": {"sha256": "bridge"},
+            "game_executable": {"sha256": "game"},
+            "config_fields": config,
+            "config": {"sha256": contract_sha256(config)},
+            "bounded_log": {"path": str(bounded_log),
+                            "sha256": artifacts.sha256_file(bounded_log),
+                            "size": bounded_log.stat().st_size},
+        },
+        "cleanup": {"process_absent": True, "temporary_mod_removed": True,
+                    "config_disarmed": True},
+    }
+    path.write_text(json.dumps(report), encoding="utf-8")
+    return path, report, expected, config
+
+
+def test_persistent_resume_binds_all_producer_inputs_and_cycle_cleanup(tmp_path):
+    rows = tuple(row for row in build_rows(MANIFEST)
+                 if row.required_corrections)[:3]
+    path, report, expected, config = _persistent_campaign_fixture(tmp_path, rows)
+
+    assert _persistent_campaign_reusable(path, rows, expected, config) == report
+    report["cycles"][1]["cleanup"]["stale_mask"] = 1
+    path.write_text(json.dumps(report), encoding="utf-8")
+    assert _persistent_campaign_reusable(path, rows, expected, config) is None
+
+
+def test_persistent_row_requires_hashed_fresh_process_lifecycle(tmp_path):
+    row = next(row for row in build_rows(MANIFEST)
+               if row.required_corrections)
+    path, campaign, expected, _ = _persistent_campaign_fixture(
+        tmp_path, (row,))
+    baseline_path = tmp_path / "baseline.json"
+    baseline = {
+        "report_schema": 2, "certifying": True, "result": "pass",
+        "case_id": row.case_id, "row_id": f"{row.case_id}__baseline",
+        "source": campaign["source"],
+        "artifacts": campaign["artifacts"],
+        "runtime": {"clean_exit": True, "reentry": True},
+    }
+    baseline_path.write_text(json.dumps(baseline), encoding="utf-8")
+    composed = _compose_persistent_row(
+        row, campaign, campaign["cycles"][0], baseline, baseline_path)
+
+    assert evaluate_row(row, composed, "dll", "schema", "ignored", expected) == []
+    baseline_path.write_text("{}", encoding="utf-8")
+    assert "fresh-process lifecycle artifact is missing or changed" in evaluate_row(
+        row, composed, "dll", "schema", "ignored", expected)

@@ -158,3 +158,23 @@ def test_active_request_guard_surfaces_native_terminal_failure(
     with pytest.raises(RuntimeError, match="presentation_coverage"):
         require_replay_request_healthy("current")
     require_replay_request_healthy("stale")
+
+
+def test_persistent_cycles_use_version_ten_and_unique_runtime_ids(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    replay = tmp_path / "cycles.bin"
+    replay.write_bytes(b"ULX1test")
+    cycles = (("run11", 11, 1), ("run1", 1, 1), ("run6", 6, 1))
+
+    create_request(replay, 120, qualification_cycles=cycles)
+    request = (tmp_path / "HorseMod" / "Qualification"
+               / "replay_request.txt").read_text(encoding="utf-8")
+
+    assert request.startswith("version=10\n")
+    assert "stock_round_outcome_control=false\n" in request
+    assert "qualification_cycles=run11:11:1,run1:1:1,run6:6:1\n" in request
+    with pytest.raises(RuntimeError, match="must be unique"):
+        create_request(replay, 120,
+                       qualification_cycles=(("same", 11, 1), ("same", 1, 1)))

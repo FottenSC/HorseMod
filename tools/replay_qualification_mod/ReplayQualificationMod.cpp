@@ -54,6 +54,12 @@ enum class State : std::uint8_t
 
 struct Request
 {
+    struct QualificationCycle
+    {
+        std::string run_id;
+        std::uint32_t depth{};
+        std::uint32_t location{};
+    };
     std::string run_id;
     std::filesystem::path replay_path;
     std::uint32_t watch_frames{1};
@@ -66,6 +72,7 @@ struct Request
     std::vector<std::int8_t> expected_round_winners{};
     std::int32_t expected_match_winner{-1};
     bool development_smoke{};
+    std::vector<QualificationCycle> qualification_cycles{};
 };
 
 struct BattleResult
@@ -96,6 +103,11 @@ using GetReplayGameplayRngCoverageFn = bool (*)(std::uint64_t*, std::size_t);
 using RequestStageTerminalFn = bool (*)(std::uint32_t);
 using GetStageTerminalStatusFn = std::uint32_t (*)(std::uint32_t*);
 using GetForcedQualificationStatusFn = std::uint32_t (*)();
+using ArmReplayQualificationCycleFn = bool (*)(
+    const char*, std::size_t, std::uint32_t, std::uint32_t);
+using GetReplayQualificationCycleReportFn = std::uint32_t (*)(
+    const char*, std::size_t, std::uint64_t*, std::size_t);
+using DisarmReplayQualificationCycleFn = bool (*)(const char*, std::size_t);
 using ArmOnlineQualificationFn = bool (*)(
     const char*, std::size_t, std::uint32_t);
 using GetOnlineQualificationStatusFn = std::uint32_t (*)();
@@ -687,7 +699,8 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
         || (fields["version"] != "2" && fields["version"] != "3"
             && fields["version"] != "4" && fields["version"] != "5"
             && fields["version"] != "6" && fields["version"] != "7"
-            && fields["version"] != "8" && fields["version"] != "9")
+            && fields["version"] != "8" && fields["version"] != "9"
+            && fields["version"] != "10")
         || (fields["version"] == "2" && fields.size() != 4)
         || (fields["version"] == "3" && fields.size() != 5)
         || (fields["version"] == "4" && fields.size() != 7)
@@ -695,7 +708,8 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
         || (fields["version"] == "6" && fields.size() != 9)
         || (fields["version"] == "7" && fields.size() != 10)
         || (fields["version"] == "8" && fields.size() != 12)
-        || (fields["version"] == "9" && fields.size() != 13))
+        || (fields["version"] == "9" && fields.size() != 13)
+        || (fields["version"] == "10" && fields.size() != 14))
     {
         return false;
     }
@@ -713,7 +727,7 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
     if (fields["version"] == "3" || fields["version"] == "4"
         || fields["version"] == "5" || fields["version"] == "6"
         || fields["version"] == "7" || fields["version"] == "8"
-        || fields["version"] == "9")
+        || fields["version"] == "9" || fields["version"] == "10")
     {
         std::string_view remaining = fields["seek_percentages"];
         while (!remaining.empty())
@@ -733,14 +747,16 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
         }
         if (percentages.empty() && fields["version"] != "5"
             && fields["version"] != "6" && fields["version"] != "7"
-            && fields["version"] != "8" && fields["version"] != "9")
+            && fields["version"] != "8" && fields["version"] != "9"
+            && fields["version"] != "10")
             return false;
     }
     std::uint32_t min_resume_tick_rate_milli = 58'000;
     std::uint32_t resume_tick_window = 120;
     if (fields["version"] == "4" || fields["version"] == "5"
         || fields["version"] == "6" || fields["version"] == "7"
-        || fields["version"] == "8" || fields["version"] == "9")
+        || fields["version"] == "8" || fields["version"] == "9"
+        || fields["version"] == "10")
     {
         try
         {
@@ -760,7 +776,7 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
     if (fields["version"] == "5"
         || ((fields["version"] == "6" || fields["version"] == "7"
                 || fields["version"] == "8")
-                || fields["version"] == "9")
+                || fields["version"] == "9" || fields["version"] == "10")
             && !fields["stage_terminal"].empty())
     {
         if (fields["stage_terminal"] == "wall") stage_terminal = 1;
@@ -770,26 +786,29 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
     }
     const bool stock_round_outcome_control =
         (fields["version"] == "6" || fields["version"] == "7"
-            || fields["version"] == "8" || fields["version"] == "9")
+            || fields["version"] == "8" || fields["version"] == "9"
+            || fields["version"] == "10")
         ? fields["stock_round_outcome_control"] == "true"
         : percentages.empty() && stage_terminal == 0;
     if ((fields["version"] == "6" || fields["version"] == "7"
-            || fields["version"] == "8" || fields["version"] == "9")
+            || fields["version"] == "8" || fields["version"] == "9"
+            || fields["version"] == "10")
         && fields["stock_round_outcome_control"] != "true"
         && fields["stock_round_outcome_control"] != "false")
         return false;
     const bool require_authored_outcomes =
         (fields["version"] == "7" || fields["version"] == "8"
-            || fields["version"] == "9")
+            || fields["version"] == "9" || fields["version"] == "10")
         && fields["require_authored_outcomes"] == "true";
     if ((fields["version"] == "7" || fields["version"] == "8"
-            || fields["version"] == "9")
+            || fields["version"] == "9" || fields["version"] == "10")
         && fields["require_authored_outcomes"] != "true"
         && fields["require_authored_outcomes"] != "false")
         return false;
     std::vector<std::int8_t> expected_round_winners;
     std::int32_t expected_match_winner = -1;
-    if (fields["version"] == "8" || fields["version"] == "9")
+    if (fields["version"] == "8" || fields["version"] == "9"
+        || fields["version"] == "10")
     {
         std::string_view remaining = fields["expected_round_winners"];
         while (!remaining.empty())
@@ -815,20 +834,62 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
             && (expected_round_winners.empty()
                 || expected_match_winner < 0)) return false;
     }
-    const bool development_smoke = fields["version"] == "9"
+    const bool development_smoke = (fields["version"] == "9"
+            || fields["version"] == "10")
         && fields["development_smoke"] == "true";
-    if (fields["version"] == "9"
+    if ((fields["version"] == "9" || fields["version"] == "10")
         && fields["development_smoke"] != "true"
         && fields["development_smoke"] != "false") return false;
     if (development_smoke
         && (watch_frames < 60 || watch_frames > 120
             || stock_round_outcome_control || require_authored_outcomes
             || stage_terminal != 0 || !percentages.empty())) return false;
+    std::vector<Request::QualificationCycle> qualification_cycles;
+    if (fields["version"] == "10")
+    {
+        std::string_view remaining = fields["qualification_cycles"];
+        while (!remaining.empty())
+        {
+            const auto comma = remaining.find(',');
+            const auto token = remaining.substr(0, comma);
+            const auto first = token.find(':');
+            const auto second = first == std::string_view::npos
+                ? first : token.find(':', first + 1);
+            if (first == std::string_view::npos
+                || second == std::string_view::npos
+                || qualification_cycles.size() >= 128) return false;
+            const std::string cycle_id(token.substr(0, first));
+            if (!ValidRunId(cycle_id)) return false;
+            try
+            {
+                const auto depth = std::stoul(std::string(
+                    token.substr(first + 1, second - first - 1)));
+                const auto location = std::stoul(std::string(
+                    token.substr(second + 1)));
+                if ((depth != 1 && depth != 6 && depth != 7 && depth != 11)
+                    || location < 1 || location > 4) return false;
+                if (std::any_of(qualification_cycles.begin(),
+                        qualification_cycles.end(), [&](const auto& cycle) {
+                            return cycle.run_id == cycle_id;
+                        })) return false;
+                qualification_cycles.push_back({cycle_id,
+                    static_cast<std::uint32_t>(depth),
+                    static_cast<std::uint32_t>(location)});
+            }
+            catch (...) { return false; }
+            if (comma == std::string_view::npos) break;
+            remaining.remove_prefix(comma + 1);
+        }
+        if (qualification_cycles.empty() || development_smoke
+            || stock_round_outcome_control || require_authored_outcomes
+            || stage_terminal != 0 || !percentages.empty()) return false;
+    }
     output = {fields["run_id"], std::filesystem::path(replay_path),
         watch_frames, std::move(percentages), min_resume_tick_rate_milli,
         resume_tick_window, stage_terminal, stock_round_outcome_control,
         require_authored_outcomes, std::move(expected_round_winners),
-        expected_match_winner, development_smoke};
+        expected_match_winner, development_smoke,
+        std::move(qualification_cycles)};
     return output.replay_path.is_absolute();
 }
 
@@ -1306,6 +1367,11 @@ private:
         stage_terminal_completed_ = false;
         stage_terminal_operation_ = request_.stage_terminal == 3
             ? 1 : request_.stage_terminal;
+        qualification_cycle_index_ = 0;
+        qualification_cycle_armed_ = false;
+        arm_qualification_cycle_ = nullptr;
+        get_qualification_cycle_report_ = nullptr;
+        disarm_qualification_cycle_ = nullptr;
         state_ = State::Importing;
         const bool history_required = !request_.seek_percentages.empty();
         const auto set_history = ResolveHorseModExport<
@@ -1422,6 +1488,124 @@ private:
             health[30], health[31], health[34], health[35]);
         Fail("horsemod_fail_fast_health");
         return false;
+    }
+
+    bool PollQualificationCycles()
+    {
+        if (request_.qualification_cycles.empty()) return false;
+        if (qualification_cycle_index_ >= request_.qualification_cycles.size())
+        {
+            WriteResult("launch_requested", "qualification_cycles_passed");
+            require_replay_list_before_ready_ = true;
+            state_ = State::Idle;
+            return true;
+        }
+        if (arm_qualification_cycle_ == nullptr)
+        {
+            arm_qualification_cycle_ = ResolveHorseModExport<
+                ArmReplayQualificationCycleFn>(
+                    "horsemod_arm_replay_qualification_cycle_v1");
+            get_qualification_cycle_report_ = ResolveHorseModExport<
+                GetReplayQualificationCycleReportFn>(
+                    "horsemod_get_replay_qualification_cycle_report_v1");
+            disarm_qualification_cycle_ = ResolveHorseModExport<
+                DisarmReplayQualificationCycleFn>(
+                    "horsemod_disarm_replay_qualification_cycle_v1");
+            if (arm_qualification_cycle_ == nullptr
+                || get_qualification_cycle_report_ == nullptr
+                || disarm_qualification_cycle_ == nullptr)
+            {
+                Fail("horsemod_qualification_cycle_api_unavailable");
+                return true;
+            }
+        }
+        const auto& cycle = request_.qualification_cycles[
+            qualification_cycle_index_];
+        if (!qualification_cycle_armed_)
+        {
+            if (!arm_qualification_cycle_(cycle.run_id.data(),
+                    cycle.run_id.size(), cycle.depth, cycle.location))
+            {
+                Fail("horsemod_qualification_cycle_arm_rejected");
+                return true;
+            }
+            qualification_cycle_armed_ = true;
+            return true;
+        }
+        std::array<std::uint64_t, 44> report{};
+        const auto status = get_qualification_cycle_report_(
+            cycle.run_id.data(), cycle.run_id.size(), report.data(),
+            report.size());
+        if (status == 0) return true;
+        if (status != 3 && status != 4) return true;
+        PROCESS_MEMORY_COUNTERS_EX memory{};
+        memory.cb = sizeof(memory);
+        const bool memory_valid = K32GetProcessMemoryInfo(
+            GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(
+                &memory), sizeof(memory)) != FALSE;
+        Output::send<LogLevel::Default>(STR(
+            "[ReplayQualification] qualification cycle terminal "
+            "run_id={} ordinal={} depth={} location={} status={} "
+            "completed={}/{} failure={} generations={}-{} transitions={} "
+            "frames={}-{} cycle_p99_us={} cycle_max_us={} "
+            "capture_p99_us={} capture_max_us={} capacity_growth={} "
+            "owned_bytes={}->{} timeline_bytes={} forced_bytes={} "
+            "presentation_bytes={} scratch_bytes={} pending={}/{} "
+            "duplicates={} publish_failures={} elapsed_ms={} drift_ms={} "
+            "working_set_bytes={} private_bytes={} "
+            "presentation_activity={}/{}/{} terminal_coverage={}\n"),
+            RC::to_generic_string(cycle.run_id), report[4], report[2],
+            report[3], status, report[5], report[6], report[7], report[8],
+            report[9], report[10], report[11], report[12], report[13] / 1000,
+            report[14] / 1000, report[15] / 1000, report[16] / 1000,
+            report[17], report[18], report[19], report[20], report[21],
+            report[22], report[23], report[24], report[25], report[27],
+            report[28], report[29], report[30],
+            memory_valid ? memory.WorkingSetSize : 0,
+            memory_valid ? memory.PrivateUsage : 0,
+            report[40], report[41], report[42], report[43]);
+        const bool disarmed = disarm_qualification_cycle_(
+            cycle.run_id.data(), cycle.run_id.size());
+        std::array<std::uint64_t, 44> cleanup{};
+        const auto cleanup_status = get_qualification_cycle_report_(
+            cycle.run_id.data(), cycle.run_id.size(), cleanup.data(),
+            cleanup.size());
+        if (!disarmed || cleanup_status != 5 || cleanup[31] != 0
+            || cleanup[32] != 1 || cleanup[36] != 0 || cleanup[37] != 0)
+        {
+            Output::send<LogLevel::Error>(STR(
+                "[ReplayQualification] qualification cycle cleanup failed "
+                "run_id={} status={} stale_mask=0x{:x} verified={} "
+                "owned_bytes={} timeline_bytes={} forced_bytes={} "
+                "pending={}/{}\n"), RC::to_generic_string(cycle.run_id),
+                cleanup_status, cleanup[31], cleanup[32], cleanup[33],
+                cleanup[34], cleanup[35], cleanup[36], cleanup[37]);
+            Fail("horsemod_qualification_cycle_cleanup_failed");
+            return true;
+        }
+        Output::send<LogLevel::Default>(STR(
+            "[ReplayQualification] qualification cycle cleanup passed "
+            "run_id={} ordinal={} stale_mask=0x{:x} owned_bytes={} "
+            "timeline_bytes={} forced_bytes={} pending={}/{}\n"),
+            RC::to_generic_string(cycle.run_id), cleanup[4], cleanup[31],
+            cleanup[33], cleanup[34], cleanup[35], cleanup[36], cleanup[37]);
+        if (status == 4)
+        {
+            Fail("horsemod_qualification_cycle_failed");
+            return true;
+        }
+        qualification_cycle_armed_ = false;
+        ++qualification_cycle_index_;
+        if (qualification_cycle_index_ == request_.qualification_cycles.size())
+        {
+            WriteResult("launch_requested", "qualification_cycles_passed");
+            // Persistent qualification owns multiple independent replay
+            // entries without restarting SC6.  Reuse the navigator's proven
+            // smoke-campaign teardown path before accepting the next request.
+            require_replay_list_before_ready_ = true;
+            state_ = State::Idle;
+        }
+        return true;
     }
 
     bool CompleteDevelopmentSmoke(std::uint32_t frame)
@@ -1671,6 +1855,14 @@ private:
                     return;
                 }
             }
+        }
+        if (!request_.qualification_cycles.empty())
+        {
+            // The same 120-frame normal-render canary used elsewhere must
+            // pass before the first expensive correction cycle is armed.
+            if (!battle_rate_logged_ || !battle_active_rate_logged_) return;
+            PollQualificationCycles();
+            return;
         }
         if (stock_round_outcome_control)
         {
@@ -2280,6 +2472,20 @@ private:
 
     void Fail(std::string_view reason)
     {
+        if (qualification_cycle_armed_
+            && qualification_cycle_index_ < request_.qualification_cycles.size()
+            && disarm_qualification_cycle_ != nullptr)
+        {
+            const auto& cycle = request_.qualification_cycles[
+                qualification_cycle_index_];
+            const bool cleaned = disarm_qualification_cycle_(
+                cycle.run_id.data(), cycle.run_id.size());
+            Output::send<LogLevel::Warning>(STR(
+                "[ReplayQualification] failure-path qualification cleanup "
+                "run_id={} accepted={}\n"),
+                RC::to_generic_string(cycle.run_id), cleaned ? 1 : 0);
+            qualification_cycle_armed_ = false;
+        }
         importer_.ReleasePlaybackContext();
         state_ = State::Failed;
         WriteResult("failed", reason);
@@ -2359,6 +2565,11 @@ private:
     RequestStageTerminalFn request_stage_terminal_{};
     GetStageTerminalStatusFn get_stage_terminal_status_{};
     GetForcedQualificationStatusFn get_forced_qualification_status_{};
+    ArmReplayQualificationCycleFn arm_qualification_cycle_{};
+    GetReplayQualificationCycleReportFn get_qualification_cycle_report_{};
+    DisarmReplayQualificationCycleFn disarm_qualification_cycle_{};
+    std::size_t qualification_cycle_index_{};
+    bool qualification_cycle_armed_{};
     ArmOnlineQualificationFn arm_online_{};
     GetOnlineQualificationStatusFn get_online_status_{};
     std::uint32_t online_last_status_{UINT32_MAX};

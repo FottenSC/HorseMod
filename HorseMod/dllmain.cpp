@@ -574,6 +574,36 @@ extern "C"
         return mod != nullptr ? mod->GetForcedQualificationStatus() : 0;
     }
 
+    HORSE_MOD_API bool horsemod_arm_replay_qualification_cycle_v1(
+        const char* run_id, std::size_t run_id_size,
+        std::uint32_t depth, std::uint32_t location)
+    {
+        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
+        return mod != nullptr && run_id != nullptr
+            && mod->ArmReplayQualificationCycle(
+                std::string_view(run_id, run_id_size), depth, location);
+    }
+
+    HORSE_MOD_API std::uint32_t
+    horsemod_get_replay_qualification_cycle_report_v1(
+        const char* run_id, std::size_t run_id_size,
+        std::uint64_t* values, std::size_t count)
+    {
+        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
+        return mod != nullptr && run_id != nullptr
+            ? mod->GetReplayQualificationCycleReport(
+                std::string_view(run_id, run_id_size), values, count) : 0;
+    }
+
+    HORSE_MOD_API bool horsemod_disarm_replay_qualification_cycle_v1(
+        const char* run_id, std::size_t run_id_size)
+    {
+        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
+        return mod != nullptr && run_id != nullptr
+            && mod->DisarmReplayQualificationCycle(
+                std::string_view(run_id, run_id_size));
+    }
+
 #if HORSE_ENABLE_GEKKONET
     HORSE_MOD_API bool horsemod_arm_online_qualification()
     {

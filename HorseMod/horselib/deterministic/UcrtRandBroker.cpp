@@ -38,6 +38,19 @@ Status UcrtRandBroker::EnsureOwnership(std::uint32_t thread_id) noexcept
     return AcquireOwnership(thread_id);
 }
 
+Status UcrtRandBroker::ReleaseOwnership(std::uint32_t thread_id) noexcept
+{
+    if (mode_ == UcrtRandBrokerMode::Observing)
+        return Status::success();
+    if (mode_ != UcrtRandBrokerMode::Owned || !RequireOwner(thread_id))
+        return Status::failure(failure_ == FailureCode::None
+            ? FailureCode::IllegalTransition : failure_);
+    // The original CRT is advanced on every intercepted call even while the
+    // broker supplies its owned value, so both streams remain aligned.
+    mode_ = UcrtRandBrokerMode::Observing;
+    return Status::success();
+}
+
 void UcrtRandBroker::Stop() noexcept
 {
     mode_ = UcrtRandBrokerMode::Disabled;

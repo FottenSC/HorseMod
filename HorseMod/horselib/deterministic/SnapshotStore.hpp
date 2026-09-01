@@ -43,6 +43,10 @@ public:
         std::span<Snapshot> replacements) noexcept;
     void InvalidateGeneration(std::uint64_t generation) noexcept override;
     [[nodiscard]] std::size_t BytesUsed() const noexcept override;
+    [[nodiscard]] std::size_t entry_count() const noexcept
+    {
+        return entries_.size();
+    }
     // Qualification ring helper: once the fixed entry capacity is warm,
     // transfer the oldest buffers to the next capture instead of returning
     // them to the allocator. Only valid for EvictOldest stores.

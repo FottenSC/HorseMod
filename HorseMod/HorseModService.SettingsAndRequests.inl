@@ -937,6 +937,12 @@
         static constexpr std::uint64_t bucket_width_ns = 50'000;
         static constexpr std::size_t bucket_count = 336;
         std::array<std::uint32_t, bucket_count> buckets{};
+        std::array<char, 97> run_id{};
+        std::uint32_t depth{7};
+        std::uint32_t location{1};
+        std::uint32_t cycle_ordinal{};
+        // 0=idle, 1=armed, 2=active, 3=passed, 4=failed, 5=cleaned.
+        std::uint32_t lifecycle{};
         std::uint32_t completed{};
         std::uint32_t generation_transitions{};
         std::uint64_t first_generation{};
@@ -947,6 +953,19 @@
         std::size_t checkpoint_bytes_begin{};
         std::size_t batch_entry_bytes_begin{};
         std::size_t forced_history_bytes_begin{};
+        Horse::Deterministic::DeterministicOwnedStorageStatus storage_begin{};
+        Horse::Deterministic::DeterministicOwnedStorageStatus storage_end{};
+        Horse::Deterministic::DeterministicOwnedStorageStatus storage_cleanup{};
+        Horse::Deterministic::PresentationJournal::Statistics presentation_end{};
+        Horse::Deterministic::CandidateAdapterPerformanceStatus capture_end{};
+        std::uint64_t elapsed_ms{};
+        std::uint64_t started_ms{};
+        std::uint64_t timing_drift_ms{};
+        std::uint64_t cleanup_stale_state_mask{};
+        std::size_t pending_events_end{};
+        std::size_t pending_payload_end{};
+        std::size_t pending_events_cleanup{};
+        std::size_t pending_payload_cleanup{};
         std::uint64_t round_terminal_audio_stop_all_baseline{};
         std::uint64_t suppressed_stage_wall_calls{};
         std::uint64_t suppressed_stage_barrier_calls{};
@@ -972,7 +991,10 @@
         bool awaiting_generation_history{};
         bool round_terminal_baseline_ready{};
         bool round_terminal_source_stop_all{};
+        bool presentation_terminal_coverage{};
         bool reported{};
+        bool runtime_armed{};
+        bool cleanup_verified{};
 
         void Record(std::uint64_t value) noexcept
         {
@@ -996,6 +1018,10 @@
             return bucket_count * bucket_width_ns;
         }
     } m_forced_correction_qualification{};
+    std::array<std::array<char, 97>, 128> m_forced_qualification_run_ids{};
+    std::size_t m_forced_qualification_run_id_count{};
+    std::uint32_t m_forced_qualification_cycle_ordinal{};
+    std::uint64_t m_forced_qualification_first_elapsed_ms{};
     std::atomic<std::uint64_t> m_seek_request_frame{UINT64_MAX};
     std::atomic<std::uint64_t> m_seek_request_sequence{};
     std::uint64_t m_seek_handled_sequence{};

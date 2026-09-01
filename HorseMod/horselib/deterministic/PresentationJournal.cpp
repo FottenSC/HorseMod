@@ -295,6 +295,14 @@ PresentationJournal::Statistics PresentationJournal::statistics() const noexcept
     return statistics_;
 }
 
+Status PresentationJournal::ResetStatistics() noexcept
+{
+    if (pending_count_ != 0 || payload_bytes_ != 0)
+        return Status::failure(FailureCode::IllegalTransition);
+    statistics_ = {};
+    return Status::success();
+}
+
 PresentationJournal::Watermark* PresentationJournal::FindWatermark(
     std::uint64_t generation) noexcept
 {

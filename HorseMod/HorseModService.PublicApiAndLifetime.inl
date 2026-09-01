@@ -80,7 +80,8 @@ public:
     {
         if (m_deterministic_config.enabled || !m_deterministic_config.trace
             || m_deterministic_config.correction_probe
-            || m_deterministic_config.forced_depth7_qualification)
+            || m_deterministic_config.forced_depth7_qualification
+            || m_forced_correction_qualification.runtime_armed)
             return false;
 #if HORSE_ENABLE_GEKKONET
         if (m_online_qualification_requested.load(std::memory_order_acquire)
@@ -123,6 +124,7 @@ public:
             || m_deterministic_config.enabled || !m_deterministic_config.trace
             || m_deterministic_config.correction_probe
             || m_deterministic_config.forced_depth7_qualification
+            || m_forced_correction_qualification.runtime_armed
             || !m_deterministic_hooks.installed()
 #if HORSE_ENABLE_OBSERVER_PROBE
             || m_online_observer_probe.state()
@@ -147,10 +149,264 @@ public:
     }
 #endif
 
+    bool ArmReplayQualificationCycle(std::string_view run_id,
+        std::uint32_t depth, std::uint32_t location) noexcept
+    {
+        std::uint64_t rejection_mask{};
+        if (run_id.empty() || run_id.size() > 96
+            || std::any_of(run_id.begin(), run_id.end(), [](char value) {
+                return !(std::isalnum(static_cast<unsigned char>(value))
+                    || value == '-' || value == '_' || value == '.');
+            })) rejection_mask |= 1ull << 0;
+        if (depth != 1 && depth != 6 && depth != 7 && depth != 11)
+            rejection_mask |= 1ull << 1;
+        if (location < 1 || location > 4) rejection_mask |= 1ull << 2;
+        if (m_forced_qualification_run_id_count
+            >= m_forced_qualification_run_ids.size()) rejection_mask |= 1ull << 3;
+        if (m_deterministic_config.enabled || !m_deterministic_config.trace
+            || m_deterministic_config.correction_probe
+            || m_deterministic_config.forced_depth7_qualification)
+            rejection_mask |= 1ull << 4;
+        if (!m_deterministic_hooks.installed()) rejection_mask |= 1ull << 5;
+        if (!m_replay_identity_active.load(std::memory_order_acquire))
+            rejection_mask |= 1ull << 6;
+        if (rejection_mask != 0)
+        {
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] qualification cycle arm rejected run_id={} "
+                "depth={} location={} rejection_mask=0x{:x} "
+                "trace={} hooks={} replay_identity={}\n"),
+                RC::to_generic_string(std::string(run_id)), depth, location,
+                rejection_mask, m_deterministic_config.trace ? 1 : 0,
+                m_deterministic_hooks.installed() ? 1 : 0,
+                m_replay_identity_active.load(std::memory_order_acquire) ? 1 : 0);
+            return false;
+        }
+        for (std::size_t index = 0;
+             index < m_forced_qualification_run_id_count; ++index)
+            if (run_id == m_forced_qualification_run_ids[index].data())
+            {
+                Output::send<LogLevel::Warning>(STR(
+                    "[HorseMod] qualification cycle arm rejected run_id={} "
+                    "reason=duplicate_run_id\n"),
+                    RC::to_generic_string(std::string(run_id)));
+                return false;
+            }
+        const auto& previous = m_forced_correction_qualification;
+        if (previous.lifecycle != 0
+            && (previous.lifecycle != 5 || !previous.cleanup_verified))
+        {
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] qualification cycle arm rejected run_id={} "
+                "reason=previous_cycle_not_clean lifecycle={} cleanup={}\n"),
+                RC::to_generic_string(std::string(run_id)),
+                previous.lifecycle, previous.cleanup_verified ? 1 : 0);
+            return false;
+        }
+
+        invalidate_stage_break_presentation_identity();
+        m_deterministic_hooks.InvalidateBattleAudioPresentationIdentity();
+        std::uint64_t stale_state_mask{};
+        const auto reset = m_replay_native_runtime.ResetQualificationCycle(
+            stale_state_mask);
+        const auto rng_release = m_ucrt_rand_broker.ReleaseOwnership(
+            ::GetCurrentThreadId());
+        if (!m_deterministic_hooks.QualificationPresentationIdentityClear())
+            stale_state_mask |= 1ull << 17;
+        if (m_stage_break_identity_generation != 0
+            || m_stage_break_identity_actor_count != 0
+            || m_stage_break_identity_asset_count != 0)
+            stale_state_mask |= 1ull << 18;
+        if (!rng_release.ok()
+            || m_ucrt_rand_broker.mode()
+                != Horse::Deterministic::UcrtRandBrokerMode::Observing)
+            stale_state_mask |= 1ull << 19;
+        if (!reset.ok() || stale_state_mask != 0)
+        {
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] qualification cycle arm rejected run_id={} "
+                "reason=stale_state reset_status={} stale_mask=0x{:x} "
+                "rng_mode={} rng_failure={}\n"),
+                RC::to_generic_string(std::string(run_id)),
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::failure_code_name(reset.code))),
+                stale_state_mask,
+                static_cast<std::uint32_t>(m_ucrt_rand_broker.mode()),
+                static_cast<std::uint16_t>(m_ucrt_rand_broker.failure()));
+            return false;
+        }
+
+        m_frame_fencepost_failure.store(
+            Horse::Deterministic::FailureCode::None,
+            std::memory_order_release);
+        m_frame_fencepost_failure_logged = false;
+
+        auto& remembered = m_forced_qualification_run_ids[
+            m_forced_qualification_run_id_count++];
+        std::copy(run_id.begin(), run_id.end(), remembered.begin());
+        remembered[run_id.size()] = '\0';
+        m_forced_correction_qualification = {};
+        auto& qualification = m_forced_correction_qualification;
+        std::copy(run_id.begin(), run_id.end(), qualification.run_id.begin());
+        qualification.run_id[run_id.size()] = '\0';
+        qualification.depth = depth;
+        qualification.location = location;
+        qualification.cycle_ordinal = ++m_forced_qualification_cycle_ordinal;
+        qualification.lifecycle = 1;
+        qualification.runtime_armed = true;
+        // Starts when the requested location barrier is reached so timing
+        // drift compares correction workloads, not authored-event wait time.
+        qualification.started_ms = 0;
+        qualification.storage_begin =
+            m_replay_native_runtime.owned_storage_status();
+        m_replay_native_runtime.SetForcedDepth7QualificationEnabled(true);
+        const auto presentation =
+            m_replay_native_runtime.EnablePresentationOwnership();
+        if (!presentation.ok())
+        {
+            qualification.failure = presentation.code;
+            qualification.lifecycle = 4;
+            qualification.reported = true;
+            return false;
+        }
+        Output::send<LogLevel::Default>(STR(
+            "[HorseMod] qualification cycle armed run_id={} ordinal={} "
+            "depth={} location={}\n"), RC::to_generic_string(
+                std::string(run_id)), qualification.cycle_ordinal,
+            depth, location);
+        return true;
+    }
+
+    std::uint32_t GetReplayQualificationCycleReport(
+        std::string_view run_id, std::uint64_t* values,
+        std::size_t count) const noexcept
+    {
+        if (values == nullptr || count < 40 || run_id.empty()
+            || run_id != m_forced_correction_qualification.run_id.data())
+            return 0;
+        const auto& q = m_forced_correction_qualification;
+        const auto latched_failure = m_frame_fencepost_failure.load(
+            std::memory_order_acquire);
+        const bool externally_failed = (q.lifecycle == 1 || q.lifecycle == 2)
+            && latched_failure != Horse::Deterministic::FailureCode::None;
+        values[0] = 1;
+        values[1] = externally_failed ? 4 : q.lifecycle;
+        values[2] = q.depth;
+        values[3] = q.location;
+        values[4] = q.cycle_ordinal;
+        values[5] = q.completed;
+        values[6] = kForcedQualificationCorrections;
+        values[7] = static_cast<std::uint16_t>(externally_failed
+            ? latched_failure : q.failure);
+        values[8] = q.first_generation;
+        values[9] = q.generation;
+        values[10] = q.generation_transitions;
+        values[11] = q.first_frame;
+        values[12] = q.last_frame;
+        values[13] = q.P99();
+        values[14] = q.maximum_ns;
+        values[15] = q.capture_end.total_capture.p99_ns;
+        values[16] = q.capture_end.total_capture.maximum_ns;
+        values[17] = q.capture_end.scratch_capacity_growth_events;
+        values[18] = q.storage_begin.aggregate_bytes;
+        values[19] = q.storage_end.aggregate_bytes;
+        values[20] = q.storage_end.timeline_bytes;
+        values[21] = q.storage_end.forced_snapshot_bytes;
+        values[22] = q.storage_end.presentation_bytes;
+        values[23] = q.storage_end.scratch_metadata_bytes;
+        values[24] = q.pending_events_end;
+        values[25] = q.pending_payload_end;
+        values[26] = q.presentation_end.capacity_failures;
+        values[27] = q.presentation_end.duplicates;
+        values[28] = q.presentation_end.publish_failures;
+        values[29] = q.elapsed_ms;
+        values[30] = q.timing_drift_ms;
+        values[31] = q.cleanup_stale_state_mask;
+        values[32] = q.cleanup_verified ? 1 : 0;
+        values[33] = q.storage_cleanup.aggregate_bytes;
+        values[34] = q.storage_cleanup.timeline_bytes;
+        values[35] = q.storage_cleanup.forced_snapshot_bytes;
+        values[36] = q.pending_events_cleanup;
+        values[37] = q.pending_payload_cleanup;
+        values[38] = q.audio_sequence_mismatches;
+        values[39] = q.presentation_failures;
+        if (count >= 44)
+        {
+            values[40] = q.presentation_end.attempted;
+            values[41] = q.presentation_end.committed;
+            values[42] = q.presentation_end.discarded;
+            values[43] = q.presentation_terminal_coverage ? 1 : 0;
+        }
+        return externally_failed ? 4 : q.lifecycle;
+    }
+
+    bool DisarmReplayQualificationCycle(std::string_view run_id) noexcept
+    {
+        auto& q = m_forced_correction_qualification;
+        if (run_id.empty() || run_id != q.run_id.data()
+            || q.lifecycle == 0 || q.lifecycle == 5)
+            return false;
+        if (q.lifecycle == 1 || q.lifecycle == 2)
+        {
+            const auto latched_failure = m_frame_fencepost_failure.load(
+                std::memory_order_acquire);
+            q.failure = latched_failure
+                    != Horse::Deterministic::FailureCode::None
+                ? latched_failure
+                : Horse::Deterministic::FailureCode::NativeLifecycleEnded;
+            q.lifecycle = 4;
+            q.reported = true;
+        }
+        invalidate_stage_break_presentation_identity();
+        m_deterministic_hooks.InvalidateBattleAudioPresentationIdentity();
+        std::uint64_t stale_state_mask{};
+        const auto reset = m_replay_native_runtime.ResetQualificationCycle(
+            stale_state_mask);
+        const auto rng_release = m_ucrt_rand_broker.ReleaseOwnership(
+            ::GetCurrentThreadId());
+        if (!m_deterministic_hooks.QualificationPresentationIdentityClear())
+            stale_state_mask |= 1ull << 17;
+        if (m_stage_break_identity_generation != 0
+            || m_stage_break_identity_actor_count != 0
+            || m_stage_break_identity_asset_count != 0)
+            stale_state_mask |= 1ull << 18;
+        if (!rng_release.ok()
+            || m_ucrt_rand_broker.mode()
+                != Horse::Deterministic::UcrtRandBrokerMode::Observing)
+            stale_state_mask |= 1ull << 19;
+        q.storage_cleanup = m_replay_native_runtime.owned_storage_status();
+        q.pending_events_cleanup =
+            m_replay_native_runtime.pending_presentation_events();
+        q.pending_payload_cleanup =
+            m_replay_native_runtime.presentation_payload_bytes();
+        q.cleanup_stale_state_mask = stale_state_mask;
+        q.cleanup_verified = reset.ok() && stale_state_mask == 0
+            && q.pending_events_cleanup == 0 && q.pending_payload_cleanup == 0;
+        q.runtime_armed = false;
+        if (!q.cleanup_verified)
+        {
+            q.failure = reset.ok()
+                ? Horse::Deterministic::FailureCode::IllegalTransition
+                : reset.code;
+            q.lifecycle = 4;
+            return false;
+        }
+        q.lifecycle = 5;
+        Output::send<LogLevel::Default>(STR(
+            "[HorseMod] qualification cycle cleanup run_id={} ordinal={} "
+            "stale_mask=0x{:x} owned_bytes={} pending_events={} "
+            "pending_payload={} verified=1\n"),
+            RC::to_generic_string(std::string(run_id)), q.cycle_ordinal,
+            q.cleanup_stale_state_mask, q.storage_cleanup.aggregate_bytes,
+            q.pending_events_cleanup, q.pending_payload_cleanup);
+        return true;
+    }
+
     bool RequestQualificationStageTerminal(std::uint32_t operation) noexcept
     {
         if (!m_deterministic_config.trace
-            || !m_deterministic_config.forced_depth7_qualification
+            || (!m_deterministic_config.forced_depth7_qualification
+                && !m_forced_correction_qualification.runtime_armed)
             || !m_deterministic_hooks.installed()
             || (operation != 1 && operation != 2))
         {

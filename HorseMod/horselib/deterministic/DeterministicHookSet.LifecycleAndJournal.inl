@@ -310,6 +310,18 @@ void DeterministicHookSet::InvalidateBattleAudioPresentationIdentity() noexcept
     audio_graph_generation_ = 0;
 }
 
+bool DeterministicHookSet::QualificationPresentationIdentityClear() const noexcept
+{
+    return !stage_break_presentation_identity_.bound()
+        && audio_graph_generation_ == 0
+        && audio_graph_battle_manager_ == 0
+        && audio_owner_resolver_.epoch() == 0
+        && audio_owner_resolver_.binding_count() == 0
+        && !audio_owner_resolver_.sealed()
+        && audio_playback_map_.epoch() == 0
+        && audio_playback_map_.binding_count() == 0;
+}
+
 void DeterministicHookSet::ClearAudioOwnerGraph() noexcept
 {
     audio_owner_resolver_.Clear();

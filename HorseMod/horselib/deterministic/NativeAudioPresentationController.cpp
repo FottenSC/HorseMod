@@ -128,4 +128,11 @@ NativeAudioPresentationController::statistics() const noexcept
 {
     return journal_.statistics();
 }
+
+Status NativeAudioPresentationController::ResetStatistics() noexcept
+{
+    if (generation_ != 0)
+        return Status::failure(FailureCode::IllegalTransition);
+    return journal_.ResetStatistics();
+}
 }

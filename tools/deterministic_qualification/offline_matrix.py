@@ -4,15 +4,45 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .artifacts import sha256_file
 from .configuration import contract_sha256, expected_fields, is_exact_contract
 from .offline_spec import (
-    LOCATIONS, MODES, OfflineMatrixRow, build_rows, load_candidate_cases,
+    OfflineMatrixRow, build_rows, load_candidate_cases,
 )
 
 
 def _require(condition: bool, reason: str, failures: list[str]) -> None:
     if not condition:
         failures.append(reason)
+
+
+def _fresh_lifecycle_artifact_is_intact(
+    artifact: object, row: OfflineMatrixRow,
+) -> bool:
+    if not isinstance(artifact, dict):
+        return False
+    stored_path = artifact.get("path")
+    if not isinstance(stored_path, str):
+        return False
+    path = Path(stored_path)
+    try:
+        if (not path.is_file()
+                or artifact.get("sha256") != sha256_file(path)
+                or artifact.get("case_id") != row.case_id):
+            return False
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return False
+    runtime = report.get("runtime", {})
+    return bool(
+        report.get("report_schema") == 2
+        and report.get("certifying") is True
+        and report.get("result") == "pass"
+        and report.get("case_id") == row.case_id
+        and report.get("row_id") == artifact.get("row_id")
+        and runtime.get("clean_exit") is True
+        and runtime.get("reentry") is True
+    )
 
 
 def evaluate_row(row: OfflineMatrixRow, report: dict[str, Any],
@@ -75,12 +105,10 @@ def evaluate_row(row: OfflineMatrixRow, report: dict[str, Any],
                  and len(artifacts["config"]["sha256"]) == 64,
                  "config hash binding missing", failures)
     config = artifacts.get("config_fields", {})
-    expected_config = expected_fields(
-        enabled=False, trace=True,
-        forced_depth7=bool(row.required_corrections),
-        depth=row.depth if row.required_corrections else 7,
-        location=(LOCATIONS.index(row.location) + 1)
-            if row.required_corrections else 2)
+    # Depth/location are per-request inputs for qualification-only runtime
+    # re-arm. The immutable file contract stays at the observer baseline and
+    # never enables the legacy forced-depth switch.
+    expected_config = expected_fields(enabled=False, trace=True)
     _require(is_exact_contract(config, expected_config),
              "qualification config contract mismatch", failures)
     _require(artifacts.get("config", {}).get("sha256")
@@ -108,11 +136,35 @@ def evaluate_row(row: OfflineMatrixRow, report: dict[str, Any],
     _require(performance.get("active_battle_fps", 0) >= 58.0
              and performance.get("active_battle_tick_rate", 0) >= 58.0,
              "active-battle frame/tick rate was below 58 Hz", failures)
-    reentry_proof = runtime.get("reentry_proof", {})
-    _require(all(reentry_proof.get(key) is True for key in (
-        "distinct_run_id", "native_import_ready", "clean_exit",
-        "temporary_mod_removed", "process_absent_after_exit")),
-        "observed re-entry process proof missing", failures)
+    if row.required_corrections:
+        persistent_proof = runtime.get("persistent_cycle_proof", {})
+        _require(runtime.get("qualification_runtime_rearm") is True,
+                 "qualification runtime re-arm proof missing", failures)
+        _require(isinstance(runtime.get("qualification_run_id"), str)
+                 and bool(runtime.get("qualification_run_id")),
+                 "qualification run ID missing", failures)
+        _require(all(persistent_proof.get(key) is True for key in (
+            "unique_run_id", "fresh_replay_entry", "zero_process_restarts",
+            "cleanup_verified", "pending_clear")),
+            "persistent-cycle cleanup/re-entry proof missing", failures)
+        _require(persistent_proof.get("stale_mask") == 0,
+                 "stale state survived qualification re-arm", failures)
+        _require(persistent_proof.get("pending_events") == "0/0",
+                 "pending presentation/correction events survived cleanup",
+                 failures)
+        _require(persistent_proof.get("owned_bytes_after_cleanup")
+                 == persistent_proof.get("owned_bytes_before_cycle"),
+                 "owned deterministic bytes did not return to cycle baseline",
+                 failures)
+        _require(_fresh_lifecycle_artifact_is_intact(
+            artifacts.get("fresh_process_lifecycle_report"), row),
+            "fresh-process lifecycle artifact is missing or changed", failures)
+    else:
+        reentry_proof = runtime.get("reentry_proof", {})
+        _require(all(reentry_proof.get(key) is True for key in (
+            "distinct_run_id", "native_import_ready", "clean_exit",
+            "temporary_mod_removed", "process_absent_after_exit")),
+            "observed re-entry process proof missing", failures)
     _require(presentation.get("ordered_audio_payload_ids") is True,
              "ordered audio payload-ID identity failed", failures)
     _require(presentation.get("ephemeral_exactly_once") is True,
@@ -136,6 +188,14 @@ def evaluate_row(row: OfflineMatrixRow, report: dict[str, Any],
                  "checkpoint capture p99 exceeded 0.5 ms", failures)
         _require(performance.get("capture_max_us", 10**9) <= 1000,
                  "checkpoint capture max exceeded 1 ms", failures)
+        _require(isinstance(performance.get("timing_drift_ms"), int)
+                 and performance.get("timing_drift_ms") >= 0,
+                 "per-cycle timing drift was not recorded", failures)
+        _require(isinstance(performance.get("working_set_bytes"), int)
+                 and performance.get("working_set_bytes") > 0
+                 and isinstance(performance.get("private_bytes"), int)
+                 and performance.get("private_bytes") > 0,
+                 "per-cycle process memory was not recorded", failures)
         if row.depth == 7:
             _require(performance.get("correction_p99_us", 10**9) < 16670,
                      "depth-7 correction p99 exceeded 16.67 ms", failures)
@@ -155,18 +215,33 @@ def evaluate_matrix(candidate_manifest: Path, output_dir: Path,
                     expected_artifacts: dict[str, Any] | None = None,
                     evaluator_sha256: str | None = None) -> dict[str, Any]:
     row_results: list[dict[str, Any]] = []
+    qualification_run_ids: dict[str, int] = {}
     for row in build_rows(candidate_manifest):
         path = output_dir / f"{row.row_id}.json"
+        report: dict[str, Any] = {}
         if not path.is_file():
             failures = ["report missing"]
         else:
-            failures = evaluate_row(row, json.loads(path.read_text(encoding="utf-8")),
-                                    dll_sha256, schema_sha256, runner_sha256,
-                                    expected_artifacts)
+            report = json.loads(path.read_text(encoding="utf-8"))
+            failures = evaluate_row(
+                row, report, dll_sha256, schema_sha256, runner_sha256,
+                expected_artifacts)
         row_results.append({"row_id": row.row_id,
                             "display_map_name": row.display_map_name,
                             "result": "pass" if not failures else "fail",
                             "failures": failures})
+        if row.required_corrections:
+            run_id = report.get("runtime", {}).get("qualification_run_id")
+            if isinstance(run_id, str) and run_id:
+                prior = qualification_run_ids.get(run_id)
+                if prior is None:
+                    qualification_run_ids[run_id] = len(row_results) - 1
+                else:
+                    reason = "qualification run ID was reused across matrix rows"
+                    for index in (prior, len(row_results) - 1):
+                        if reason not in row_results[index]["failures"]:
+                            row_results[index]["failures"].append(reason)
+                        row_results[index]["result"] = "fail"
     failures = sum(bool(row["failures"]) for row in row_results)
     return {"report_schema": 2, "kind": "offline_matrix_evaluation",
             "certifying": failures == 0, "result": "pass" if failures == 0 else "fail",

@@ -407,6 +407,7 @@ public:
         std::span<const StageBreakParticleAssetRef> assets) noexcept;
     void InvalidateStageBreakPresentationIdentity() noexcept;
     void InvalidateBattleAudioPresentationIdentity() noexcept;
+    [[nodiscard]] bool QualificationPresentationIdentityClear() const noexcept;
     void SetBattleAudioPresentationGeneration(
         std::uint64_t generation) noexcept;
     Status MarkQualificationStageTerminal(std::uint32_t operation) noexcept;

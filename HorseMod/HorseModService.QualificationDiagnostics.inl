@@ -526,16 +526,20 @@
     {
         auto& qualification = m_forced_correction_qualification;
         if (!m_deterministic_config.trace
-            || !m_deterministic_config.forced_depth7_qualification
+            || (!m_deterministic_config.forced_depth7_qualification
+                && !qualification.runtime_armed)
             || qualification.reported)
         {
             return;
         }
         const auto timeline = m_replay_native_runtime.timeline_status();
-        const std::uint64_t qualification_depth =
-            m_deterministic_config.qualification_depth;
+        const std::uint64_t qualification_depth = qualification.runtime_armed
+            ? qualification.depth : m_deterministic_config.qualification_depth;
+        const std::uint32_t qualification_location = qualification.runtime_armed
+            ? qualification.location
+            : m_deterministic_config.qualification_location;
         const bool location_ready = [&]() noexcept {
-            switch (m_deterministic_config.qualification_location)
+            switch (qualification_location)
             {
             // Locations are qualification start barriers, not sampling
             // windows. Once the first stable post-unpause round frame is
@@ -586,6 +590,8 @@
         if (!qualification.active)
         {
             qualification.active = true;
+            qualification.lifecycle = 2;
+            qualification.started_ms = ::GetTickCount64();
             qualification.warmup_pending = true;
             qualification.first_generation = timeline.last_coordinate.generation;
             qualification.generation = timeline.last_coordinate.generation;
@@ -657,6 +663,19 @@
         {
             qualification.failure = status.code;
             qualification.reported = true;
+            qualification.lifecycle = 4;
+            qualification.storage_end =
+                m_replay_native_runtime.owned_storage_status();
+            qualification.presentation_end =
+                m_replay_native_runtime.presentation_statistics();
+            qualification.capture_end =
+                m_replay_native_runtime.capture_performance();
+            qualification.pending_events_end =
+                m_replay_native_runtime.pending_presentation_events();
+            qualification.pending_payload_end =
+                m_replay_native_runtime.presentation_payload_bytes();
+            qualification.elapsed_ms = qualification.started_ms == 0 ? 0
+                : ::GetTickCount64() - qualification.started_ms;
             m_frame_fencepost_failure.store(status.code,
                 std::memory_order_release);
             Output::send<LogLevel::Warning>(STR(
@@ -1001,8 +1020,10 @@
             // replayed by restoring across generations.  Corrections begin at
             // the first safe same-generation checkpoint after the latched
             // terminal.  Stage events remain exact whenever authored.
-            && (m_deterministic_config.qualification_location != 4
+            && (qualification_location != 4
                 || qualification.round_terminal_source_stop_all);
+        qualification.presentation_terminal_coverage =
+            presentation_terminal_coverage;
         const auto capture_performance =
             m_replay_native_runtime.capture_performance();
         Horse::Deterministic::AudioTerminalEvent first_failed_audio{};
@@ -1024,7 +1045,7 @@
             && capture_performance.scratch_capacity_baseline_bytes
                 == capture_performance.scratch_capacity_high_water_bytes;
         qualification.reported = true;
-        if (!presentation_journal_complete)
+        if (!presentation_journal_complete || !presentation_terminal_coverage)
         {
             qualification.failure = presentation_commit.ok()
                 ? Horse::Deterministic::FailureCode::PresentationFailed
@@ -1039,6 +1060,25 @@
             m_frame_fencepost_failure.store(qualification.failure,
                 std::memory_order_release);
         }
+        qualification.lifecycle = qualification.failure
+                == Horse::Deterministic::FailureCode::None
+            ? 3u : 4u;
+        qualification.storage_end =
+            m_replay_native_runtime.owned_storage_status();
+        qualification.presentation_end = presentation_statistics;
+        qualification.capture_end = capture_performance;
+        qualification.pending_events_end =
+            m_replay_native_runtime.pending_presentation_events();
+        qualification.pending_payload_end =
+            m_replay_native_runtime.presentation_payload_bytes();
+        qualification.elapsed_ms = qualification.started_ms == 0 ? 0
+            : ::GetTickCount64() - qualification.started_ms;
+        if (m_forced_qualification_first_elapsed_ms == 0)
+            m_forced_qualification_first_elapsed_ms = qualification.elapsed_ms;
+        qualification.timing_drift_ms = qualification.elapsed_ms
+                >= m_forced_qualification_first_elapsed_ms
+            ? qualification.elapsed_ms - m_forced_qualification_first_elapsed_ms
+            : m_forced_qualification_first_elapsed_ms - qualification.elapsed_ms;
         Output::send<LogLevel::Default>(STR(
             "[HorseMod] forced correction qualification {} depth={} location={} completed={} "
             "generations={}-{} transitions={} frames={}-{} "
@@ -1074,7 +1114,7 @@
             qualification.failure == Horse::Deterministic::FailureCode::None
                 ? STR("passed") : STR("failed"),
             qualification_depth,
-            m_deterministic_config.qualification_location,
+            qualification_location,
             qualification.completed, qualification.first_generation,
             qualification.generation, qualification.generation_transitions,
             qualification.first_frame, qualification.last_frame,

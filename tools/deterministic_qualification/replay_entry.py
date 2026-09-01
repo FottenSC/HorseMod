@@ -77,6 +77,7 @@ def create_request(
     expected_round_winners: tuple[int, ...] = (),
     expected_match_winner: int | None = None,
     development_smoke: bool = False,
+    qualification_cycles: tuple[tuple[str, int, int], ...] = (),
 ) -> str:
     if watch_frames < 1 or watch_frames > 36000:
         raise RuntimeError("watch frames must be between 1 and 36000")
@@ -100,7 +101,10 @@ def create_request(
     if stage_terminal not in (None, "wall", "barrier", "both"):
         raise RuntimeError("stage terminal must be wall, barrier, or both")
     if stock_round_outcome_control is None:
-        stock_round_outcome_control = not seek_percentages and not stage_terminal
+        stock_round_outcome_control = (
+            not seek_percentages and not stage_terminal
+            and not qualification_cycles
+        )
     if any(winner not in (0, 1, 2) for winner in expected_round_winners):
         raise RuntimeError("expected round winners must be P1, P2, or draw")
     if expected_match_winner not in (None, 0, 1):
@@ -116,7 +120,25 @@ def create_request(
                 or require_authored_outcomes):
             raise RuntimeError(
                 "development smoke cannot request seeks, terminals, stock control, or outcomes")
-    version = 9
+    if qualification_cycles:
+        if len(qualification_cycles) > 128:
+            raise RuntimeError("qualification campaign supports at most 128 cycles")
+        seen: set[str] = set()
+        for cycle_run_id, depth, location in qualification_cycles:
+            if (not cycle_run_id or len(cycle_run_id) > 96
+                    or any(not (value.isalnum() or value in "-_.")
+                           for value in cycle_run_id)):
+                raise RuntimeError("qualification cycle run ID is invalid")
+            if cycle_run_id in seen:
+                raise RuntimeError("qualification cycle run IDs must be unique")
+            if depth not in (1, 6, 7, 11) or location not in (1, 2, 3, 4):
+                raise RuntimeError("qualification cycle depth/location is invalid")
+            seen.add(cycle_run_id)
+        if (development_smoke or seek_percentages or stage_terminal
+                or stock_round_outcome_control or require_authored_outcomes):
+            raise RuntimeError(
+                "persistent qualification cycles cannot combine with other replay modes")
+    version = 10 if qualification_cycles else 9
     seek_line = (
         "seek_percentages=" + ",".join(map(str, seek_percentages)) + "\n"
         f"min_resume_tick_rate_milli={round(min_resume_tick_rate * 1000)}\n"
@@ -143,10 +165,17 @@ def create_request(
         "development_smoke="
         f"{'true' if development_smoke else 'false'}\n"
     )
+    cycles_line = (
+        "qualification_cycles="
+        + ",".join(f"{run_id}:{depth}:{location}"
+                   for run_id, depth, location in qualification_cycles)
+        + "\n"
+        if qualification_cycles else ""
+    )
     temporary.write_text(
         f"version={version}\nrun_id={run_id}\nreplay_path={replay_text}\n"
         f"watch_frames={watch_frames}\n{seek_line}{terminal_line}{outcome_line}"
-        f"{authored_outcome_line}{expected_outcome_lines}{smoke_line}",
+        f"{authored_outcome_line}{expected_outcome_lines}{smoke_line}{cycles_line}",
         encoding="utf-8",
     )
     os.replace(temporary, request)

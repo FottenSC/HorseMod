@@ -9,17 +9,62 @@ from tools.deterministic_qualification.artifacts import (
 )
 from tools.deterministic_qualification.runner import (
     _find_failure_line,
+    _log_text_since,
     _read_bounded_log_since,
     _temporarily_armed_smoke_config,
+    _qualification_cycle_lines,
     _write_compact_replay_failure,
     load_outcome_control,
     run_replay_development_campaign,
     run_replay_entry,
 )
-from tools.deterministic_qualification.trace_parser import capture_log_offset
+from tools.deterministic_qualification.trace_parser import LogCursor, capture_log_offset
 
 
 ROOT = Path(__file__).resolve().parents[3]
+
+
+def test_cycle_log_parser_pairs_terminal_and_cleanup(tmp_path):
+    log = tmp_path / "UE4SS.log"
+    log.write_text(
+        "old\n"
+        "[ReplayQualification] qualification cycle terminal run_id=abc "
+        "ordinal=1 depth=11 location=1 status=3 completed=600/600 failure=0 "
+        "cycle_p99_us=5 capture_p99_us=3 capacity_growth=0 duplicates=0 "
+        "publish_failures=0 working_set_bytes=9 "
+        "private_bytes=8\n"
+        "[ReplayQualification] qualification cycle cleanup passed run_id=abc "
+        "ordinal=1 stale_mask=0x0 owned_bytes=7 timeline_bytes=6 "
+        "forced_bytes=0 pending=0/0\n",
+        encoding="utf-8",
+    )
+
+    cycles = _qualification_cycle_lines(log, LogCursor(4, 0, b"", b""))
+
+    assert cycles[0]["depth"] == 11
+    assert cycles[0]["cycle_p99_us"] == 5
+    assert cycles[0]["capture_p99_us"] == 3
+    assert cycles[0]["working_set_bytes"] == 9
+    assert cycles[0]["cleanup"]["stale_mask"] == 0
+
+
+def test_cycle_log_parser_restarts_at_zero_when_ue4ss_replaces_log(tmp_path):
+    log = tmp_path / "UE4SS.log"
+    log.write_bytes(b"old process\n" + b"x" * 4096)
+    cursor = capture_log_offset(log)
+    current = (
+        "[ReplayQualification] authored map world=World "
+        "/Game/Stage/STG009/Maps/STG009.STG009\n"
+        "[ReplayQualification] qualification cycle terminal run_id=new "
+        "ordinal=1 depth=6 location=3 status=3 completed=600/600 failure=0\n"
+        "[ReplayQualification] qualification cycle cleanup passed run_id=new "
+        "ordinal=1 stale_mask=0x0 owned_bytes=7 timeline_bytes=6 "
+        "forced_bytes=0 pending=0/0\n"
+    )
+    log.write_text(current, encoding="utf-8")
+
+    assert "/Game/Stage/STG009/Maps/" in _log_text_since(log, cursor)
+    assert _qualification_cycle_lines(log, cursor)[0]["run_id"] == "new"
 
 
 def _write(path, value: bytes) -> None:

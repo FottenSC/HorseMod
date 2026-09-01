@@ -766,7 +766,8 @@
         if (!self->service_owned_seek_request())
         {
             self->service_forced_depth7_qualification();
-            if (!self->m_deterministic_config.forced_depth7_qualification)
+            if (!self->m_deterministic_config.forced_depth7_qualification
+                && !self->m_forced_correction_qualification.runtime_armed)
                 self->service_owned_correction_probe();
         }
         if (self->m_replay_native_runtime.presentation_ownership_enabled())
@@ -1009,7 +1010,8 @@
             std::memory_order_acquire);
         if (operation == 0) return;
         if (!m_deterministic_config.trace
-            || !m_deterministic_config.forced_depth7_qualification
+            || (!m_deterministic_config.forced_depth7_qualification
+                && !m_forced_correction_qualification.runtime_armed)
             || (operation != 1 && operation != 2))
         {
             m_qualification_stage_terminal_request.store(
@@ -1203,12 +1205,14 @@
         // observed native identity first.
         auto& qualification = self->m_forced_correction_qualification;
         if (self->m_deterministic_config.trace
-            && self->m_deterministic_config.forced_depth7_qualification
+            && (self->m_deterministic_config.forced_depth7_qualification
+                || qualification.runtime_armed)
             && qualification.active && !qualification.reported)
         {
             qualification.failure =
                 Horse::Deterministic::FailureCode::NativeLifecycleEnded;
             qualification.reported = true;
+            qualification.lifecycle = 4;
             self->m_frame_fencepost_failure.store(
                 qualification.failure, std::memory_order_release);
             Output::send<LogLevel::Warning>(STR(
@@ -1236,7 +1240,27 @@
         self->m_deterministic_hooks.InvalidateBattleAudioPresentationIdentity();
         self->m_replay_native_runtime.ObserveReplayExit();
         self->m_owned_correction_probe_index = 0;
-        self->m_forced_correction_qualification = {};
+        if (qualification.runtime_armed)
+        {
+            self->m_replay_native_runtime.SetForcedDepth7QualificationEnabled(false);
+            self->m_replay_native_runtime.DisablePresentationOwnership();
+            qualification.runtime_armed = false;
+            qualification.storage_cleanup =
+                self->m_replay_native_runtime.owned_storage_status();
+            qualification.pending_events_cleanup =
+                self->m_replay_native_runtime.pending_presentation_events();
+            qualification.pending_payload_cleanup =
+                self->m_replay_native_runtime.presentation_payload_bytes();
+            qualification.cleanup_verified =
+                qualification.pending_events_cleanup == 0
+                && qualification.pending_payload_cleanup == 0
+                && self->m_deterministic_hooks
+                    .QualificationPresentationIdentityClear();
+        }
+        else
+        {
+            self->m_forced_correction_qualification = {};
+        }
         self->m_seek_request_active = false;
         self->m_resume_divergence_logged.store(false, std::memory_order_release);
         self->m_seek_completed_target.store(0, std::memory_order_release);

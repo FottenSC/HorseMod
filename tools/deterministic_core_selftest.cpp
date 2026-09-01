@@ -1322,6 +1322,22 @@ void test_native_audio_presentation_correction_is_atomic()
     controller.EndGeneration();
     expect(controller.generation() == 0 && controller.pending_count() == 0,
         "audio presentation lifecycle invalidates all generation-bound values");
+
+    NativeBatchEnvelope transition = original;
+    transition.exit_coordinate = {5, 102};
+    NativeAudioPresentationController transition_controller{8, 512, 8};
+    expect(transition_controller.BeginGeneration(4).ok()
+            && transition_controller.RecordSpeculative(transition).ok()
+            && transition_controller.pending_count() == 2
+            && transition_controller.BeginGeneration(5).ok()
+            && transition_controller.pending_count() == 1,
+        "audio generation transition removes retired events and retains replacement-generation events");
+    DecodingAudioSink transition_sink;
+    expect(transition_controller.CommitThrough({5, 102}, transition_sink).ok()
+            && transition_sink.terminals.empty()
+            && transition_controller.pending_count() == 0
+            && transition_controller.statistics().committed == 1,
+        "replacement-generation commit confirms the already-presented retained side of a fencepost batch");
 }
 
 void test_callsite_qualified_particle_values()
@@ -1662,6 +1678,12 @@ void test_ucrt_broker_is_callsite_and_thread_bound()
                 Schema::Sc6UcrtLayout::movevm_rand_return_rva, &std::rand)
                 == advanced,
         "restored private UCRT state reproduces the exact next draw");
+    expect(broker.ReleaseOwnership(77).ok()
+            && broker.mode() == UcrtRandBrokerMode::Observing,
+        "qualification cleanup releases UCRT ownership without disabling observation");
+    expect(broker.EnsureOwnership(77).ok()
+            && broker.mode() == UcrtRandBrokerMode::Owned,
+        "a later qualification cycle can reacquire the same synchronized stream");
 
     std::srand(seed);
     const int forwarded = broker.HandleRand(99, 0x1111, &std::rand);

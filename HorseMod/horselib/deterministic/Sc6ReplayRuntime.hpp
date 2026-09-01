@@ -350,6 +350,8 @@ public:
         std::uintptr_t battle_manager, std::uint32_t thread_id) noexcept;
     Status ObserveOuterTick(const OuterTickObservation& observation) noexcept;
     void ObserveReplayExit() noexcept;
+    [[nodiscard]] Status ResetQualificationCycle(
+        std::uint64_t& stale_state_mask) noexcept;
     Status EnablePresentationOwnership() noexcept;
     void DisablePresentationOwnership() noexcept;
     Status PreparePresentationOuterTick(DeterministicHookSet& hooks) noexcept;

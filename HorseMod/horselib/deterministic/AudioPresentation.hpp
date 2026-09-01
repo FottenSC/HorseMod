@@ -332,6 +332,14 @@ public:
         epoch_ = 0;
     }
 
+    [[nodiscard]] std::uint64_t epoch() const noexcept { return epoch_; }
+    [[nodiscard]] std::size_t binding_count() const noexcept
+    {
+        std::size_t count{};
+        for (const auto& entry : entries_) count += entry.occupied ? 1u : 0u;
+        return count;
+    }
+
     [[nodiscard]] bool Insert(std::uint64_t epoch,
         AudioOwnerSelector owner, std::uint32_t logical_id,
         std::uint32_t native_id) noexcept

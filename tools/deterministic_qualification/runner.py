@@ -16,12 +16,15 @@ from pathlib import Path
 from .artifacts import (
     capture_harness_sha256, runner_sha256, sha256_file, source_identity,
 )
-from .configuration import armed_baseline, canonicalize_contract, require_disarmed
+from .configuration import (
+    armed_baseline, canonicalize_contract, read_fields, require_disarmed,
+)
 from .process_control import (
     close_game,
     find_game_pid,
     force_stop_game_for_cleanup,
     launch_game,
+    launch_game_executable,
     list_game_processes,
     require_game_process,
     wait_for_game,
@@ -369,6 +372,7 @@ def run_boot(args: argparse.Namespace) -> int:
         "reason": "boot provenance and hook installation only; no battle or replay was exercised",
         "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "source": identity,
+        "case_id": args.case_id,
         "artifacts": {
             "horsemod_dll": {"path": str(dll), "sha256": sha256_file(dll)},
             "config": {"path": str(config), "sha256": sha256_file(config)},
@@ -1188,6 +1192,258 @@ def run_replay_development_campaign(args: argparse.Namespace) -> int:
     return 0
 
 
+def _qualification_log_text(log: Path, cursor: LogCursor) -> str:
+    with log.open("rb") as stream:
+        size = stream.seek(0, 2)
+        start_offset = 0
+        if cursor.offset <= size:
+            stream.seek(0)
+            prefix_matches = stream.read(len(cursor.prefix)) == cursor.prefix
+            stream.seek(cursor.sentinel_offset)
+            tail_matches = stream.read(len(cursor.sentinel)) == cursor.sentinel
+            if prefix_matches and tail_matches:
+                start_offset = cursor.offset
+        stream.seek(start_offset)
+        return stream.read().decode("utf-8", errors="replace")
+
+
+def _qualification_cycle_lines(log: Path, cursor: LogCursor) -> list[dict[str, object]]:
+    text = _qualification_log_text(log, cursor)
+    terminal: dict[str, dict[str, object]] = {}
+    cleanup: dict[str, dict[str, object]] = {}
+    for line in text.splitlines():
+        if "[ReplayQualification] qualification cycle terminal " in line:
+            target = terminal
+        elif "[ReplayQualification] qualification cycle cleanup passed " in line:
+            target = cleanup
+        else:
+            continue
+        fields: dict[str, object] = {}
+        for key, value in re.findall(r"([a-z_][a-z0-9_]*)=([^ ]+)", line):
+            try:
+                fields[key] = int(value, 16 if value.startswith("0x") else 10)
+            except ValueError:
+                fields[key] = value
+        run_id = str(fields.get("run_id", ""))
+        if run_id:
+            target[run_id] = fields
+    result: list[dict[str, object]] = []
+    for run_id, fields in terminal.items():
+        combined = dict(fields)
+        combined["cleanup"] = cleanup.get(run_id)
+        result.append(combined)
+    return result
+
+
+def _log_text_since(log: Path, cursor: LogCursor) -> str:
+    return _qualification_log_text(log, cursor)
+
+
+def run_replay_qualification_campaign(args: argparse.Namespace) -> int:
+    dll = required_file(args.dll, "HorseMod DLL")
+    replay_mod = required_file(args.replay_mod, "replay qualification mod")
+    replay = required_file(args.replay, "replay payload")
+    config = required_file(args.config, "deterministic config")
+    schema = required_file(args.schema, "generated schema")
+    executable = required_file(args.game_executable, "SoulcaliburVI executable")
+    require_disarmed(config)
+    identity = source_identity(ROOT)
+    if identity["dirty"] and (args.certifying or not args.allow_dirty):
+        raise RuntimeError("qualification campaign requires immutable source or --allow-dirty")
+    if find_game_pid() is not None:
+        raise RuntimeError("SC6 is already running; campaign requires clean process entry")
+    requested_cycles = args.cycle or [(11, 1), (1, 1), (6, 1)]
+    cycle_specs = tuple((uuid.uuid4().hex, depth, location)
+                        for depth, location in requested_cycles)
+    if not cycle_specs:
+        raise RuntimeError("at least one --cycle DEPTH LOCATION is required")
+    pid: int | None = None
+    parent_run_id = ""
+    parent_run_ids: list[str] = []
+    cycles: list[dict[str, object]] = []
+    rates = []
+    metadata_entries = []
+    boot = None
+    evidence_lines: list[str] = []
+    mods_root = GAME_ROOT / "ue4ss" / "Mods"
+    armed_config_sha256 = ""
+    armed_config_fields: dict[str, str] = {}
+    try:
+        with _temporarily_armed_smoke_config(config):
+            armed_config_sha256 = sha256_file(config)
+            armed_config_fields = read_fields(config)
+            with TemporaryReplayMod(replay_mod, mods_root):
+                try:
+                    groups = ([tuple([spec]) for spec in cycle_specs]
+                              if getattr(args, "reenter_each_cycle", False)
+                              else [cycle_specs])
+                    for replay_entry_index, entry_specs in enumerate(groups, 1):
+                        log_start = capture_log_offset(args.log)
+                        args._failure_log_start = log_start
+                        parent_run_id = create_request(
+                            replay, 120, (), args.min_resume_tick_rate, 120,
+                            stock_round_outcome_control=False,
+                            qualification_cycles=entry_specs,
+                        )
+                        parent_run_ids.append(parent_run_id)
+                        if pid is None:
+                            launch_game_executable(executable)
+                            pid = wait_for_game(args.timeout)
+
+                        def guard() -> None:
+                            require_game_process(pid)
+                            require_replay_request_healthy(parent_run_id)
+
+                        if boot is None:
+                            boot = wait_for_boot_evidence(
+                                args.log, args.timeout, guard, log_start)
+                        entry = wait_for_replay_entry(
+                            parent_run_id, args.timeout, guard)
+                        rate = wait_for_normal_render_rate_evidence(
+                            args.log, args.timeout, guard, log_start,
+                            source_bound=replay_entry_index == 1)
+                        metadata = wait_for_replay_metadata_evidence(
+                            args.log, args.timeout, guard, log_start,
+                            source_bound=replay_entry_index == 1)
+                        entry_cycles = _qualification_cycle_lines(
+                            args.log, log_start)
+                        run_text = _log_text_since(args.log, log_start)
+                        expected_world = (
+                            "authored map world=World "
+                            f"{args.stage_package_root}/Maps/"
+                        )
+                        if expected_world not in run_text:
+                            raise RuntimeError(
+                                "loaded authored map does not match the requested "
+                                f"{args.display_map_name} package")
+                        expected_ids = [run_id for run_id, _, _ in entry_specs]
+                        if ([str(cycle.get("run_id", ""))
+                             for cycle in entry_cycles] != expected_ids):
+                            raise RuntimeError(
+                                "cycle evidence is missing, duplicated, or out of order")
+                        for cycle, (_, depth, location) in zip(
+                                entry_cycles, entry_specs):
+                            cleanup = cycle.get("cleanup")
+                            activity = str(cycle.get(
+                                "presentation_activity", "")).split("/")
+                            activity_valid = (len(activity) == 3
+                                and all(value.isdigit() for value in activity)
+                                and int(activity[0]) > 0)
+                            if (cycle.get("depth") != depth
+                                    or cycle.get("location") != location
+                                    or cycle.get("status") != 3
+                                    or cycle.get("completed") != "600/600"
+                                    or cycle.get("failure") != 0
+                                    or cycle.get("capacity_growth") != 0
+                                    or cycle.get("duplicates") != 0
+                                    or cycle.get("publish_failures") != 0
+                                    or cycle.get("pending") != "0/0"
+                                    or cycle.get("terminal_coverage") != 1
+                                    or not activity_valid
+                                    or not isinstance(cleanup, dict)
+                                    or cleanup.get("stale_mask") != 0
+                                    or cleanup.get("pending") != "0/0"):
+                                raise RuntimeError(
+                                    "qualification cycle failed closed: "
+                                    f"{cycle.get('run_id')}")
+                            cycle["replay_entry"] = replay_entry_index
+                            cycles.append(cycle)
+                        if entry.reason != "qualification_cycles_passed":
+                            raise RuntimeError(
+                                "persistent qualification did not reach terminal pass")
+                        rates.append(rate)
+                        metadata_entries.append(metadata)
+                        evidence_lines.extend(line for line in run_text.splitlines()
+                            if ("[ReplayQualification] authored map world=" in line
+                                or "[ReplayQualification] normal-render" in line
+                                or "[ReplayQualification] qualification cycle" in line
+                                or "[HorseMod] qualification cycle" in line
+                                or "[HorseMod] forced correction qualification" in line))
+                        remove_request_files(parent_run_id)
+                        parent_run_id = ""
+                    if boot is None or boot.source_commit != identity["commit"]:
+                        raise RuntimeError(
+                            "deployed DLL source identity does not match HEAD")
+                finally:
+                    if pid is not None and find_game_pid() is not None:
+                        try:
+                            close_game(pid)
+                        except (RuntimeError, TimeoutError):
+                            force_stop_game_for_cleanup(pid)
+                            raise
+                    if parent_run_id:
+                        remove_request_files(parent_run_id)
+    finally:
+        if find_game_pid() is not None:
+            force_stop_game_for_cleanup(find_game_pid())
+    if not rates or not metadata_entries:
+        raise RuntimeError("qualification campaign produced no replay evidence")
+    metadata = metadata_entries[0]
+    if any((item.stage, item.map, item.left_character, item.right_character)
+           != (metadata.stage, metadata.map, metadata.left_character,
+               metadata.right_character) for item in metadata_entries[1:]):
+        raise RuntimeError("native replay metadata changed between same-process entries")
+    evidence_log = args.report.with_suffix(".log")
+    evidence_log.parent.mkdir(parents=True, exist_ok=True)
+    evidence_log.write_text("\n".join(evidence_lines) + "\n", encoding="utf-8")
+    report = {
+        "report_schema": 2,
+        "kind": "persistent_replay_qualification_campaign",
+        "certifying": bool(args.certifying),
+        "result": "pass",
+        "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "source": identity,
+        "case_id": args.case_id,
+        "display_map_name": args.display_map_name,
+        "stage_package_root": args.stage_package_root,
+        "renderer": "normal",
+        "parent_run_ids": parent_run_ids,
+        "depth_order": [depth for _, depth, _ in cycle_specs],
+        "cycles": cycles,
+        "runtime": {
+            "process_launches": 1,
+            "process_restarts": 0,
+            "replay_entries": len(parent_run_ids),
+            "normal_render_tick_rate": min(
+                item.tick_rate_milli for item in rates) / 1000.0,
+            "active_battle_tick_rate": min(
+                item.active_tick_rate_milli for item in rates) / 1000.0,
+            "native_stage": metadata.stage,
+            "native_map": metadata.map,
+            "native_left_character": metadata.left_character,
+            "native_right_character": metadata.right_character,
+        },
+        "artifacts": {
+            "horsemod_dll_sha256": sha256_file(dll),
+            "schema_sha256": sha256_file(schema),
+            "replay_qualification_mod": {
+                "path": str(replay_mod), "sha256": sha256_file(replay_mod)},
+            "runner_sha256": runner_sha256(Path(__file__).resolve().parent),
+            "capture_harness_sha256": capture_harness_sha256(ROOT),
+            "replay": {"path": str(replay), "sha256": sha256_file(replay)},
+            "game_executable": {
+                "path": str(executable), "sha256": sha256_file(executable)},
+            "config": {"path": str(config), "sha256": armed_config_sha256},
+            "config_fields": armed_config_fields,
+            "armed_config_sha256": armed_config_sha256,
+            "bounded_log": {
+                "path": str(evidence_log.resolve()),
+                "sha256": sha256_file(evidence_log),
+                "size": evidence_log.stat().st_size,
+            },
+        },
+        "cleanup": {
+            "process_absent": find_game_pid() is None,
+            "temporary_mod_removed": not (mods_root / "ReplayQualificationMod").exists(),
+            "config_disarmed": True,
+        },
+    }
+    require_disarmed(config)
+    write_report(args.report, report)
+    print(json.dumps(report, indent=2, sort_keys=True))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Fail-closed HorseMod deterministic qualification runner"
@@ -1340,6 +1596,39 @@ def build_parser() -> argparse.ArgumentParser:
     development.add_argument("--display-map-name", required=True)
     development.add_argument("--stage-package-root", required=True)
     development.set_defaults(handler=run_replay_development_campaign)
+    qualification_campaign = subcommands.add_parser(
+        "replay-qualification-campaign",
+        help="run depth/location correction cycles in one SC6 process",
+    )
+    qualification_campaign.add_argument("--replay", type=Path, required=True)
+    qualification_campaign.add_argument("--replay-mod", type=Path,
+                                        default=DEFAULT_REPLAY_MOD)
+    qualification_campaign.add_argument("--dll", type=Path, default=DEFAULT_DLL)
+    qualification_campaign.add_argument("--config", type=Path,
+                                        default=DEFAULT_CONFIG)
+    qualification_campaign.add_argument("--schema", type=Path,
+                                        default=DEFAULT_SCHEMA)
+    qualification_campaign.add_argument("--log", type=Path, default=DEFAULT_LOG)
+    qualification_campaign.add_argument("--game-executable", type=Path,
+        default=GAME_ROOT / "SoulcaliburVI.exe")
+    qualification_campaign.add_argument("--report", type=Path, required=True)
+    qualification_campaign.add_argument("--timeout", type=float, default=600.0)
+    qualification_campaign.add_argument("--min-resume-tick-rate", type=float,
+                                        default=58.0)
+    qualification_campaign.add_argument("--display-map-name", required=True)
+    qualification_campaign.add_argument("--stage-package-root", required=True)
+    qualification_campaign.add_argument("--case-id", default="")
+    qualification_campaign.add_argument("--cycle", type=int, nargs=2,
+        action="append", metavar=("DEPTH", "LOCATION"),
+        help="repeatable; defaults to 11/1, 1/1, 6/1")
+    qualification_campaign.add_argument("--reenter-each-cycle",
+        action="store_true",
+        help=("re-enter the authored replay for every cycle while retaining "
+              "the same SC6 process"))
+    qualification_campaign.add_argument("--certifying", action="store_true")
+    qualification_campaign.add_argument("--allow-dirty", action="store_true")
+    qualification_campaign.set_defaults(
+        handler=run_replay_qualification_campaign)
     offline = subcommands.add_parser(
         "offline-matrix",
         help="run the complete 51-row normal-render offline qualification campaign",
@@ -1512,7 +1801,8 @@ def _restore_replay_diagnostic_flags(config: Path) -> dict[str, bool]:
 
 def _write_compact_replay_failure(args: argparse.Namespace, error: BaseException) -> None:
     if getattr(args, "command", None) not in (
-            "replay-entry", "replay-development-campaign"):
+            "replay-entry", "replay-development-campaign",
+            "replay-qualification-campaign"):
         return
     running_pid = find_game_pid()
     if running_pid is not None:

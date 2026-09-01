@@ -224,6 +224,17 @@ Status Sc6ReplayRuntime::FinalizeObservedBatch(
     std::uint32_t coordinate_count,
     bool input_generation_changed) noexcept
 {
+    if (generation_rebaseline_pending_)
+    {
+        // A native round/identity replacement can occur inside this outer
+        // batch.  Its entry coordinate belongs to the retired generation and
+        // its exit coordinate belongs to the replacement, so the envelope is
+        // deliberately not correction-replayable.  Archive session-wide
+        // diagnostics and invalidate the retired timeline/presentation
+        // generation before any speculative publication is attempted.
+        RebaselineAfterIdentityDrift();
+        return Status::success();
+    }
     if (presentation_ownership_enabled_)
     {
         Status presentation = presentation_controller_.BeginGeneration(
@@ -269,7 +280,6 @@ Status Sc6ReplayRuntime::FinalizeObservedBatch(
     {
         ++timeline_status_.batch_frame_accounting_mismatches;
     }
-    if (generation_rebaseline_pending_) RebaselineAfterIdentityDrift();
     return Status::success();
 }
 
@@ -350,6 +360,73 @@ void Sc6ReplayRuntime::ObserveReplayExit() noexcept
         next_replay_history_capture_required_;
 }
 
+Status Sc6ReplayRuntime::ResetQualificationCycle(
+    std::uint64_t& stale_state_mask) noexcept
+{
+    stale_state_mask = 0;
+    if (pending_presentation_events() != 0) stale_state_mask |= 1ull << 0;
+    if (presentation_payload_bytes() != 0) stale_state_mask |= 1ull << 1;
+    if (pending_batch_id_ != 0) stale_state_mask |= 1ull << 2;
+    if (resume_validation_active_ || resume_catchup_pending_)
+        stale_state_mask |= 1ull << 3;
+    if (stale_state_mask != 0)
+        return Status::failure(FailureCode::IllegalTransition);
+
+    SetForcedDepth7QualificationEnabled(false);
+    DisablePresentationOwnership();
+    ObserveReplayExit();
+
+    if (input_timeline_.size() != 0) stale_state_mask |= 1ull << 4;
+    if (batch_timeline_.batch_count() != 0) stale_state_mask |= 1ull << 5;
+    if (canonical_timeline_.size() != 0) stale_state_mask |= 1ull << 6;
+    if (forced_qualification_snapshots_.entry_count() != 0)
+        stale_state_mask |= 1ull << 7;
+    if (timeline_status_.last_coordinate != FrameCoordinate{}
+        || timeline_status_.canonical_frames != 0
+        || timeline_status_.failure != FailureCode::None)
+        stale_state_mask |= 1ull << 8;
+    if (timeline_manager_ != 0 || timeline_input_log_ != 0
+        || timeline_thread_id_ != 0 || pending_batch_id_ != 0)
+        stale_state_mask |= 1ull << 9;
+    if (presentation_ownership_enabled_
+        || presentation_controller_.generation() != 0
+        || pending_presentation_events() != 0
+        || presentation_payload_bytes() != 0)
+        stale_state_mask |= 1ull << 10;
+    if (resume_validation_active_ || resume_catchup_pending_
+        || resume_target_ != FrameCoordinate{}
+        || resume_source_end_ != FrameCoordinate{})
+        stale_state_mask |= 1ull << 11;
+    if (corrected_replay_capture_.batch_count != 0)
+        stale_state_mask |= 1ull << 12;
+    if (timeline_status_.observed_gameplay_xorshift_draws != 0
+        || timeline_status_.observed_gameplay_xorshift_sequence_hash != 0
+        || timeline_status_.final_gameplay_xorshift_state
+            != std::array<std::uint32_t, 3>{})
+        stale_state_mask |= 1ull << 13;
+    if (archived_last_canonical_.has_value()
+        || archived_canonical_frames_ != 0
+        || archived_presentation_identity_ != std::array<std::uint64_t, 9>{})
+        stale_state_mask |= 1ull << 14;
+    if (last_movevm_short25_valid_
+        || last_movevm_short25_ != std::array<std::uint16_t, 2>{}
+        || pending_movevm_short25_change_mask_ != 0)
+        stale_state_mask |= 1ull << 15;
+    const auto snapshot_has_state = [](const Snapshot& snapshot) noexcept {
+        return !snapshot.bytes.empty() || !snapshot.local_images.empty()
+            || snapshot.coordinate != FrameCoordinate{};
+    };
+    if (snapshot_has_state(correction_undo_scratch_)
+        || snapshot_has_state(correction_verified_scratch_)
+        || snapshot_has_state(correction_canonical_capture_scratch_)
+        || snapshot_has_state(timeline_canonical_capture_scratch_)
+        || snapshot_has_state(diagnostic_snapshot_scratch_))
+        stale_state_mask |= 1ull << 16;
+    if (stale_state_mask != 0)
+        return Status::failure(FailureCode::IllegalTransition);
+    return presentation_controller_.ResetStatistics();
+}
+
 Status Sc6ReplayRuntime::EnablePresentationOwnership() noexcept
 {
     if (presentation_ownership_enabled_)
@@ -378,6 +455,16 @@ Status Sc6ReplayRuntime::CommitPresentationThrough(
 {
     if (!presentation_ownership_enabled_)
         return Status::failure(FailureCode::IllegalTransition);
+    // Rebaselining ends the retired presentation generation and leaves no
+    // pending events.  Until the first complete batch in the replacement
+    // generation is observed there is intentionally nothing to commit.
+    if (presentation_controller_.generation() == 0
+        && pending_presentation_events() == 0
+        && presentation_payload_bytes() == 0)
+        return Status::success();
+    const auto generation = presentation_controller_.BeginGeneration(
+        confirmed.generation);
+    if (!generation.ok()) return generation;
     Sc6PresentationSink sink{hooks};
     return presentation_controller_.CommitThrough(confirmed, sink);
 }
