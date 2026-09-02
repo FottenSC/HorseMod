@@ -255,6 +255,15 @@ def test_persistent_resume_binds_all_producer_inputs_and_cycle_cleanup(tmp_path)
     path, report, expected, config = _persistent_campaign_fixture(tmp_path, rows)
 
     assert _persistent_campaign_reusable(path, rows, expected, config) == report
+    # Logical cleanup retains prewarmed capacity.  It may be above the
+    # pre-cycle allocation sample, but not above the cycle peak.
+    report["cycles"][1]["cleanup"]["owned_bytes"] = 150
+    path.write_text(json.dumps(report), encoding="utf-8")
+    assert _persistent_campaign_reusable(path, rows, expected, config) == report
+    report["cycles"][1]["cleanup"]["owned_bytes"] = 201
+    path.write_text(json.dumps(report), encoding="utf-8")
+    assert _persistent_campaign_reusable(path, rows, expected, config) is None
+    report["cycles"][1]["cleanup"]["owned_bytes"] = 150
     report["cycles"][1]["cleanup"]["stale_mask"] = 1
     path.write_text(json.dumps(report), encoding="utf-8")
     assert _persistent_campaign_reusable(path, rows, expected, config) is None
@@ -278,6 +287,12 @@ def test_persistent_row_requires_hashed_fresh_process_lifecycle(tmp_path):
         row, campaign, campaign["cycles"][0], baseline, baseline_path)
 
     assert evaluate_row(row, composed, "dll", "schema", "ignored", expected) == []
+    composed["runtime"]["persistent_cycle_proof"][
+        "owned_bytes_after_cleanup"] = 201
+    assert "owned deterministic cleanup exceeded cycle peak or 576 MiB" in (
+        evaluate_row(row, composed, "dll", "schema", "ignored", expected))
+    composed["runtime"]["persistent_cycle_proof"][
+        "owned_bytes_after_cleanup"] = 100
     baseline_path.write_text("{}", encoding="utf-8")
     assert "fresh-process lifecycle artifact is missing or changed" in evaluate_row(
         row, composed, "dll", "schema", "ignored", expected)

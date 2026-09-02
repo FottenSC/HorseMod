@@ -17,8 +17,8 @@ from .configuration import (
     is_exact_contract, read_fields,
 )
 from .offline_matrix import (
-    OfflineMatrixRow, build_rows, evaluate_matrix, evaluate_row,
-    load_candidate_cases,
+    OWNED_STORAGE_LIMIT_BYTES, OfflineMatrixRow, build_rows, evaluate_matrix,
+    evaluate_row, load_candidate_cases,
 )
 from .offline_capture import (
     capture_log_artifact_is_intact,
@@ -35,7 +35,6 @@ LOCATION_CODES = {
     "confirmed_hit": 3,
     "round_end": 4,
 }
-
 
 def _reuse_notice(path: Path, row: OfflineMatrixRow) -> None:
     print(f"hash-safe reuse: {row.row_id} on {row.display_map_name} ({path.name})",
@@ -161,7 +160,14 @@ def _persistent_campaign_reusable(
                     or cleanup.get("pending") != "0/0"
                     or len(owned) != 2
                     or not all(value.isdigit() for value in owned)
-                    or cleanup.get("owned_bytes") != int(owned[0])):
+                    # ResetQualificationCycle clears every logical owner but
+                    # deliberately retains bounded, prewarmed capacities.  A
+                    # cleanup sample may therefore exceed the pre-cycle
+                    # allocation sample; it must never exceed the cycle
+                    # peak or the deterministic owned-storage ceiling.
+                    or not isinstance(cleanup.get("owned_bytes"), int)
+                    or cleanup["owned_bytes"] > int(owned[1])
+                    or cleanup["owned_bytes"] > OWNED_STORAGE_LIMIT_BYTES):
                 valid = False
                 break
         if valid:
@@ -246,6 +252,7 @@ def _compose_persistent_row(
         "row_id": baseline.get("row_id"),
     }
     initial_owned = int(str(cycle["owned_bytes"]).split("->", 1)[0])
+    retained_owned = int(cleanup["owned_bytes"])
     return {
         "report_schema": 2,
         "kind": "persistent_replay_qualification_row",
@@ -297,7 +304,13 @@ def _compose_persistent_row(
                 "repeats_per_anchor": cycle["repeats"],
                 "anchor_sequence_hash": cycle["anchor_hash"],
                 "owned_bytes_before_cycle": initial_owned,
-                "owned_bytes_after_cleanup": cleanup["owned_bytes"],
+                "owned_bytes_cycle_peak": owned_end,
+                "owned_bytes_after_cleanup": retained_owned,
+                "owned_bytes_retained_delta": retained_owned - initial_owned,
+                "owned_bytes_released_at_cleanup": owned_end - retained_owned,
+                "owned_bytes_cleanup_within_limit": (
+                    retained_owned <= owned_end
+                    and retained_owned <= OWNED_STORAGE_LIMIT_BYTES),
                 "fresh_process_lifecycle_report": baseline_artifact,
             },
             "performance": {

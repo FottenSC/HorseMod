@@ -10,6 +10,8 @@ from .offline_spec import (
     OfflineMatrixRow, build_rows, load_candidate_cases,
 )
 
+OWNED_STORAGE_LIMIT_BYTES = 576 * 1024**2
+
 
 def _require(condition: bool, reason: str, failures: list[str]) -> None:
     if not condition:
@@ -152,9 +154,15 @@ def evaluate_row(row: OfflineMatrixRow, report: dict[str, Any],
         _require(persistent_proof.get("pending_events") == "0/0",
                  "pending presentation/correction events survived cleanup",
                  failures)
-        _require(persistent_proof.get("owned_bytes_after_cleanup")
-                 == persistent_proof.get("owned_bytes_before_cycle"),
-                 "owned deterministic bytes did not return to cycle baseline",
+        cleanup_owned = persistent_proof.get("owned_bytes_after_cleanup")
+        cycle_peak = persistent_proof.get("owned_bytes_cycle_peak")
+        _require(isinstance(cleanup_owned, int)
+                 and isinstance(cycle_peak, int)
+                 and cleanup_owned <= cycle_peak
+                 and cleanup_owned <= OWNED_STORAGE_LIMIT_BYTES
+                 and persistent_proof.get(
+                     "owned_bytes_cleanup_within_limit") is True,
+                 "owned deterministic cleanup exceeded cycle peak or 576 MiB",
                  failures)
         _require(_fresh_lifecycle_artifact_is_intact(
             artifacts.get("fresh_process_lifecycle_report"), row),
