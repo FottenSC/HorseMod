@@ -532,7 +532,13 @@
             {
             case 1: return timeline.round_state_frame > 16;
             case 2: return timeline.round_state_frame > 120;
-            case 3: return timeline.observed_resolved_hit_calls != 0;
+            case 3:
+                // ResetQualificationCycle clears all rollback-owned counters.
+                // A resolved hit is instead an authored replay-session start
+                // barrier, so a hit observed before a depth/location re-arm
+                // remains sufficient until the authoritative replay exit.
+                return m_replay_session_resolved_hit_observed
+                    || timeline.observed_resolved_hit_calls != 0;
             case 4:
                 if (timeline.round_state_frame <= 16
                     || timeline.unpause_countdown != 0) return false;
@@ -903,7 +909,9 @@
             // Native resolved-hit consumption is the canonical boundary.
             // Audio and particles are optional presentation and cannot define
             // a hit across authored characters/maps.
-            case 3: return timeline.observed_resolved_hit_calls != 0;
+            case 3:
+                return m_replay_session_resolved_hit_observed
+                    || timeline.observed_resolved_hit_calls != 0;
             case 4:
                 // These are session-lifetime observation counters.  Initial
                 // battle setup can stop audio before the first stable replay

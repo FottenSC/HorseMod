@@ -135,6 +135,10 @@ public:
 
         invalidate_stage_break_presentation_identity();
         m_deterministic_hooks.InvalidateBattleAudioPresentationIdentity();
+        m_replay_session_resolved_hit_observed =
+            m_replay_session_resolved_hit_observed
+            || m_replay_native_runtime.timeline_status_view()
+                .observed_resolved_hit_calls != 0;
         std::uint64_t stale_state_mask{};
         const auto reset = m_replay_native_runtime.ResetQualificationCycle(
             stale_state_mask);
@@ -327,6 +331,10 @@ public:
 
         invalidate_stage_break_presentation_identity();
         m_deterministic_hooks.InvalidateBattleAudioPresentationIdentity();
+        m_replay_session_resolved_hit_observed =
+            m_replay_session_resolved_hit_observed
+            || m_replay_native_runtime.timeline_status_view()
+                .observed_resolved_hit_calls != 0;
         std::uint64_t stale_state_mask{};
         const auto reset = m_replay_native_runtime.ResetQualificationCycle(
             stale_state_mask);

@@ -239,7 +239,10 @@ def wait_for_replay_entry(
             if result.result == "launch_requested":
                 return result
         time.sleep(0.25)
-    raise TimeoutError("native replay entry did not request launch before the timeout")
+    raise TimeoutError(
+        "native replay qualification request did not reach a terminal result "
+        "before the timeout"
+    )
 
 
 def require_replay_request_healthy(run_id: str) -> None:

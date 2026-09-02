@@ -450,6 +450,8 @@
                 .last_coordinate.generation);
         const auto& timeline =
             self->m_replay_native_runtime.timeline_status_view();
+        if (timeline.observed_resolved_hit_calls != 0)
+            self->m_replay_session_resolved_hit_observed = true;
         if (timeline.last_coordinate.generation != 0)
             self->m_replay_identity_active.store(
                 true, std::memory_order_release);
@@ -686,6 +688,8 @@
 
         const auto& timeline =
             self->m_replay_native_runtime.timeline_status_view();
+        if (timeline.observed_resolved_hit_calls != 0)
+            self->m_replay_session_resolved_hit_observed = true;
         const std::uint64_t completed_intervals = timeline.captured_frames / 600;
         std::uint64_t logged_intervals =
             self->m_native_batch_evidence_logged_intervals.load(
@@ -1189,6 +1193,7 @@
             self->CaptureReplayQualificationTerminalSnapshot();
         const bool active_identity = self->m_replay_identity_active.exchange(
             false, std::memory_order_acq_rel);
+        self->m_replay_session_resolved_hit_observed = false;
         if (self->m_deterministic_config.trace)
         {
             Output::send<LogLevel::Default>(STR(

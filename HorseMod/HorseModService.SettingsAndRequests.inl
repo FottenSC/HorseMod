@@ -919,6 +919,11 @@
     std::atomic<std::uintptr_t> m_replay_exit_state{};
     std::atomic<std::uint64_t> m_replay_exit_observations{};
     std::atomic<bool> m_replay_identity_active{};
+    // Location-3 qualification is gated by a native resolved-hit consumer.
+    // This is replay-session lifecycle evidence, not rollback identity: cycle
+    // re-arm clears the runtime counters, so retain only the fact that the
+    // current authored replay has crossed that barrier. Replay exit clears it.
+    bool m_replay_session_resolved_hit_observed{};
     std::atomic<std::uint32_t> m_frame_fencepost_expected_thread{};
     bool m_frame_fencepost_first_observation_logged{};
     bool m_frame_fencepost_incomplete_logged{};
