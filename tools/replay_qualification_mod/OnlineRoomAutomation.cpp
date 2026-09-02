@@ -48,8 +48,6 @@ std::atomic<std::uint64_t> g_ready_observation_generation{};
 using BattleSyncReceiveFn = void (__fastcall*)(void*, std::uint8_t, void*);
 std::unique_ptr<PLH::x64Detour> g_battle_sync_receive_detour{};
 std::uint64_t g_battle_sync_receive_trampoline{};
-std::atomic<void*> g_observed_battle_sync{};
-std::atomic<std::uint64_t> g_battle_sync_observation_generation{};
 
 void __fastcall ObserveQueueReadyChannelState(
     void* active_connect, std::uint8_t requested_state) noexcept
@@ -81,19 +79,7 @@ bool InstallReadyChannelObserver(std::uintptr_t image_base) noexcept
 }
 
 void __fastcall ObserveBattleSyncReceive(
-    void* battle_sync, std::uint8_t message_type, void* archive) noexcept
-{
-    reinterpret_cast<BattleSyncReceiveFn>(
-        g_battle_sync_receive_trampoline)(battle_sync, message_type, archive);
-    if (battle_sync != nullptr && message_type == 6)
-    {
-        // Publish only after the stock dispatcher has committed its payload
-        // and receive flags. The release pairs with the setup poll's acquire.
-        g_observed_battle_sync.store(battle_sync, std::memory_order_relaxed);
-        g_battle_sync_observation_generation.fetch_add(
-            1, std::memory_order_release);
-    }
-}
+    void* battle_sync, std::uint8_t message_type, void* archive) noexcept;
 
 bool InstallBattleSyncReceiveObserver(std::uintptr_t image_base) noexcept
 {
@@ -195,6 +181,64 @@ bool ReadBattleSyncRawContent(void* sync, BattleSyncRawContent& output) noexcept
         return true;
     }
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+struct BattleSyncObservation
+{
+    bool present{};
+    bool detailed_valid{};
+    Horse::Deterministic::Sc6BattleSyncIdentity detailed{};
+    bool flags_readable{};
+    std::uint8_t profile_received{};
+    std::uint8_t characters_received{};
+    std::uint8_t stage_received{};
+    bool raw_readable{};
+    BattleSyncRawContent raw{};
+    std::uint64_t generation{};
+};
+
+SRWLOCK g_battle_sync_observation_lock = SRWLOCK_INIT;
+BattleSyncObservation g_battle_sync_observation{};
+
+void __fastcall ObserveBattleSyncReceive(
+    void* battle_sync, std::uint8_t message_type, void* archive) noexcept
+{
+    reinterpret_cast<BattleSyncReceiveFn>(
+        g_battle_sync_receive_trampoline)(battle_sync, message_type, archive);
+    if (battle_sync == nullptr || message_type != 6) return;
+
+    // The stock match-data object is scene-owned and may be destroyed or
+    // reused before the qualification tick polls it. Copy the bounded native
+    // contract while the receiver still guarantees the object is live.
+    BattleSyncObservation observation{};
+    observation.present = true;
+    const Horse::Deterministic::Sc6BattleSyncObserver observer{};
+    observation.detailed_valid = observer.ObserveDetailed(
+        battle_sync, observation.detailed).ok();
+    observation.flags_readable = ReadBattleSyncFlags(
+        battle_sync, observation.profile_received,
+        observation.characters_received, observation.stage_received);
+    observation.raw_readable = ReadBattleSyncRawContent(
+        battle_sync, observation.raw);
+    AcquireSRWLockExclusive(&g_battle_sync_observation_lock);
+    observation.generation = g_battle_sync_observation.generation + 1;
+    g_battle_sync_observation = observation;
+    ReleaseSRWLockExclusive(&g_battle_sync_observation_lock);
+}
+
+BattleSyncObservation ReadBattleSyncObservation() noexcept
+{
+    AcquireSRWLockShared(&g_battle_sync_observation_lock);
+    const auto observation = g_battle_sync_observation;
+    ReleaseSRWLockShared(&g_battle_sync_observation_lock);
+    return observation;
+}
+
+void ResetBattleSyncObservation() noexcept
+{
+    AcquireSRWLockExclusive(&g_battle_sync_observation_lock);
+    g_battle_sync_observation = {};
+    ReleaseSRWLockExclusive(&g_battle_sync_observation_lock);
 }
 
 bool IsReal(RC::Unreal::UObject* object) noexcept
@@ -1242,34 +1286,34 @@ bool WidgetStringCommand(RC::Unreal::UObject* widget,
     return ok;
 }
 
-bool StageCodeAt(RC::Unreal::UObject* widget, std::int32_t cursor,
-                 std::string& output) noexcept
+bool StageCursor(RC::Unreal::UObject* widget, std::string_view code,
+                 std::int32_t& cursor) noexcept
 {
-    output.clear();
-    auto* function = IsReal(widget)
-        ? widget->GetFunctionByNameInChain(L"GetStageCodeByCusorIndex") : nullptr;
+    cursor = -1;
+    auto* function = IsReal(widget) ? widget->GetFunctionByNameInChain(
+        L"GetCursorIndexByStageCode") : nullptr;
     if (function == nullptr || function->GetPropertiesSize() <= 0
         || function->GetPropertiesSize() > 1024) return false;
-    auto* input = FirstParam(function, {L"InCursorIndex", L"inCursorIndex"});
-    auto* result = RC::Unreal::CastField<RC::Unreal::FStrProperty>(
-        FirstParam(function, {L"StageCode", L"ReturnValue"}));
-    if (!result) result = RC::Unreal::CastField<RC::Unreal::FStrProperty>(
-        function->GetReturnProperty());
-    if (!input || !result) return false;
+    auto* code_property = RC::Unreal::CastField<RC::Unreal::FStrProperty>(
+        FirstParam(function, {L"InStageCode", L"StageCode"}));
+    auto* cursor_property = RC::Unreal::CastField<RC::Unreal::FIntProperty>(
+        FirstParam(function, {L"CursorIndex", L"OutCursorIndex", L"ReturnValue"}));
+    if (code_property == nullptr || cursor_property == nullptr) return false;
     std::vector<std::uint8_t> params(
         static_cast<std::size_t>(function->GetPropertiesSize()), 0);
-    if (!WriteInteger(input, params.data(), cursor)) return false;
-    result->InitializeValue_InContainer(params.data());
+    const auto wide = Widen(code);
+    code_property->InitializeValue_InContainer(params.data());
     try
     {
+        code_property->SetPropertyValueInContainer(
+            params.data(), RC::Unreal::FString(wide));
         widget->ProcessEvent(function, params.data());
-        auto* value = result->ContainerPtrToValuePtr<RC::Unreal::FString>(
+        cursor = *cursor_property->ContainerPtrToValuePtr<std::int32_t>(
             params.data());
-        if (value && value->Len() > 0) output = RC::to_string(**value);
     }
-    catch (...) { output.clear(); }
-    result->DestroyValue_InContainer(params.data());
-    return !output.empty();
+    catch (...) { cursor = -1; }
+    code_property->DestroyValue_InContainer(params.data());
+    return cursor >= 0;
 }
 
 bool StageWidgetActive(RC::Unreal::UObject* widget) noexcept
@@ -1566,46 +1610,39 @@ bool RequestStockReady(std::uintptr_t image_base,
 
 OnlineRoomState ObserveExactMatchContent(
     const OnlineAutomationRequest& request, RC::Unreal::UObject* scene,
-    RC::Unreal::UObject* manager, std::string& detail) noexcept
+    RC::Unreal::UObject* manager, bool mismatch_is_terminal,
+    std::string& detail) noexcept
 {
     (void)scene;
     (void)manager;
-    void* const sync = g_observed_battle_sync.load(std::memory_order_acquire);
-    if (sync == nullptr)
+    const auto snapshot = ReadBattleSyncObservation();
+    if (!snapshot.present)
     {
         detail = "exact_match_content_pending:no_battle_sync";
         return OnlineRoomState::Waiting;
     }
-    Horse::Deterministic::Sc6BattleSyncIdentity observed{};
-    const Horse::Deterministic::Sc6BattleSyncObserver observer{};
-    const auto status = observer.ObserveDetailed(sync, observed);
-    if (!status.ok())
+    if (!snapshot.detailed_valid)
     {
-        std::uint8_t profile{};
-        std::uint8_t character{};
-        std::uint8_t stage_received{};
-        if (!ReadBattleSyncFlags(
-                sync, profile, character, stage_received))
+        if (!snapshot.flags_readable)
         {
             detail = "exact_match_content_pending:sync_unreadable";
             return OnlineRoomState::Waiting;
         }
-        if (character == 0 || stage_received == 0)
+        if (snapshot.characters_received == 0 || snapshot.stage_received == 0)
         {
             detail = "exact_match_content_pending:sync_not_received:flags="
-                + std::to_string(profile) + "/"
-                + std::to_string(character) + "/"
-                + std::to_string(stage_received) + ":generation="
-                + std::to_string(g_battle_sync_observation_generation.load(
-                    std::memory_order_acquire));
+                + std::to_string(snapshot.profile_received) + "/"
+                + std::to_string(snapshot.characters_received) + "/"
+                + std::to_string(snapshot.stage_received) + ":generation="
+                + std::to_string(snapshot.generation);
             return OnlineRoomState::Waiting;
         }
-        BattleSyncRawContent raw{};
-        if (!ReadBattleSyncRawContent(sync, raw))
+        if (!snapshot.raw_readable)
         {
             detail = "exact_match_content_invalid:raw_unreadable";
             return OnlineRoomState::Failed;
         }
+        const auto& raw = snapshot.raw;
         detail = "exact_match_content_invalid:raw="
             + std::string(raw.fighter_text[0]) + "["
             + std::to_string(raw.fighter_count[0]) + "/"
@@ -1615,20 +1652,24 @@ OnlineRoomState ObserveExactMatchContent(
             + std::to_string(raw.fighter_capacity[1]) + "]:stage="
             + std::to_string(raw.stage) + ":random="
             + std::to_string(raw.random);
-        return OnlineRoomState::Failed;
+        return mismatch_is_terminal
+            ? OnlineRoomState::Failed : OnlineRoomState::Waiting;
     }
-    const auto& content = observed.content;
+    const auto& content = snapshot.detailed.content;
     if (std::string_view{content.fighter_codes[0].data()}
             != request.fighter_codes[0]
         || std::string_view{content.fighter_codes[1].data()}
             != request.fighter_codes[1]
-        || std::string_view{content.stage_code.data()} != request.stage_code)
+        || std::string_view{content.stage_code.data()} != request.stage_code
+        || content.stage_was_random)
     {
         detail = "exact_match_content_mismatch:observed="
             + std::string(content.fighter_codes[0].data()) + "/"
             + std::string(content.fighter_codes[1].data()) + ":stage="
-            + std::string(content.stage_code.data());
-        return OnlineRoomState::Failed;
+            + std::string(content.stage_code.data()) + ":random="
+            + (content.stage_was_random ? "1" : "0");
+        return mismatch_is_terminal
+            ? OnlineRoomState::Failed : OnlineRoomState::Waiting;
     }
     detail = "exact_match_content_verified:"
         + request.fighter_codes[0] + "/" + request.fighter_codes[1]
@@ -1655,7 +1696,7 @@ bool OnlineRoomAutomation::Bind(std::uintptr_t image_base) noexcept
 
 void OnlineRoomAutomation::Reset(const OnlineAutomationRequest& request) noexcept
 {
-    g_observed_battle_sync.store(nullptr, std::memory_order_release);
+    ResetBattleSyncObservation();
     request_ = request;
     step_ = Step::NavigateToPlayerMatch;
     last_scene_.clear();
@@ -1757,6 +1798,8 @@ OnlineRoomState OnlineRoomAutomation::Tick(std::string& detail) noexcept
             || request_.fighter_codes[0].empty()
             || request_.fighter_codes[1].empty()
             || request_.stage_code.empty()
+            || request_.authored_stage_code.empty()
+            || request_.ui_stage_code.empty()
             || request_.display_map_name.empty())
         {
             detail = "invalid_match_setup_request";
@@ -1774,7 +1817,8 @@ OnlineRoomState OnlineRoomAutomation::Tick(std::string& detail) noexcept
         {
             lobby_id_ = request_.lobby_id;
             if (!match_content_verified_)
-                return ObserveExactMatchContent(request_, scene, manager, detail);
+                return ObserveExactMatchContent(
+                    request_, scene, manager, true, detail);
             detail = "exact_match_content_verified:"
                 + request_.fighter_codes[0] + "/" + request_.fighter_codes[1]
                 + ":stage=" + request_.stage_code + ":map="
@@ -1787,9 +1831,14 @@ OnlineRoomState OnlineRoomAutomation::Tick(std::string& detail) noexcept
             ++setup_scene_ticks_;
             if (!match_content_verified_)
             {
+                // The stock receiver publishes complete intermediate syncs
+                // while character/stage selection is still in progress (the
+                // initial stage may still be Random).  Observe those updates,
+                // but make identity disagreement terminal only after setup
+                // has handed off to PlayerMatchScene.
                 std::string content_detail;
                 const auto content = ObserveExactMatchContent(
-                    request_, scene, manager, content_detail);
+                    request_, scene, manager, false, content_detail);
                 if (content == OnlineRoomState::Failed)
                 {
                     detail = std::move(content_detail);
@@ -1836,32 +1885,34 @@ OnlineRoomState OnlineRoomAutomation::Tick(std::string& detail) noexcept
             auto* stage = ObjectProperty(scene, L"RefStageSelect");
             if (StageWidgetActive(stage) && !stage_focus_requested_)
             {
-                std::int32_t selected{-1};
-                for (std::int32_t cursor = 0; cursor < 64; ++cursor)
-                {
-                    std::string code;
-                    if (!StageCodeAt(stage, cursor, code)) break;
-                    if (code == request_.stage_code)
-                    {
-                        selected = cursor;
-                        break;
-                    }
-                }
-                const auto wide = Widen(request_.stage_code);
-                if (selected >= 0 && ChangeSelectionFocus(stage, selected, false)
-                    && WidgetStringCommand(stage, L"ChangeStageFocus", wide))
-                {
-                    stage_focus_requested_ = true;
-                    stage_focus_tick_ = setup_scene_ticks_;
-                    detail = "stage_focused:" + request_.display_map_name;
-                    return OnlineRoomState::Waiting;
-                }
                 if (setup_scene_ticks_ > 900)
                 {
                     detail = "stage_focus_timeout:" + request_.display_map_name;
                     return OnlineRoomState::Failed;
                 }
-                detail = "stage_focus_pending:" + request_.display_map_name;
+                std::int32_t selected{-1};
+                const auto wide = Widen(request_.ui_stage_code);
+                if (!StageCursor(stage, request_.ui_stage_code, selected))
+                {
+                    detail = "stage_cursor_pending:ui="
+                        + request_.ui_stage_code;
+                    return OnlineRoomState::Waiting;
+                }
+                if (!ChangeSelectionFocus(stage, selected, false))
+                {
+                    detail = "stage_focus_mutation_pending:cursor="
+                        + std::to_string(selected);
+                    return OnlineRoomState::Waiting;
+                }
+                if (!WidgetStringCommand(stage, L"ChangeStageFocus", wide))
+                {
+                    detail = "stage_focus_command_pending:cursor="
+                        + std::to_string(selected);
+                    return OnlineRoomState::Waiting;
+                }
+                stage_focus_requested_ = true;
+                stage_focus_tick_ = setup_scene_ticks_;
+                detail = "stage_focused:" + request_.display_map_name;
                 return OnlineRoomState::Waiting;
             }
             if (StageWidgetActive(stage) && stage_focus_requested_
@@ -1869,7 +1920,8 @@ OnlineRoomState OnlineRoomAutomation::Tick(std::string& detail) noexcept
                 && setup_scene_ticks_ >= stage_focus_tick_ + 30)
             {
                 if (!WidgetStringCommand(
-                        stage, L"DecideStage", Widen(request_.stage_code)))
+                        stage, L"DecideStage",
+                        Widen(request_.ui_stage_code)))
                 {
                     detail = "stage_decide_failed:" + request_.display_map_name;
                     return OnlineRoomState::Failed;

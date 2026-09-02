@@ -592,7 +592,7 @@ bool ReadRoomAutomationRequest(const std::filesystem::path& path,
     }
     else if (request_type->second == "match_setup")
     {
-        if (fields.size() != 12) return false;
+        if (fields.size() != 14) return false;
         request = {};
         request.action = Horse::Qualification::OnlineAutomationAction::MatchSetup;
         if (fields["role"] == "host")
@@ -614,6 +614,8 @@ bool ReadRoomAutomationRequest(const std::filesystem::path& path,
             || !parse_u64("peer_steam_id", request.peer_steam_id)) return false;
         request.fighter_codes = {fields["fighter_left"], fields["fighter_right"]};
         request.stage_code = fields["stage_code"];
+        request.authored_stage_code = fields["authored_stage_code"];
+        request.ui_stage_code = fields["ui_stage_code"];
         request.display_map_name = fields["display_map_name"];
         const auto bounded = [](const std::string& value, std::size_t maximum) {
             return !value.empty() && value.size() <= maximum
@@ -622,6 +624,8 @@ bool ReadRoomAutomationRequest(const std::filesystem::path& path,
         if (!bounded(request.fighter_codes[0], 8)
             || !bounded(request.fighter_codes[1], 8)
             || !bounded(request.stage_code, 8)
+            || !bounded(request.authored_stage_code, 8)
+            || !bounded(request.ui_stage_code, 32)
             || !bounded(request.display_map_name, 96)) return false;
     }
     else return false;

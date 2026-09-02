@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import concurrent.futures
 import json
 import os
 import re
@@ -182,6 +183,8 @@ def create_match_setup_request(
     peer_steam_id: int,
     fighter_codes: list[str],
     stage_code: str,
+    authored_stage_code: str,
+    ui_stage_code: str,
     display_map_name: str,
 ) -> None:
     if not _RUN_ID.fullmatch(run_id):
@@ -197,6 +200,12 @@ def create_match_setup_request(
         raise ValueError("match-setup fighter codes are invalid")
     if not stage_code or len(stage_code) > 8 or set(stage_code) & set("\r\n="):
         raise ValueError("match-setup stage code is invalid")
+    if (not authored_stage_code or len(authored_stage_code) > 8
+            or set(authored_stage_code) & set("\r\n=")):
+        raise ValueError("match-setup authored stage code is invalid")
+    if (not ui_stage_code or len(ui_stage_code) > 32
+            or set(ui_stage_code) & set("\r\n=")):
+        raise ValueError("match-setup UI stage code is invalid")
     if (not display_map_name or len(display_map_name) > 96
             or set(display_map_name) & set("\r\n=")):
         raise ValueError("match-setup display map name is invalid")
@@ -212,6 +221,8 @@ def create_match_setup_request(
         f"fighter_left={fighter_codes[0]}\n"
         f"fighter_right={fighter_codes[1]}\n"
         f"stage_code={stage_code}\n"
+        f"authored_stage_code={authored_stage_code}\n"
+        f"ui_stage_code={ui_stage_code}\n"
         f"display_map_name={display_map_name}\n"
     )
     _atomic_write(peer.qualification_root / ROOM_REQUEST_NAME, request)
@@ -491,12 +502,21 @@ def launch_observer_pair(spec: SandboxiePairSpec) -> str:
 
 def stop_observer_processes(processes: tuple[GameProcess, ...]) -> None:
     failures: list[str] = []
-    for process in processes:
-        try:
-            close_game(process.pid)
-        except (RuntimeError, TimeoutError) as error:
-            failures.append(f"PID {process.pid}: {error}")
-            force_stop_game_for_cleanup(process.pid)
+    # Both authenticated peers must receive their graceful close together.
+    # Waiting for one online process to exit while its counterpart remains in
+    # the match can strand the first process until the teardown timeout.
+    with concurrent.futures.ThreadPoolExecutor(
+            max_workers=max(1, len(processes))) as executor:
+        closing = {
+            executor.submit(close_game, process.pid): process
+            for process in processes
+        }
+        for future, process in closing.items():
+            try:
+                future.result()
+            except (RuntimeError, TimeoutError) as error:
+                failures.append(f"PID {process.pid}: {error}")
+                force_stop_game_for_cleanup(process.pid)
     survivors = list_game_processes()
     if survivors:
         for process in survivors:

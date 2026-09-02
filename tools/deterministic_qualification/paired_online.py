@@ -764,12 +764,16 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
                 paths.host, active_automation_run_ids["host"], "host",
                 lobby_id, args.host_steamid64, args.client_steamid64,
                 case["fighter_order"], case["stage_selection_code"],
+                case["authored_stage_code"],
+                case["stage_package_root"].rsplit("/", 1)[-1],
                 case["native_display_name"],
             )
             create_match_setup_request(
                 paths.sandbox, active_automation_run_ids["sandbox"], "sandbox",
                 lobby_id, args.client_steamid64, args.host_steamid64,
                 case["fighter_order"], case["stage_selection_code"],
+                case["authored_stage_code"],
+                case["stage_package_root"].rsplit("/", 1)[-1],
                 case["native_display_name"],
             )
         if failure_case:

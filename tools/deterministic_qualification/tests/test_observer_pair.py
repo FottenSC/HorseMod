@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import threading
 
 import pytest
 
@@ -8,13 +9,33 @@ from tools.deterministic_qualification.observer_pair import (
     ObserverPeerPaths,
     create_host_room_suppression,
     create_match_setup_request,
+    stop_observer_processes,
     validate_host_room_suppression,
     validate_observer_reports,
 )
+from tools.deterministic_qualification.process_control import GameProcess
 
 
 HOST_ID = 76561198070521860
 CLIENT_ID = 76561198201141039
+
+
+def test_paired_teardown_starts_both_graceful_closes_together(monkeypatch):
+    rendezvous = threading.Barrier(2)
+    started: set[int] = set()
+
+    def close(pid: int) -> None:
+        started.add(pid)
+        rendezvous.wait(timeout=1)
+
+    monkeypatch.setattr(
+        "tools.deterministic_qualification.observer_pair.close_game", close)
+    monkeypatch.setattr(
+        "tools.deterministic_qualification.observer_pair.list_game_processes",
+        lambda: (),
+    )
+    stop_observer_processes((GameProcess(1, "host"), GameProcess(2, "sandbox")))
+    assert started == {1, 2}
 
 
 def test_sandbox_room_suppression_shadows_host_request_without_arming(tmp_path):
@@ -49,7 +70,8 @@ def test_match_setup_request_binds_exact_pair_and_content(tmp_path):
     )
     create_match_setup_request(
         peer, "setup-test", "sandbox", 123456, CLIENT_ID, HOST_ID,
-        ["012", "015"], "273", "Silver Wolves' Haven",
+        ["012", "015"], "273", "111", "STG011_R",
+        "Silver Wolves' Haven",
     )
     assert (peer.qualification_root / "online_room_request.txt").read_text(
         encoding="utf-8") == (
@@ -57,6 +79,8 @@ def test_match_setup_request_binds_exact_pair_and_content(tmp_path):
             "arm=true\nrole=sandbox\nlobby_id=123456\n"
             f"local_steam_id={CLIENT_ID}\npeer_steam_id={HOST_ID}\n"
             "fighter_left=012\nfighter_right=015\nstage_code=273\n"
+            "authored_stage_code=111\n"
+            "ui_stage_code=STG011_R\n"
             "display_map_name=Silver Wolves' Haven\n"
         )
 

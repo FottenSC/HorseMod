@@ -34,6 +34,8 @@ struct OnlineAutomationRequest
     std::uint64_t peer_steam_id{};
     std::array<std::string, 2> fighter_codes{};
     std::string stage_code{};
+    std::string authored_stage_code{};
+    std::string ui_stage_code{};
     std::string display_map_name{};
 };
 
