@@ -1754,9 +1754,17 @@ private:
                 report[41], report[42], report[43], report[44], report[45],
                 report[46], report[47], report[48], report[49], report[50]);
         }
+        const auto group_location = request_.qualification_cycles[
+            qualification_cycle_index_].location;
         const bool anchor_identity_valid = reports[0][47] != 0
-            && reports[0][47] == reports[1][47]
-            && reports[0][47] == reports[2][47];
+            && reports[1][47] != 0 && reports[2][47] != 0
+            // Production cadence assigns successive authored outer ticks to
+            // depths 11, 1, and 6, so each row intentionally hashes a
+            // different coordinate sequence. Other locations restore every
+            // depth at the same anchors and must remain exactly equal.
+            && (group_location == 6
+                || (reports[0][47] == reports[1][47]
+                    && reports[0][47] == reports[2][47]));
         const bool disarmed = disarm_qualification_cycle_(
             qualification_group_run_id_.data(),
             qualification_group_run_id_.size());
