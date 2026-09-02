@@ -697,6 +697,7 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
     config_fields: dict[str, dict[str, str]] = {}
     hashes: dict[str, str] | None = None
     cleanup_errors: list[str] = []
+    graceful_process_teardown: bool | None = None
     impairment = ClumsyImpairment(
         args.impairment_tool or Path(), args.impairment_profile,
         args.impairment_seed)
@@ -879,7 +880,12 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
         try:
             processes = list_game_processes()
             if processes:
-                stop_observer_processes(processes)
+                graceful_process_teardown = stop_observer_processes(
+                    processes,
+                    require_graceful=not args.development_setup_smoke,
+                )
+            else:
+                graceful_process_teardown = True
         except (RuntimeError, TimeoutError) as error:
             errors.append(str(error))
         for peer in (paths.host, paths.sandbox):
@@ -947,6 +953,8 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
             "cleanup": {
                 "diagnostic_flags_false": not cleanup_errors,
                 "game_processes_remaining": len(list_game_processes()),
+                "graceful_process_teardown": graceful_process_teardown,
+                "emergency_cleanup_used": graceful_process_teardown is False,
             },
             "raw_logs": None if not report_logs else {
                 label: str((raw_dir / f"{run_id}-{label}.log").resolve())
@@ -991,6 +999,8 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
                 "requests_disarmed": True,
                 "diagnostic_flags_false": True,
                 "game_processes_remaining": 0,
+                "graceful_process_teardown": graceful_process_teardown,
+                "emergency_cleanup_used": graceful_process_teardown is False,
             },
         }
         args.output_dir.mkdir(parents=True, exist_ok=True)

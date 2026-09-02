@@ -500,7 +500,9 @@ def launch_observer_pair(spec: SandboxiePairSpec) -> str:
     return run_id
 
 
-def stop_observer_processes(processes: tuple[GameProcess, ...]) -> None:
+def stop_observer_processes(
+    processes: tuple[GameProcess, ...], require_graceful: bool = True
+) -> bool:
     failures: list[str] = []
     # Both authenticated peers must receive their graceful close together.
     # Waiting for one online process to exit while its counterpart remains in
@@ -523,4 +525,7 @@ def stop_observer_processes(processes: tuple[GameProcess, ...]) -> None:
             force_stop_game_for_cleanup(process.pid)
         failures.append("SC6 survived graceful paired teardown")
     if failures:
-        raise RuntimeError("; ".join(failures))
+        if require_graceful:
+            raise RuntimeError("; ".join(failures))
+        return False
+    return True

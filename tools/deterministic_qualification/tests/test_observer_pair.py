@@ -34,8 +34,30 @@ def test_paired_teardown_starts_both_graceful_closes_together(monkeypatch):
         "tools.deterministic_qualification.observer_pair.list_game_processes",
         lambda: (),
     )
-    stop_observer_processes((GameProcess(1, "host"), GameProcess(2, "sandbox")))
+    assert stop_observer_processes(
+        (GameProcess(1, "host"), GameProcess(2, "sandbox"))) is True
     assert started == {1, 2}
+
+
+def test_development_teardown_records_emergency_cleanup(monkeypatch):
+    forced: list[int] = []
+
+    def fail_close(_pid: int) -> None:
+        raise TimeoutError("still active")
+
+    monkeypatch.setattr(
+        "tools.deterministic_qualification.observer_pair.close_game", fail_close)
+    monkeypatch.setattr(
+        "tools.deterministic_qualification.observer_pair.force_stop_game_for_cleanup",
+        forced.append,
+    )
+    monkeypatch.setattr(
+        "tools.deterministic_qualification.observer_pair.list_game_processes",
+        lambda: (),
+    )
+    assert stop_observer_processes(
+        (GameProcess(7, "host"),), require_graceful=False) is False
+    assert forced == [7]
 
 
 def test_sandbox_room_suppression_shadows_host_request_without_arming(tmp_path):
