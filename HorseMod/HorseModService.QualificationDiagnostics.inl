@@ -548,7 +548,7 @@
                         > q.round_terminal_audio_stop_all_baseline;
                 return q.round_terminal_source_stop_all;
             case 5:
-                // Exact natural Tira helper-0x321B event boundary. The
+                // Exact natural Tira helper-0x3250/0x3251 event boundary. The
                 // baseline is captured when the request is armed, so an old
                 // transition from replay setup cannot satisfy this location.
                 return timeline.observed_tira_random_transition_calls

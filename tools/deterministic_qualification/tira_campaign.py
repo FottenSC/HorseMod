@@ -19,8 +19,8 @@ from .report import write_report
 def _load_cases(path: Path) -> list[dict[str, Any]]:
     document = json.loads(path.read_text(encoding="utf-8"))
     cases = document.get("cases")
-    if document.get("schema_version") != 2 or not isinstance(cases, list):
-        raise RuntimeError("Tira manifest must be schema v2")
+    if document.get("schema_version") != 3 or not isinstance(cases, list):
+        raise RuntimeError("Tira manifest must be schema v3")
     if len(cases) < 3:
         raise RuntimeError("Tira manifest must contain positive and control replays")
     required = {
@@ -32,13 +32,13 @@ def _load_cases(path: Path) -> list[dict[str, Any]]:
         raise RuntimeError("Tira manifest case is incomplete")
     roles = {case["role"] for case in cases}
     required_roles = {
-        "helper_321b_success", "deterministic_state19_only",
+        "rng_helpers_3250_3251_success", "non_rng_stance_change",
         "non_tira_control",
     }
     if not required_roles <= roles:
         raise RuntimeError(
-            "Tira manifest needs a current-build helper success replay, "
-            "a deterministic state19 control, and a non-Tira control")
+            "Tira manifest needs a current-build RNG-helper success replay, "
+            "a non-RNG stance-change control, and a non-Tira control")
     return cases
 
 
@@ -67,9 +67,10 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A
     exact_names = (
         "xorshift_draws", "known_callers", "unknown_callers", "if_draws",
         "xorshift_sequence", "transition07_sequence", "tira_sequence",
-        "tira_random_transitions", "tira_probability_batches", "tira_targets",
+        "tira_random_transitions", "tira_rng_stance_changes",
+        "tira_probability_batches", "tira_targets",
         "tira_last_target",
-        "tira_writer_calls", "tira_writer_sequence",
+        "tira_writer_calls", "tira_stance_changes", "tira_writer_sequence",
         "tira_writer_slot_mask", "tira_last_writer_move",
         "tira_stance_batches", "tira_slot_mask", "state19_sequence_p0",
         "state19_sequence_p1", "state19_initial_p0", "state19_initial_p1",
@@ -157,7 +158,7 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A
                 if _int_field(coverage, "unknown_callers") != 0:
                     case_failures.append("unknown gameplay RNG caller observed")
                 transition = (
-                    case["role"] == "helper_321b_success"
+                    case["role"] == "rng_helpers_3250_3251_success"
                     and _int_field(coverage, "if_draws") > 0
                     and _int_field(coverage, "xorshift_draws") > 0
                     and _int_field(coverage, "tira_probability_batches") > 0
@@ -195,15 +196,15 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A
                             or _int_field(coverage, "tira_sequence") == 0):
                         case_failures.append(
                             "ordered Tira RNG/transition identity is empty")
-                elif case["role"] == "helper_321b_success":
+                elif case["role"] == "rng_helpers_3250_3251_success":
                     case_failures.append(
                         "authored Tira replay did not execute the exact random transition")
-                elif case["role"] == "deterministic_state19_only":
+                elif case["role"] == "non_rng_stance_change":
                     if (not case["contains_tira"]
-                            or _int_field(coverage, "tira_writer_calls") == 0
+                            or _int_field(coverage, "tira_stance_changes") == 0
                             or _int_field(coverage, "tira_random_transitions") != 0):
                         case_failures.append(
-                            "deterministic state19 control did not remain distinct")
+                            "non-RNG stance-change control did not remain distinct")
                 elif case["role"] == "non_tira_control":
                     if (case["contains_tira"]
                             or _int_field(coverage, "tira_random_transitions") != 0
@@ -234,9 +235,9 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A
         failures.extend(f"{case['case_id']}: {reason}" for reason in set(case_failures))
     if transition_runs == 0:
         failures.append(
-            "no Tira helper 0x321B RNG/state19 transition was observed")
+            "no Tira helper 0x3250/0x3251 RNG/state19 transition was observed")
     return {
-        "report_schema": 2,
+        "report_schema": 3,
         "kind": "tira_rng_transition_evaluation",
         "certifying": not failures,
         "result": "pass" if not failures else "fail",
@@ -298,12 +299,14 @@ def run_tira_campaign(args: Any, root: Path) -> int:
                     "--display-map-name", case["native_display_name"],
                     "--stage-package-root", case["stage_package_root"],
                 ]
-                if case["role"] == "helper_321b_success":
+                if case["role"] == "rng_helpers_3250_3251_success":
                     command.append("--require-tira-probability-transition")
+                elif case["role"] == "non_rng_stance_change":
+                    command.append("--require-tira-stance-change")
                 with armed_baseline(args.config):
                     subprocess.run(command, cwd=root, check=True)
                 reports.append(json.loads(report_path.read_text(encoding="utf-8")))
-            if case["role"] == "helper_321b_success":
+            if case["role"] == "rng_helpers_3250_3251_success":
                 for suffix, location, anchors, repeats in (
                     ("event-restores", 5, 1, 15),
                     ("production-cadence", 6, 15, 1),
@@ -398,13 +401,15 @@ def run_tira_campaign(args: Any, root: Path) -> int:
                     args.output_dir / f"{case['case_id']}-{suffix}.json"),
                 "replay_sha256": case["replay_sha256"],
             }
-            for case in cases if case["role"] == "helper_321b_success"
+            for case in cases
+            if case["role"] == "rng_helpers_3250_3251_success"
             for suffix in ("event-restores", "production-cadence")
         ],
     }
     evaluation["event_restore_runs"] = len(event_restore_reports)
     if len(event_restore_reports) != 2 * sum(
-            case["role"] == "helper_321b_success" for case in cases):
+            case["role"] == "rng_helpers_3250_3251_success"
+            for case in cases):
         evaluation["certifying"] = False
         evaluation["result"] = "fail"
         evaluation["failures"].append(

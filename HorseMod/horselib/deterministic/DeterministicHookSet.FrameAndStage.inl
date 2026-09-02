@@ -141,7 +141,8 @@ std::uint64_t __fastcall DeterministicHookSet::MoveVmEvaluateIfDetour(
 }
 
 void DeterministicHookSet::ObserveTiraRandomStanceChange(
-    void* chara, std::uint16_t active_move, std::uint16_t chance,
+    void* chara, std::uint16_t enclosing_move, std::uint16_t helper_move,
+    std::uint16_t chance,
     std::uint16_t state_before, std::uint16_t state_after,
     std::uint32_t frame, OuterTickObservation& observation) noexcept
 {
@@ -168,9 +169,8 @@ void DeterministicHookSet::ObserveTiraRandomStanceChange(
             hash *= 1099511628211ull;
         }
     };
-    constexpr std::uint16_t helper_packed_move = 0x321b;
-    append(&active_move, sizeof(active_move));
-    append(&helper_packed_move, sizeof(helper_packed_move));
+    append(&enclosing_move, sizeof(enclosing_move));
+    append(&helper_move, sizeof(helper_move));
     append(&chance, sizeof(chance));
     append(&state_before, sizeof(state_before));
     append(&state_after, sizeof(state_after));
@@ -183,8 +183,8 @@ void DeterministicHookSet::ObserveTiraRandomStanceChange(
     }
     observation.tira_random_transition_sequence_hash = hash;
     observation.tira_random_transition_target_mask |= static_cast<std::uint8_t>(
-        1u << (active_move & 7u));
-    observation.tira_last_transition_target = active_move;
+        1u << (helper_move & 7u));
+    observation.tira_last_transition_target = helper_move;
     if (frame >= observation.before.frame_counter)
     {
         const auto offset = frame - observation.before.frame_counter;
@@ -209,22 +209,28 @@ std::int16_t __fastcall DeterministicHookSet::MoveVmExecuteBankSlotDetour(
     auto* batch = active_outer_capture_;
     OuterTickObservation* observation = hooks != nullptr && batch != nullptr
         ? batch->observation : nullptr;
-    constexpr std::uint16_t tira_stance_helper_packed_move = 0x321b;
+    constexpr std::uint16_t tira_stance_helper_to_jolly = 0x3250;
+    constexpr std::uint16_t tira_stance_helper_to_gloomy = 0x3251;
     std::uint16_t packed_move{};
     std::uint16_t chance{};
     std::uint16_t character_id{};
     std::uint16_t active_move{};
     std::uint32_t frame_before{};
-    const bool helper_seen = observation != nullptr && arguments != nullptr
+    const bool packed_helper_seen = observation != nullptr
+        && arguments != nullptr
         && argument_count > 0
         && SafeRead(reinterpret_cast<std::uintptr_t>(arguments), packed_move)
-        && packed_move == tira_stance_helper_packed_move;
-    const bool candidate = helper_seen && chara != nullptr
-        && argument_count == 2
-        && SafeRead(reinterpret_cast<std::uintptr_t>(arguments) + 2, chance)
+        && (packed_move == tira_stance_helper_to_jolly
+            || packed_move == tira_stance_helper_to_gloomy);
+    // Packed move IDs are local to the owner's character bank. Other fighters
+    // legitimately execute 0x3250/0x3251, so bind native Tira identity before
+    // counting an attempt or treating a malformed call as a detector failure.
+    const bool helper_seen = packed_helper_seen && chara != nullptr
         && SafeRead(reinterpret_cast<std::uintptr_t>(chara) + 0x24c,
             character_id)
-        && character_id == 0x23
+        && character_id == 0x23;
+    const bool candidate = helper_seen && argument_count == 2
+        && SafeRead(reinterpret_cast<std::uintptr_t>(arguments) + 2, chance)
         && SafeRead(reinterpret_cast<std::uintptr_t>(chara) + 0x1c68,
             active_move)
         && SafeRead(batch->frame_counter_address, frame_before);
@@ -240,6 +246,7 @@ std::int16_t __fastcall DeterministicHookSet::MoveVmExecuteBankSlotDetour(
         tira_stance_helper.observation = observation;
         tira_stance_helper.draws_before = draws_before;
         tira_stance_helper.active_move = active_move;
+        tira_stance_helper.helper_move = packed_move;
         tira_stance_helper.chance = chance;
         tira_stance_helper.frame = frame_before;
         tira_stance_helper.active = true;
@@ -347,7 +354,8 @@ std::int16_t __fastcall DeterministicHookSet::MoveVmWriteCharaStateShortDetour(
                 tira_stance_helper.active,
                 tira_stance_helper.owner == chara,
                 tira_stance_helper.observation == observation,
-                active_move, tira_stance_helper.active_move,
+                active_move, tira_stance_helper.helper_move,
+                tira_stance_helper.active_move,
                 tira_stance_helper.frame, frame,
                 tira_stance_helper.draws_before,
                 observation->gameplay_xorshift_draws);
@@ -389,6 +397,7 @@ std::int16_t __fastcall DeterministicHookSet::MoveVmWriteCharaStateShortDetour(
             {
                 ObserveTiraRandomStanceChange(chara,
                     tira_stance_helper.active_move,
+                    tira_stance_helper.helper_move,
                     tira_stance_helper.chance, state_before, authored_value,
                     frame, *observation);
             }
@@ -435,8 +444,8 @@ void DeterministicHookSet::ObserveMoveVmTransition(
     }
     // Native fighter/resource ID 0x23 is Tira; replay metadata uses a
     // different zero-based reflected character enum. Exact random stance
-    // changes are observed at synchronous helper 0x321B instead of inferred
-    // from this outgoing transition target.
+    // changes are observed at synchronous helpers 0x3250/0x3251 instead of
+    // inferred from this outgoing transition target.
 }
 
 void __fastcall DeterministicHookSet::MoveVmTransitionAuthor07Detour(

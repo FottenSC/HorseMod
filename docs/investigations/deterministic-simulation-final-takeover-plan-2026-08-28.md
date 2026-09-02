@@ -319,11 +319,13 @@ Tira is an additional RNG gate. Use the supplied Tira replays
 `REPLAY\_13510506239876751347.bin` and
 `REPLAY\_11775433596982945207.bin`, plus Astral Chaos: Tide of the Damned
 `REPLAY\_10919796003596567142.bin`, always on each authored map. At least one
-certifying run must execute the native helper-0x321B random stance writer route.
-Ordinary state19 writes or outgoing transition targets, including 0x0153,
-0x0165, and 0x0205, are diagnostic but do not by themselves prove that RNG
-caused the swap. Require exact RNG caller/consumption sequence, helper-owned
-state19 writer, target, mood/moveset state,
+certifying run must execute a native helper-0x3250/0x3251 random stance writer
+route.
+Every direct state19 value change, including the observed 0x306F route, is a
+real stance change. A stance change does not by itself prove RNG causation;
+that narrower gate requires helper 0x3250/0x3251 ownership and exactly one
+same-frame IF-0x007F draw. Require exact RNG caller/consumption sequence,
+helper-owned state19 writer, helper and enclosing-route identity, mood/moveset state,
 canonical/presentation, authored round winners, and final winner. Unknown RNG
 callers or zero Tira transitions leaves the gate red.
 

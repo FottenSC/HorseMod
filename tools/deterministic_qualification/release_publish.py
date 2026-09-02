@@ -290,7 +290,7 @@ def publish_release(args: Any, root: Path) -> int:
     _require(matrix["certifying"] is True, "39-row offline matrix is incomplete")
     tira = _load(Path(index["tira_report"]).resolve())
     _require(tira.get("certifying") is True and tira.get("transition_runs", 0) > 0,
-             "actual Tira helper 0x321B RNG/state19 transition gate is incomplete")
+             "actual Tira helper 0x3250/0x3251 RNG/state19 transition gate is incomplete")
     _require(tira.get("artifacts", {}).get("horsemod_dll_sha256") == hashes["dll"]
              and tira.get("artifacts", {}).get("schema_sha256") == hashes["schema"]
              and tira.get("artifacts", {}).get("runner_sha256") == runner_hash,

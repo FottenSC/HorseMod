@@ -18,8 +18,9 @@ inline constexpr std::uintptr_t battle_audio_dispatch_terminal_return_rva =
     0x519789;
 
 // LuxMoveVM_ExecuteBankSlotScript is the synchronous ownership boundary for
-// authored helper 0x321B, which performs Tira's probability-gated state19
-// write. The signature is five saved registers plus its 0x50-byte frame.
+// authored helpers 0x3250 and 0x3251, which perform Tira's probability-gated
+// state19 writes. The signature is five saved registers plus its 0x50-byte
+// frame.
 inline constexpr std::uintptr_t movevm_execute_bank_slot_rva = 0x2fcc30;
 inline constexpr std::array<std::byte, 11> movevm_execute_bank_slot_signature{
     std::byte{0x40}, std::byte{0x53}, std::byte{0x55}, std::byte{0x56},

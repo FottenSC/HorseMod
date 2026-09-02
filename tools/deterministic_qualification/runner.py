@@ -452,10 +452,12 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
         and not forced_depth7_requested and not correction_probe_requested
         and not args.seek_percentages and args.stage_terminal is None
         and not args.require_authored_outcomes
+        and not args.require_tira_stance_change
         and not args.require_tira_probability_transition)
     require_authored_outcomes = bool(
         not args.development_smoke
         and (args.certifying or args.require_authored_outcomes
+        or args.require_tira_stance_change
         or args.require_tira_probability_transition
         )
     )
@@ -564,7 +566,8 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
                             or gameplay_rng_coverage.tira_writer_slot_mask == 0
                             or not gameplay_rng_coverage.state19_initial_valid):
                         raise RuntimeError(
-                            "authored Tira helper 0x321B RNG/state19 transition "
+                            "authored Tira helper 0x3250/0x3251 RNG/state19 "
+                            "transition "
                             "was not observed"
                         )
                     transitioned_states = []
@@ -581,6 +584,13 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
                             "Tira transition did not land in exact native "
                             "Gloomy/Jolly state19"
                         )
+                if (args.require_tira_stance_change
+                        and (gameplay_rng_coverage.tira_writer_calls == 0
+                             or gameplay_rng_coverage.tira_writer_sequence == 0
+                             or gameplay_rng_coverage.tira_writer_slot_mask == 0)):
+                    raise RuntimeError(
+                        "authored Tira state19 stance change was not observed"
+                    )
                 if correction_probe_requested:
                     correction_probes = wait_for_correction_probe_evidence(
                         args.log, args.timeout, guard, log_start
@@ -941,6 +951,8 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
                 "transition07_calls": gameplay_rng_coverage.transition07_calls,
                 "tira_random_transitions":
                     gameplay_rng_coverage.tira_random_transitions,
+                "tira_rng_stance_changes":
+                    gameplay_rng_coverage.tira_random_transitions,
                 "tira_probability_batches":
                     gameplay_rng_coverage.tira_probability_batches,
                 "tira_targets": f"0x{gameplay_rng_coverage.tira_targets:x}",
@@ -954,6 +966,7 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
                 "resolved_hit_sequence":
                     f"0x{gameplay_rng_coverage.resolved_hit_sequence:016x}",
                 "tira_writer_calls": gameplay_rng_coverage.tira_writer_calls,
+                "tira_stance_changes": gameplay_rng_coverage.tira_writer_calls,
                 "tira_writer_sequence":
                     f"0x{gameplay_rng_coverage.tira_writer_sequence:016x}",
                 "tira_writer_slot_mask":
@@ -1134,6 +1147,7 @@ def run_replay_entry(args: argparse.Namespace) -> int:
     smoke_args.certifying = False
     smoke_args.stock_round_outcome_control = False
     smoke_args.require_authored_outcomes = False
+    smoke_args.require_tira_stance_change = False
     smoke_args.require_tira_probability_transition = False
     smoke_args.require_presentation_coverage = False
     smoke_args.outcome_control_report = None
@@ -1680,9 +1694,16 @@ def build_parser() -> argparse.ArgumentParser:
               "authored stage terminal"),
     )
     replay.add_argument(
+        "--require-tira-stance-change",
+        action="store_true",
+        help=("require at least one exact native Tira state19 0<->1 write; "
+              "this includes deterministic authored routes such as 0x306F "
+              "and RNG-owned helper routes"),
+    )
+    replay.add_argument(
         "--require-tira-probability-transition",
         action="store_true",
-        help=("require Tira helper 0x321B to consume exactly one gameplay "
+        help=("require Tira helper 0x3250 or 0x3251 to consume exactly one gameplay "
               "RNG draw and write an exact state19 0<->1 transition, attributed "
               "to its enclosing move on the same native source frame"),
     )

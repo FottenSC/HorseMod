@@ -319,6 +319,7 @@ def test_baseline_wrapper_arms_smoke_and_full_run_then_restores(
         development_smoke=False,
         stock_round_outcome_control=False,
         require_authored_outcomes=True,
+        require_tira_stance_change=False,
         require_tira_probability_transition=False,
         require_presentation_coverage=False,
         outcome_control_report=tmp_path / "stock.json",

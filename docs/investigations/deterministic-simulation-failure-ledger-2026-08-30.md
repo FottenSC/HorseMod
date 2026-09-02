@@ -479,30 +479,42 @@ an immutable release certificate explicitly promotes it.
   activity, while `tira_random_transitions` remained zero. The detector only
   accepted IF `0x007F` followed by TransitionAuthor target `0x0153` or
   `0x0205`; the supplied replay also reached `0x0165`.
-- Authoritative cause: decompilation shows packed helper `0x321B`, not the
-  later TransitionAuthor target, consumes the probability draw and toggles
-  state `0x19` through CALLCOND 14. Target `0x0165` can invoke that helper.
-  Other scripts, including observed live move `0x306F`, write the same state
-  deterministically and must not be counted as random transitions.
-- A first helper-context repair still compared the saved enclosing move with
-  the live move. That cannot hold while the nested helper is executing: the
-  live move is `0x321B`, while the saved enclosing move can be `0x0165`.
-- Repair: correlate the exact helper entry, owner, observation/frame, one RNG
-  draw, CALLCOND 14 state-`0x19` write, and 0/1 value change. Record the saved
-  enclosing move as route identity and report all state-`0x19` writers through
-  separate append-only counters, sequence hash, slot mask, and last-live-move
-  fields. The random event is emitted only from helper `0x321B`; deterministic
-  `0x306F` swaps remain observable but do not satisfy that event gate. A later
+- Authoritative cause: the first authored-data audit used a stale 2019 Tira
+  bank. The current 1,109,735-byte `hdr023.khd` (SHA-256
+  `1538128d8417deb6e917722697b902164cc0b6ae050a3e6783373a1b67db6fe`)
+  proves that `0x306F` directly writes both stance values and that the two
+  IF-`0x007F` probability helpers are `0x3250` and `0x3251`. `0x321B` is not
+  the current bank's stance helper.
+- Repair: report every exact CALLCOND-14 state-`0x19` value change as a Tira
+  stance change. Correlate the narrower RNG-owned subset only when helper
+  `0x3250` or `0x3251`, the same owner/observation/frame, exactly one RNG draw,
+  and a 0/1 value change all match. Record the saved enclosing move separately
+  as route provenance. An observed `0x306F` swap is therefore a real stance
+  change but does not satisfy the probability-helper gate. A later
   deterministic writer may legitimately become the global last-writer
   diagnostic without invalidating an earlier helper-owned event. Likewise,
   aggregate TransitionAuthor-07 activity is independent diagnostics and may be
-  zero; the gate requires the exact xorshift/helper writer sequence instead.
-- Targeted validation: the nesting predicate has compile-time positive and
-  negative fixtures; focused evaluator/parser tests passed; the complete
-  targeted native suite passed 8/8 and Python suite passed 85/85. Two
-  120-frame normal-render canaries on **Astral Chaos: Tide of the Damned**
-  passed with exact canonical state and clean teardown. No long campaign was
-  resumed.
+  zero; the RNG gate requires the exact xorshift/helper writer sequence instead.
+- Prior validation in this entry predates discovery of the stale bank and is
+  non-certifying. The corrected `0x3250/0x3251` detector requires a new targeted
+  build/unit gate and supplied-replay normal-render canary before any depth
+  campaign resumes.
+- Corrected validation (2026-09-02): native tests passed 8/8 and Python tests
+  passed 97/97. A full normal-render run of supplied replay
+  `11775433596982945207` on **Astral Chaos: Tide of the Damned** recorded seven
+  exact Tira stance changes: six RNG-owned helper changes with target mask
+  `0x3` (`0x3250` and `0x3251`) plus the later `0x306F` change. Native Tira
+  filtering reduced helper attempts from the invalid cross-character count of
+  304 to 14 exact attempts: 14 exact draws, six writes, eight legitimate
+  no-write outcomes, and zero signature failures. The authored-outcome run
+  matched rounds `[1,1,1]` and winner 1 at 60.004 normal-render FPS/TPS with
+  exact canonical convergence and clean teardown.
+- The same dirty diagnostic DLL passed an exact-event, single-process grouped
+  restore canary in depth order 11 -> 1 -> 6 with two repeated restores per
+  depth. All cycles had zero failure, capacity growth, pending events, stale
+  state, and timing drift. Cycle p99 values were 3.75, 1.60, and 2.75 ms;
+  normal-render FPS/TPS was 59.531. This remains non-certifying until repeated
+  from a frozen source identity.
 - Future depth testing runs fail-fast in order 11 -> 1 -> 6, followed by
   continuous depth 7.
 

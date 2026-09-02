@@ -699,7 +699,8 @@ private:
         std::int32_t argument_count, std::uint16_t* arguments,
         OuterTickCaptureContext& batch) noexcept;
     static void ObserveTiraRandomStanceChange(void* chara,
-        std::uint16_t active_move, std::uint16_t chance,
+        std::uint16_t enclosing_move, std::uint16_t helper_move,
+        std::uint16_t chance,
         std::uint16_t state_before, std::uint16_t state_after,
         std::uint32_t frame, OuterTickObservation& observation) noexcept;
     [[nodiscard]] bool PrepareAudioOwnerGraph(

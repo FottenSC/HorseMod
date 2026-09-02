@@ -44,46 +44,31 @@ xorshift96, and wind state.
 
 ## Tira authored-data evidence
 
-`dump/Battle/hdr/hdr023.khd` is the Tira movement program. A complete decoded
-instruction scan found:
+The first detector audit used a stale 2019 copy of `hdr023.khd` (SHA-256
+`b061e7786ae98890355ed999c6a6b68c672f3ee7501092aadee968dfa08e6743`).
+That file does not describe the current installed Tira movement program. The
+authoritative current dump is 1,109,735 bytes with SHA-256
+`1538128d8417deb6e917722697b902164cc0b6ae050a3e6783373a1b67db6fe`.
+All route conclusions below come from that bank. The earlier `0x321B` helper
+claim is invalid for the current executable/data pairing.
 
-- 104 CALLCOND `0x23` instances across 46 move slots;
-- 16 IF `0x007F` instances across slots 338, 356, 357, 358, 359, 2005, 2427,
-  2683, 2946, and 2947;
-- 92 direct reads of MoveVM state-short index 25 across 72 slots;
-- 182 direct writes of state-short index 25 across 68 slots.
+Decompilation and a complete instruction scan of the current bank establish:
 
-Slots 338 and 359 write an authored value to state-short index 25 immediately
-before IF `0x007F` consumes it as the percentage threshold. Slots 356 through
-358 use the same probability opcode with threshold 5. This establishes that
-Tira actively couples character-specific MoveVM state and the shared gameplay
-xorshift stream. Subsequent native writer/consumer analysis closes index 25
-(`0x19`) as Tira's live stance word at `ALuxBattleChara+0x19AE`: Tira values
-`0` and `1` are Gloomy and Jolly respectively. The globally shared enum keeps
-neutral numeric names because other character banks author values `2` and `3`.
-
-The original transition detector incorrectly treated an IF `0x007F` result and
-a later `TransitionAuthor_07` target as the stance writer. A complete writer
-scan and decompilation of the nested-script boundary disproved that model:
-
-- `LuxMoveVM_CallCond_WriteCharaStateShort_14 @ 0x1402FDA30` is the direct
-  writer. It stores argument 1 to `pChara->stateShorts[argument 0]`; index
-  `0x19` is therefore written at `ALuxBattleChara+0x19AE`.
-- Tira slots 551, 553, 575, 2407, 2517, 2667, and 2946 contain direct
-  state-`0x19` writes. Most are deterministic authored routes and must not be
-  credited as random transitions merely because another RNG predicate or
-  transition target occurs nearby.
-- packed move `0x321B` resolves Tira slot 2946. That helper evaluates IF
-  `0x007F` from its local chance argument and, on success, directly toggles
-  state `0<->1` through CALLCOND `0x14`.
-- `LuxMoveVM_ExecuteBankSlotScript @ 0x1402FCC30` synchronously runs that
-  helper. While nested execution is active it publishes packed helper ID
-  `0x321B` at `pChara+0x1C68`, then restores the enclosing move on return.
-  The enclosing move, not a later transition target, is the route identity.
-- for example packed move `0x0165` invokes helper `0x321B` with chance `0x14`
-  before its own later IF/transition work. Thus `0x0165` can be a valid
-  enclosing random-stance route; it is not evidence that target `0x0165`
-  itself wrote state `0x19`.
+- `LuxMoveVM_CallCond_WriteCharaStateShort_14 @ 0x1402FDA30` stores argument 1
+  to `pChara->stateShorts[argument 0]`; index `0x19` is the live Tira stance
+  word at `ALuxBattleChara+0x19AE`.
+- packed moves `0x0244`, `0x0246`, `0x1014`, `0x3000`, `0x306F`, `0x3114`,
+  `0x3250`, and `0x3251` directly write state `0x19` in the current bank.
+- `0x306F` contains direct paths writing both 0 and 1. Therefore its observed
+  `0->1` writes are real Tira stance changes; they are not false telemetry.
+  They do not use IF `0x007F`, so they are not probability-helper events.
+- `0x3250` and `0x3251` each evaluate IF `0x007F` from a local chance argument
+  and directly toggle state `0<->1` on success. These are the current bank's
+  two RNG-owned stance helpers. `0x3252` evaluates IF `0x007F` but does not
+  directly write state `0x19`.
+- `LuxMoveVM_ExecuteBankSlotScript @ 0x1402FCC30` synchronously publishes a
+  nested packed move at `pChara+0x1C68`, executes it, and restores the enclosing
+  move. This is the authoritative ownership boundary for `0x3250/0x3251`.
 
 HorseMod signature-guards and observes that typed wrapper. Every call records
 the ordered `(argument count, target move ID)` sequence. Target move IDs are
@@ -96,24 +81,20 @@ identity is independently established by
 branch only when `wCharaIdA == 0x23`, and by both round initializers. The
 separate `+0x250` move-table index also holds `0x23` for this resource, but the
 observer uses the stock classifier's exact `+0x24C` identity boundary.
-Qualification now detours the typed `LuxMoveVM_ExecuteBankSlotScript` and
-CALLCOND-`0x14` writer boundaries. It admits a random Tira stance transition
-only when the same Tira owner is executing nested helper `0x321B`, exactly one
-new gameplay-xorshift draw has occurred in the same native frame, and the
-direct writer changes state `0x19` between `0` and `1`. The saved enclosing
-move (including `0x0165`) is recorded as the route identity. Direct state writes
-outside helper `0x321B` remain visible as writer provenance but do not increment
-the random-transition count. The full general transition sequence is still
-compared during ordinary owned verification. Its aggregate may legitimately be
-zero and is not a prerequisite for a helper-`0x321B` qualification event.
+Qualification detours the typed `LuxMoveVM_ExecuteBankSlotScript` and
+CALLCOND-`0x14` writer boundaries. It records every exact Tira state-`0x19`
+value change as a stance change. It additionally classifies the narrower
+RNG-caused subset only when the same owner is executing nested helper `0x3250`
+or `0x3251`, exactly one gameplay-xorshift draw occurred in the same native
+frame, and the direct writer changed state between `0` and `1`. The saved
+enclosing move remains separate route provenance.
 
-The observer API exposes deterministic writer provenance separately from the
-random route: writer count, ordered writer sequence, fighter-slot mask, and
-exact last live writer move. Random target/slot fields are populated only by a
-helper-qualified transition. Consequently a deterministic `0x306F` write can
-be reported without making `tira_random_transitions` or `tira_targets`
-nonzero. The current 46-value API remains compatible with 42-value callers;
-the four writer fields are append-only.
+The observer API exposes all stance-writer provenance separately from the RNG
+route: writer count, ordered writer sequence, fighter-slot mask, and exact last
+live writer move. Reports name these meanings explicitly as
+`tira_stance_changes` and `tira_rng_stance_changes`, while retaining the old
+fields as compatibility aliases. Thus a `0x306F` write correctly increments
+the former without incrementing the latter.
 
 UE reflection metadata gives two additional, distinct inputs:
 
@@ -164,7 +145,8 @@ The runtime evidence is therefore an ordered contract, not a count-only gate.
 It binds each helper execution to the verified Tira fighter root, records its
 enclosing move, chance, exact state-`0x19` before/after values and fighter slot,
 and reports the final three-word xorshift96 landing state. A certifying
-transition requires nested helper `0x321B`, exactly one IF-`0x007F` draw, and a
+transition requires nested helper `0x3250` or `0x3251`, exactly one
+IF-`0x007F` draw, and a
 same-frame Gloomy/Jolly `0<->1` direct write for that exact fighter. Repeated
 runs must match the full RNG, helper-route, stance-sequence, landing-state, and
 canonical hash evidence.
@@ -172,22 +154,35 @@ canonical hash evidence.
 Non-certifying detector-re-audit runs on Snow-Capped Showdown recordings 34,
 35, and 37 all observed Tira P1 state `0->1`, and the supplied
 `REPLAY_11775433596982945207.bin` on Astral Chaos: Tide of the Damned observed
-the same landing for both Tira roots. The authoritative writer in all four runs
-was packed move `0x306F`, outside helper `0x321B`; each is a real deterministic
-stance swap and correctly contributes zero random transitions. Earlier target
-`0x0165` correlation came from the broader transition stream and was not the
-causative writer. All of these runs remain diagnostic, not certification. The supplied
+the same Tira P1 landing. The authoritative writer in all four runs
+was packed move `0x306F`, outside helpers `0x3250/0x3251`; each is a real
+stance swap and correctly contributes a stance change but zero RNG-owned
+stance changes. Earlier target `0x0165` correlation came from the broader
+transition stream and was not the causative writer. All of these runs remain
+diagnostic, not certification. The supplied
 `REPLAY_10919796003596567142.bin` contains character IDs 13/11 rather than
 Tira; it remains an Astral Chaos: Tide of the Damned stock-control workload,
 not Tira transition coverage.
 
-The four retained base-game recordings were swept with the new gate. They
+The four retained base-game recordings were screened before the current-bank
+correction. They
 contained up to 11 IF draws, 12 weighted draws, and 226 transition-author calls
 in one replay, with zero unknown xorshift callers, but none proved a nested
-helper-`0x321B` state toggle. They remain negative diagnostic evidence, not a
+helper-`0x3250/0x3251` state toggle. They remain negative diagnostic evidence, not a
 substitute for a targeted current-build recording. The modular runner's
 `--require-tira-probability-transition` option fails closed when the authored
 success route is absent.
+
+The corrected detector was then exercised on supplied replay
+`REPLAY_11775433596982945207.bin` on **Astral Chaos: Tide of the Damned**. Its
+full authored-outcome run recorded seven exact stance changes: six owned by
+the `0x3250/0x3251` probability helpers (target mask `0x3`) and a later seventh
+change under `0x306F`. It recorded 14 exact helper attempts/draws, six writes,
+eight legitimate no-write outcomes, zero helper signature failures, and zero
+unknown RNG callers. This directly demonstrates why all stance changes and the
+RNG-caused subset must remain separate report fields. The dirty diagnostic run
+matched the authored round/match outcome and sustained 60.004 normal-render
+FPS/TPS; immutable certification is still required.
 
 Base-game Tira recordings retained under
 `ReplayExample/baseGameTiraReplays` are useful input workloads, but older Horse

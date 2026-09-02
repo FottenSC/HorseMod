@@ -92,6 +92,7 @@ struct TiraStanceHelperContext
     OuterTickObservation* observation{};
     std::uint64_t draws_before{};
     std::uint16_t active_move{};
+    std::uint16_t helper_move{};
     std::uint16_t chance{};
     std::uint32_t frame{};
     std::uint16_t state_before{};
@@ -104,27 +105,34 @@ thread_local TiraStanceHelperContext tira_stance_helper{};
 
 constexpr bool IsTiraStanceHelperWriterMatch(bool active,
     bool same_owner, bool same_observation, std::uint16_t live_move,
-    std::uint16_t enclosing_move, std::uint32_t helper_frame,
+    std::uint16_t helper_move, std::uint16_t enclosing_move,
+    std::uint32_t helper_frame,
     std::uint32_t writer_frame, std::uint64_t draws_before,
     std::uint64_t draws_at_writer) noexcept
 {
     return active && same_owner && same_observation
-        && live_move == 0x321b && enclosing_move != 0
+        && (helper_move == 0x3250 || helper_move == 0x3251)
+        && live_move == helper_move && enclosing_move != 0
         && helper_frame == writer_frame
         && draws_at_writer == draws_before + 1;
 }
 
 // ExecuteBankSlotScript replaces +0x1c68 with the nested helper while it runs.
-// This fixture protects the observed 0x0165 -> 0x321b nesting case from being
-// regressed into the old (and impossible) live_move == enclosing_move test.
+// The current shipped Tira bank uses 0x3250 and 0x3251 for the two
+// probability-driven state19 writers. The enclosing authored move is a
+// distinct route identity and must not be compared with the nested ID.
 static_assert(IsTiraStanceHelperWriterMatch(true, true, true,
-    0x321b, 0x0165, 100, 100, 41, 42));
+    0x3250, 0x3250, 0x0165, 100, 100, 41, 42));
+static_assert(IsTiraStanceHelperWriterMatch(true, true, true,
+    0x3251, 0x3251, 0x024a, 100, 100, 41, 42));
 static_assert(!IsTiraStanceHelperWriterMatch(true, true, true,
-    0x0165, 0x0165, 100, 100, 41, 42));
+    0x0165, 0x3250, 0x0165, 100, 100, 41, 42));
 static_assert(!IsTiraStanceHelperWriterMatch(true, true, true,
-    0x321b, 0x0165, 100, 101, 41, 42));
+    0x3250, 0x3250, 0x0165, 100, 101, 41, 42));
 static_assert(!IsTiraStanceHelperWriterMatch(true, true, true,
-    0x321b, 0x0165, 100, 100, 41, 43));
+    0x3250, 0x3250, 0x0165, 100, 100, 41, 43));
+static_assert(!IsTiraStanceHelperWriterMatch(true, true, true,
+    0x321b, 0x321b, 0x0165, 100, 100, 41, 42));
 
 // Complete direct-call surface verified in Ghidra for
 // LuxMoveVM_GetRandXorshift96Gameplay @ 0x14034F1F0. Values are return RVAs,

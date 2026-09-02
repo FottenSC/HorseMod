@@ -8,7 +8,7 @@ from tools.deterministic_qualification.configuration import (
 
 def _cases():
     roles = (
-        "helper_321b_success", "deterministic_state19_only",
+        "rng_helpers_3250_3251_success", "non_rng_stance_change",
         "non_tira_control",
     )
     return [
@@ -28,7 +28,7 @@ def _cases():
 
 def _report(case_id: str, transition: bool, role: str):
     expected_config = expected_fields(enabled=False, trace=True)
-    deterministic_writer = role == "deterministic_state19_only"
+    deterministic_writer = role == "non_rng_stance_change"
     writer = transition or deterministic_writer
     coverage = {
         "xorshift_draws": 10,
@@ -37,14 +37,16 @@ def _report(case_id: str, transition: bool, role: str):
         "if_draws": 1,
         "xorshift_sequence": "0x11",
         # TransitionAuthor 07 is independent diagnostics, not the causal
-        # helper-0x321B writer boundary, and may be absent.
+        # helper-0x3250/0x3251 writer boundary, and may be absent.
         "transition07_sequence": "0x0",
         "tira_sequence": "0x33",
         "tira_random_transitions": 1 if transition else 0,
+        "tira_rng_stance_changes": 1 if transition else 0,
         "tira_probability_batches": 1 if transition else 0,
         "tira_targets": 1 if transition else 0,
-        "tira_last_target": "0x0205" if transition else "0x0000",
+        "tira_last_target": "0x3250" if transition else "0x0000",
         "tira_writer_calls": 1 if writer else 0,
+        "tira_stance_changes": 1 if writer else 0,
         "tira_writer_sequence": "0x77" if writer else "0x0",
         "tira_writer_slot_mask": "0x2" if writer else "0x0",
         # A later deterministic stance write is valid and must not erase the
