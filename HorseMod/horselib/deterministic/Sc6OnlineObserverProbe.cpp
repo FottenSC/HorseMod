@@ -180,7 +180,8 @@ Status Sc6OnlineObserverProbe::observe_once(
         frame.battle_sync_object, output.battle);
     if (!status.ok()) return status;
     if (output.session.role < 0 || output.session.role > 1
-        || output.session.virtual_session_state != 4
+        || !IsSc6PreownershipSessionState(
+            output.session.virtual_session_state)
         || output.session.local_player_slot
             != static_cast<std::uint8_t>(output.session.role)
         || output.lobby.member_count != 2

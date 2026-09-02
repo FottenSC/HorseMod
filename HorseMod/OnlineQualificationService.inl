@@ -111,7 +111,8 @@
                 content.stage_code.data());
             Output::send<LogLevel::Default>(STR(
                 "[HorseMod] online qualification run_id={} handshake map={} display_map={} "
-                "fighters={}/{} local_slot={} loaded_map_sha256={}\n"),
+                "fighters={}/{} local_slot={} loaded_map_sha256={} "
+                "session_state={}\n"),
                 RC::to_generic_string(m_online_run_id),
                 RC::to_generic_string(std::string(content.map_name.data())),
                 RC::to_generic_string(std::string(qualified_stage == nullptr
@@ -121,7 +122,8 @@
                 RC::to_generic_string(std::string(
                     content.fighter_codes[1].data())),
                 session.local_player_slot,
-                RC::to_generic_string(hash_hex(m_online_loaded_map_identity)));
+                RC::to_generic_string(hash_hex(m_online_loaded_map_identity)),
+                static_cast<unsigned>(session.virtual_session_state));
             state = m_online_coordinator.state();
         }
         return true;
@@ -374,4 +376,3 @@
         if (!service_online_baseline(state)) return;
         static_cast<void>(service_online_prefix(state));
     }
-

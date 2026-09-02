@@ -17,6 +17,11 @@ CanonicalHash Identity(std::byte value)
 
 int main()
 {
+    assert(IsSc6PreownershipSessionState(1));
+    assert(IsSc6PreownershipSessionState(4));
+    assert(!IsSc6PreownershipSessionState(0));
+    assert(!IsSc6PreownershipSessionState(6));
+
     struct WideString { const wchar_t* data; std::int32_t count; std::int32_t capacity; };
     std::array<std::byte, 0x1bd0> sync{};
     constexpr wchar_t fighter0[] = L"2b";

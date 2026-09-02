@@ -29,6 +29,17 @@ struct Sc6OnlineSessionIdentity
     std::uint8_t local_player_slot{};
 };
 
+// Native Lux online-session state consumers treat 1, 4, and 6 as live.
+// Pre-ownership may bind while the pair is connected (1) or has entered the
+// match transport state (4). State 6 can transition back into state 4 and is
+// therefore not a fresh-match boundary; admitting it could bind stale battle
+// sync content between matches.
+[[nodiscard]] constexpr bool IsSc6PreownershipSessionState(
+    std::uint8_t state) noexcept
+{
+    return state == 1 || state == 4;
+}
+
 struct Sc6BattleSyncIdentity
 {
     OnlineContentContract content{};

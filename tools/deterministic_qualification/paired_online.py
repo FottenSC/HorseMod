@@ -47,7 +47,8 @@ FAILURE = re.compile(
 HANDSHAKE = re.compile(
     r"\[HorseMod\] online qualification run_id=(?P<run>\S+) handshake map=(?P<map>\S+) "
     r"display_map=(?P<display>.*?) fighters=(?P<f0>\d{3})/(?P<f1>\d{3}) "
-    r"local_slot=(?P<slot>[01]) loaded_map_sha256=(?P<loaded>[0-9a-f]{64})"
+    r"local_slot=(?P<slot>[01]) loaded_map_sha256=(?P<loaded>[0-9a-f]{64}) "
+    r"session_state=(?P<session_state>[14])"
 )
 CONFIRMED = re.compile(
     r"\[HorseMod\] online qualification run_id=(?P<run>\S+) confirmed_hash generation=(?P<generation>\d+) "

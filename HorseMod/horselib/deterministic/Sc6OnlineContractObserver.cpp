@@ -19,7 +19,6 @@ constexpr std::size_t session_name_offset = 0x30;
 constexpr std::size_t online_session_object_offset = 0x118;
 constexpr std::size_t named_session_info_offset = 0xa8;
 constexpr std::size_t steam_lobby_id_offset = 0x48;
-constexpr std::uint8_t transport_open_state = 4;
 constexpr std::uint32_t tournament_discriminator_bit = 0x40000;
 constexpr std::size_t sync_character_data_offset = 0x2e0;
 constexpr std::size_t sync_character_data_stride = 0xc70;
@@ -242,7 +241,7 @@ Status Sc6OnlineSessionObserver::Observe(
                 const auto session_name = *reinterpret_cast<std::uint64_t*>(
                     active + session_name_offset);
                 if ((role == 0 || role == 1)
-                    && state == transport_open_state
+                    && IsSc6PreownershipSessionState(state)
                     && online_session != nullptr && session_name != 0)
                 {
                     auto** online_vtable = *reinterpret_cast<void***>(

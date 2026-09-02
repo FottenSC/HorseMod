@@ -21,7 +21,7 @@ public:
         output.named_session = 0x3000;
         output.session_info = 0x4000;
         output.role = 0;
-        output.virtual_session_state = 4;
+        output.virtual_session_state = session_state;
         output.local_player_slot = 0;
         return Status::success();
     }
@@ -65,6 +65,7 @@ public:
     std::uint32_t lobby_reads{};
     std::uint32_t battle_reads{};
     std::uint32_t forbidden_calls{};
+    std::uint8_t session_state{1};
 };
 
 OnlineObserverProbeRequest Request(const char* run_id)
@@ -95,6 +96,15 @@ int main()
     assert(access.session_reads == 1);
     assert(access.lobby_reads == 1);
     assert(access.battle_reads == 1);
+    assert(access.forbidden_calls == 0);
+
+    // The read-only probe must also admit the native match-transport state.
+    probe.Disarm();
+    access.session_state = 4;
+    assert(probe.Arm(Request("observer-match-state-test"), 2000));
+    probe.Tick({reinterpret_cast<void*>(0x5000), packages}, 2200);
+    assert(probe.CopyReport(report));
+    assert(report.state == OnlineObserverProbeState::Complete);
     assert(access.forbidden_calls == 0);
 
     probe.Disarm();
