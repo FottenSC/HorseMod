@@ -133,9 +133,12 @@ Status Sc6BattleSyncObserver::ObserveDetailed(
             object + sync_characters_received_offset);
         const auto stage_received = *reinterpret_cast<const std::uint8_t*>(
             object + sync_stage_received_offset);
-        output.characters_received = characters_received == 1;
-        output.stage_received = stage_received == 1;
-        if (characters_received == 1 && stage_received == 1)
+        // Stock IsCompleted checks both bytes for nonzero, not equality to 1.
+        // Preserve that native contract so a truthy flag representation does
+        // not strand exact-content qualification after the payload is valid.
+        output.characters_received = characters_received != 0;
+        output.stage_received = stage_received != 0;
+        if (characters_received != 0 && stage_received != 0)
         {
             auto& content = output.content;
             bool valid = true;

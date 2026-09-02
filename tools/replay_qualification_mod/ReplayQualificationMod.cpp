@@ -562,7 +562,8 @@ bool ReadObserverOnlyRequest(const std::filesystem::path& path,
 }
 
 bool ReadRoomAutomationRequest(const std::filesystem::path& path,
-                               std::string& run_id)
+                               std::string& run_id,
+                               Horse::Qualification::OnlineAutomationRequest& request)
 {
     std::ifstream stream(path, std::ios::binary);
     if (!stream) return false;
@@ -577,17 +578,60 @@ bool ReadRoomAutomationRequest(const std::filesystem::path& path,
                                line.substr(equals + 1)).second)
             return false;
     }
-    if (!stream.eof() || fields.size() != 4
-        || fields["version"] != "1"
-        || fields["request_type"] != "host_room_create"
-        || fields["arm"] != "true"
-        || !ValidRunId(fields["run_id"]))
+    if (!stream.eof() || fields["version"] != "2"
+        || fields["arm"] != "true" || !ValidRunId(fields["run_id"]))
         return false;
+    const auto request_type = fields.find("request_type");
+    if (request_type == fields.end()) return false;
+    if (request_type->second == "host_room_create")
+    {
+        if (fields.size() != 4) return false;
+        request = {};
+        request.action = Horse::Qualification::OnlineAutomationAction::HostRoomCreate;
+        request.role = Horse::Qualification::OnlineAutomationRole::Host;
+    }
+    else if (request_type->second == "match_setup")
+    {
+        if (fields.size() != 12) return false;
+        request = {};
+        request.action = Horse::Qualification::OnlineAutomationAction::MatchSetup;
+        if (fields["role"] == "host")
+            request.role = Horse::Qualification::OnlineAutomationRole::Host;
+        else if (fields["role"] == "sandbox")
+            request.role = Horse::Qualification::OnlineAutomationRole::Sandbox;
+        else return false;
+        const auto parse_u64 = [&](const char* name, std::uint64_t& output) {
+            const auto found = fields.find(name);
+            if (found == fields.end()) return false;
+            const auto& value = found->second;
+            const auto parsed = std::from_chars(
+                value.data(), value.data() + value.size(), output);
+            return parsed.ec == std::errc{}
+                && parsed.ptr == value.data() + value.size() && output != 0;
+        };
+        if (!parse_u64("lobby_id", request.lobby_id)
+            || !parse_u64("local_steam_id", request.local_steam_id)
+            || !parse_u64("peer_steam_id", request.peer_steam_id)) return false;
+        request.fighter_codes = {fields["fighter_left"], fields["fighter_right"]};
+        request.stage_code = fields["stage_code"];
+        request.display_map_name = fields["display_map_name"];
+        const auto bounded = [](const std::string& value, std::size_t maximum) {
+            return !value.empty() && value.size() <= maximum
+                && value.find_first_of("\r\n=") == std::string::npos;
+        };
+        if (!bounded(request.fighter_codes[0], 8)
+            || !bounded(request.fighter_codes[1], 8)
+            || !bounded(request.stage_code, 8)
+            || !bounded(request.display_map_name, 96)) return false;
+    }
+    else return false;
     run_id = fields["run_id"];
     return true;
 }
 
 void WriteRoomAutomationReport(const std::string& run_id,
+                               const Horse::Qualification::OnlineAutomationRequest& request,
+                               const Horse::Qualification::OnlineRoomAutomation& automation,
                                Horse::Qualification::OnlineRoomState state,
                                const std::string& detail)
 {
@@ -598,13 +642,17 @@ void WriteRoomAutomationReport(const std::string& run_id,
     const auto destination = root / L"online_room_report.json";
     std::ofstream stream(temporary, std::ios::binary | std::ios::trunc);
     stream << "{\n"
-        << "  \"schema_version\": 1,\n"
-        << "  \"kind\": \"host_room_create\",\n"
+        << "  \"schema_version\": 2,\n"
+        << "  \"kind\": \""
+        << (request.action == Horse::Qualification::OnlineAutomationAction::HostRoomCreate
+                ? "host_room_create" : "online_match_setup") << "\",\n"
         << "  \"run_id\": \"" << run_id << "\",\n"
         << "  \"state\": \""
         << (state == Horse::Qualification::OnlineRoomState::Complete
                 ? "complete" : "failed") << "\",\n"
-        << "  \"detail\": \"" << detail << "\"\n"
+        << "  \"detail\": \"" << detail << "\",\n"
+        << "  \"lobby_id\": " << automation.lobby_id() << ",\n"
+        << "  \"local_steam_id\": " << automation.local_steam_id() << "\n"
         << "}\n";
     stream.close();
     MoveFileExW(temporary.c_str(), destination.c_str(),
@@ -1309,8 +1357,9 @@ private:
     void PollOnlineRoomAutomation()
     {
         std::string run_id;
+        Horse::Qualification::OnlineAutomationRequest request{};
         const bool present = ReadRoomAutomationRequest(
-            QualificationRoot() / L"online_room_request.txt", run_id);
+            QualificationRoot() / L"online_room_request.txt", run_id, request);
         if (!present)
         {
             if (!online_room_run_id_.empty()) room_automation_.Reset();
@@ -1320,13 +1369,18 @@ private:
         }
         if (run_id != online_room_run_id_)
         {
-            room_automation_.Reset();
+            online_room_request_ = request;
+            room_automation_.Reset(request);
             online_room_run_id_ = run_id;
             online_room_terminal_ = false;
             online_room_last_detail_.clear();
             Output::send<LogLevel::Default>(STR(
-                "[ReplayQualification] armed stock host room creation "
-                "run_id={}\n"), RC::to_generic_string(run_id));
+                "[ReplayQualification] armed stock online automation "
+                "run_id={} action={} map={}\n"),
+                RC::to_generic_string(run_id),
+                request.action == Horse::Qualification::OnlineAutomationAction::HostRoomCreate
+                    ? STR("host-room-create") : STR("match-setup"),
+                RC::to_generic_string(request.display_map_name));
         }
         if (online_room_terminal_) return;
         std::string detail;
@@ -1341,7 +1395,8 @@ private:
                 RC::to_generic_string(detail));
         }
         if (state == Horse::Qualification::OnlineRoomState::Waiting) return;
-        WriteRoomAutomationReport(run_id, state, detail);
+        WriteRoomAutomationReport(
+            run_id, online_room_request_, room_automation_, state, detail);
         online_room_terminal_ = true;
     }
 
@@ -2841,6 +2896,7 @@ private:
     std::string online_observer_last_run_id_{};
     std::string online_room_run_id_{};
     std::string online_room_last_detail_{};
+    Horse::Qualification::OnlineAutomationRequest online_room_request_{};
     std::string last_navigation_detail_{};
     std::chrono::steady_clock::time_point started_{};
     State state_{State::Idle};

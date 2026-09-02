@@ -24,7 +24,9 @@ from .observer_pair import (
     cleanup_observer_pair,
     create_host_room_request,
     create_host_room_suppression,
+    create_match_setup_request,
     deploy_observer_pair,
+    raise_for_match_setup_failures,
     stop_observer_processes,
     validate_host_room_suppression,
     wait_for_host_room,
@@ -565,6 +567,63 @@ def _wait_expected_impairment_failure(
     }
 
 
+def _wait_development_setup_smoke(
+    paths: ObserverPairPaths,
+    online_run_ids: dict[str, str],
+    automation_run_ids: dict[str, str],
+    case: dict[str, Any],
+    offsets: dict[str, int],
+    timeout_seconds: float,
+    guard: Any,
+) -> tuple[dict[str, Any], dict[str, str]]:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        guard()
+        reports: dict[str, dict[str, Any]] = {}
+        logs: dict[str, str] = {}
+        for label, peer in (("host", paths.host), ("sandbox", paths.sandbox)):
+            report_path = peer.qualification_root / "online_room_report.json"
+            try:
+                report = json.loads(report_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if report.get("run_id") != automation_run_ids[label]:
+                continue
+            if report.get("state") == "failed":
+                raise RuntimeError(
+                    f"{label} automatic setup failed: {report.get('detail')}")
+            if (report.get("schema_version") != 2
+                    or report.get("kind") != "online_match_setup"
+                    or report.get("state") != "complete"):
+                continue
+            expected_detail = (
+                "exact_match_content_verified:"
+                f"{case['fighter_order'][0]}/{case['fighter_order'][1]}:"
+                f"stage={case['stage_selection_code']}:"
+                f"map={case['native_display_name']}"
+            )
+            if report.get("detail") != expected_detail:
+                raise RuntimeError(
+                    f"{label} automatic setup lacks exact native content proof")
+            reports[label] = report
+            logs[label] = _read_since(peer.log, offsets[label])
+        if set(reports) == {"host", "sandbox"}:
+            return {
+                label: {
+                    "automation": reports[label],
+                    "native_content": {
+                        "fighter_order": list(case["fighter_order"]),
+                        "stage_selection_code": case["stage_selection_code"],
+                        "stage_package_root": case["stage_package_root"],
+                        "display_map_name": case["native_display_name"],
+                    },
+                } for label in ("host", "sandbox")
+            }, logs
+        time.sleep(0.25)
+    raise TimeoutError(
+        f"automatic exact-content setup timed out on {case['native_display_name']}")
+
+
 def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
     if not args.schema.is_file():
         raise FileNotFoundError(f"generated schema not found: {args.schema}")
@@ -578,6 +637,13 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
         args.impairment_profile, args.failure_case)
     if args.match_cycles < 1 or args.cycling_soak_seconds < 0:
         raise RuntimeError("match cycles must be positive and cycling soak non-negative")
+    if args.development_setup_smoke and (
+        args.match_cycles != 1 or args.cycling_soak_seconds != 0
+        or args.soak_seconds != 0 or args.failure_case
+        or args.impairment_profile != "clean" or args.fresh_box
+    ):
+        raise RuntimeError(
+            "development setup smoke is one clean, non-soak, non-failure cycle")
     if ((args.match_cycles > 1 or args.cycling_soak_seconds > 0)
             and args.impairment_profile != "clean"):
         raise RuntimeError("same-process cycling is a clean-profile qualification")
@@ -599,7 +665,7 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
     if list_game_processes():
         raise RuntimeError("SC6 must be closed before paired deployment")
     identity = source_identity(root)
-    if identity["dirty"]:
+    if identity["dirty"] and not args.development_setup_smoke:
         raise RuntimeError("paired certification requires frozen deterministic sources")
     fresh_roots_initially_absent = not any((
         paths.sandbox.mods_root.exists(), paths.sandbox.qualification_root.exists(),
@@ -641,6 +707,7 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
     memory_evidence: dict[str, object] | None = None
     cycling_elapsed_seconds = 0.0
     primary: BaseException | None = None
+    active_automation_run_ids: dict[str, str] | None = None
     try:
         hashes = deploy_observer_pair(paths, args.dll, args.replay_mod)
         for peer in (paths.host, paths.sandbox):
@@ -674,20 +741,43 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
                     pair.host_pid, pair.sandbox_pid}:
                 raise RuntimeError("paired SC6 process identity changed")
             memory_tracker.sample()
-        wait_for_host_room(paths.host, run_ids["host"], args.launch_timeout, guard)
+            if active_automation_run_ids is not None:
+                raise_for_match_setup_failures(paths, active_automation_run_ids)
+        room_report = wait_for_host_room(
+            paths.host, run_ids["host"], args.launch_timeout, guard)
         validate_host_room_suppression(paths.sandbox, run_ids["host"])
+        if room_report["local_steam_id"] != args.host_steamid64:
+            raise RuntimeError("automatic host room used the wrong Steam identity")
+        lobby_id = int(room_report["lobby_id"])
         process_ids = (pair.host_pid, pair.sandbox_pid)
         if args.impairment_profile not in ("clean", "disconnect_post"):
             impairment_evidence = impairment.start(process_ids)
         cycling_started_at = time.monotonic()
         cycle_index = 0
+        def arm_match_setup() -> None:
+            nonlocal active_automation_run_ids
+            active_automation_run_ids = {
+                "host": run_ids["host"] + "-setup",
+                "sandbox": run_ids["sandbox"] + "-setup",
+            }
+            create_match_setup_request(
+                paths.host, active_automation_run_ids["host"], "host",
+                lobby_id, args.host_steamid64, args.client_steamid64,
+                case["fighter_order"], case["stage_selection_code"],
+                case["native_display_name"],
+            )
+            create_match_setup_request(
+                paths.sandbox, active_automation_run_ids["sandbox"], "sandbox",
+                lobby_id, args.client_steamid64, args.host_steamid64,
+                case["fighter_order"], case["stage_selection_code"],
+                case["native_display_name"],
+            )
         if failure_case:
+            arm_match_setup()
             print(
-                "Fotten's Player Match room is ready. Join visibly as ulvunge1, "
-                f"then use normal character select for {case['fighter_names'][0]} "
-                f"versus {case['fighter_names'][1]} on "
-                f"{case['native_display_name']}. No character-select automation "
-                "is active.", flush=True,
+                "Qualification-only stock automation armed for "
+                f"{case['fighter_names'][0]} versus {case['fighter_names'][1]} "
+                f"on {case['native_display_name']}.", flush=True,
             )
             post_start = None
             if args.impairment_profile == "disconnect_post":
@@ -702,24 +792,29 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
                 post_start)
         else:
             while True:
+                arm_match_setup()
                 print(
-                    "Fotten's Player Match room is ready for cycle "
-                    f"{cycle_index + 1}. Join visibly as ulvunge1, then use normal "
-                    f"character select for {case['fighter_names'][0]} versus "
+                    "Qualification-only stock automation armed for cycle "
+                    f"{cycle_index + 1}: {case['fighter_names'][0]} versus "
                     f"{case['fighter_names'][1]} on "
-                    f"{case['native_display_name']}. No character-select automation "
-                    "is active.", flush=True,
+                    f"{case['native_display_name']}.", flush=True,
                 )
-                metrics, raw_logs = _wait_online(
-                    paths, run_ids, case, log_offsets, args.match_timeout,
-                    args.phase_timeout,
-                    {"host": (args.host_steamid64, args.client_steamid64),
-                     "sandbox": (args.client_steamid64, args.host_steamid64)},
-                    guard,
-                    (args.memory_warmup_seconds + args.soak_seconds
-                     if args.soak_seconds > 0 else 0.0),
-                    memory_tracker.restart_warmup if cycle_index == 0 else None,
-                )
+                if args.development_setup_smoke:
+                    metrics, raw_logs = _wait_development_setup_smoke(
+                        paths, run_ids, active_automation_run_ids, case,
+                        log_offsets, args.match_timeout, guard,
+                    )
+                else:
+                    metrics, raw_logs = _wait_online(
+                        paths, run_ids, case, log_offsets, args.match_timeout,
+                        args.phase_timeout,
+                        {"host": (args.host_steamid64, args.client_steamid64),
+                         "sandbox": (args.client_steamid64, args.host_steamid64)},
+                        guard,
+                        (args.memory_warmup_seconds + args.soak_seconds
+                         if args.soak_seconds > 0 else 0.0),
+                        memory_tracker.restart_warmup if cycle_index == 0 else None,
+                    )
                 cycle_metrics.append({
                     "cycle": cycle_index + 1,
                     "run_ids": dict(run_ids),
@@ -729,6 +824,9 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
                 for label, text in raw_logs.items():
                     cycle_raw_logs[f"cycle-{cycle_index + 1:03d}-{label}"] = text
                 cycle_index += 1
+                if args.development_setup_smoke:
+                    cycling_elapsed_seconds = time.monotonic() - cycling_started_at
+                    break
                 enough_cycles = cycle_index >= args.match_cycles
                 enough_duration = (time.monotonic() - cycling_started_at
                     >= args.cycling_soak_seconds)
@@ -854,6 +952,46 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
         args.output_dir.mkdir(parents=True, exist_ok=True)
         write_report(args.report, failure_report)
         raise primary
+    if args.development_setup_smoke:
+        assert (pair is not None and process_rows is not None
+                and metrics is not None and hashes is not None)
+        report = {
+            "report_schema": 2,
+            "kind": "paired_online_development_setup_smoke",
+            "certifying": False,
+            "result": "pass",
+            "run_id": run_id,
+            "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "case_id": case["case_id"],
+            "display_map_name": case["native_display_name"],
+            "stage_package_root": case["stage_package_root"],
+            "fighter_order": case["fighter_order"],
+            "renderer": "normal",
+            "identities": {
+                "source": identity,
+                "horsemod_dll_sha256": hashes["horsemod"],
+                "bridge_sha256": hashes["observer_bridge"],
+                "generated_schema_sha256": sha256_file(args.schema),
+                "game_executable_sha256": sha256_file(args.game_executable),
+                "runner_sha256": runner_sha256(
+                    root / "tools" / "deterministic_qualification"),
+            },
+            "runtime": {
+                "peers": metrics,
+                "cycles": cycle_metrics,
+                "automatic_authenticated_join": True,
+                "automatic_exact_content_entry": True,
+            },
+            "process_memory": memory_evidence,
+            "cleanup": {
+                "requests_disarmed": True,
+                "diagnostic_flags_false": True,
+                "game_processes_remaining": 0,
+            },
+        }
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        write_report(args.report, report)
+        return 0
     assert (pair is not None and process_rows is not None and metrics is not None
             and hashes is not None and raw_logs is not None)
     expected_failure = bool(failure_case)

@@ -1851,6 +1851,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="minimum elapsed time spent repeating same-process lobby/match cycles")
     paired.add_argument("--fresh-box", action="store_true",
         help="require a non-sc67 box whose UE4SS and qualification roots are initially absent")
+    paired.add_argument("--development-setup-smoke", action="store_true",
+        help=("allow a dirty, explicitly non-certifying run that stops after "
+              "automated authenticated join and exact-content battle entry"))
     paired.add_argument("--memory-warmup-seconds", type=float, default=600.0)
     paired.add_argument("--launch-timeout", type=float, default=180.0)
     paired.add_argument("--phase-timeout", type=float, default=10.0)

@@ -239,7 +239,7 @@ target_compile_features(ReplayQualificationMod PRIVATE cxx_std_20)
 target_compile_definitions(ReplayQualificationMod PRIVATE
     REPLAY_QUALIFICATION_SOURCE_COMMIT="${HORSEMOD_SOURCE_COMMIT}"
 )
-target_link_libraries(ReplayQualificationMod PRIVATE UE4SS)
+target_link_libraries(ReplayQualificationMod PRIVATE UE4SS HorseDeterministicCore)
 if(MSVC)
     set_property(TARGET ReplayQualificationMod PROPERTY
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")

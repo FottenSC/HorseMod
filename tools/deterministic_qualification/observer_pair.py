@@ -133,7 +133,7 @@ def create_host_room_request(peer: ObserverPeerPaths, run_id: str) -> None:
     if not _RUN_ID.fullmatch(run_id):
         raise ValueError("room-creation run ID is invalid")
     request = (
-        "version=1\n"
+        "version=2\n"
         "request_type=host_room_create\n"
         f"run_id={run_id}\n"
         "arm=true\n"
@@ -151,7 +151,7 @@ def create_host_room_suppression(peer: ObserverPeerPaths, run_id: str) -> None:
     if not _RUN_ID.fullmatch(run_id):
         raise ValueError("room-suppression run ID is invalid")
     request = (
-        "version=1\n"
+        "version=2\n"
         "request_type=host_room_create\n"
         f"run_id={run_id}\n"
         "arm=false\n"
@@ -161,7 +161,7 @@ def create_host_room_suppression(peer: ObserverPeerPaths, run_id: str) -> None:
 
 def validate_host_room_suppression(peer: ObserverPeerPaths, run_id: str) -> None:
     expected = (
-        "version=1\n"
+        "version=2\n"
         "request_type=host_room_create\n"
         f"run_id={run_id}\n"
         "arm=false\n"
@@ -171,6 +171,50 @@ def validate_host_room_suppression(peer: ObserverPeerPaths, run_id: str) -> None
         raise RuntimeError("sandbox-local host-room suppression changed")
     if (peer.qualification_root / ROOM_REPORT_NAME).exists():
         raise RuntimeError("sandbox process executed forbidden host-room automation")
+
+
+def create_match_setup_request(
+    peer: ObserverPeerPaths,
+    run_id: str,
+    role: str,
+    lobby_id: int,
+    local_steam_id: int,
+    peer_steam_id: int,
+    fighter_codes: list[str],
+    stage_code: str,
+    display_map_name: str,
+) -> None:
+    if not _RUN_ID.fullmatch(run_id):
+        raise ValueError("match-setup run ID is invalid")
+    if role not in ("host", "sandbox"):
+        raise ValueError("match-setup role is invalid")
+    if min(lobby_id, local_steam_id, peer_steam_id) <= 0:
+        raise ValueError("match-setup Steam identities must be nonzero")
+    if len(fighter_codes) != 2 or not all(
+        isinstance(code, str) and 0 < len(code) <= 8
+        and not set(code) & set("\r\n=") for code in fighter_codes
+    ):
+        raise ValueError("match-setup fighter codes are invalid")
+    if not stage_code or len(stage_code) > 8 or set(stage_code) & set("\r\n="):
+        raise ValueError("match-setup stage code is invalid")
+    if (not display_map_name or len(display_map_name) > 96
+            or set(display_map_name) & set("\r\n=")):
+        raise ValueError("match-setup display map name is invalid")
+    request = (
+        "version=2\n"
+        "request_type=match_setup\n"
+        f"run_id={run_id}\n"
+        "arm=true\n"
+        f"role={role}\n"
+        f"lobby_id={lobby_id}\n"
+        f"local_steam_id={local_steam_id}\n"
+        f"peer_steam_id={peer_steam_id}\n"
+        f"fighter_left={fighter_codes[0]}\n"
+        f"fighter_right={fighter_codes[1]}\n"
+        f"stage_code={stage_code}\n"
+        f"display_map_name={display_map_name}\n"
+    )
+    _atomic_write(peer.qualification_root / ROOM_REQUEST_NAME, request)
 
 
 def _remove_replay_mod(root: Path) -> None:
@@ -308,7 +352,7 @@ def wait_for_host_room(
         guard()
         report = _load_report(report_path, run_id)
         if report is not None:
-            if report.get("schema_version") != 1 \
+            if report.get("schema_version") != 2 \
                     or report.get("kind") != "host_room_create":
                 raise RuntimeError("host room report schema is invalid")
             if report.get("state") != "complete" \
@@ -316,9 +360,34 @@ def wait_for_host_room(
                 raise RuntimeError(
                     f"automatic host room creation failed: {report.get('detail')}"
                 )
+            if not isinstance(report.get("lobby_id"), int) \
+                    or report["lobby_id"] <= 0:
+                raise RuntimeError("automatic host room report lacks lobby identity")
+            if not isinstance(report.get("local_steam_id"), int) \
+                    or report["local_steam_id"] <= 0:
+                raise RuntimeError("automatic host room report lacks Steam identity")
             return report
         time.sleep(0.25)
     raise TimeoutError("automatic host Player Match room creation timed out")
+
+
+def raise_for_match_setup_failures(
+    paths: ObserverPairPaths, automation_run_ids: dict[str, str]
+) -> None:
+    for label, peer in (("host", paths.host), ("sandbox", paths.sandbox)):
+        report = _load_report(
+            peer.qualification_root / ROOM_REPORT_NAME,
+            automation_run_ids[label],
+        )
+        if report is None:
+            continue
+        if report.get("schema_version") != 2 \
+                or report.get("kind") != "online_match_setup":
+            raise RuntimeError(f"{label} match-setup report schema is invalid")
+        if report.get("state") == "failed":
+            raise RuntimeError(
+                f"{label} automatic match setup failed: {report.get('detail')}"
+            )
 
 
 def _require_int(record: dict[str, object], field: str, nonzero: bool = False) -> int:

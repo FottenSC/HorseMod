@@ -7,6 +7,7 @@ import pytest
 from tools.deterministic_qualification.observer_pair import (
     ObserverPeerPaths,
     create_host_room_suppression,
+    create_match_setup_request,
     validate_host_room_suppression,
     validate_observer_reports,
 )
@@ -36,6 +37,28 @@ def test_sandbox_room_suppression_shadows_host_request_without_arming(tmp_path):
         "{}", encoding="utf-8")
     with pytest.raises(RuntimeError, match="forbidden host-room automation"):
         validate_host_room_suppression(peer, "observer-test")
+
+
+def test_match_setup_request_binds_exact_pair_and_content(tmp_path):
+    peer = ObserverPeerPaths(
+        mods_root=tmp_path / "mods",
+        horsemod_dll=tmp_path / "horsemod.dll",
+        config=tmp_path / "rollback.ini",
+        qualification_root=tmp_path / "qualification",
+        log=tmp_path / "UE4SS.log",
+    )
+    create_match_setup_request(
+        peer, "setup-test", "sandbox", 123456, CLIENT_ID, HOST_ID,
+        ["012", "015"], "273", "Silver Wolves' Haven",
+    )
+    assert (peer.qualification_root / "online_room_request.txt").read_text(
+        encoding="utf-8") == (
+            "version=2\nrequest_type=match_setup\nrun_id=setup-test\n"
+            "arm=true\nrole=sandbox\nlobby_id=123456\n"
+            f"local_steam_id={CLIENT_ID}\npeer_steam_id={HOST_ID}\n"
+            "fighter_left=012\nfighter_right=015\nstage_code=273\n"
+            "display_map_name=Silver Wolves' Haven\n"
+        )
 
 
 def report(role: int, local_id: int) -> dict[str, object]:

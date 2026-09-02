@@ -36,6 +36,16 @@ def test_paired_online_cycle_defaults_are_one_bounded_match():
     ])
     assert arguments.match_cycles == 1
     assert arguments.cycling_soak_seconds == 0
+    assert arguments.development_setup_smoke is False
+
+
+def test_paired_online_exposes_noncertifying_automated_setup_smoke():
+    arguments = build_parser().parse_args([
+        "paired-online", "--case-manifest", "cases.json", "--case", "case-a",
+        "--dll", "HorseMod.dll", "--output-dir", "evidence",
+        "--report", "report.json", "--development-setup-smoke",
+    ])
+    assert arguments.development_setup_smoke is True
 
 
 def test_paired_online_exposes_typed_authoritative_failure_case():

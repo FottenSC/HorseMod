@@ -45,6 +45,9 @@ int main()
         == "/Game/DLC/11/Stage/STG017");
     assert(observed.stage_was_random);
     assert(observed.stage_rng_seed == seed);
+    sync[0x1bce] = std::byte{0xff};
+    sync[0x1bcf] = std::byte{0x7f};
+    assert(Sc6BattleSyncObserver{}.Observe(sync.data(), observed).ok());
 
     CanonicalHash first_map{};
     CanonicalHash reordered_map{};
