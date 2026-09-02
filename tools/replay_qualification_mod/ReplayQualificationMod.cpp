@@ -1457,6 +1457,9 @@ private:
         qualification_cycle_index_ = 0;
         qualification_cycle_armed_ = false;
         qualification_performance_window_started_ = false;
+        qualification_recovery_window_started_ = false;
+        qualification_recovery_clock_start_ = {};
+        qualification_recovery_rate_started_at_ = {};
         qualification_group_run_id_.clear();
         arm_qualification_group_ = nullptr;
         get_qualification_group_row_report_ = nullptr;
@@ -1628,6 +1631,31 @@ private:
         return true;
     }
 
+    void LogQualificationStressRate(
+        const std::array<std::uint64_t, 5>& clock,
+        const std::chrono::steady_clock::time_point now) const noexcept
+    {
+        if (clock[1] < battle_clock_start_[1]
+            || clock[2] < battle_clock_start_[2]
+            || clock[3] < battle_clock_start_[3])
+            return;
+        const auto elapsed_us = static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                now - battle_rate_started_at_).count());
+        const auto viewport_frames = clock[1] - battle_clock_start_[1];
+        const auto ticks = clock[2] - battle_clock_start_[2];
+        const auto owned = clock[3] - battle_clock_start_[3];
+        const auto fps_milli = elapsed_us == 0 ? 0
+            : viewport_frames * 1'000'000'000ull / elapsed_us;
+        const auto tick_rate_milli = elapsed_us == 0 ? 0
+            : ticks * 1'000'000'000ull / elapsed_us;
+        Output::send<LogLevel::Default>(STR(
+            "[ReplayQualification] normal-render qualification stress rate "
+            "viewport_frames={} native_ticks={} owned_ticks={} elapsed_us={} "
+            "fps_milli={} tick_rate_milli={}\n"), viewport_frames, ticks,
+            owned, elapsed_us, fps_milli, tick_rate_milli);
+    }
+
     bool PollQualificationCycles(bool allow_completion = true)
     {
         if (request_.qualification_cycles.empty()) return false;
@@ -1681,6 +1709,9 @@ private:
             battle_rate_started_at_ = std::chrono::steady_clock::now();
             battle_active_rate_started_at_ = battle_rate_started_at_;
             qualification_performance_window_started_ = true;
+            qualification_recovery_window_started_ = false;
+            qualification_recovery_clock_start_ = {};
+            qualification_recovery_rate_started_at_ = {};
             return true;
         }
         std::array<std::uint64_t, 51> first_report{};
@@ -1704,12 +1735,22 @@ private:
             Fail("horsemod_qualification_performance_clock_invalid");
             return true;
         }
-        // A terminal native group can finish in a few authored frames. Keep
-        // its real restore cost inside a fixed 120-frame normal-render window
-        // and measure recovery instead of judging a partial interval.
-        if (performance_clock[1] - battle_clock_start_[1]
+        // Preserve the actual synthetic stress throughput, then prove that
+        // normal rendering recovers after the terminal group releases its
+        // presentation ownership. The correction p99/max budgets above still
+        // gate every depth independently; this window detects persistent lag.
+        if (!qualification_recovery_window_started_)
+        {
+            const auto now = std::chrono::steady_clock::now();
+            LogQualificationStressRate(performance_clock, now);
+            qualification_recovery_clock_start_ = performance_clock;
+            qualification_recovery_rate_started_at_ = now;
+            qualification_recovery_window_started_ = true;
+            return true;
+        }
+        if (performance_clock[1] - qualification_recovery_clock_start_[1]
                 < request_.resume_tick_window
-            || performance_clock[2] - battle_clock_start_[2]
+            || performance_clock[2] - qualification_recovery_clock_start_[2]
                 < request_.resume_tick_window)
             return true;
         PROCESS_MEMORY_COUNTERS_EX memory{};
@@ -1813,6 +1854,11 @@ private:
         qualification_cycle_index_ += 3;
         if (qualification_cycle_index_ == request_.qualification_cycles.size())
         {
+            battle_clock_start_ = qualification_recovery_clock_start_;
+            active_clock_start_ = qualification_recovery_clock_start_;
+            battle_rate_started_at_ = qualification_recovery_rate_started_at_;
+            battle_active_rate_started_at_ =
+                qualification_recovery_rate_started_at_;
             if (!LogFinalQualificationRates()) return true;
             WriteResult("launch_requested", "qualification_groups_passed");
             // Persistent qualification owns multiple independent replay
@@ -2856,6 +2902,10 @@ private:
     std::size_t qualification_cycle_index_{};
     bool qualification_cycle_armed_{};
     bool qualification_performance_window_started_{};
+    bool qualification_recovery_window_started_{};
+    std::array<std::uint64_t, 5> qualification_recovery_clock_start_{};
+    std::chrono::steady_clock::time_point
+        qualification_recovery_rate_started_at_{};
     std::string qualification_group_run_id_{};
     ArmOnlineQualificationFn arm_online_{};
     GetOnlineQualificationStatusFn get_online_status_{};

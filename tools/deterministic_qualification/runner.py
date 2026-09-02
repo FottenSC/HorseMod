@@ -65,6 +65,7 @@ from .trace_parser import (
     wait_for_final_canonical_evidence,
     wait_for_gameplay_rng_coverage_evidence,
     wait_for_normal_render_rate_evidence,
+    parse_qualification_stress_rate_evidence,
     wait_for_presentation_coverage_evidence,
     wait_for_presentation_identity_evidence,
     wait_for_qualification_health_evidence,
@@ -1341,6 +1342,7 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:
     parent_run_ids: list[str] = []
     cycles: list[dict[str, object]] = []
     rates = []
+    stress_rates = []
     metadata_entries = []
     boot = None
     evidence_lines: list[str] = []
@@ -1399,6 +1401,12 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:
                         entry_cycles = _qualification_cycle_lines(
                             args.log, log_start)
                         run_text = _log_text_since(args.log, log_start)
+                        stress_rates.extend(
+                            parse_qualification_stress_rate_evidence(
+                                run_text,
+                                source_bound=replay_entry_index == 1,
+                            )
+                        )
                         expected_world = (
                             "authored map world=World "
                             f"{args.stage_package_root}/Maps/"
@@ -1529,6 +1537,17 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:
                 item.active_fps_milli for item in rates) / 1000.0,
             "independent_performance_clocks": all(
                 item.independent_clocks for item in rates),
+            "qualification_stress_windows": [
+                {
+                    "frames": item.frames,
+                    "forward_ticks": item.forward_ticks,
+                    "owned_resim_ticks": item.owned_ticks,
+                    "elapsed_us": item.elapsed_us,
+                    "fps": item.fps_milli / 1000.0,
+                    "tick_rate": item.tick_rate_milli / 1000.0,
+                }
+                for item in stress_rates
+            ],
             "native_stage": metadata.stage,
             "native_map": metadata.map,
             "native_left_character": metadata.left_character,

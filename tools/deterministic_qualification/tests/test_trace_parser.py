@@ -6,6 +6,7 @@ from tools.deterministic_qualification.trace_parser import (
     parse_correction_probe_evidence,
     parse_gameplay_rng_coverage_evidence,
     parse_normal_render_rate_evidence,
+    parse_qualification_stress_rate_evidence,
     parse_replay_seek_evidence,
     parse_presentation_coverage_evidence,
     parse_presentation_identity_evidence,
@@ -250,6 +251,23 @@ def test_normal_render_rate_parser_keeps_viewport_and_forward_tick_clocks_distin
     assert evidence.fps_milli == 60100
     assert evidence.tick_rate_milli == 60000
     assert evidence.active_owned_ticks == 45
+
+
+def test_qualification_stress_rate_parser_preserves_synthetic_load() -> None:
+    text = (
+        "[HorseMod] ctor v2.0 source=" + "c" * 40 + "\n"
+        "[ReplayQualification] normal-render qualification stress rate "
+        "viewport_frames=1569 native_ticks=1569 owned_ticks=10818 "
+        "elapsed_us=31373466 fps_milli=50010 tick_rate_milli=50010\n"
+        "[ReplayQualification] normal-render qualification stress rate "
+        "viewport_frames=600 native_ticks=600 owned_ticks=1800 "
+        "elapsed_us=12000000 fps_milli=50000 tick_rate_milli=50000\n"
+    )
+    evidence = parse_qualification_stress_rate_evidence(text)
+    assert len(evidence) == 2
+    assert evidence[0].owned_ticks == 10818
+    assert evidence[0].fps_milli == 50010
+    assert evidence[1].forward_ticks == 600
 
 
 def test_forced_qualification_parser_prefers_terminal_failure() -> None:

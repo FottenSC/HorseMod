@@ -59,6 +59,12 @@ NORMAL_RENDER_ACTIVE_RATE_PATTERN = re.compile(
     r"owned_ticks=(?P<owned>\d+) elapsed_us=(?P<elapsed>\d+) "
     r"fps_milli=(?P<fps>\d+) tick_rate_milli=(?P<rate>\d+)"
 )
+QUALIFICATION_STRESS_RATE_PATTERN = re.compile(
+    r"\[ReplayQualification\] normal-render qualification stress rate "
+    r"viewport_frames=(?P<frames>\d+) native_ticks=(?P<ticks>\d+) "
+    r"owned_ticks=(?P<owned>\d+) elapsed_us=(?P<elapsed>\d+) "
+    r"fps_milli=(?P<fps>\d+) tick_rate_milli=(?P<rate>\d+)"
+)
 LEGACY_NORMAL_RENDER_RATE_PATTERN = re.compile(
     r"\[ReplayQualification\] normal-render battle rate "
     r"frames=(?P<frames>\d+) elapsed_us=(?P<elapsed>\d+) "
@@ -248,6 +254,16 @@ class NormalRenderRateEvidence:
     owned_ticks: int = 0
     active_owned_ticks: int = 0
     independent_clocks: bool = False
+
+
+@dataclass(frozen=True)
+class QualificationStressRateEvidence:
+    frames: int
+    forward_ticks: int
+    owned_ticks: int
+    elapsed_us: int
+    fps_milli: int
+    tick_rate_milli: int
 
 
 @dataclass(frozen=True)
@@ -555,6 +571,28 @@ def parse_normal_render_rate_evidence(
         owned_ticks=int(overall.group("owned")) if independent else 0,
         active_owned_ticks=int(active.group("owned")) if independent else 0,
         independent_clocks=independent,
+    )
+
+
+def parse_qualification_stress_rate_evidence(
+    text: str,
+    *,
+    source_bound: bool = True,
+) -> tuple[QualificationStressRateEvidence, ...]:
+    source_matches = list(SOURCE_PATTERN.finditer(text))
+    if source_bound and not source_matches:
+        return ()
+    current_boot = text[source_matches[-1].start():] if source_matches else text
+    return tuple(
+        QualificationStressRateEvidence(
+            frames=int(match.group("frames")),
+            forward_ticks=int(match.group("ticks")),
+            owned_ticks=int(match.group("owned")),
+            elapsed_us=int(match.group("elapsed")),
+            fps_milli=int(match.group("fps")),
+            tick_rate_milli=int(match.group("rate")),
+        )
+        for match in QUALIFICATION_STRESS_RATE_PATTERN.finditer(current_boot)
     )
 
 
