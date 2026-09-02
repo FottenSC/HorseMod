@@ -129,6 +129,25 @@ def test_evaluate_tira_reports_requires_and_accepts_exact_repeat_transition():
     assert result["transition_runs"] == 2
 
 
+def test_evaluate_tira_reports_uses_shared_58_fps_tps_floor():
+    cases = _cases()
+    reports = []
+    for index, case in enumerate(cases):
+        report = _report(case["case_id"], index == 0, case["role"])
+        for field in (
+                "normal_render_fps", "normal_render_tick_rate",
+                "active_battle_fps", "active_battle_tick_rate"):
+            report["runtime"]["performance"][field] = 58.0
+        reports.extend((report, deepcopy(report)))
+    assert evaluate_tira_reports(
+        cases, reports, "dll", "schema", "runner")["certifying"] is True
+
+    reports[0]["runtime"]["performance"]["normal_render_fps"] = 57.999
+    result = evaluate_tira_reports(cases, reports, "dll", "schema", "runner")
+    assert result["certifying"] is False
+    assert any("FPS/TPS budget" in failure for failure in result["failures"])
+
+
 def test_evaluate_tira_reports_rejects_repeat_rng_sequence_mismatch():
     cases = _cases()
     reports = []

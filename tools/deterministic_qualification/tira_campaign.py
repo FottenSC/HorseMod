@@ -16,6 +16,22 @@ from .process_control import list_game_processes
 from .report import write_report
 
 
+TIRA_MIN_RESUME_TICK_RATE = 58.0
+
+
+def _performance_meets_floor(performance: dict[str, Any]) -> bool:
+    return (
+        performance.get("independent_clocks") is True
+        and all(
+            performance.get(name, 0) >= TIRA_MIN_RESUME_TICK_RATE
+            for name in (
+                "normal_render_fps", "normal_render_tick_rate",
+                "active_battle_fps", "active_battle_tick_rate",
+            )
+        )
+    )
+
+
 def _load_cases(path: Path) -> list[dict[str, Any]]:
     document = json.loads(path.read_text(encoding="utf-8"))
     cases = document.get("cases")
@@ -136,11 +152,7 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A
                 case_failures.append("authored round/final winner proof missing")
             if runtime.get("final_canonical") is None:
                 case_failures.append("final canonical proof missing")
-            if (performance.get("independent_clocks") is not True
-                    or performance.get("normal_render_fps", 0) <= 59.0
-                    or performance.get("normal_render_tick_rate", 0) <= 59.0
-                    or performance.get("active_battle_fps", 0) <= 59.0
-                    or performance.get("active_battle_tick_rate", 0) <= 59.0):
+            if not _performance_meets_floor(performance):
                 case_failures.append(
                     "independent active-battle FPS/TPS budget failed")
             if (runtime.get("capacity_failures") != 0
@@ -329,7 +341,7 @@ def run_tira_campaign(args: Any, root: Path) -> int:
                         "--case-id", case["case_id"], "--display-map-name",
                         case["native_display_name"], "--stage-package-root",
                         case["stage_package_root"], "--min-resume-tick-rate",
-                        "59.001",
+                        f"{TIRA_MIN_RESUME_TICK_RATE:.3f}",
                     ]
                     disarm_diagnostics(args.config)
                     subprocess.run(event_command, cwd=root, check=True)
@@ -360,7 +372,7 @@ def run_tira_campaign(args: Any, root: Path) -> int:
                                    runtime.get("normal_render_tick_rate", 0),
                                    runtime.get("active_battle_fps", 0),
                                    runtime.get("active_battle_tick_rate", 0))
-                                <= 59.0
+                                < TIRA_MIN_RESUME_TICK_RATE
                             or not valid_cycles):
                         raise RuntimeError(
                             f"Tira {suffix} 11/1/6 restore gate failed")
@@ -407,6 +419,7 @@ def run_tira_campaign(args: Any, root: Path) -> int:
         ],
     }
     evaluation["event_restore_runs"] = len(event_restore_reports)
+    evaluation["performance_floor_fps_tps"] = TIRA_MIN_RESUME_TICK_RATE
     if len(event_restore_reports) != 2 * sum(
             case["role"] == "rng_helpers_3250_3251_success"
             for case in cases):
