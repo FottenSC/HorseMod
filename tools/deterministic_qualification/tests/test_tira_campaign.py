@@ -8,7 +8,7 @@ from tools.deterministic_qualification.configuration import (
 
 def _cases():
     roles = (
-        "rng_helpers_3250_3251_success", "non_rng_stance_change",
+        "rng_helpers_3250_3251_success", "rng_helpers_3250_3251_success",
         "non_tira_control",
     )
     return [
@@ -26,10 +26,9 @@ def _cases():
     ]
 
 
-def _report(case_id: str, transition: bool, role: str):
+def _report(case_id: str, transition: bool, role: str, target_mask: int = 1):
     expected_config = expected_fields(enabled=False, trace=True)
-    deterministic_writer = role == "non_rng_stance_change"
-    writer = transition or deterministic_writer
+    writer = transition
     coverage = {
         "xorshift_draws": 10,
         "known_callers": 1,
@@ -43,10 +42,12 @@ def _report(case_id: str, transition: bool, role: str):
         "tira_random_transitions": 1 if transition else 0,
         "tira_rng_stance_changes": 1 if transition else 0,
         "tira_probability_batches": 1 if transition else 0,
-        "tira_targets": 1 if transition else 0,
-        "tira_last_target": "0x3250" if transition else "0x0000",
-        "tira_writer_calls": 1 if writer else 0,
-        "tira_stance_changes": 1 if writer else 0,
+        "tira_targets": target_mask if transition else 0,
+        "tira_last_target": (
+            "0x3251" if transition and target_mask == 2
+            else "0x3250" if transition else "0x0000"),
+        "tira_writer_calls": 2 if writer else 0,
+        "tira_stance_changes": 2 if writer else 0,
         "tira_writer_sequence": "0x77" if writer else "0x0",
         "tira_writer_slot_mask": "0x2" if writer else "0x0",
         # A later deterministic stance write is valid and must not erase the
@@ -122,18 +123,23 @@ def test_evaluate_tira_reports_requires_and_accepts_exact_repeat_transition():
     cases = _cases()
     reports = []
     for index, case in enumerate(cases):
-        report = _report(case["case_id"], index == 0, case["role"])
+        transition = index < 2
+        report = _report(
+            case["case_id"], transition, case["role"], 1 << index)
         reports.extend((report, deepcopy(report)))
     result = evaluate_tira_reports(cases, reports, "dll", "schema", "runner")
     assert result["certifying"] is True
-    assert result["transition_runs"] == 2
+    assert result["transition_runs"] == 4
+    assert result["helper_target_union"] == "0x3"
 
 
 def test_evaluate_tira_reports_uses_shared_58_fps_tps_floor():
     cases = _cases()
     reports = []
     for index, case in enumerate(cases):
-        report = _report(case["case_id"], index == 0, case["role"])
+        transition = index < 2
+        report = _report(
+            case["case_id"], transition, case["role"], 1 << index)
         for field in (
                 "normal_render_fps", "normal_render_tick_rate",
                 "active_battle_fps", "active_battle_tick_rate"):
@@ -148,11 +154,31 @@ def test_evaluate_tira_reports_uses_shared_58_fps_tps_floor():
     assert any("FPS/TPS budget" in failure for failure in result["failures"])
 
 
+def test_evaluate_tira_reports_requires_mixed_writer_identity():
+    cases = _cases()
+    reports = []
+    for index, case in enumerate(cases):
+        transition = index < 2
+        report = _report(
+            case["case_id"], transition, case["role"], 1 << index)
+        reports.extend((report, deepcopy(report)))
+    for report in reports[:2]:
+        coverage = report["runtime"]["gameplay_rng_coverage"]
+        coverage["tira_stance_changes"] = coverage["tira_rng_stance_changes"]
+        coverage["tira_writer_calls"] = coverage["tira_helper_writes"]
+    result = evaluate_tira_reports(cases, reports, "dll", "schema", "runner")
+    assert result["certifying"] is False
+    assert any("mixed RNG and deterministic" in failure
+               for failure in result["failures"])
+
+
 def test_evaluate_tira_reports_rejects_repeat_rng_sequence_mismatch():
     cases = _cases()
     reports = []
     for index, case in enumerate(cases):
-        report = _report(case["case_id"], index == 0, case["role"])
+        transition = index < 2
+        report = _report(
+            case["case_id"], transition, case["role"], 1 << index)
         repeated = deepcopy(report)
         reports.extend((report, repeated))
     reports[1]["runtime"]["gameplay_rng_coverage"]["tira_sequence"] = "0x99"
@@ -165,7 +191,9 @@ def test_evaluate_tira_reports_rejects_repeat_presentation_mismatch():
     cases = _cases()
     reports = []
     for index, case in enumerate(cases):
-        report = _report(case["case_id"], index == 0, case["role"])
+        transition = index < 2
+        report = _report(
+            case["case_id"], transition, case["role"], 1 << index)
         reports.extend((report, deepcopy(report)))
     reports[1]["runtime"]["presentation"]["identity"]["audio_identity"] = "0x99"
     result = evaluate_tira_reports(cases, reports, "dll", "schema", "runner")

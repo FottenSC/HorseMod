@@ -47,14 +47,12 @@ def _load_cases(path: Path) -> list[dict[str, Any]]:
     if any(not isinstance(case, dict) or not required <= set(case) for case in cases):
         raise RuntimeError("Tira manifest case is incomplete")
     roles = {case["role"] for case in cases}
-    required_roles = {
-        "rng_helpers_3250_3251_success", "non_rng_stance_change",
-        "non_tira_control",
-    }
-    if not required_roles <= roles:
+    positive_count = sum(
+        case["role"] == "rng_helpers_3250_3251_success" for case in cases)
+    if (positive_count < 2 or "non_tira_control" not in roles):
         raise RuntimeError(
-            "Tira manifest needs a current-build RNG-helper success replay, "
-            "a non-RNG stance-change control, and a non-Tira control")
+            "Tira manifest needs two current-build RNG-helper success replays "
+            "and a non-Tira control")
     return cases
 
 
@@ -74,6 +72,7 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A
     failures: list[str] = []
     rows: list[dict[str, Any]] = []
     transition_runs = 0
+    helper_target_union = 0
     expected_count = len(cases) * 2
     if len(reports) != expected_count:
         failures.append(f"expected {expected_count} reports, found {len(reports)}")
@@ -189,6 +188,8 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A
                 )
                 if transition:
                     transition_runs += 1
+                    helper_target_union |= _int_field(
+                        coverage, "tira_targets")
                     slot_mask = _int_field(coverage, "tira_slot_mask")
                     if slot_mask == 0 or _int_field(coverage, "tira_targets") == 0:
                         case_failures.append("Tira target/slot identity missing")
@@ -208,15 +209,15 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A
                             or _int_field(coverage, "tira_sequence") == 0):
                         case_failures.append(
                             "ordered Tira RNG/transition identity is empty")
+                    if (_int_field(coverage, "tira_stance_changes")
+                            <= _int_field(coverage, "tira_rng_stance_changes")
+                            or _int_field(coverage, "tira_writer_calls")
+                            <= _int_field(coverage, "tira_helper_writes")):
+                        case_failures.append(
+                            "mixed RNG and deterministic stance writes were not distinct")
                 elif case["role"] == "rng_helpers_3250_3251_success":
                     case_failures.append(
                         "authored Tira replay did not execute the exact random transition")
-                elif case["role"] == "non_rng_stance_change":
-                    if (not case["contains_tira"]
-                            or _int_field(coverage, "tira_stance_changes") == 0
-                            or _int_field(coverage, "tira_random_transitions") != 0):
-                        case_failures.append(
-                            "non-RNG stance-change control did not remain distinct")
                 elif case["role"] == "non_tira_control":
                     if (case["contains_tira"]
                             or _int_field(coverage, "tira_random_transitions") != 0
@@ -245,15 +246,21 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A
             "failures": sorted(set(case_failures)),
         })
         failures.extend(f"{case['case_id']}: {reason}" for reason in set(case_failures))
-    if transition_runs == 0:
+    expected_transition_runs = 2 * sum(
+        case["role"] == "rng_helpers_3250_3251_success" for case in cases)
+    if transition_runs != expected_transition_runs:
         failures.append(
-            "no Tira helper 0x3250/0x3251 RNG/state19 transition was observed")
+            "not every Tira positive repeat observed an RNG/state19 transition")
+    if helper_target_union != 0x3:
+        failures.append(
+            "Tira corpus did not cover both helper 0x3250 and helper 0x3251")
     return {
         "report_schema": 3,
         "kind": "tira_rng_transition_evaluation",
         "certifying": not failures,
         "result": "pass" if not failures else "fail",
         "transition_runs": transition_runs,
+        "helper_target_union": f"0x{helper_target_union:x}",
         "rows": rows,
         "failures": failures,
     }
@@ -313,8 +320,6 @@ def run_tira_campaign(args: Any, root: Path) -> int:
                 ]
                 if case["role"] == "rng_helpers_3250_3251_success":
                     command.append("--require-tira-probability-transition")
-                elif case["role"] == "non_rng_stance_change":
-                    command.append("--require-tira-stance-change")
                 with armed_baseline(args.config):
                     subprocess.run(command, cwd=root, check=True)
                 reports.append(json.loads(report_path.read_text(encoding="utf-8")))
