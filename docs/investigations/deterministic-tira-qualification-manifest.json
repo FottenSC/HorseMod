@@ -1,7 +1,7 @@
 {
   "schema_version": 3,
   "certification_ready": false,
-  "missing_required_role": "rng_helpers_3250_3251_success",
+  "missing_required_role": null,
   "cases": [
     {
       "case_id": "tira-authored-13510506239876751347",
@@ -21,7 +21,7 @@
       "replay_metadata_stage": 4,
       "replay_metadata_map": 4,
       "contains_tira": true,
-      "role": "non_rng_stance_change",
+      "role": "rng_helpers_3250_3251_success",
       "stage_package_root": "/Game/Stage/STG004",
       "native_display_name": "Astral Chaos: Tide of the Damned"
     },
