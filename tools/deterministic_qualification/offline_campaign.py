@@ -35,6 +35,17 @@ LOCATION_CODES = {
     "confirmed_hit": 3,
     "round_end": 4,
 }
+STRICT_SEEK_PERCENTAGES = (10, 25, 50, 75)
+
+
+def _strict_seek_capture_options(stock_path: Path) -> dict[str, Any]:
+    """Keep strict seeks separate from the full authored-outcome lifetime."""
+    return {
+        "baseline": True,
+        "outcome_control": stock_path,
+        "seek_percentages": STRICT_SEEK_PERCENTAGES,
+    }
+
 
 def _reuse_notice(path: Path, row: OfflineMatrixRow) -> None:
     print(f"hash-safe reuse: {row.row_id} on {row.display_map_name} ({path.name})",
@@ -403,15 +414,13 @@ def run_offline_campaign(args: Any, root: Path) -> int:
                 strict_path, row, expected_artifacts,
                 expected_fields(enabled=False, trace=True), stock=False,
                 outcome_control=stock_path,
-                seek_percentages=(10, 25, 50, 75))
+                seek_percentages=STRICT_SEEK_PERCENTAGES)
             if strict is None:
                 _invoke_replay(
                     root, row, strict_path, deployed, config, schema,
                     replay_mod, game_executable, log, certifying=True,
-                    baseline=True, outcome_control=stock_path,
-                    require_authored_outcomes=True,
-                    seek_percentages=(10, 25, 50, 75),
                     timeout=args.timeout,
+                    **_strict_seek_capture_options(stock_path),
                 )
             else:
                 _reuse_notice(strict_path, row)

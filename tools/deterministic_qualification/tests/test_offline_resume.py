@@ -8,7 +8,7 @@ from tools.deterministic_qualification.configuration import (
 )
 from tools.deterministic_qualification.offline_campaign import (
     _compose_persistent_row, _load_reusable_capture,
-    _persistent_campaign_reusable,
+    _persistent_campaign_reusable, _strict_seek_capture_options,
 )
 from tools.deterministic_qualification.offline_capture import (
     _read_current_run_tail, capture_log_artifact_is_intact,
@@ -20,6 +20,20 @@ from tools.deterministic_qualification.offline_matrix import build_rows, evaluat
 ROOT = Path(__file__).resolve().parents[3]
 MANIFEST = (ROOT / "docs" / "investigations"
             / "deterministic-production-candidate-manifest.json")
+
+
+def test_matrix_strict_seeks_use_stock_oracle_not_authored_outcome_lifetime(
+        tmp_path):
+    stock = tmp_path / "stock.json"
+
+    options = _strict_seek_capture_options(stock)
+
+    assert options == {
+        "baseline": True,
+        "outcome_control": stock,
+        "seek_percentages": (10, 25, 50, 75),
+    }
+    assert "require_authored_outcomes" not in options
 
 
 def test_capture_and_evaluator_identities_are_independent(tmp_path, monkeypatch):
