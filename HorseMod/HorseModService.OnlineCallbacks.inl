@@ -293,11 +293,17 @@
                     const auto stimulus_depth =
                         m_online_correction_stimulus_depths[
                             m_online_correction_stimulus_next];
+                    const auto transport_delay =
+                        QualificationCorrectionTransportDelay(
+                            stimulus_depth, m_online_local_player_slot,
+                            static_cast<std::uint8_t>(
+                                m_deterministic_config.rollback_window));
                     const auto trigger_frame =
                         confirmed_gekko_frame + stimulus_lead;
-                    status = m_online_gekko
-                        .ArmQualificationCorrectionStimulus(
-                            stimulus_depth, trigger_frame);
+                    status = transport_delay == 0
+                        ? Status::failure(FailureCode::InvalidConfiguration)
+                        : m_online_gekko.ArmQualificationCorrectionStimulus(
+                            transport_delay, trigger_frame);
                     if (status.ok())
                     {
                         m_online_correction_stimulus_armed = true;
@@ -310,12 +316,13 @@
                             "depth={} trigger_frame={} "
                             "after_confirmed_gekko_frame={} ordinal={} "
                             "total={} lead_frames={} "
-                            "corrections_before={}\n"),
+                            "corrections_before={} transport_delay={}\n"),
                             RC::to_generic_string(m_online_run_id),
                             stimulus_depth, trigger_frame,
                             confirmed_gekko_frame, stimulus_ordinal,
                             m_online_correction_stimulus_count,
-                            stimulus_lead, m_online_corrections);
+                            stimulus_lead, m_online_corrections,
+                            transport_delay);
                     }
                 }
             }

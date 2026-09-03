@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from tools.deterministic_qualification.observer_pair import (
     ObserverPairPaths, ObserverPeerPaths,
@@ -21,6 +22,9 @@ from tools.deterministic_qualification.paired_online import (
     _require_ordered_takeover, _require_two_owned_generations,
     _raise_on_native_terminal, _root_failure_evidence,
     _wait_development_setup_smoke,
+)
+from tools.deterministic_qualification.paired_online_evaluation import (
+    reevaluate_paired_correction_capture,
 )
 from tools.deterministic_qualification.trace_parser import capture_log_offset
 
@@ -85,6 +89,15 @@ def test_paired_online_exposes_two_cycle_same_process_reentry_smoke():
     assert arguments.match_cycles == 2
     assert not _development_smoke_complete(arguments, 1)
     assert _development_smoke_complete(arguments, 2)
+
+
+def test_paired_online_exposes_hash_bound_capture_reevaluation():
+    arguments = build_parser().parse_args([
+        "paired-online-evaluate", "--input-report", "capture.json",
+        "--report", "evaluation.json",
+    ])
+    assert arguments.input_report == Path("capture.json")
+    assert arguments.report == Path("evaluation.json")
 
 
 def test_same_process_reentry_requires_bilateral_lobby_reports(tmp_path):
@@ -162,23 +175,28 @@ def test_correction_smoke_requires_bilateral_armed_stimulus_at_status_five():
 
 
 def test_repeated_correction_smoke_requires_11_1_6_and_three_convergences():
-    stimuli = "".join(
+    def stimulus_text(delays):
+        return "".join(
         "[HorseMod] online qualification run_id={run} armed authenticated "
         f"correction stimulus depth={depth} trigger_frame={43 + index * 30} "
         f"after_confirmed_gekko_frame={29 + index * 30} "
-        f"ordinal={index + 1} total=3 lead_frames=14\n"
-        for index, depth in enumerate((11, 1, 6))
-    )
+        f"ordinal={index + 1} total=3 lead_frames=14 "
+        f"transport_delay={delays[index]}\n"
+        for index, depth in enumerate((11, 1, 6)))
+    host_stimuli = stimulus_text((12, 2, 7))
+    sandbox_stimuli = stimulus_text((11, 1, 6))
     stimulus_evidence = _correction_stimulus_sequence_evidence({
-        "host": stimuli.format(run="h"),
-        "sandbox": stimuli.format(run="s"),
+        "host": host_stimuli.format(run="h"),
+        "sandbox": sandbox_stimuli.format(run="s"),
     }, {"host": "h", "sandbox": "s"}, (11, 1, 6))
     assert stimulus_evidence is not None
     assert [row["depth"] for row in stimulus_evidence["host"]] == [11, 1, 6]
+    assert [row["transport_delay"] for row in stimulus_evidence["host"]] == [12, 2, 7]
+    assert [row["transport_delay"] for row in stimulus_evidence["sandbox"]] == [11, 1, 6]
 
-    stimulus_rows = stimuli.splitlines(keepends=True)
-    def combined(run, correction_counts):
-        rows = []
+    def combined(run, correction_counts, stimuli):
+        stimulus_rows = stimuli.splitlines(keepends=True)
+        rows = [stimulus_rows[0].format(run=run)]
         for index, corrections in enumerate(correction_counts):
             corrections_before = 0 if index == 0 else correction_counts[index - 1]
             confirmed = (
@@ -197,13 +215,16 @@ def test_repeated_correction_smoke_requires_11_1_6_and_three_convergences():
                 "verified_camera_batches=1 camera_publication_mismatches=0 "
                 "presentation_failures=0 journal_duplicates=0 "
                 "journal_publish_failures=0 journal_committed=1\n")
-            stimulus = stimulus_rows[index].replace(
-                "\n", f" corrections_before={corrections_before}\n")
-            rows.append(stimulus.format(run=run) + confirmed)
+            if index + 1 < len(stimulus_rows):
+                stimulus = stimulus_rows[index + 1].replace(
+                    " transport_delay=",
+                    f" corrections_before={corrections} transport_delay=")
+                rows.append(stimulus.format(run=run))
+            rows.append(confirmed)
         return "".join(rows)
     correction_evidence = _repeated_correction_evidence({
-        "host": combined("h", (1, 2, 3)),
-        "sandbox": combined("s", (1, 2, 3)),
+        "host": combined("h", (1, 2, 3), host_stimuli),
+        "sandbox": combined("s", (1, 2, 3), sandbox_stimuli),
     }, {"host": "h", "sandbox": "s"}, 3)
     assert correction_evidence is not None
     assert [row["ordinal"] for row in correction_evidence] == [1, 2, 3]
@@ -212,8 +233,8 @@ def test_repeated_correction_smoke_requires_11_1_6_and_three_convergences():
     # One peer advancing cannot certify the other peer's restore path and
     # must not allow teardown to race the next confirmed-hash exchange.
     assert _repeated_correction_evidence({
-        "host": combined("h", (1, 2, 3)),
-        "sandbox": combined("s", (1, 1, 2)),
+        "host": combined("h", (1, 2, 3), host_stimuli),
+        "sandbox": combined("s", (1, 1, 2), sandbox_stimuli),
     }, {"host": "h", "sandbox": "s"}, 3) is None
 
 

@@ -46,6 +46,7 @@ from .observer_pair import (
 )
 from .offline_campaign import run_offline_campaign
 from .paired_online import run_paired_online
+from .paired_online_evaluation import run_paired_correction_evaluation
 from .release_publish import publish_release
 from .replay_entry import (
     TemporaryReplayMod,
@@ -1917,6 +1918,14 @@ def build_parser() -> argparse.ArgumentParser:
     paired.add_argument("--report", type=Path, required=True)
     paired.set_defaults(handler=lambda args: run_paired_online(
         args, ROOT, _paired_observer_paths(args)))
+    paired_evaluate = subcommands.add_parser(
+        "paired-online-evaluate",
+        help=("re-evaluate one hash-bound non-certifying paired correction "
+              "capture without launching SC6"))
+    paired_evaluate.add_argument("--input-report", type=Path, required=True)
+    paired_evaluate.add_argument("--report", type=Path, required=True)
+    paired_evaluate.set_defaults(
+        handler=lambda args: run_paired_correction_evaluation(args, ROOT))
     publish = subcommands.add_parser(
         "release-publish",
         help="verify every frozen release gate and atomically publish the allowlist",

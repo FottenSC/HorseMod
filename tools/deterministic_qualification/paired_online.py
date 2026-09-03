@@ -119,6 +119,7 @@ CORRECTION_STIMULUS = re.compile(
     r"(?: ordinal=(?P<ordinal>\d+) total=(?P<total>\d+)"
     r" lead_frames=(?P<lead>\d+)"
     r"(?: corrections_before=(?P<corrections_before>\d+))?)?"
+    r"(?: transport_delay=(?P<transport_delay>\d+))?"
 )
 CLEANUP_STORAGE = re.compile(
     r"\[HorseMod\] online qualification run_id=(?P<run>\S+) cleanup_storage "
@@ -515,24 +516,28 @@ def _repeated_correction_evidence(
         candidates: dict[str, dict[tuple[int, int], re.Match[str]]] = {}
         for label in ("host", "sandbox"):
             arm = stimuli[label][ordinal - 1]
-            next_arm = (stimuli[label][ordinal]
-                        if ordinal < required_count else None)
             prior = [match for match in histories[label]
                      if match.start() < arm.start()]
             recorded_baseline = arm.group("corrections_before")
             baseline[label] = (int(recorded_baseline)
                 if recorded_baseline is not None
                 else int(prior[-1].group("corrections")) if prior else 0)
+            # Native receives and validates a peer hash, arms the next
+            # stimulus from that boundary, and only then logs confirmed_hash.
+            # For a non-final ordinal, the first common hash after the next
+            # arm is therefore the sole proof for this correction. Looking
+            # later would let a following depth masquerade as the missing one.
+            boundary = (stimuli[label][ordinal]
+                        if ordinal < required_count else arm)
             candidates[label] = {
                 (int(match.group("generation")), int(match.group("frame"))): match
                 for match in histories[label]
-                if match.start() > arm.end()
-                and (next_arm is None or match.start() < next_arm.start())
+                if match.start() > boundary.end()
                 and int(match.group("corrections")) >= baseline[label]
             }
         shared = sorted(set(candidates["host"]) & set(candidates["sandbox"]))
         reached: dict[str, re.Match[str]] | None = None
-        for coordinate in shared:
+        for shared_index, coordinate in enumerate(shared):
             pair = {label: candidates[label][coordinate]
                     for label in ("host", "sandbox")}
             if pair["host"].group("sha256") != pair["sandbox"].group("sha256"):
@@ -546,6 +551,8 @@ def _repeated_correction_evidence(
                    for label in ("host", "sandbox")):
                 reached = pair
                 break
+            if ordinal < required_count and shared_index == 0:
+                return None
         if reached is None:
             return None
         for label, match in reached.items():
@@ -628,6 +635,8 @@ def _correction_stimulus_sequence_evidence(
             rows.append({
                 "ordinal": ordinal,
                 "depth": int(match.group("depth")),
+                "transport_delay": int(
+                    match.group("transport_delay") or match.group("depth")),
                 "trigger_frame": int(match.group("trigger")),
                 "confirmed_gekko_frame": int(match.group("confirmed")),
                 "lead_frames": lead,
@@ -635,9 +644,17 @@ def _correction_stimulus_sequence_evidence(
         evidence[label] = rows
     if set(evidence) != {"host", "sandbox"}:
         return None
-    if evidence["host"] != evidence["sandbox"]:
+    comparable = lambda row: {key: value for key, value in row.items()
+                              if key != "transport_delay"}
+    if ([comparable(row) for row in evidence["host"]]
+            != [comparable(row) for row in evidence["sandbox"]]):
         raise RuntimeError(
             "peers armed different authenticated correction sequences")
+    for host, sandbox in zip(evidence["host"], evidence["sandbox"]):
+        if (host["transport_delay"] != host["depth"] + 1
+                or sandbox["transport_delay"] != sandbox["depth"]):
+            raise RuntimeError(
+                "peers armed correction delays without the SC6 phase guard")
     return evidence
 
 

@@ -22,6 +22,26 @@ QualificationCorrectionStimulusLead(std::uint32_t rollback_window) noexcept
     return static_cast<std::int32_t>(rollback_window + 2);
 }
 
+[[nodiscard]] inline constexpr std::uint8_t
+QualificationCorrectionTransportDelay(std::uint8_t requested_depth,
+    std::uint8_t local_player_slot, std::uint8_t rollback_window) noexcept
+{
+    // SC6's two owned callbacks enter the same Gekko coordinate one native
+    // tick apart. A slot-1 payload therefore reaches the slot-0 receiver one
+    // prediction tick earlier: holding exactly one frame can arrive before
+    // that receiver has simulated anything and produces no rollback. Add the
+    // observed phase guard only in that direction. Keeping slot 0 unchanged
+    // prevents the leading receiver from exceeding the prediction window at
+    // requested depth 11.
+    if (requested_depth == 0 || local_player_slot > 1
+        || requested_depth > rollback_window)
+        return 0;
+    const auto guarded = static_cast<std::uint16_t>(requested_depth)
+        + (local_player_slot == 1 ? 1u : 0u);
+    return guarded <= rollback_window
+        ? static_cast<std::uint8_t>(guarded) : 0;
+}
+
 [[nodiscard]] inline constexpr bool
 MayRearmQualificationCorrectionStimulus(bool armed, bool payload_released,
     std::int32_t mutually_confirmed_frame,
