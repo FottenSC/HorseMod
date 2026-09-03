@@ -161,6 +161,34 @@
                 timeline.last_coordinate.frame,
                 m_online_next_gekko_frame);
         }
+        // This transition remains after the first authoritative fencepost and
+        // its deferred saves. Record ownership before processing reliable
+        // confirmed-hash backlog so qualification stimuli can never be armed
+        // from a pre-ownership callback.
+        if (status.ok() && observation.authoritative_input_applied
+            && timeline.last_coordinate.generation
+                != m_online_first_owned_generation)
+        {
+            status = m_online_coordinator.NotifyOwnedTick(
+                timeline.last_coordinate);
+            if (status.ok())
+            {
+                status = m_online_lifecycle.MarkOwned();
+                if (status.ok())
+                {
+                    m_online_first_owned_generation =
+                        timeline.last_coordinate.generation;
+                    advance_online_qualification_status(5);
+                    log_online_event(1u << 8, "first_owned_input",
+                        timeline.last_coordinate);
+                    Output::send<LogLevel::Default>(STR(
+                        "[HorseMod] online qualification proved first owned "
+                        "native input generation={} frame={}\n"),
+                        timeline.last_coordinate.generation,
+                        timeline.last_coordinate.frame);
+                }
+            }
+        }
         while (status.ok())
         {
             const auto publish = PlanConfirmedHashPublication(
@@ -269,7 +297,9 @@
                     == OnlineRuntimeKind::Qualification
                 && m_online_correction_stimulus_next
                     < m_online_correction_stimulus_count
-                && !m_online_correction_stimulus_armed)
+                && !m_online_correction_stimulus_armed
+                && m_online_lifecycle.phase()
+                    == Horse::Deterministic::OnlineLifecyclePhase::Owned)
             {
                 // A matching remote confirmed hash is the first existing
                 // protocol boundary proving both peers are owned and
@@ -299,16 +329,25 @@
                             static_cast<std::uint8_t>(
                                 m_deterministic_config.rollback_window));
                     const auto trigger_frame =
-                        confirmed_gekko_frame + stimulus_lead;
+                        PlanQualificationCorrectionTrigger(
+                            confirmed_gekko_frame, stimulus_lead,
+                            m_online_next_gekko_frame);
                     status = transport_delay == 0
                         ? Status::failure(FailureCode::InvalidConfiguration)
-                        : m_online_gekko.ArmQualificationCorrectionStimulus(
-                            transport_delay, trigger_frame);
-                    if (status.ok())
+                        : Status::success();
+                    // Reliable hashes can queue while one peer is completing
+                    // a long prefix catch-up. Ignore only past trigger
+                    // candidates; the next 30-frame shared hash supplies the
+                    // same future absolute trigger to both peers.
+                    if (status.ok() && trigger_frame.has_value())
+                        status = m_online_gekko
+                            .ArmQualificationCorrectionStimulus(
+                                transport_delay, *trigger_frame);
+                    if (status.ok() && trigger_frame.has_value())
                     {
                         m_online_correction_stimulus_armed = true;
                         m_online_correction_stimulus_trigger_frame =
-                            trigger_frame;
+                            *trigger_frame;
                         ++m_online_correction_stimulus_next;
                         Output::send<LogLevel::Default>(STR(
                             "[HorseMod] online qualification run_id={} "
@@ -318,7 +357,7 @@
                             "total={} lead_frames={} "
                             "corrections_before={} transport_delay={}\n"),
                             RC::to_generic_string(m_online_run_id),
-                            stimulus_depth, trigger_frame,
+                            stimulus_depth, *trigger_frame,
                             confirmed_gekko_frame, stimulus_ordinal,
                             m_online_correction_stimulus_count,
                             stimulus_lead, m_online_corrections,
@@ -386,30 +425,6 @@
             }
         }
         m_online_last_observed_coordinate = timeline.last_coordinate;
-        if (status.ok() && observation.authoritative_input_applied
-            && timeline.last_coordinate.generation
-                != m_online_first_owned_generation)
-        {
-            status = m_online_coordinator.NotifyOwnedTick(
-                timeline.last_coordinate);
-            if (status.ok())
-            {
-                status = m_online_lifecycle.MarkOwned();
-                if (status.ok())
-                {
-                    m_online_first_owned_generation =
-                        timeline.last_coordinate.generation;
-                    advance_online_qualification_status(5);
-                    log_online_event(1u << 8, "first_owned_input",
-                        timeline.last_coordinate);
-                    Output::send<LogLevel::Default>(STR(
-                        "[HorseMod] online qualification proved first owned "
-                        "native input generation={} frame={}\n"),
-                        timeline.last_coordinate.generation,
-                        timeline.last_coordinate.frame);
-                }
-            }
-        }
         if (status.ok() && !m_online_qualification_fault_triggered
             && m_online_qualification_status.load(std::memory_order_acquire) >= 5)
         {

@@ -229,6 +229,15 @@ int main()
     expect(QualificationCorrectionTransportDelay(12, 12) == 0
             && QualificationCorrectionTransportDelay(0, 12) == 0,
         "transport guard fails closed at invalid or overflowing depths");
+    expect(!PlanQualificationCorrectionTrigger(29, 14, 92).has_value()
+            && !PlanQualificationCorrectionTrigger(59, 14, 92).has_value()
+            && PlanQualificationCorrectionTrigger(89, 14, 92)
+                == std::optional<std::int32_t>{103},
+        "91-frame prefix catch-up skips stale hashes and selects frame 103");
+    expect(!PlanQualificationCorrectionTrigger(-1, 14, 0).has_value()
+            && !PlanQualificationCorrectionTrigger(INT32_MAX, 14, 0)
+                .has_value(),
+        "correction trigger planning fails closed on invalid coordinates");
 
     expect(CanSealGekkoRound(89, 90, false),
         "fully confirmed idle generation can seal before history retirement");

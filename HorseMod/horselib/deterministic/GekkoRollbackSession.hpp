@@ -10,6 +10,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 
 namespace Horse::Deterministic
@@ -37,6 +38,18 @@ QualificationCorrectionTransportDelay(std::uint8_t requested_depth,
         + 1u;
     return guarded <= rollback_window
         ? static_cast<std::uint8_t>(guarded) : 0;
+}
+
+[[nodiscard]] inline constexpr std::optional<std::int32_t>
+PlanQualificationCorrectionTrigger(std::int32_t mutually_confirmed_frame,
+    std::int32_t lead_frames, std::int32_t next_local_input_frame) noexcept
+{
+    if (mutually_confirmed_frame < 0 || lead_frames <= 0
+        || mutually_confirmed_frame > INT32_MAX - lead_frames)
+        return std::nullopt;
+    const auto trigger = mutually_confirmed_frame + lead_frames;
+    return trigger >= next_local_input_frame
+        ? std::optional<std::int32_t>{trigger} : std::nullopt;
 }
 
 [[nodiscard]] inline constexpr bool
