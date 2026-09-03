@@ -327,7 +327,8 @@
                         QualificationCorrectionTransportDelay(
                             stimulus_depth,
                             static_cast<std::uint8_t>(
-                                m_deterministic_config.rollback_window));
+                                m_deterministic_config.rollback_window),
+                            m_online_local_player_slot);
                     const auto trigger_frame =
                         PlanQualificationCorrectionTrigger(
                             confirmed_gekko_frame, stimulus_lead,

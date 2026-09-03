@@ -120,6 +120,7 @@ public:
         }
         state += value.inputs[0].held + value.inputs[1].held;
         last_advanced_frame = value.frame;
+        advance_history.push_back(value);
         if (value.rolling_back)
         {
             ++rollback_advances;
@@ -145,6 +146,7 @@ public:
     std::vector<std::int32_t> loaded_frames{};
     std::int32_t last_advanced_frame{-1};
     std::uint32_t rollback_advances{};
+    std::vector<GekkoAdvanceValue> advance_history{};
     std::vector<GekkoAdvanceValue> rollback_history{};
     std::int32_t available_through{-1};
     std::int32_t pending_native_frame{-1};
@@ -222,12 +224,16 @@ void expect_hash_event(OnlineCoordinator& coordinator,
 
 int main()
 {
-    expect(QualificationCorrectionTransportDelay(11, 12) == 12
-            && QualificationCorrectionTransportDelay(1, 12) == 2
-            && QualificationCorrectionTransportDelay(6, 12) == 7,
-        "SC6 transport guard preserves requested 11-1-6 minimum depths");
-    expect(QualificationCorrectionTransportDelay(12, 12) == 0
-            && QualificationCorrectionTransportDelay(0, 12) == 0,
+    expect(QualificationCorrectionTransportDelay(11, 12, 0) == 12
+            && QualificationCorrectionTransportDelay(1, 12, 0) == 2
+            && QualificationCorrectionTransportDelay(6, 12, 0) == 7
+            && QualificationCorrectionTransportDelay(11, 12, 1) == 13
+            && QualificationCorrectionTransportDelay(1, 12, 1) == 3
+            && QualificationCorrectionTransportDelay(6, 12, 1) == 8,
+        "SC6 slot-aware release updates preserve requested 11-1-6 depths");
+    expect(QualificationCorrectionTransportDelay(12, 12, 0) == 0
+            && QualificationCorrectionTransportDelay(0, 12, 0) == 0
+            && QualificationCorrectionTransportDelay(1, 12, 2) == 0,
         "transport guard fails closed at invalid or overflowing depths");
     expect(!PlanQualificationCorrectionTrigger(29, 14, 92).has_value()
             && !PlanQualificationCorrectionTrigger(59, 14, 92).has_value()
@@ -314,7 +320,11 @@ int main()
     expect(first_online.state() == OnlineState::Active
             && second_online.state() == OnlineState::Active,
         "identical baseline acknowledgement activates both coordinators");
-    for (std::uint32_t frame = 0; frame < 8; ++frame)
+    // Reproduce the immutable Silver Wolves' Haven prefix skew exactly: the
+    // slot-0 sandbox completed two Gekko prefix frames while the slot-1 host
+    // completed eleven. This phase difference is what made a full-window
+    // twelve-update suppression request a thirteenth unknown remote input.
+    for (std::uint32_t frame = 0; frame < 2; ++frame)
     {
         PlayerInput first_input{};
         first_input.held = (frame % 3 == 0) ? 1u : 0u;
@@ -328,15 +338,21 @@ int main()
         expect(first.CompleteDeferredSaves().ok(),
             "first peer completes prefix saves");
         transfer(first_transport, second_transport);
+    }
+    for (std::uint32_t frame = 0; frame < 11; ++frame)
+    {
+        PlayerInput second_input{};
+        second_input.held = (frame % 5 == 0) ? 2u : 0u;
+        std::array<PlayerInput, 2> second_authoritative{};
         expect(second.Advance(second_input, second_authoritative).ok(),
-            "second peer admits acknowledged preownership prefix input");
+            "slot-1 host admits its eleven-frame preownership prefix");
         second_simulation.CompleteNativeFrame();
         expect(second.CompleteDeferredSaves().ok(),
-            "second peer completes prefix saves");
+            "slot-1 host completes its asymmetric prefix save");
         transfer(second_transport, first_transport);
     }
-    for (int count = 0; count < 16
-        && (first.confirmed_frame() < 7 || second.confirmed_frame() < 7);
+    for (int count = 0; count < 32
+        && (first.confirmed_frame() < 1 || second.confirmed_frame() < 1);
         ++count)
     {
         expect(first.PollNetwork().ok(),
@@ -350,20 +366,28 @@ int main()
         expect(second.FlushCorrections().ok(),
             "second peer confirms the complete prefix before ownership");
     }
-    expect(first.confirmed_frame() >= 7 && second.confirmed_frame() >= 7,
+    expect(first.confirmed_frame() >= 1 && second.confirmed_frame() >= 1,
         "qualification stimulus begins only after the complete prefix is confirmed");
     expect(claim_owned(first_online, {1, 129})
             && claim_owned(second_online, {1, 129}),
         "both peers claim simulation ownership");
 
-    std::array<PlayerInput, 2> asymmetric_prefix_inputs{};
-    expect(second.FlushCorrections().ok()
-            && second.Advance({}, asymmetric_prefix_inputs).ok(),
-        "sandbox fixture advances one extra neutral prefix frame");
-    second_simulation.CompleteNativeFrame();
-    expect(second.CompleteDeferredSaves().ok(),
-        "sandbox fixture completes the asymmetric prefix frame");
-    transfer(second_transport, first_transport);
+    // The sandbox entered owned simulation about eight ticks before the host
+    // in the immutable run. Reproduce that lifecycle ordering after retaining
+    // the exact 2-versus-11 prefix, leaving the host one Gekko frame ahead
+    // when both clients reach steady-state callbacks.
+    for (std::uint32_t frame = 0; frame < 8; ++frame)
+    {
+        std::array<PlayerInput, 2> first_authoritative{};
+        expect(first.FlushCorrections().ok()
+                && first.Advance({}, first_authoritative).ok(),
+            "slot-0 sandbox advances during the earlier ownership interval");
+        first_simulation.CompleteNativeFrame();
+        expect(first.CompleteDeferredSaves().ok(),
+            "slot-0 sandbox completes its earlier owned save");
+        transfer(first_transport, second_transport);
+    }
+
     for (std::uint32_t frame = 0; frame < 40; ++frame)
     {
         std::array<PlayerInput, 2> first_authoritative{};
@@ -390,9 +414,9 @@ int main()
     const auto second_rollbacks_before_stimulus =
         second_simulation.rollback_advances;
     expect(first.ArmQualificationCorrectionStimulus(
-                QualificationCorrectionTransportDelay(11, 12), 89).ok()
+                QualificationCorrectionTransportDelay(11, 12, 0), 89).ok()
             && second.ArmQualificationCorrectionStimulus(
-                QualificationCorrectionTransportDelay(11, 12), 89).ok(),
+                QualificationCorrectionTransportDelay(11, 12, 1), 89).ok(),
         "mutual frame-29 hash arms one absolute frame-89 depth-11 correction");
     bool stimulus_healthy = true;
     for (std::uint32_t frame = 0; frame < 80; ++frame)
@@ -476,8 +500,8 @@ int main()
                 > second_rollbacks_before_stimulus,
         "bilateral late authenticated inputs force restore/resimulation on both peers");
     const auto has_staged_frame_90 = [](const auto& history,
-                                         std::uint32_t first_p0,
-                                         std::uint32_t first_p1) {
+                                          std::uint32_t first_p0,
+                                          std::uint32_t first_p1) {
         bool partial{};
         for (const auto& value : history)
         {
@@ -495,8 +519,24 @@ int main()
         }
         return false;
     };
-    expect(has_staged_frame_90(first_simulation.rollback_history, 1, 0)
-            && has_staged_frame_90(second_simulation.rollback_history, 0, 1),
+    if (!has_staged_frame_90(first_simulation.advance_history, 1, 0)
+        || !has_staged_frame_90(second_simulation.advance_history, 0, 1))
+    {
+        const auto dump_frame_90 = [](const char* label, const auto& history) {
+            std::cerr << label << " frame-90 rollback inputs:";
+            for (const auto& value : history)
+            {
+                if (value.frame == 90)
+                    std::cerr << ' ' << value.inputs[0].held << '/'
+                              << value.inputs[1].held;
+            }
+            std::cerr << '\n';
+        };
+        dump_frame_90("first", first_simulation.advance_history);
+        dump_frame_90("second", second_simulation.advance_history);
+    }
+    expect(has_staged_frame_90(first_simulation.advance_history, 1, 0)
+            && has_staged_frame_90(second_simulation.advance_history, 0, 1),
         "Gekko revisits frame 90 after local-only knowledge with both delayed "
         "authenticated inputs; the first remote value is not immutable");
     expect(first_simulation.state == second_simulation.state,
@@ -516,12 +556,14 @@ int main()
             + QualificationCorrectionStimulusLead(12);
         const auto first_rollbacks = first_simulation.rollback_advances;
         const auto second_rollbacks = second_simulation.rollback_advances;
+        const auto first_history_begin = first_simulation.advance_history.size();
+        const auto second_history_begin = second_simulation.advance_history.size();
         expect(first.ArmQualificationCorrectionStimulus(
                     QualificationCorrectionTransportDelay(
-                        depth, 12), trigger).ok()
+                        depth, 12, 0), trigger).ok()
                 && second.ArmQualificationCorrectionStimulus(
                     QualificationCorrectionTransportDelay(
-                        depth, 12), trigger).ok(),
+                        depth, 12, 1), trigger).ok(),
             "released qualification stimulus re-arms at a later shared boundary");
         bool healthy = true;
         for (std::uint32_t frame = 0; frame < 80 && healthy; ++frame)
@@ -558,6 +600,33 @@ int main()
         expect(first_simulation.rollback_advances > first_rollbacks
                 && second_simulation.rollback_advances > second_rollbacks,
             "re-armed authenticated delay forces another restore/resimulation");
+        const auto has_exact_transition = [](const auto& history,
+                std::size_t begin, std::int32_t target,
+                std::uint32_t initial_p0, std::uint32_t initial_p1) {
+            bool initial{};
+            for (std::size_t index = begin; index < history.size(); ++index)
+            {
+                const auto& value = history[index];
+                if (value.frame != target) continue;
+                if (!initial)
+                {
+                    if (value.inputs[0].held != initial_p0
+                        || value.inputs[1].held != initial_p1)
+                        return false;
+                    initial = true;
+                }
+                else if (value.inputs[0].held == 1
+                    && value.inputs[1].held == 1)
+                    return true;
+            }
+            return false;
+        };
+        expect(has_exact_transition(first_simulation.advance_history,
+                   first_history_begin, trigger + 1, 1, 0)
+                && has_exact_transition(second_simulation.advance_history,
+                   second_history_begin, trigger + 1, 0, 1),
+            "each re-armed depth revisits the injected frame from local-only "
+            "to identical bilateral inputs");
         expect(first_simulation.state == second_simulation.state,
             "re-armed restore/resimulation converges independently");
     };

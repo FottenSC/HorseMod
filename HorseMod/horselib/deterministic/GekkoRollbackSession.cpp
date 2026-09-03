@@ -256,7 +256,12 @@ void GekkoRollbackSession::SendData(
         if (self != nullptr) self->failure_ = FailureCode::ProtocolMismatch;
         return;
     }
-    if (self->qualification_delay_active_)
+    // Release replacement history on the requested sender update.  Returning
+    // while the counter equals one would suppress N complete updates and send
+    // only on N+1, which exhausts a phase-leading peer's prediction window at
+    // the production depth-11 boundary.
+    if (self->qualification_delay_active_
+        && self->qualification_delay_remaining_ > 1)
         return;
     const auto sent = self->coordinator_->SendGekkoPayload(
         std::span{reinterpret_cast<const std::byte*>(data),

@@ -25,19 +25,23 @@ QualificationCorrectionStimulusLead(std::uint32_t rollback_window) noexcept
 
 [[nodiscard]] inline constexpr std::uint8_t
 QualificationCorrectionTransportDelay(std::uint8_t requested_depth,
-    std::uint8_t rollback_window) noexcept
+    std::uint8_t rollback_window, std::uint8_t local_player_slot) noexcept
 {
-    // SC6's two owned callbacks enter the same Gekko coordinate one native
-    // tick apart, and transport polling can release a payload before the
-    // receiver has simulated the requested prediction depth. Hold every
-    // qualification payload for one additional tick. The requested maximum
-    // remains 11 so the guarded delay stays inside the 12-frame window.
-    if (requested_depth == 0 || requested_depth >= rollback_window)
+    // Release replacement history after the requested number of receiver
+    // predictions. SC6's slot-1 callback is one update ahead of slot 0 at the
+    // owned boundary. Slot 0 therefore releases at depth+1 toward the leading
+    // receiver; slot 1 releases at depth+2 toward the lagging receiver.
+    // SendData allows that final update through, so even slot 1's depth-11
+    // update 13 suppresses only twelve complete updates.
+    if (requested_depth == 0 || requested_depth >= rollback_window
+        || local_player_slot > 1)
         return 0;
-    const auto guarded = static_cast<std::uint16_t>(requested_depth)
-        + 1u;
-    return guarded <= rollback_window
-        ? static_cast<std::uint8_t>(guarded) : 0;
+    const std::uint16_t release_update = static_cast<std::uint16_t>(
+        requested_depth) + 1u + local_player_slot;
+    const std::uint16_t maximum_release_update = static_cast<std::uint16_t>(
+        rollback_window) + local_player_slot;
+    return release_update <= maximum_release_update
+        ? static_cast<std::uint8_t>(release_update) : 0;
 }
 
 [[nodiscard]] inline constexpr std::optional<std::int32_t>
