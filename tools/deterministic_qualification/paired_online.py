@@ -474,6 +474,18 @@ def _development_smoke_complete(args: Any, completed_cycles: int) -> bool:
             or completed_cycles >= args.match_cycles)
 
 
+def _development_report_kind(args: Any) -> str:
+    if args.development_correction_smoke:
+        return "paired_online_development_correction_smoke"
+    if args.development_depth7_smoke:
+        return "paired_online_development_depth7_smoke"
+    if args.development_round_barrier_smoke:
+        return "paired_online_development_round_barrier_smoke"
+    if args.development_reentry_smoke:
+        return "paired_online_development_reentry_smoke"
+    return "paired_online_development_setup_smoke"
+
+
 def _qualification_correction_stimulus_depths(
     args: Any, failure_case: str,
 ) -> tuple[int, ...]:
@@ -1801,13 +1813,7 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
                 and metrics is not None and hashes is not None)
         report = {
             "report_schema": 2,
-            "kind": ("paired_online_development_correction_smoke"
-                     if args.development_correction_smoke
-                     else "paired_online_development_depth7_smoke"
-                     if args.development_depth7_smoke
-                     else "paired_online_development_round_barrier_smoke"
-                     if args.development_round_barrier_smoke
-                     else "paired_online_development_setup_smoke"),
+            "kind": _development_report_kind(args),
             "certifying": False,
             "result": "pass",
             "run_id": run_id,

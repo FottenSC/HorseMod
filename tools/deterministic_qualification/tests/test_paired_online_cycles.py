@@ -13,6 +13,7 @@ from tools.deterministic_qualification.paired_online import (
     _require_matching_independent_baselines,
     _confirmed_convergence, _development_session_latch,
     _development_smoke_complete,
+    _development_report_kind,
     _completed_teardown_reports,
     _cycle_teardown_run_ids,
     _first_correction_evidence,
@@ -131,6 +132,8 @@ def test_paired_online_exposes_two_cycle_same_process_reentry_smoke():
     assert arguments.match_cycles == 2
     assert not _development_smoke_complete(arguments, 1)
     assert _development_smoke_complete(arguments, 2)
+    assert (_development_report_kind(arguments)
+            == "paired_online_development_reentry_smoke")
 
 
 def test_paired_online_exposes_hash_bound_capture_reevaluation():
