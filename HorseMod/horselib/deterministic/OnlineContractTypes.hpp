@@ -8,6 +8,12 @@
 
 namespace Horse::Deterministic
 {
+[[nodiscard]] constexpr bool IsQualificationCorrectionDepth(
+    std::uint32_t depth) noexcept
+{
+    return depth == 1 || depth == 6 || depth == 7 || depth == 11;
+}
+
 struct OnlineContentContract
 {
     static constexpr std::size_t maximum_fighter_code_bytes = 16;

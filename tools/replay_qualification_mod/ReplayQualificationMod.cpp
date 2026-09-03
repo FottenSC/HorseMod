@@ -12,6 +12,7 @@
 #include "ReplaySceneNavigator.hpp"
 #include "ReplaySeekReadiness.hpp"
 #include "OnlineRoomAutomation.hpp"
+#include "deterministic/OnlineContractTypes.hpp"
 #include "deterministic/Sc6OnlineObserverProbe.hpp"
 
 #include <DynamicOutput/DynamicOutput.hpp>
@@ -502,8 +503,8 @@ bool ReadOnlineRequest(const std::filesystem::path& path,
                     value.data() + value.size(), depth);
                 if (parsed.ec != std::errc{}
                     || parsed.ptr != value.data() + value.size()
-                    || (depth != 0 && depth != 1 && depth != 6
-                        && depth != 11)) return false;
+                    || (depth != 0 && !Horse::Deterministic::
+                        IsQualificationCorrectionDepth(depth))) return false;
                 correction_stimulus_present = true;
                 if (depth != 0)
                 {
@@ -528,9 +529,10 @@ bool ReadOnlineRequest(const std::filesystem::path& path,
                     const auto parsed = std::from_chars(
                         value.data() + value_begin, value.data() + token_end,
                         depth);
-                    if (parsed.ec != std::errc{}
-                        || parsed.ptr != value.data() + token_end
-                        || (depth != 1 && depth != 6 && depth != 11))
+                if (parsed.ec != std::errc{}
+                    || parsed.ptr != value.data() + token_end
+                    || !Horse::Deterministic::
+                        IsQualificationCorrectionDepth(depth))
                         return false;
                     correction_stimulus_depths[correction_stimulus_count++] =
                         static_cast<std::uint8_t>(depth);

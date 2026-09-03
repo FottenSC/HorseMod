@@ -30,6 +30,19 @@ void expect(bool condition, const char* message)
     }
 }
 
+void test_qualification_correction_depth_contract()
+{
+    expect(IsQualificationCorrectionDepth(1)
+            && IsQualificationCorrectionDepth(6)
+            && IsQualificationCorrectionDepth(7)
+            && IsQualificationCorrectionDepth(11),
+        "qualification request depths include the production depth-7 canary");
+    expect(!IsQualificationCorrectionDepth(0)
+            && !IsQualificationCorrectionDepth(2)
+            && !IsQualificationCorrectionDepth(12),
+        "qualification request depths reject values outside the reviewed set");
+}
+
 class FakeAllowlist final : public IOnlineContentAllowlist
 {
 public:
@@ -901,6 +914,7 @@ void test_online_cleanup_waits_for_native_battle_termination_post_hook()
 
 int main()
 {
+    test_qualification_correction_depth_contract();
     test_baseline_hash_mismatch_fails_before_ownership();
     {
         ProductionOnlineAllowlist production{};

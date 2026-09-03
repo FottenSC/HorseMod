@@ -80,6 +80,15 @@ def test_paired_online_exposes_noncertifying_repeated_correction_smoke():
     assert arguments.development_correction_smoke is True
 
 
+def test_paired_online_exposes_noncertifying_depth7_timing_smoke():
+    arguments = build_parser().parse_args([
+        "paired-online", "--case-manifest", "cases.json", "--case", "case-a",
+        "--dll", "HorseMod.dll", "--output-dir", "evidence",
+        "--report", "report.json", "--development-depth7-smoke",
+    ])
+    assert arguments.development_depth7_smoke is True
+
+
 def test_paired_online_exposes_two_cycle_same_process_reentry_smoke():
     arguments = build_parser().parse_args([
         "paired-online", "--case-manifest", "cases.json", "--case", "case-a",
@@ -232,6 +241,13 @@ def test_repeated_correction_smoke_requires_11_1_6_and_three_convergences():
     assert [row["ordinal"] for row in correction_evidence] == [1, 2, 3]
     assert correction_evidence[1]["host_corrections"] == 2
     assert correction_evidence[1]["sandbox_corrections"] == 2
+    assert correction_evidence[1]["host_correction_p99_ns"] == 1
+    with pytest.raises(RuntimeError, match="outside timing"):
+        _repeated_correction_evidence({
+            "host": combined("h", (1, 2, 3), host_stimuli).replace(
+                "correction_p99_ns=1", "correction_p99_ns=16670000"),
+            "sandbox": combined("s", (1, 2, 3), sandbox_stimuli),
+        }, {"host": "h", "sandbox": "s"}, 3)
     # One peer advancing cannot certify the other peer's restore path and
     # must not allow teardown to race the next confirmed-hash exchange.
     with pytest.raises(RuntimeError, match="correction 2 was not bilateral"):

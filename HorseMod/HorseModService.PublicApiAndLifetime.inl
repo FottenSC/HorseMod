@@ -243,7 +243,8 @@ public:
         if (correction_stimulus_depths.size() > 3
             || std::any_of(correction_stimulus_depths.begin(),
                 correction_stimulus_depths.end(), [](std::uint8_t depth) {
-                    return depth != 1 && depth != 6 && depth != 11;
+                    return !Horse::Deterministic::
+                        IsQualificationCorrectionDepth(depth);
                 }))
             return false;
         if (fault != OnlineQualificationFault::None

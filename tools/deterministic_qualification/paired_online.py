@@ -466,6 +466,7 @@ def _read_pair_logs(
 def _development_smoke_complete(args: Any, completed_cycles: int) -> bool:
     if not (args.development_setup_smoke
             or args.development_correction_smoke
+            or args.development_depth7_smoke
             or args.development_reentry_smoke):
         return False
     return (not args.development_reentry_smoke
@@ -638,14 +639,20 @@ def _repeated_correction_evidence(
             return None
         for label, match in reached.items():
             if (int(match.group("pending")) != 0
+                    or int(match.group("post_status4_growth")) != 0
+                    or int(match.group("capacity_failures")) != 0
+                    or int(match.group("correction_samples"))
+                        != int(match.group("corrections"))
+                    or int(match.group("correction_p99_ns")) >= 16_670_000
+                    or int(match.group("correction_max_ns")) >= 33_340_000
                     or int(match.group("audio_sequence_mismatches")) != 0
                     or int(match.group("camera_publication_mismatches")) != 0
                     or int(match.group("presentation_failures")) != 0
                     or int(match.group("journal_duplicates")) != 0
                     or int(match.group("journal_publish_failures")) != 0):
                 raise RuntimeError(
-                    f"{label} correction {ordinal} converged with dirty "
-                    "presentation or pending-event state")
+                    f"{label} correction {ordinal} converged outside timing, "
+                    "capacity, or presentation gates")
         generation = int(reached["host"].group("generation"))
         frame = int(reached["host"].group("frame"))
         sha256 = reached["host"].group("sha256")
@@ -657,6 +664,14 @@ def _repeated_correction_evidence(
                 reached["sandbox"].group("corrections")),
             "host_max_depth": int(reached["host"].group("depth")),
             "sandbox_max_depth": int(reached["sandbox"].group("depth")),
+            "host_correction_p99_ns": int(
+                reached["host"].group("correction_p99_ns")),
+            "sandbox_correction_p99_ns": int(
+                reached["sandbox"].group("correction_p99_ns")),
+            "host_correction_max_ns": int(
+                reached["host"].group("correction_max_ns")),
+            "sandbox_correction_max_ns": int(
+                reached["sandbox"].group("correction_max_ns")),
         })
     return evidence
 
@@ -1105,7 +1120,7 @@ def _wait_development_setup_smoke(
     timeout_seconds: float,
     guard: Any,
     request_lobby_return: Any,
-    require_first_correction: bool = False,
+    correction_depths: tuple[int, ...] = (),
 ) -> tuple[dict[str, Any], dict[str, str]]:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
@@ -1238,8 +1253,8 @@ def _wait_development_setup_smoke(
             f"native first-owned admission timed out on "
             f"{case['native_display_name']}")
 
-    if require_first_correction:
-        expected_depths = (11, 1, 6)
+    if correction_depths:
+        expected_depths = correction_depths
         correction_deadline = min(deadline, time.monotonic() + 75.0)
         stimulus_sequence = None
         corrections = None
@@ -1325,11 +1340,14 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
         raise RuntimeError("match cycles must be positive and cycling soak non-negative")
     development_smoke = (
         args.development_setup_smoke or args.development_correction_smoke
+        or args.development_depth7_smoke
         or args.development_reentry_smoke)
     correction_stimulus_depths = (
-        (11, 1, 6) if args.development_correction_smoke else ())
+        (11, 1, 6) if args.development_correction_smoke
+        else (7,) if args.development_depth7_smoke else ())
     if sum((args.development_setup_smoke,
             args.development_correction_smoke,
+            args.development_depth7_smoke,
             args.development_reentry_smoke)) > 1:
         raise RuntimeError("select only one paired development smoke")
     if development_smoke and (
@@ -1522,8 +1540,7 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
                         paths, run_ids, active_automation_run_ids, case,
                         log_offsets, args.match_timeout, guard,
                         request_lobby_return,
-                        require_first_correction=
-                            args.development_correction_smoke,
+                        correction_depths=correction_stimulus_depths,
                     )
                 else:
                     metrics, raw_logs = _wait_online(
@@ -1736,6 +1753,8 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
             "report_schema": 2,
             "kind": ("paired_online_development_correction_smoke"
                      if args.development_correction_smoke
+                     else "paired_online_development_depth7_smoke"
+                     if args.development_depth7_smoke
                      else "paired_online_development_setup_smoke"),
             "certifying": False,
             "result": "pass",

@@ -1940,6 +1940,9 @@ def build_parser() -> argparse.ArgumentParser:
         help=("allow a dirty, explicitly non-certifying run that stops after "
               "both authenticated peers independently converge corrections "
               "at depths 11, 1, and 6 in one match"))
+    paired.add_argument("--development-depth7-smoke", action="store_true",
+        help=("run one non-certifying authenticated depth-7 correction and "
+              "enforce the production timing and cleanup ceilings"))
     paired.add_argument("--development-reentry-smoke", action="store_true",
         help=("allow a dirty, explicitly non-certifying two-match run in one "
               "SC6 process to verify cleanup and qualification re-entry"))
