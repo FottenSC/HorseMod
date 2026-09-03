@@ -234,13 +234,13 @@ int main()
             && held_stimulus[0] == PlayerInput{}
             && held_stimulus[1] == PlayerInput{.held = 1, .rising = 1},
         "qualification pair contains both bit-0 predictions in release order");
-    expect(QualificationCorrectionTransportDelay(11, 12, 0) == 12
-            && QualificationCorrectionTransportDelay(1, 12, 0) == 2
-            && QualificationCorrectionTransportDelay(6, 12, 0) == 7
+    expect(QualificationCorrectionTransportDelay(11, 12, 0) == 13
+            && QualificationCorrectionTransportDelay(1, 12, 0) == 3
+            && QualificationCorrectionTransportDelay(6, 12, 0) == 8
             && QualificationCorrectionTransportDelay(11, 12, 1) == 13
             && QualificationCorrectionTransportDelay(1, 12, 1) == 3
             && QualificationCorrectionTransportDelay(6, 12, 1) == 8,
-        "SC6 slot-aware release updates preserve requested 11-1-6 depths");
+        "either SC6 callback phase retains the complete 11-1-6 input pair");
     expect(QualificationCorrectionTransportDelay(12, 12, 0) == 0
             && QualificationCorrectionTransportDelay(0, 12, 0) == 0
             && QualificationCorrectionTransportDelay(1, 12, 2) == 0,
@@ -585,6 +585,21 @@ int main()
     const auto run_rearmed_stimulus = [&](std::uint8_t depth) {
         expect(first.confirmed_frame() == second.confirmed_frame(),
             "re-arm begins at a mutually confirmed Gekko boundary");
+        if (depth == 1)
+        {
+            // A mutually confirmed hash does not equalize the peers' next
+            // local-input cursors. Reproduce the live efbea2d7 boundary where
+            // the slot-0 sender entered the stimulus one Gekko update ahead
+            // of the slot-1 receiver.
+            std::array<PlayerInput, 2> authoritative{};
+            expect(first.FlushCorrections().ok()
+                    && first.Advance({}, authoritative).ok(),
+                "slot-0 sender advances one update before depth-1 re-arm");
+            first_simulation.CompleteNativeFrame();
+            expect(first.CompleteDeferredSaves().ok(),
+                "slot-0 sender completes the phase-skew save");
+            transfer(first_transport, second_transport);
+        }
         const auto trigger = first.confirmed_frame()
             + QualificationCorrectionStimulusLead(12);
         const auto first_rollbacks = first_simulation.rollback_advances;
@@ -610,24 +625,31 @@ int main()
                 first_input = {.held = 1, .rising = 1};
             std::array<PlayerInput, 2> first_authoritative{};
             std::array<PlayerInput, 2> second_authoritative{};
-            // The two live SC6 processes consistently reach each shared
-            // confirmation with slot 1 first and slot 0 second.  Preserve
-            // that callback phase here: the former slot-0-first schedule
-            // gave its delayed packet a receiver update that does not exist
-            // in the authenticated runtime and masked a one-sided depth-1
-            // correction.
-            healthy = second.FlushCorrections().ok()
-                && second.Advance({}, second_authoritative).ok();
-            if (!healthy) break;
-            second_simulation.CompleteNativeFrame();
-            healthy = second.CompleteDeferredSaves().ok();
-            transfer(second_transport, first_transport);
-            healthy = healthy && first.FlushCorrections().ok()
-                && first.Advance(first_input, first_authoritative).ok();
-            if (!healthy) break;
-            first_simulation.CompleteNativeFrame();
-            healthy = first.CompleteDeferredSaves().ok();
-            transfer(first_transport, second_transport);
+            const auto advance_first = [&] {
+                const auto advanced = first.FlushCorrections().ok()
+                    && first.Advance(first_input, first_authoritative).ok();
+                if (!advanced) return false;
+                first_simulation.CompleteNativeFrame();
+                const auto saved = first.CompleteDeferredSaves().ok();
+                transfer(first_transport, second_transport);
+                return saved;
+            };
+            const auto advance_second = [&] {
+                const auto advanced = second.FlushCorrections().ok()
+                    && second.Advance({}, second_authoritative).ok();
+                if (!advanced) return false;
+                second_simulation.CompleteNativeFrame();
+                const auto saved = second.CompleteDeferredSaves().ok();
+                transfer(second_transport, first_transport);
+                return saved;
+            };
+            // Live ownership callbacks can lead with either slot after a
+            // confirmed-hash exchange. The efbea2d7 canary reached the
+            // depth-1 trigger with slot 0 first, allowing its old depth+1
+            // release to arrive before slot 1 predicted the changed input.
+            healthy = depth == 1
+                ? advance_first() && advance_second()
+                : advance_second() && advance_first();
         }
         for (int count = 0; healthy && count < 8; ++count)
         {

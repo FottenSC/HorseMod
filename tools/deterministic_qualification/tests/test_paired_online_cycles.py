@@ -226,7 +226,7 @@ def test_repeated_correction_smoke_requires_11_1_6_and_three_convergences():
         f"transport_delay={delays[index]}\n"
         for index, depth in enumerate((11, 1, 6)))
     host_stimuli = stimulus_text((13, 3, 8))
-    sandbox_stimuli = stimulus_text((12, 2, 7))
+    sandbox_stimuli = stimulus_text((13, 3, 8))
     stimulus_evidence = _correction_stimulus_sequence_evidence({
         "host": host_stimuli.format(run="h"),
         "sandbox": sandbox_stimuli.format(run="s"),
@@ -234,7 +234,7 @@ def test_repeated_correction_smoke_requires_11_1_6_and_three_convergences():
     assert stimulus_evidence is not None
     assert [row["depth"] for row in stimulus_evidence["host"]] == [11, 1, 6]
     assert [row["transport_delay"] for row in stimulus_evidence["host"]] == [13, 3, 8]
-    assert [row["transport_delay"] for row in stimulus_evidence["sandbox"]] == [12, 2, 7]
+    assert [row["transport_delay"] for row in stimulus_evidence["sandbox"]] == [13, 3, 8]
 
     def combined(run, correction_counts, stimuli):
         stimulus_rows = stimuli.splitlines(keepends=True)

@@ -884,6 +884,10 @@ struct SteamBindings
     using SetLobbyMemberDataFn = void (__cdecl*)(
         void*, std::uint64_t, const char*, const char*);
     using SetLobbyTypeFn = bool (__cdecl*)(void*, std::uint64_t, int);
+    using SetLobbyMemberLimitFn = bool (__cdecl*)(
+        void*, std::uint64_t, int);
+    using SetLobbyJoinableFn = bool (__cdecl*)(
+        void*, std::uint64_t, bool);
 
     void* matchmaking{};
     void* user{};
@@ -896,6 +900,8 @@ struct SteamBindings
     LobbyMemberDataFn member_data{};
     SetLobbyMemberDataFn set_member_data{};
     SetLobbyTypeFn set_type{};
+    SetLobbyMemberLimitFn set_member_limit{};
+    SetLobbyJoinableFn set_joinable{};
 
     bool Initialize() noexcept
     {
@@ -932,10 +938,14 @@ struct SteamBindings
             resolve("SteamAPI_ISteamMatchmaking_SetLobbyMemberData"));
         set_type = reinterpret_cast<SetLobbyTypeFn>(
             resolve("SteamAPI_ISteamMatchmaking_SetLobbyType"));
+        set_member_limit = reinterpret_cast<SetLobbyMemberLimitFn>(
+            resolve("SteamAPI_ISteamMatchmaking_SetLobbyMemberLimit"));
+        set_joinable = reinterpret_cast<SetLobbyJoinableFn>(
+            resolve("SteamAPI_ISteamMatchmaking_SetLobbyJoinable"));
         if (!steam_client || !get_user_handle || !get_pipe_handle || !get_user
             || !get_matchmaking || !get_steam_id || !data_count || !member_count || !owner
             || !request_data || !data || !member_data || !set_member_data
-            || !set_type)
+            || !set_type || !set_member_limit || !set_joinable)
             return false;
         void* client = steam_client();
         const int user_handle = get_user_handle();
@@ -1767,6 +1777,7 @@ void OnlineRoomAutomation::Reset(const OnlineAutomationRequest& request) noexcep
     lobby_metadata_requested_ = false;
     native_invite_queued_ = false;
     play_side_requested_ = false;
+    lobby_admission_sealed_ = false;
     session_connection_ready_ = false;
     peer_connect_ready_published_ = false;
     host_session_transport_ready_ = false;
@@ -2089,6 +2100,47 @@ OnlineRoomState OnlineRoomAutomation::Tick(std::string& detail) noexcept
                     + std::to_string(observed_owner);
                 return OnlineRoomState::Failed;
             }
+            const int members = steam.member_count(
+                steam.matchmaking, observed_lobby);
+            const char* host_seal = steam.member_data(
+                steam.matchmaking, observed_lobby, expected_owner,
+                "HORSE_Q_LOBBY_SEALED");
+            const auto admission = PlanQualificationLobbyAdmission(
+                request_.role, members, lobby_admission_sealed_,
+                host_seal != nullptr && std::strcmp(host_seal, "1") == 0);
+            if (admission == QualificationLobbyAdmission::RejectOverCapacity)
+            {
+                detail = "authenticated_lobby_over_capacity:"
+                    + std::to_string(members);
+                return OnlineRoomState::Failed;
+            }
+            if (admission == QualificationLobbyAdmission::WaitForPair)
+            {
+                detail = "waiting_for_authenticated_pair:"
+                    + std::to_string(members);
+                return OnlineRoomState::Waiting;
+            }
+            if (admission == QualificationLobbyAdmission::SealHost)
+            {
+                if (!steam.set_member_limit(
+                        steam.matchmaking, observed_lobby, 2)
+                    || !steam.set_joinable(
+                        steam.matchmaking, observed_lobby, false))
+                {
+                    detail = "qualification_lobby_seal_failed";
+                    return OnlineRoomState::Failed;
+                }
+                steam.set_member_data(steam.matchmaking, observed_lobby,
+                    "HORSE_Q_LOBBY_SEALED", "1");
+                lobby_admission_sealed_ = true;
+                detail = "qualification_lobby_sealed";
+                return OnlineRoomState::Waiting;
+            }
+            if (admission == QualificationLobbyAdmission::WaitForHostSeal)
+            {
+                detail = "waiting_for_qualification_lobby_seal";
+                return OnlineRoomState::Waiting;
+            }
             if (!play_side_requested_)
             {
                 if (!RequestPlaySide(manager,
@@ -2099,14 +2151,6 @@ OnlineRoomState OnlineRoomAutomation::Tick(std::string& detail) noexcept
                 }
                 play_side_requested_ = true;
                 detail = "play_side_requested";
-                return OnlineRoomState::Waiting;
-            }
-            const int members = steam.member_count(
-                steam.matchmaking, observed_lobby);
-            if (members != 2)
-            {
-                detail = "waiting_for_authenticated_pair:"
-                    + std::to_string(members);
                 return OnlineRoomState::Waiting;
             }
             if (request_.role == OnlineAutomationRole::Sandbox)
@@ -2373,10 +2417,12 @@ OnlineRoomState OnlineRoomAutomation::Tick(std::string& detail) noexcept
             return OnlineRoomState::Failed;
         }
         // k_ELobbyTypePrivate == 0. The sandbox joins only through the exact
-        // authenticated invite event, so the room is never left browsable.
-        if (!steam.set_type(steam.matchmaking, lobby_id_, 0))
+        // authenticated invite event. Also reserve exactly one peer slot;
+        // match setup closes joining after that peer arrives.
+        if (!steam.set_type(steam.matchmaking, lobby_id_, 0)
+            || !steam.set_member_limit(steam.matchmaking, lobby_id_, 2))
         {
-            detail = "host_room_private_transition_failed";
+            detail = "host_room_admission_lockdown_failed";
             return OnlineRoomState::Failed;
         }
         detail = "host_room_created_in_room";

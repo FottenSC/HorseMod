@@ -767,10 +767,10 @@ def _correction_stimulus_sequence_evidence(
             "peers armed different authenticated correction sequences")
     for host, sandbox in zip(evidence["host"], evidence["sandbox"]):
         if (host["transport_delay"] != host["depth"] + 2
-                or sandbox["transport_delay"] != sandbox["depth"] + 1):
+                or sandbox["transport_delay"] != sandbox["depth"] + 2):
             raise RuntimeError(
-                "peers armed correction delays outside the slot-aware "
-                "release-update phase contract")
+                "peers armed correction delays outside the phase-safe "
+                "release-update contract")
     return evidence
 
 

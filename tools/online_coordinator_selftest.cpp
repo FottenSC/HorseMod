@@ -870,6 +870,37 @@ void test_player_match_teardown_requires_the_complete_blueprint_sequence()
         "only PlayerMatchLobbyScene completes teardown");
 }
 
+void test_qualification_lobby_admission_is_sealed_before_setup()
+{
+    expect(PlanQualificationLobbyAdmission(
+            OnlineAutomationRole::Host, 1, false, false)
+            == QualificationLobbyAdmission::WaitForPair,
+        "host waits for the authenticated peer before sealing admission");
+    expect(PlanQualificationLobbyAdmission(
+            OnlineAutomationRole::Host, 2, false, false)
+            == QualificationLobbyAdmission::SealHost,
+        "host seals the exact pair before match setup proceeds");
+    expect(PlanQualificationLobbyAdmission(
+            OnlineAutomationRole::Host, 2, true, true)
+            == QualificationLobbyAdmission::Ready,
+        "host proceeds only after publishing the admission seal");
+    expect(PlanQualificationLobbyAdmission(
+            OnlineAutomationRole::Sandbox, 2, false, false)
+            == QualificationLobbyAdmission::WaitForHostSeal,
+        "sandbox cannot race setup ahead of the host admission seal");
+    expect(PlanQualificationLobbyAdmission(
+            OnlineAutomationRole::Sandbox, 2, false, true)
+            == QualificationLobbyAdmission::Ready,
+        "sandbox proceeds after observing the host seal");
+    expect(PlanQualificationLobbyAdmission(
+            OnlineAutomationRole::Host, 3, false, false)
+            == QualificationLobbyAdmission::RejectOverCapacity
+            && PlanQualificationLobbyAdmission(
+                OnlineAutomationRole::Sandbox, 3, false, false)
+                == QualificationLobbyAdmission::RejectOverCapacity,
+        "an over-capacity lobby fails closed on both peers");
+}
+
 void test_online_cleanup_waits_for_native_battle_termination_post_hook()
 {
     OnlineSceneExitGate gate;
@@ -942,6 +973,7 @@ int main()
     test_confirmed_hash_waits_for_completed_native_coordinate();
     test_prefix_activation_requires_a_real_confirmed_frame();
     test_player_match_teardown_requires_the_complete_blueprint_sequence();
+    test_qualification_lobby_admission_is_sealed_before_setup();
     test_online_cleanup_waits_for_native_battle_termination_post_hook();
     if (failures == 0)
         std::cout << "OnlineCoordinatorSelfTest passed\n";

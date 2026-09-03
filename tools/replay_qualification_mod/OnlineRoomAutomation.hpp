@@ -34,6 +34,32 @@ enum class MatchTeardownScene : std::uint8_t
     PlayerMatchLobby,
 };
 
+enum class QualificationLobbyAdmission : std::uint8_t
+{
+    WaitForPair,
+    SealHost,
+    WaitForHostSeal,
+    Ready,
+    RejectOverCapacity,
+};
+
+[[nodiscard]] constexpr QualificationLobbyAdmission PlanQualificationLobbyAdmission(
+    OnlineAutomationRole role, std::int32_t member_count,
+    bool local_seal_published, bool host_seal_observed) noexcept
+{
+    if (member_count > 2)
+        return QualificationLobbyAdmission::RejectOverCapacity;
+    if (member_count != 2)
+        return QualificationLobbyAdmission::WaitForPair;
+    if (role == OnlineAutomationRole::Host)
+        return local_seal_published
+            ? QualificationLobbyAdmission::Ready
+            : QualificationLobbyAdmission::SealHost;
+    return host_seal_observed
+        ? QualificationLobbyAdmission::Ready
+        : QualificationLobbyAdmission::WaitForHostSeal;
+}
+
 struct MatchTeardownPlan
 {
     OnlineRoomState state{OnlineRoomState::Waiting};
@@ -113,6 +139,7 @@ private:
     bool lobby_metadata_requested_{};
     bool native_invite_queued_{};
     bool play_side_requested_{};
+    bool lobby_admission_sealed_{};
     bool session_connection_ready_{};
     bool peer_connect_ready_published_{};
     bool host_session_transport_ready_{};

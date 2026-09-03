@@ -28,18 +28,19 @@ QualificationCorrectionTransportDelay(std::uint8_t requested_depth,
     std::uint8_t rollback_window, std::uint8_t local_player_slot) noexcept
 {
     // Release replacement history after the requested number of receiver
-    // predictions. SC6's slot-1 callback is one update ahead of slot 0 at the
-    // owned boundary. Slot 0 therefore releases at depth+1 toward the leading
-    // receiver; slot 1 releases at depth+2 toward the lagging receiver.
-    // SendData allows that final update through, so even slot 1's depth-11
-    // update 13 suppresses only twelve complete updates.
+    // predictions. A mutually confirmed hash does not equalize the peers'
+    // next-local-input cursors: either sender can be one update ahead at a
+    // later stimulus. Retain both slots through depth+1 and release on
+    // depth+2 so the receiver has predicted both members of the complementary
+    // input pair in either callback phase. SendData allows that final update
+    // through, so depth-11 update 13 suppresses only twelve complete updates.
     if (requested_depth == 0 || requested_depth >= rollback_window
         || local_player_slot > 1)
         return 0;
     const std::uint16_t release_update = static_cast<std::uint16_t>(
-        requested_depth) + 1u + local_player_slot;
+        requested_depth) + 2u;
     const std::uint16_t maximum_release_update = static_cast<std::uint16_t>(
-        rollback_window) + local_player_slot;
+        rollback_window) + 1u;
     return release_update <= maximum_release_update
         ? static_cast<std::uint8_t>(release_update) : 0;
 }
