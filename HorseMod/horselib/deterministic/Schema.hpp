@@ -48,8 +48,10 @@ inline constexpr std::size_t replay_checkpoint_memory_budget =
     - replay_native_batch_memory_budget - replay_canonical_hash_memory_budget;
 // Landing checkpoints are captured every 30 frames, while the batch-entry
 // retention boundary is at most 18 frames apart for a 12-wide batch under the
-// 29-coordinate resimulation limit. A 3:5 split gives both stores the same
-// supported frame horizon without increasing the total replay memory ceiling.
+// 29-coordinate resimulation limit. A 3:5 split balances their steady-state
+// retention horizons without increasing the total replay memory ceiling;
+// generation-boundary landing captures can still make the bounded landing
+// prefix fill first.
 inline constexpr std::size_t replay_landing_checkpoint_memory_budget =
     replay_checkpoint_memory_budget * 3 / 8;
 inline constexpr std::size_t replay_batch_entry_checkpoint_memory_budget =

@@ -261,6 +261,24 @@ set_tests_properties(DeterministicCoreSelfTest PROPERTIES
     TIMEOUT 60
 )
 
+add_executable(ReplayQualificationHealthSelfTest
+    ${CMAKE_SOURCE_DIR}/tools/replay_qualification_health_selftest.cpp
+)
+target_include_directories(ReplayQualificationHealthSelfTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/tools
+)
+target_compile_features(ReplayQualificationHealthSelfTest PRIVATE cxx_std_20)
+if(MSVC)
+    set_property(TARGET ReplayQualificationHealthSelfTest PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+add_test(NAME ReplayQualificationHealthSelfTest
+    COMMAND $<TARGET_FILE:ReplayQualificationHealthSelfTest>)
+set_tests_properties(ReplayQualificationHealthSelfTest PROPERTIES
+    LABELS "deterministic;fast"
+    TIMEOUT 60
+)
+
 add_executable(NativeCandidateRegionsSelfTest
     ${CMAKE_SOURCE_DIR}/tools/native_candidate_regions_selftest.cpp
 )
@@ -473,6 +491,7 @@ set(HORSEMOD_ITERATION_TARGETS
     ReplayQualificationMod
     DeterministicSchema
     DeterministicCoreSelfTest
+    ReplayQualificationHealthSelfTest
     NativeCandidateRegionsSelfTest
     OnlineCoordinatorSelfTest
     SteamP2PTransportSelfTest

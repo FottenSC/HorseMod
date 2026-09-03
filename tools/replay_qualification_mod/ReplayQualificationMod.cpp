@@ -8,6 +8,7 @@
 #include <Psapi.h>
 
 #include "ReplayPayloadImporter.hpp"
+#include "ReplayQualificationHealth.hpp"
 #include "ReplaySceneNavigator.hpp"
 #include "OnlineRoomAutomation.hpp"
 #include "deterministic/Sc6OnlineObserverProbe.hpp"
@@ -1686,10 +1687,8 @@ private:
         // every outer tick. Control-environment correctness remains part of the
         // native final timeline evidence and any real failure is represented by
         // health[21].
-        const bool terminal_failure = health[0] != 0 || health[1] != 0
-            || health[2] != 0 || health[5] != 0 || health[6] != 0
-            || health[21] != 0 || health[26] != 0 || health[27] != 0
-            || health[31] != 0 || health[48] != 0;
+        const bool terminal_failure =
+            Horse::Qualification::IsTerminalReplayQualificationHealth(health);
         if (!terminal_failure) return true;
         Output::send<LogLevel::Error>(STR(
             "[ReplayQualification] fail-fast health frame={} "
