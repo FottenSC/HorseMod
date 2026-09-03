@@ -203,17 +203,17 @@ def test_repeated_correction_smoke_requires_11_1_6_and_three_convergences():
         return "".join(rows)
     correction_evidence = _repeated_correction_evidence({
         "host": combined("h", (1, 2, 3)),
-        # Depth 1 intentionally corrects only the host; process-local counts
-        # are not a bilateral convergence invariant.
-        "sandbox": combined("s", (1, 1, 2)),
+        "sandbox": combined("s", (1, 2, 3)),
     }, {"host": "h", "sandbox": "s"}, 3)
     assert correction_evidence is not None
     assert [row["ordinal"] for row in correction_evidence] == [1, 2, 3]
     assert correction_evidence[1]["host_corrections"] == 2
-    assert correction_evidence[1]["sandbox_corrections"] == 1
+    assert correction_evidence[1]["sandbox_corrections"] == 2
+    # One peer advancing cannot certify the other peer's restore path and
+    # must not allow teardown to race the next confirmed-hash exchange.
     assert _repeated_correction_evidence({
-        "host": combined("h", (1, 2, 2)),
-        "sandbox": combined("s", (1, 1, 1)),
+        "host": combined("h", (1, 2, 3)),
+        "sandbox": combined("s", (1, 1, 2)),
     }, {"host": "h", "sandbox": "s"}, 3) is None
 
 

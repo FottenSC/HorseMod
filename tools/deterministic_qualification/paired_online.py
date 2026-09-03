@@ -515,6 +515,8 @@ def _repeated_correction_evidence(
         candidates: dict[str, dict[tuple[int, int], re.Match[str]]] = {}
         for label in ("host", "sandbox"):
             arm = stimuli[label][ordinal - 1]
+            next_arm = (stimuli[label][ordinal]
+                        if ordinal < required_count else None)
             prior = [match for match in histories[label]
                      if match.start() < arm.start()]
             recorded_baseline = arm.group("corrections_before")
@@ -525,6 +527,7 @@ def _repeated_correction_evidence(
                 (int(match.group("generation")), int(match.group("frame"))): match
                 for match in histories[label]
                 if match.start() > arm.end()
+                and (next_arm is None or match.start() < next_arm.start())
                 and int(match.group("corrections")) >= baseline[label]
             }
         shared = sorted(set(candidates["host"]) & set(candidates["sandbox"]))
@@ -536,9 +539,11 @@ def _repeated_correction_evidence(
                 raise RuntimeError(
                     f"authenticated correction {ordinal} diverged at "
                     f"{coordinate[0]}:{coordinate[1]}")
-            total = sum(int(pair[label].group("corrections"))
-                        for label in ("host", "sandbox"))
-            if total > baseline["host"] + baseline["sandbox"]:
+            # A paired restore gate is bilateral.  A correction observed by
+            # only one process cannot certify the other process's retained
+            # snapshot, restore, resimulation, or presentation cleanup path.
+            if all(int(pair[label].group("corrections")) > baseline[label]
+                   for label in ("host", "sandbox")):
                 reached = pair
                 break
         if reached is None:
