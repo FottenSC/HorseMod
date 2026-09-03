@@ -63,6 +63,17 @@ def test_certifying_seek_binds_control_without_waiting_for_match_outcome():
     assert _replay_outcome_policy(SimpleNamespace(**base)) == (True, True)
 
 
+def test_development_tira_transition_smoke_does_not_wait_for_match_outcome():
+    args = SimpleNamespace(
+        seek_percentages=[], development_smoke=False,
+        development_tira_transition_smoke=True, certifying=False,
+        require_authored_outcomes=False, require_tira_stance_change=False,
+        require_tira_probability_transition=True,
+    )
+    assert _replay_outcome_policy(args) == (False, False)
+    assert _default_replay_timeout(args) == REPLAY_PROBE_TIMEOUT_SECONDS
+
+
 def test_forced_qualification_requires_full_rate_window():
     with pytest.raises(RuntimeError, match="600-frame active FPS/TPS"):
         _require_complete_forced_qualification_window(SimpleNamespace(

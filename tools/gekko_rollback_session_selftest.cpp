@@ -261,22 +261,45 @@ int main()
             && !CanSealGekkoRound(89, 90, true),
         "round sealing rejects lagging confirmation and pending native advance");
     const auto crossed = PlanGekkoRoundSeal(
-        237, 238, true, {2, 361}, {2, 360}, {3, 361});
+        237, 238, true, {2, 361}, {2, 360}, {2, 359}, {2, 361},
+        {3, 361}, true);
     expect(crossed.sealed && crossed.discard_cross_generation_advance,
         "confirmed advance crossing the native generation fence is discarded");
     expect(!PlanGekkoRoundSeal(
-                236, 238, true, {2, 361}, {2, 360}, {3, 361}).sealed
+                235, 238, true, {2, 361}, {2, 360}, {2, 359},
+                {2, 359}, {3, 361}, true).sealed
             && !PlanGekkoRoundSeal(
-                237, 238, true, {2, 362}, {2, 360}, {3, 361}).sealed
+                237, 238, true, {2, 362}, {2, 360}, {2, 359},
+                {2, 361}, {3, 361}, true).sealed
             && !PlanGekkoRoundSeal(
-                237, 238, true, {2, 361}, {2, 360}, {2, 361}).sealed,
-        "cross-generation discard rejects lagging, nonadjacent, and same-generation work");
+                237, 238, true, {2, 361}, {2, 360}, {2, 359},
+                {2, 361}, {3, 361}, false).sealed,
+        "cross-generation discard rejects lagging, nonadjacent, and unmarked work");
     const auto deferred_marker = PlanGekkoRoundSeal(
-        237, 238, true, {2, 361}, {2, 360}, {2, 361}, true);
+        237, 238, true, {2, 361}, {2, 360}, {2, 359}, {2, 361},
+        {2, 361}, true);
     expect(deferred_marker.sealed
             && deferred_marker.discard_cross_generation_advance,
         "canary-48 seals the adjacent confirmed advance when the deferred "
         "identity-replacement token precedes the native generation marker");
+    const auto one_inflight_crossing = PlanGekkoRoundSeal(
+        237, 239, true, {1, 361}, {1, 360}, {1, 359}, {1, 360},
+        {1, 361}, true);
+    expect(one_inflight_crossing.sealed
+            && one_inflight_crossing.discard_cross_generation_advance,
+        "Silver Wolves' Haven frame 361 retires the sole mixed-generation "
+        "advance behind confirmed frame 237 for independent re-baselining");
+    expect(!PlanGekkoRoundSeal(
+                237, 239, true, {1, 361}, {1, 360}, {1, 361},
+                {1, 360}, {1, 361}, true).sealed
+            && !PlanGekkoRoundSeal(
+                237, 239, true, {1, 361}, {1, 360}, {1, 359},
+                {1, 360}, {1, 361}, false).sealed
+            && !PlanGekkoRoundSeal(
+                236, 239, true, {1, 361}, {1, 360}, {1, 359},
+                {1, 359}, {1, 361}, true).sealed,
+        "one-inflight retirement rejects unconfirmed canonical state, a "
+        "missing replacement marker, and two unconfirmed inputs");
     Allowlist allowlist;
     Transport first_transport;
     Transport second_transport;

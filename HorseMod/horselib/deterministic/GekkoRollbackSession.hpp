@@ -124,6 +124,8 @@ struct GekkoRoundSealPlan
     std::int32_t confirmed_frame, std::int32_t next_frame,
     bool current_advance_pending, FrameCoordinate pending_coordinate,
     FrameCoordinate retired_last_observed,
+    FrameCoordinate retired_last_canonical,
+    FrameCoordinate confirmed_coordinate,
     FrameCoordinate current_coordinate,
     bool identity_replacement_pending = false) noexcept
 {
@@ -131,19 +133,35 @@ struct GekkoRoundSealPlan
             confirmed_frame, next_frame, current_advance_pending))
         return {true, false};
     if (!current_advance_pending || next_frame <= 0
-        || confirmed_frame < next_frame - 1
+        || confirmed_frame < next_frame - 2
+        || !identity_replacement_pending
         || retired_last_observed.generation == 0
         || retired_last_observed.frame == UINT64_MAX
+        || retired_last_canonical.generation
+            != retired_last_observed.generation
+        || retired_last_canonical > confirmed_coordinate
+        || confirmed_coordinate.generation
+            != retired_last_observed.generation
         || pending_coordinate.generation
             != retired_last_observed.generation
         || pending_coordinate.frame != retired_last_observed.frame + 1
-        || (current_coordinate.generation
-                <= retired_last_observed.generation
-            && !(identity_replacement_pending
-                && current_coordinate.generation
-                    == retired_last_observed.generation))
+        || current_coordinate.generation
+            < retired_last_observed.generation
         || current_coordinate.frame != pending_coordinate.frame)
         return {};
+
+    // The pending crossing is either already peer-confirmed, or it is the
+    // sole input after the last confirmed retired-generation fencepost. The
+    // latter cannot be correction-replayed because its native batch replaced
+    // the generation. Its effect is accepted only provisionally: the round
+    // barrier must retire Gekko and both peers must independently freeze and
+    // acknowledge an identical replacement-generation baseline before owned
+    // simulation can resume.
+    const bool pending_confirmed = confirmed_frame >= next_frame - 1
+        && confirmed_coordinate >= pending_coordinate;
+    const bool sole_unconfirmed_crossing = confirmed_frame == next_frame - 2
+        && confirmed_coordinate == retired_last_observed;
+    if (!pending_confirmed && !sole_unconfirmed_crossing) return {};
     return {true, true};
 }
 

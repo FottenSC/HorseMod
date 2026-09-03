@@ -52,6 +52,18 @@
             // the retired correction history intact until this exact boundary
             // is sealed and bilaterally acknowledged.
             GekkoRoundSealPlan seal{};
+            FrameCoordinate confirmed_coordinate{};
+            if (status.ok())
+            {
+                const auto confirmed = PlanGekkoStateCoordinate(
+                    m_online_baseline_coordinate,
+                    m_online_gekko.confirmed_frame());
+                if (!confirmed.has_value())
+                    status = Status::failure(
+                        FailureCode::InvalidConfiguration);
+                else
+                    confirmed_coordinate = *confirmed;
+            }
             if (status.ok())
             {
                 seal = PlanGekkoRoundSeal(
@@ -59,6 +71,7 @@
                     m_online_next_gekko_frame,
                     m_online_current_advance_pending,
                     m_online_pending_coordinate, observed_end,
+                    final_entry.coordinate, confirmed_coordinate,
                     timeline.last_coordinate,
                     m_replay_native_runtime.online_rebaseline_deferred());
                 if (!seal.sealed)

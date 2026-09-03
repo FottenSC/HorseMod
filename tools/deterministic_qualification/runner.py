@@ -95,6 +95,8 @@ REPLAY_AUTHORED_OUTCOME_TIMEOUT_SECONDS = 300.0
 
 def _default_replay_timeout(args: argparse.Namespace) -> float:
     """Keep short probes bounded while allowing an authored match to finish."""
+    if bool(getattr(args, "development_tira_transition_smoke", False)):
+        return REPLAY_PROBE_TIMEOUT_SECONDS
     full_authored_outcome = any(bool(getattr(args, field, False)) for field in (
             "stock_round_outcome_control", "require_authored_outcomes",
             "require_tira_stance_change",
@@ -113,7 +115,8 @@ def _replay_outcome_policy(args: argparse.Namespace) -> tuple[bool, bool]:
     if args.require_authored_outcomes and seeks:
         raise RuntimeError(
             "authored outcomes and strict seeks require separate replay lifetimes")
-    if args.development_smoke:
+    if (args.development_smoke
+            or bool(getattr(args, "development_tira_transition_smoke", False))):
         return False, False
     require_authored = bool(
         args.require_authored_outcomes
@@ -731,11 +734,17 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
 
     report_data: dict[str, object] = {
         "report_schema": 2,
-        "kind": ("replay_development_smoke" if args.development_smoke
+        "kind": ("replay_development_tira_transition_smoke"
+                 if bool(getattr(
+                     args, "development_tira_transition_smoke", False))
+                 else "replay_development_smoke" if args.development_smoke
                  else "replay_entry_probe"),
         "certifying": bool(args.certifying),
         "result": "pass",
-        "reason": ("bounded normal-render authored replay audio/ownership smoke"
+        "reason": ("bounded 600-frame normal-render Tira RNG transition smoke"
+                   if bool(getattr(
+                       args, "development_tira_transition_smoke", False))
+                   else "bounded normal-render authored replay audio/ownership smoke"
                    if args.development_smoke else
                    "native replay import, stock launch request, and bounded "
                    "normal-play frame observation"),
@@ -927,6 +936,8 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
             "launch_requested": True,
             "watch_frames": args.watch_frames,
             "development_smoke": bool(args.development_smoke),
+            "development_tira_transition_smoke": bool(getattr(
+                args, "development_tira_transition_smoke", False)),
             "stage_terminal": args.stage_terminal,
             "seek_percentages": args.seek_percentages,
             "min_resume_tick_rate": args.min_resume_tick_rate,
@@ -1204,6 +1215,18 @@ def run_replay_entry(args: argparse.Namespace) -> int:
     # deterministic-baseline arm scope, even if the caller omitted the flag.
     if getattr(args, "seek_percentages", ()):
         args.deterministic_baseline = True
+    if bool(getattr(args, "development_tira_transition_smoke", False)):
+        if (args.certifying or args.development_smoke
+                or args.watch_frames != 600
+                or not args.require_tira_probability_transition
+                or args.stock_round_outcome_control
+                or args.require_authored_outcomes
+                or args.seek_percentages or args.stage_terminal):
+            raise RuntimeError(
+                "Tira transition smoke requires one non-certifying 600-frame "
+                "probability-transition probe without outcomes, seeks, or terminals")
+        args.deterministic_baseline = True
+        args.skip_development_smoke = True
     if args.certifying and args.skip_development_smoke:
         raise RuntimeError("certifying deterministic baselines require the smoke preflight")
     if not 60 <= args.smoke_frames <= 120:
@@ -1732,6 +1755,11 @@ def build_parser() -> argparse.ArgumentParser:
               "the authored replay becomes active"),
     )
     replay.add_argument(
+        "--development-tira-transition-smoke", action="store_true",
+        help=("run one non-certifying 600-frame normal-render Tira RNG helper "
+              "transition gate without waiting for the full match outcome"),
+    )
+    replay.add_argument(
         "--smoke-frames", type=int, default=120,
         help="normal-render authored replay frames used by baseline preflight",
     )
@@ -1943,6 +1971,9 @@ def build_parser() -> argparse.ArgumentParser:
     paired.add_argument("--development-depth7-smoke", action="store_true",
         help=("run one non-certifying authenticated depth-7 correction and "
               "enforce the production timing and cleanup ceilings"))
+    paired.add_argument("--development-round-barrier-smoke", action="store_true",
+        help=("run one non-certifying authenticated round transition through "
+              "an independently acknowledged replacement baseline"))
     paired.add_argument("--development-reentry-smoke", action="store_true",
         help=("allow a dirty, explicitly non-certifying two-match run in one "
               "SC6 process to verify cleanup and qualification re-entry"))

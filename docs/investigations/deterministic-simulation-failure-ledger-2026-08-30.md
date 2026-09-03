@@ -543,3 +543,50 @@ an immutable release certificate explicitly promotes it.
   Release evaluation and generated case certificates bind the independent
   capture-harness and offline-evaluator identities; strict replay evidence no
   longer falls back to the aggregate policy-package hash.
+
+## 2026-09-03 - mixed-generation crossing waited on an unreplayable Gekko save
+
+- Source identity: commit `6019841cd01afed14903f1f89e4e50b7f3b999c5`
+  plus the recorded deterministic dirty patch. All evidence in this entry is
+  non-certifying development evidence.
+- Authenticated map: **Silver Wolves' Haven**. The host failed at the first
+  owned round transition with retired observed coordinate `1:360`, final
+  canonical coordinate `1:359`, current/pending coordinate `1:361`, Gekko
+  confirmed frame 237, next frame 239, and one deferred advance. The peer then
+  reported only the secondary disconnect.
+- Authoritative cause: the crossing batch consumed the Gekko-selected input,
+  but native round replacement made that mixed-generation envelope
+  deliberately ineligible for correction replay. Waiting for its deferred save
+  to become an old-generation correction target could therefore never satisfy
+  the round seal. Ghidra's documented simulation loop confirms that transition
+  traversals consume both authoritative player inputs; substituting stock or
+  neutral input is not valid.
+- Repair: round sealing admits only the exact one-in-flight replacement case:
+  the identity-replacement marker must be present, the pending coordinate must
+  be the adjacent crossing, the last confirmed Gekko coordinate must equal the
+  retired observed fencepost, and the final canonical coordinate must be no
+  later than that confirmed coordinate. Two unconfirmed inputs, a missing
+  marker, non-adjacent work, or unconfirmed canonical state remain terminal.
+  The crossing result is provisional: peers first acknowledge the same retired
+  canonical boundary, then stop Gekko and independently execute the complete
+  section 5.2 replacement baseline/Ack/prefix sequence before ownership resumes.
+- Focused tests reproduce the observed `confirmed=237`, `next=239`,
+  `pending=1:361` boundary and its fail-closed negatives. The targeted suite
+  passed 9/9 native tests and 139/139 Python tests.
+- The bounded **Silver Wolves' Haven** round-barrier canary independently
+  matched baseline `1:124`, agreed on retired canonical `1:359`, then
+  independently matched replacement baseline `2:390` before first owned inputs
+  at `2:393/394`. Both peers cleaned to status 7 with exact storage return.
+- Follow-on **Silver Wolves' Haven** gates passed: bilateral corrections in
+  depth order 11 -> 1 -> 6 (three identical confirmed hashes, correction maxima
+  below 8.3 ms), two same-process match/re-entry cycles, and the production
+  depth-7 timing gate (6.88 ms host maximum, 4.25 ms sandbox maximum). There
+  were zero pending-event, capacity-growth, or presentation failures.
+- A new bounded transition-only runner mode avoids waiting for full authored
+  outcomes when diagnosing Tira. On **Astral Chaos: Tide of the Damned**, 600
+  normal-render frames observed helper `0x3250`, enclosing move `0x0185`,
+  exactly one RNG draw, exactly one P2 state19 write from 0 to 1, zero helper
+  signature failures, and zero unknown RNG callers at 60.081 FPS/TPS.
+- Every run ended through runner-owned cleanup. Both diagnostic configurations
+  were restored with `enabled`, `trace`, `correction_probe`, and
+  `forced_depth7_qualification` false, and no SC6 process remained.

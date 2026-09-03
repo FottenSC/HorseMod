@@ -89,6 +89,16 @@ def test_paired_online_exposes_noncertifying_depth7_timing_smoke():
     assert arguments.development_depth7_smoke is True
 
 
+def test_paired_online_exposes_two_generation_round_barrier_smoke():
+    arguments = build_parser().parse_args([
+        "paired-online", "--case-manifest", "cases.json", "--case", "case-a",
+        "--dll", "HorseMod.dll", "--output-dir", "evidence",
+        "--report", "report.json", "--development-round-barrier-smoke",
+    ])
+    assert arguments.development_round_barrier_smoke is True
+    assert arguments.match_cycles == 1
+
+
 def test_paired_online_exposes_two_cycle_same_process_reentry_smoke():
     arguments = build_parser().parse_args([
         "paired-online", "--case-manifest", "cases.json", "--case", "case-a",

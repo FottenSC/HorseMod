@@ -467,6 +467,7 @@ def _development_smoke_complete(args: Any, completed_cycles: int) -> bool:
     if not (args.development_setup_smoke
             or args.development_correction_smoke
             or args.development_depth7_smoke
+            or args.development_round_barrier_smoke
             or args.development_reentry_smoke):
         return False
     return (not args.development_reentry_smoke
@@ -1127,7 +1128,10 @@ def _wait_development_setup_smoke(
     guard: Any,
     request_lobby_return: Any,
     correction_depths: tuple[int, ...] = (),
+    required_owned_generations: int = 1,
 ) -> tuple[dict[str, Any], dict[str, str]]:
+    if required_owned_generations < 1:
+        raise ValueError("owned generation count must be positive")
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         guard()
@@ -1236,7 +1240,9 @@ def _wait_development_setup_smoke(
             # must wait through bilateral baseline freeze/ack, prefix catch-up,
             # and the first owned input (status 5) before requesting stock
             # lobby return.
-            if 5 not in statuses or not handshakes:
+            if (5 not in statuses or not handshakes
+                    or events.count("first_owned_input")
+                        < required_owned_generations):
                 admitted = False
                 continue
             handshake = handshakes[-1]
@@ -1250,8 +1256,14 @@ def _wait_development_setup_smoke(
             setup_metrics[label]["native_online_status"] = 5
         if admitted:
             baseline_identities = _require_matching_independent_baselines(
-                logs, online_run_ids, minimum_count=1)
+                logs, online_run_ids,
+                minimum_count=required_owned_generations)
+            for label in ("host", "sandbox"):
+                _require_ordered_takeover(
+                    _events_for_run(logs[label], online_run_ids[label]),
+                    label, generations=required_owned_generations)
             setup_metrics["baseline_identities"] = baseline_identities
+            setup_metrics["owned_generations"] = required_owned_generations
             break
         time.sleep(0.25)
     else:
@@ -1347,6 +1359,7 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
     development_smoke = (
         args.development_setup_smoke or args.development_correction_smoke
         or args.development_depth7_smoke
+        or args.development_round_barrier_smoke
         or args.development_reentry_smoke)
     correction_stimulus_depths = (
         (11, 1, 6) if args.development_correction_smoke
@@ -1354,6 +1367,7 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
     if sum((args.development_setup_smoke,
             args.development_correction_smoke,
             args.development_depth7_smoke,
+            args.development_round_barrier_smoke,
             args.development_reentry_smoke)) > 1:
         raise RuntimeError("select only one paired development smoke")
     if development_smoke and (
@@ -1547,6 +1561,8 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
                         log_offsets, args.match_timeout, guard,
                         request_lobby_return,
                         correction_depths=correction_stimulus_depths,
+                        required_owned_generations=(
+                            2 if args.development_round_barrier_smoke else 1),
                     )
                 else:
                     metrics, raw_logs = _wait_online(
@@ -1761,6 +1777,8 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
                      if args.development_correction_smoke
                      else "paired_online_development_depth7_smoke"
                      if args.development_depth7_smoke
+                     else "paired_online_development_round_barrier_smoke"
+                     if args.development_round_barrier_smoke
                      else "paired_online_development_setup_smoke"),
             "certifying": False,
             "result": "pass",
