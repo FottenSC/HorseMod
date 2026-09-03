@@ -356,7 +356,8 @@ int main()
     // Reproduce the immutable Silver Wolves' Haven prefix skew exactly: the
     // slot-0 sandbox completed two Gekko prefix frames while the slot-1 host
     // completed eleven. This phase difference is what made a full-window
-    // twelve-update suppression request a thirteenth unknown remote input.
+    // window-edge release request a thirteenth unknown remote input when
+    // Steam delivery happened only after sender-side retention ended.
     for (std::uint32_t frame = 0; frame < 2; ++frame)
     {
         PlayerInput first_input{};
@@ -501,10 +502,10 @@ int main()
         if (first_released_now
             && !withheld_first_release_for_one_receiver_update)
         {
-            // Steam delivery is asynchronous. The failed Silver Wolves'
-            // Haven run had the slot-0 release callback complete immediately
-            // before slot 1's prediction-limit update, without the packet
-            // becoming pollable in that sub-millisecond interval.
+            // Withhold the release-transition send for one receiver update.
+            // Earlier authenticated packets must already be waiting in the
+            // receiver FIFO, proving correction no longer depends on a
+            // sub-millisecond Steam delivery at the prediction limit.
             withheld_first_release_for_one_receiver_update = true;
         }
         else

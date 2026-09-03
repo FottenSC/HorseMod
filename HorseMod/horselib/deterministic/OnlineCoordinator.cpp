@@ -798,16 +798,20 @@ Status OnlineCoordinator::SendConfirmedHash(
 }
 
 Status OnlineCoordinator::SendGekkoPayload(
-    std::span<const std::byte> payload) noexcept
+    std::span<const std::byte> payload,
+    std::int32_t qualification_release_frame) noexcept
 {
+    constexpr std::size_t header_size = sizeof(gekko_epoch_)
+        + sizeof(qualification_release_frame);
     if ((state_ != OnlineState::AwaitingBattle
             && state_ != OnlineState::AwaitingBaselineTarget
             && state_ != OnlineState::FreezingBaseline
             && state_ != OnlineState::Active
             && state_ != OnlineState::RoundBarrier)
         || !contract_ || gekko_epoch_ == 0 || payload.empty()
+        || qualification_release_frame < -1
         || payload.size() > Schema::maximum_transport_payload
-                - sizeof(gekko_epoch_))
+                - header_size)
     {
         return Status::failure(FailureCode::IllegalTransition);
     }
@@ -817,10 +821,15 @@ Status OnlineCoordinator::SendGekkoPayload(
     for (std::size_t index = 0; index < sizeof(gekko_epoch_); ++index)
         message.payload[index] = static_cast<std::byte>(
             (gekko_epoch_ >> (index * 8u)) & 0xffu);
+    const auto release_bits = std::bit_cast<std::uint32_t>(
+        qualification_release_frame);
+    for (std::size_t index = 0; index < sizeof(release_bits); ++index)
+        message.payload[sizeof(gekko_epoch_) + index] =
+            static_cast<std::byte>((release_bits >> (index * 8u)) & 0xffu);
     message.payload_size = static_cast<std::uint16_t>(
-        sizeof(gekko_epoch_) + payload.size());
+        header_size + payload.size());
     std::copy(payload.begin(), payload.end(),
-        message.payload.begin() + sizeof(gekko_epoch_));
+        message.payload.begin() + header_size);
     const Status sent = transport_.Send(
         message, TransportReliability::Unreliable);
     return sent.ok() ? sent : fail(transport_failure(sent));
@@ -829,12 +838,14 @@ Status OnlineCoordinator::SendGekkoPayload(
 Status OnlineCoordinator::handle_gekko(
     const TransportMessage& message) noexcept
 {
+    constexpr std::size_t header_size = sizeof(std::uint64_t)
+        + sizeof(std::int32_t);
     if ((state_ != OnlineState::AwaitingBattle
             && state_ != OnlineState::AwaitingBaselineTarget
             && state_ != OnlineState::FreezingBaseline
             && state_ != OnlineState::Active
             && state_ != OnlineState::RoundBarrier)
-        || message.payload_size <= sizeof(std::uint64_t)
+        || message.payload_size <= header_size
         || message.payload_size > message.payload.size())
     {
         return Status::failure(FailureCode::IllegalTransition);
@@ -847,13 +858,24 @@ Status OnlineCoordinator::handle_gekko(
     if (epoch < gekko_epoch_) return Status::success();
     if (epoch != gekko_epoch_)
         return Status::failure(FailureCode::GenerationMismatch);
+    std::uint32_t release_bits{};
+    for (std::size_t index = 0; index < sizeof(release_bits); ++index)
+        release_bits |= static_cast<std::uint32_t>(
+            std::to_integer<std::uint8_t>(
+                message.payload[sizeof(epoch) + index]))
+            << (index * 8u);
+    const auto qualification_release_frame =
+        std::bit_cast<std::int32_t>(release_bits);
+    if (qualification_release_frame < -1)
+        return Status::failure(FailureCode::ProtocolMismatch);
     if (gekko_size_ == gekko_messages_.size())
         return Status::failure(FailureCode::CapacityExceeded);
     OnlineGekkoPacket packet{};
     packet.epoch = epoch;
+    packet.qualification_release_frame = qualification_release_frame;
     packet.size = static_cast<std::uint16_t>(
-        message.payload_size - sizeof(epoch));
-    std::copy_n(message.payload.begin() + sizeof(epoch), packet.size,
+        message.payload_size - header_size);
+    std::copy_n(message.payload.begin() + header_size, packet.size,
         packet.payload.begin());
     gekko_messages_[(gekko_head_ + gekko_size_) % gekko_messages_.size()] =
         std::move(packet);
@@ -944,7 +966,8 @@ std::optional<OnlineGameplayEvent> OnlineCoordinator::PopGameplay() noexcept
     return message;
 }
 
-std::optional<OnlineGekkoPacket> OnlineCoordinator::PopGekkoPayload() noexcept
+std::optional<OnlineGekkoPacket> OnlineCoordinator::PopGekkoPayload(
+    std::int32_t next_local_input_frame) noexcept
 {
     if (gekko_size_ == 0) return std::nullopt;
     auto& slot = gekko_messages_[gekko_head_];
@@ -953,6 +976,9 @@ std::optional<OnlineGekkoPacket> OnlineCoordinator::PopGekkoPayload() noexcept
         fail(FailureCode::IdentityMismatch);
         return std::nullopt;
     }
+    if (slot->qualification_release_frame >= 0
+        && next_local_input_frame < slot->qualification_release_frame)
+        return std::nullopt;
     OnlineGekkoPacket packet = std::move(*slot);
     slot.reset();
     gekko_head_ = (gekko_head_ + 1) % gekko_messages_.size();

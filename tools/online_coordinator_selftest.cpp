@@ -369,19 +369,28 @@ void test_bilateral_activation_and_round_reentry()
 
     const std::array<std::byte, 4> gekko_payload{
         std::byte{0x10}, std::byte{0x20}, std::byte{0x30}, std::byte{0x40}};
-    expect(first.SendGekkoPayload(gekko_payload).ok(),
-        "send active Gekko payload");
+    expect(first.SendGekkoPayload(gekko_payload, 42).ok(),
+        "send qualification Gekko payload before its receiver release frame");
     const auto prior_round_gekko = first_transport.outbound.back().first;
+    expect(first.SendGekkoPayload(gekko_payload).ok(),
+        "send ordinary Gekko payload behind qualification payload");
     expect(first_transport.outbound.back().second
             == TransportReliability::Unreliable,
         "Gekko gameplay payload uses unreliable transport");
     transfer(first_transport, second_transport);
     expect(second.Pump().ok(), "second peer accepts Gekko gameplay payload");
-    const auto remote_gekko = second.PopGekkoPayload();
+    expect(!second.PopGekkoPayload(41).has_value(),
+        "receiver retains early authenticated qualification payload");
+    const auto remote_gekko = second.PopGekkoPayload(42);
     expect(remote_gekko && remote_gekko->size == gekko_payload.size()
+            && remote_gekko->qualification_release_frame == 42
             && std::equal(gekko_payload.begin(), gekko_payload.end(),
                 remote_gekko->payload.begin()),
-        "Gekko gameplay payload round-trips through bounded queue");
+        "qualification payload becomes visible at its exact receiver frame");
+    const auto ordinary_gekko = second.PopGekkoPayload(42);
+    expect(ordinary_gekko
+            && ordinary_gekko->qualification_release_frame == -1,
+        "FIFO prevents later ordinary Gekko payload from bypassing retention");
 
     expect(first.BeginRoundBarrier({1, 359}, 2, hash(9)).ok(),
         "first peer enters round barrier");
@@ -405,7 +414,7 @@ void test_bilateral_activation_and_round_reentry()
             && second.state() == OnlineState::AwaitingBattle,
         "delayed prior-generation baseline is ignored after the round fence");
     second_transport.inbound.push_back(prior_round_gekko);
-    expect(second.Pump().ok() && !second.PopGekkoPayload().has_value(),
+    expect(second.Pump().ok() && !second.PopGekkoPayload(100).has_value(),
         "late prior-round opaque Gekko payload cannot enter the new session");
     expect(!first.FreezeBaseline({1, 260}, hash(1), hash(9)).ok(),
         "old native generation cannot be frozen");

@@ -187,7 +187,7 @@ Status GekkoRollbackSession::ArmQualificationCorrectionStimulus(
     if (!started_ || session_ == nullptr || !ReadyForBaseline()
         || delay_frames < 2 || delay_frames > 30
         || trigger_frame < next_local_input_frame_
-        || trigger_frame == INT32_MAX
+        || trigger_frame > INT32_MAX - (delay_frames - 1)
         || (qualification_stimulus_armed_
             && !qualification_stimulus_released_))
     {
@@ -195,6 +195,7 @@ Status GekkoRollbackSession::ArmQualificationCorrectionStimulus(
     }
     qualification_delay_remaining_ = delay_frames;
     qualification_trigger_frame_ = trigger_frame;
+    qualification_release_frame_ = trigger_frame + delay_frames - 1;
     qualification_stimulus_armed_ = true;
     qualification_delay_active_ = false;
     qualification_stimulus_injected_ = false;
@@ -250,6 +251,7 @@ void GekkoRollbackSession::Stop() noexcept
     qualification_stimulus_base_input_ = {};
     next_local_input_frame_ = 0;
     qualification_trigger_frame_ = -1;
+    qualification_release_frame_ = -1;
     qualification_stimulus_armed_ = false;
     qualification_delay_active_ = false;
     qualification_stimulus_injected_ = false;
@@ -273,16 +275,11 @@ void GekkoRollbackSession::SendData(
         if (self != nullptr) self->failure_ = FailureCode::ProtocolMismatch;
         return;
     }
-    // Release replacement history on the requested sender update.  Returning
-    // while the counter equals one would suppress N complete updates and send
-    // only on N+1, which exhausts a phase-leading peer's prediction window at
-    // the production depth-11 boundary.
-    if (self->qualification_delay_active_
-        && self->qualification_delay_remaining_ > 1)
-        return;
     const auto sent = self->coordinator_->SendGekkoPayload(
         std::span{reinterpret_cast<const std::byte*>(data),
-            static_cast<std::size_t>(length)});
+            static_cast<std::size_t>(length)},
+        self->qualification_delay_active_
+            ? self->qualification_release_frame_ : -1);
     if (!sent.ok()) self->failure_ = sent.code;
 }
 
@@ -294,7 +291,8 @@ GekkoNetResult** GekkoRollbackSession::ReceiveData(int* length) noexcept
     if (self == nullptr || self->coordinator_ == nullptr) return nullptr;
     while (*length < static_cast<int>(maximum_receive_batch))
     {
-        auto packet = self->coordinator_->PopGekkoPayload();
+        auto packet = self->coordinator_->PopGekkoPayload(
+            self->next_local_input_frame_);
         if (!packet) break;
         const auto index = static_cast<std::size_t>(*length);
         self->receive_packets_[index] = std::move(*packet);

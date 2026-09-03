@@ -100,6 +100,10 @@ PlanConfirmedHashPublication(FrameCoordinate baseline,
 struct OnlineGekkoPacket
 {
     std::uint64_t epoch{};
+    // Qualification packets may cross the authenticated transport early but
+    // remain hidden from Gekko until the receiver reaches this local frame.
+    // Ordinary production packets use -1 and are immediately eligible.
+    std::int32_t qualification_release_frame{-1};
     std::uint16_t size{};
     std::array<std::byte, Schema::maximum_transport_payload> payload{};
 };
@@ -158,9 +162,11 @@ public:
     Status SendConfirmedHash(
         FrameCoordinate coordinate,
         const CanonicalHash& hash) noexcept;
-    Status SendGekkoPayload(std::span<const std::byte> payload) noexcept;
+    Status SendGekkoPayload(std::span<const std::byte> payload,
+        std::int32_t qualification_release_frame = -1) noexcept;
     [[nodiscard]] std::optional<OnlineGameplayEvent> PopGameplay() noexcept;
-    [[nodiscard]] std::optional<OnlineGekkoPacket> PopGekkoPayload() noexcept;
+    [[nodiscard]] std::optional<OnlineGekkoPacket> PopGekkoPayload(
+        std::int32_t next_local_input_frame) noexcept;
     Status BeginRoundBarrier(
         FrameCoordinate completed_coordinate,
         std::uint64_t next_generation,

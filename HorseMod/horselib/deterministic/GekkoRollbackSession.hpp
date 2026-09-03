@@ -30,12 +30,10 @@ QualificationCorrectionTransportDelay(std::uint8_t requested_depth,
 {
     // Retain both complementary stimulus inputs when the prediction window
     // has room, because a mutually confirmed hash does not equalize the
-    // peers' next-local-input cursors. At the maximum requested depth, cap
-    // retention one update earlier: Steam payloads sent by one callback need
-    // not be pollable by the other callback in the same sub-millisecond
-    // interval, so consuming the entire window can strand that receiver with
-    // no current advance. The basis-derived edge still guarantees the max-
-    // depth misprediction while the cap preserves one delivery-poll margin.
+    // peers' next-local-input cursors. At the maximum requested depth, release
+    // one update before the prediction limit. Packets cross Steam immediately
+    // and wait in the receiver's authenticated FIFO, so this cap is now a
+    // Gekko scheduling margin rather than a network-delivery race.
     if (requested_depth == 0 || requested_depth >= rollback_window
         || local_player_slot > 1)
         return 0;
@@ -199,12 +197,13 @@ public:
     Status Advance(const PlayerInput& local_input,
         std::array<PlayerInput, 2>& authoritative) noexcept;
     Status CompleteDeferredSaves() noexcept;
-    // Qualification-only stimulus: suppress a bounded run of outbound Gekko
-    // payloads starting at one absolute Gekko frame and inject a complementary
-    // two-frame local input pair. The next authenticated payload carries the
-    // delayed input history, forcing the peer through real restore/resimulation. A
-    // released stimulus may be re-armed only after the caller has established
-    // a later mutually matching confirmed-hash boundary.
+    // Qualification-only stimulus: inject a complementary two-frame local
+    // input pair and tag the resulting authenticated Gekko packets with one
+    // absolute receiver release frame. Packets cross Steam immediately, but
+    // the receiver's ordered coordinator queue hides them from Gekko until
+    // that frame, forcing real restore/resimulation without spending the
+    // rollback window on transport latency. A released stimulus may be
+    // re-armed only after a later mutually matching confirmed-hash boundary.
     Status ArmQualificationCorrectionStimulus(
         std::uint8_t delay_frames, std::int32_t trigger_frame) noexcept;
     [[nodiscard]] bool qualification_correction_stimulus_injected()
@@ -256,6 +255,7 @@ private:
     PlayerInput qualification_stimulus_base_input_{};
     std::int32_t next_local_input_frame_{};
     std::int32_t qualification_trigger_frame_{-1};
+    std::int32_t qualification_release_frame_{-1};
     bool qualification_stimulus_armed_{};
     bool qualification_delay_active_{};
     bool qualification_stimulus_injected_{};
