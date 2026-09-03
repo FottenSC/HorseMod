@@ -8,6 +8,9 @@ from tools.deterministic_qualification.artifacts import (
     capture_harness_sha256, sha256_file,
 )
 from tools.deterministic_qualification.runner import (
+    REPLAY_AUTHORED_OUTCOME_TIMEOUT_SECONDS,
+    REPLAY_PROBE_TIMEOUT_SECONDS,
+    _default_replay_timeout,
     _find_failure_line,
     _log_text_since,
     _read_bounded_log_since,
@@ -24,6 +27,24 @@ from tools.deterministic_qualification.trace_parser import LogCursor, capture_lo
 
 
 ROOT = Path(__file__).resolve().parents[3]
+
+
+def test_replay_timeout_default_distinguishes_probes_from_full_outcomes():
+    base = {
+        "stock_round_outcome_control": False,
+        "certifying": False,
+        "require_authored_outcomes": False,
+        "require_tira_stance_change": False,
+        "require_tira_probability_transition": False,
+    }
+    assert _default_replay_timeout(SimpleNamespace(**base)) == (
+        REPLAY_PROBE_TIMEOUT_SECONDS)
+
+    for field in base:
+        mode = dict(base)
+        mode[field] = True
+        assert _default_replay_timeout(SimpleNamespace(**mode)) == (
+            REPLAY_AUTHORED_OUTCOME_TIMEOUT_SECONDS)
 
 
 def test_forced_qualification_requires_full_rate_window():

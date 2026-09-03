@@ -88,6 +88,18 @@ DEFAULT_REPLAY_MOD = ROOT / "build_cmake_LessEqual421__Shipping__Win64" / "Horse
 DEFAULT_REPLAY_REPORT = ROOT / "tools" / "deterministic_qualification" / "output" / "replay-entry-report.json"
 DEFAULT_OBSERVER_REPORT = ROOT / "tools" / "deterministic_qualification" / "output" / "online-observer-report.json"
 DEFAULT_SANDBOX_ROOT = Path(r"C:\Sandbox\prest\sc67")
+REPLAY_PROBE_TIMEOUT_SECONDS = 120.0
+REPLAY_AUTHORED_OUTCOME_TIMEOUT_SECONDS = 300.0
+
+
+def _default_replay_timeout(args: argparse.Namespace) -> float:
+    """Keep short probes bounded while allowing an authored match to finish."""
+    if any(bool(getattr(args, field, False)) for field in (
+            "stock_round_outcome_control", "certifying",
+            "require_authored_outcomes", "require_tira_stance_change",
+            "require_tira_probability_transition")):
+        return REPLAY_AUTHORED_OUTCOME_TIMEOUT_SECONDS
+    return REPLAY_PROBE_TIMEOUT_SECONDS
 
 
 @contextmanager
@@ -1155,6 +1167,9 @@ def _run_baseline_payload(args: argparse.Namespace, config: Path) -> int:
 
 
 def run_replay_entry(args: argparse.Namespace) -> int:
+    timeout_was_defaulted = getattr(args, "timeout", None) is None
+    if timeout_was_defaulted:
+        args.timeout = _default_replay_timeout(args)
     if args.certifying and args.skip_development_smoke:
         raise RuntimeError("certifying deterministic baselines require the smoke preflight")
     if not 60 <= args.smoke_frames <= 120:
@@ -1182,6 +1197,8 @@ def run_replay_entry(args: argparse.Namespace) -> int:
     smoke_args.stage_terminal = None
     smoke_args.watch_frames = args.smoke_frames
     smoke_args.report = args.report.with_suffix(".smoke.json")
+    if timeout_was_defaulted:
+        smoke_args.timeout = REPLAY_PROBE_TIMEOUT_SECONDS
     # One lifecycle scope owns both processes. Direct CLI callers normally
     # start from the safe production config, while offline orchestration may
     # already hold an outer armed scope; armed_baseline is reversible in both
@@ -1667,7 +1684,11 @@ def build_parser() -> argparse.ArgumentParser:
     replay.add_argument("--log", type=Path, default=DEFAULT_LOG)
     replay.add_argument("--game-executable", type=Path, default=GAME_ROOT / "SoulcaliburVI.exe")
     replay.add_argument("--report", type=Path, default=DEFAULT_REPLAY_REPORT)
-    replay.add_argument("--timeout", type=float, default=120.0)
+    replay.add_argument(
+        "--timeout", type=float, default=None,
+        help=("terminal wait budget; defaults to 120 seconds for bounded probes "
+              "and 300 seconds for full authored-outcome runs"),
+    )
     replay.add_argument("--watch-frames", type=int, default=1)
     replay.add_argument("--certifying", action="store_true")
     replay.add_argument("--deterministic-baseline", action="store_true")
