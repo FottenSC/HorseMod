@@ -34,6 +34,7 @@ Status GekkoRollbackSession::Start(OnlineCoordinator& coordinator,
     local_player_slot_ = local_player_slot;
     input_delay_ = input_delay;
     state_bytes_ = state_bytes;
+    last_submitted_local_input_ = {};
     next_local_input_frame_ = 0;
     adapter_ = {&SendData, &ReceiveData, &FreeData};
 
@@ -138,13 +139,24 @@ Status GekkoRollbackSession::Advance(const PlayerInput& local_input,
         // This input is submitted normally and traverses the authenticated
         // Steam/coordinator path.  Only its delivery to the remote Gekko
         // instance is delayed; no snapshot or canonical state is transferred.
-        effective_local_input.held ^= 1u;
-        effective_local_input.rising ^= 1u;
+        const auto stimulus = BuildQualificationCorrectionStimulusInputs(
+            last_submitted_local_input_);
+        effective_local_input = stimulus[0];
+        qualification_stimulus_base_input_ = stimulus[1];
         qualification_stimulus_injected_ = true;
         qualification_delay_active_ = true;
     }
+    else if (qualification_stimulus_armed_
+        && qualification_stimulus_injected_
+        && !qualification_stimulus_tail_injected_
+        && next_local_input_frame_ == qualification_trigger_frame_ + 1)
+    {
+        effective_local_input = qualification_stimulus_base_input_;
+        qualification_stimulus_tail_injected_ = true;
+    }
     gekko_add_local_input(session_, local_player_slot_,
         &effective_local_input);
+    last_submitted_local_input_ = effective_local_input;
     int count{};
     GekkoGameEvent** events{};
     current_adapter_owner_ = this;
@@ -173,8 +185,9 @@ Status GekkoRollbackSession::ArmQualificationCorrectionStimulus(
     std::uint8_t delay_frames, std::int32_t trigger_frame) noexcept
 {
     if (!started_ || session_ == nullptr || !ReadyForBaseline()
-        || delay_frames == 0 || delay_frames > 30
+        || delay_frames < 2 || delay_frames > 30
         || trigger_frame < next_local_input_frame_
+        || trigger_frame == INT32_MAX
         || (qualification_stimulus_armed_
             && !qualification_stimulus_released_))
     {
@@ -185,6 +198,7 @@ Status GekkoRollbackSession::ArmQualificationCorrectionStimulus(
     qualification_stimulus_armed_ = true;
     qualification_delay_active_ = false;
     qualification_stimulus_injected_ = false;
+    qualification_stimulus_tail_injected_ = false;
     qualification_stimulus_released_ = false;
     return Status::success();
 }
@@ -232,11 +246,14 @@ void GekkoRollbackSession::Stop() noexcept
     deferred_save_count_ = 0;
     simulation_failure_context_ = {};
     qualification_delay_remaining_ = 0;
+    last_submitted_local_input_ = {};
+    qualification_stimulus_base_input_ = {};
     next_local_input_frame_ = 0;
     qualification_trigger_frame_ = -1;
     qualification_stimulus_armed_ = false;
     qualification_delay_active_ = false;
     qualification_stimulus_injected_ = false;
+    qualification_stimulus_tail_injected_ = false;
     qualification_stimulus_released_ = false;
 }
 

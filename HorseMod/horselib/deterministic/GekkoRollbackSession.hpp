@@ -65,6 +65,21 @@ MayRearmQualificationCorrectionStimulus(bool armed, bool payload_released,
         && mutually_confirmed_frame > prior_trigger_frame;
 }
 
+[[nodiscard]] inline constexpr std::array<PlayerInput, 2>
+BuildQualificationCorrectionStimulusInputs(PlayerInput basis) noexcept
+{
+    // Gekko predicts an absent input by copying the previous complete input.
+    // Submit two distinct values while transport is suppressed.  A receiver's
+    // phase-lagged prediction can equal either value, but cannot equal both;
+    // once both frames have been predicted, the authenticated release must
+    // therefore create a real misprediction and restore.
+    PlayerInput edge = basis;
+    edge.held ^= 1u;
+    edge.rising &= ~1u;
+    if ((edge.held & 1u) != 0) edge.rising |= 1u;
+    return {edge, basis};
+}
+
 struct GekkoAdvanceValue
 {
     std::int32_t frame{};
@@ -166,9 +181,9 @@ public:
         std::array<PlayerInput, 2>& authoritative) noexcept;
     Status CompleteDeferredSaves() noexcept;
     // Qualification-only stimulus: suppress a bounded run of outbound Gekko
-    // payloads starting at one absolute Gekko frame and inject one local input
-    // edge at that frame. The next authenticated payload carries the delayed
-    // input history, forcing the peer through real restore/resimulation. A
+    // payloads starting at one absolute Gekko frame and inject a complementary
+    // two-frame local input pair. The next authenticated payload carries the
+    // delayed input history, forcing the peer through real restore/resimulation. A
     // released stimulus may be re-armed only after the caller has established
     // a later mutually matching confirmed-hash boundary.
     Status ArmQualificationCorrectionStimulus(
@@ -177,6 +192,8 @@ public:
         const noexcept { return qualification_stimulus_injected_; }
     [[nodiscard]] bool qualification_correction_stimulus_released()
         const noexcept { return qualification_stimulus_released_; }
+    [[nodiscard]] std::int32_t qualification_next_local_input_frame()
+        const noexcept { return next_local_input_frame_; }
     [[nodiscard]] std::int32_t confirmed_frame() const noexcept;
     [[nodiscard]] FailureCode terminal_failure() const noexcept;
     [[nodiscard]] GekkoSimulationFailureContext simulation_failure_context()
@@ -216,11 +233,14 @@ private:
     std::size_t deferred_save_count_{};
     GekkoSimulationFailureContext simulation_failure_context_{};
     std::uint8_t qualification_delay_remaining_{};
+    PlayerInput last_submitted_local_input_{};
+    PlayerInput qualification_stimulus_base_input_{};
     std::int32_t next_local_input_frame_{};
     std::int32_t qualification_trigger_frame_{-1};
     bool qualification_stimulus_armed_{};
     bool qualification_delay_active_{};
     bool qualification_stimulus_injected_{};
+    bool qualification_stimulus_tail_injected_{};
     bool qualification_stimulus_released_{};
 };
 }

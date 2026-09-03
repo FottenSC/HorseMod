@@ -777,8 +777,6 @@ def _confirmed_convergence(latest: dict[str, dict[str, Any]]) -> dict[str, Any] 
     }
     if any(len(history) < 2 for history in histories.values()):
         return None
-    if len(histories["host"]) != len(histories["sandbox"]):
-        raise RuntimeError("peer confirmed-hash histories have unmatched trailing checks")
     for label, history in histories.items():
         coordinates = [(row["generation"], row["frame"]) for row in history]
         if len(set(coordinates)) != len(coordinates):
@@ -790,7 +788,13 @@ def _confirmed_convergence(latest: dict[str, dict[str, Any]]) -> dict[str, Any] 
                 raise RuntimeError(f"{label} confirmed hash cadence was not 30 frames")
     host = histories["host"]
     sandbox = histories["sandbox"]
-    shared = len(host)
+    # The two UE4SS logs are written by independent processes.  A poll can
+    # observe one peer's next 30-frame confirmation before the matching line
+    # has been flushed by the other peer.  Validate the complete shared prefix
+    # immediately, but do not mistake that transient observation skew for a
+    # simulation failure.  Returning None keeps the active-match gate closed
+    # until both peers expose the same final coordinate.
+    shared = min(len(host), len(sandbox))
     for index in range(shared):
         left, right = host[index], sandbox[index]
         if ((left["generation"], left["frame"])
@@ -798,6 +802,8 @@ def _confirmed_convergence(latest: dict[str, dict[str, Any]]) -> dict[str, Any] 
             raise RuntimeError("peer confirmed-hash coordinate sequences differ")
         if left["sha256"] != right["sha256"]:
             raise RuntimeError("peer confirmed canonical hashes diverged")
+    if len(host) != len(sandbox):
+        return None
     return {
         "matched_checks": shared,
         "last_generation": host[shared - 1]["generation"],

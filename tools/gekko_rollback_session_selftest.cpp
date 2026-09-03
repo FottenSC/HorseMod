@@ -224,6 +224,16 @@ void expect_hash_event(OnlineCoordinator& coordinator,
 
 int main()
 {
+    constexpr auto zero_stimulus =
+        BuildQualificationCorrectionStimulusInputs({});
+    constexpr auto held_stimulus =
+        BuildQualificationCorrectionStimulusInputs(
+            {.held = 1, .rising = 1});
+    expect(zero_stimulus[0] == PlayerInput{.held = 1, .rising = 1}
+            && zero_stimulus[1] == PlayerInput{}
+            && held_stimulus[0] == PlayerInput{}
+            && held_stimulus[1] == PlayerInput{.held = 1, .rising = 1},
+        "qualification pair contains both bit-0 predictions in release order");
     expect(QualificationCorrectionTransportDelay(11, 12, 0) == 12
             && QualificationCorrectionTransportDelay(1, 12, 0) == 2
             && QualificationCorrectionTransportDelay(6, 12, 0) == 7
@@ -556,7 +566,6 @@ int main()
             + QualificationCorrectionStimulusLead(12);
         const auto first_rollbacks = first_simulation.rollback_advances;
         const auto second_rollbacks = second_simulation.rollback_advances;
-        const auto first_history_begin = first_simulation.advance_history.size();
         const auto second_history_begin = second_simulation.advance_history.size();
         expect(first.ArmQualificationCorrectionStimulus(
                     QualificationCorrectionTransportDelay(
@@ -568,20 +577,34 @@ int main()
         bool healthy = true;
         for (std::uint32_t frame = 0; frame < 80 && healthy; ++frame)
         {
+            PlayerInput first_input{};
+            // Reproduce the live depth-1 miss: slot 0's actual input acquired
+            // bit 0 on the trigger frame.  The old stimulus XORed that current
+            // value back to the peer's previous all-zero prediction, so slot 1
+            // observed no misprediction and performed no restore.
+            if (depth == 1
+                && first.qualification_next_local_input_frame() == trigger)
+                first_input = {.held = 1, .rising = 1};
             std::array<PlayerInput, 2> first_authoritative{};
             std::array<PlayerInput, 2> second_authoritative{};
-            healthy = first.FlushCorrections().ok()
-                && first.Advance({}, first_authoritative).ok();
-            if (!healthy) break;
-            first_simulation.CompleteNativeFrame();
-            healthy = first.CompleteDeferredSaves().ok();
-            transfer(first_transport, second_transport);
-            healthy = healthy && second.FlushCorrections().ok()
+            // The two live SC6 processes consistently reach each shared
+            // confirmation with slot 1 first and slot 0 second.  Preserve
+            // that callback phase here: the former slot-0-first schedule
+            // gave its delayed packet a receiver update that does not exist
+            // in the authenticated runtime and masked a one-sided depth-1
+            // correction.
+            healthy = second.FlushCorrections().ok()
                 && second.Advance({}, second_authoritative).ok();
             if (!healthy) break;
             second_simulation.CompleteNativeFrame();
             healthy = second.CompleteDeferredSaves().ok();
             transfer(second_transport, first_transport);
+            healthy = healthy && first.FlushCorrections().ok()
+                && first.Advance(first_input, first_authoritative).ok();
+            if (!healthy) break;
+            first_simulation.CompleteNativeFrame();
+            healthy = first.CompleteDeferredSaves().ok();
+            transfer(first_transport, second_transport);
         }
         for (int count = 0; healthy && count < 8; ++count)
         {
@@ -597,8 +620,15 @@ int main()
         expect(first.qualification_correction_stimulus_released()
                 && second.qualification_correction_stimulus_released(),
             "both peers release the re-armed delayed payload");
-        expect(first_simulation.rollback_advances > first_rollbacks
-                && second_simulation.rollback_advances > second_rollbacks,
+        const auto first_rollback_delta =
+            first_simulation.rollback_advances - first_rollbacks;
+        const auto second_rollback_delta =
+            second_simulation.rollback_advances - second_rollbacks;
+        if (first_rollback_delta == 0 || second_rollback_delta == 0)
+            std::cerr << "re-armed depth " << static_cast<unsigned>(depth)
+                      << " rollback deltas slot0=" << first_rollback_delta
+                      << " slot1=" << second_rollback_delta << '\n';
+        expect(first_rollback_delta != 0 && second_rollback_delta != 0,
             "re-armed authenticated delay forces another restore/resimulation");
         const auto has_exact_transition = [](const auto& history,
                 std::size_t begin, std::int32_t target,
@@ -621,12 +651,15 @@ int main()
             }
             return false;
         };
-        expect(has_exact_transition(first_simulation.advance_history,
-                   first_history_begin, trigger + 1, 1, 0)
-                && has_exact_transition(second_simulation.advance_history,
-                   second_history_begin, trigger + 1, 0, 1),
-            "each re-armed depth revisits the injected frame from local-only "
-            "to identical bilateral inputs");
+        const bool second_transition = has_exact_transition(
+            second_simulation.advance_history,
+            second_history_begin, trigger + 1, 0, 1);
+        if (!second_transition)
+            std::cerr << "re-armed depth " << static_cast<unsigned>(depth)
+                      << " slot-0 stimulus was not corrected by slot 1"
+                      << " target=" << trigger + 1 << '\n';
+        expect(second_transition,
+            "slot 0's re-armed edge differs from slot 1's prior prediction");
         expect(first_simulation.state == second_simulation.state,
             "re-armed restore/resimulation converges independently");
     };

@@ -582,12 +582,32 @@ def test_confirmed_convergence_rejects_missing_30_frame_cadence():
         })
 
 
-def test_confirmed_convergence_rejects_unmatched_trailing_checks():
+def test_confirmed_convergence_waits_for_asynchronously_flushed_trailing_check():
     digest = "44" * 32
-    with pytest.raises(RuntimeError, match="unmatched trailing"):
+    host = _history(digest, digest, digest)
+    sandbox = _history(digest, digest)
+    assert _confirmed_convergence({
+        "host": {"confirmed_history": host},
+        "sandbox": {"confirmed_history": sandbox},
+    }) is None
+    proof = _confirmed_convergence({
+        "host": {"confirmed_history": host},
+        "sandbox": {"confirmed_history": _history(digest, digest, digest)},
+    })
+    assert proof is not None
+    assert proof["matched_checks"] == 3
+    assert proof["last_frame"] == 90
+
+
+def test_confirmed_convergence_fails_closed_on_shared_prefix_disagreement():
+    digest = "55" * 32
+    host = _history(digest, digest, digest)
+    sandbox = _history(digest, digest)
+    sandbox[1]["frame"] = 61
+    with pytest.raises(RuntimeError, match="cadence"):
         _confirmed_convergence({
-            "host": {"confirmed_history": _history(digest, digest, digest)},
-            "sandbox": {"confirmed_history": _history(digest, digest)},
+            "host": {"confirmed_history": host},
+            "sandbox": {"confirmed_history": sandbox},
         })
 
 
