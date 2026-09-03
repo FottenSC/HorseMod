@@ -46,6 +46,15 @@ inline constexpr std::size_t replay_canonical_hash_memory_budget =
 inline constexpr std::size_t replay_checkpoint_memory_budget =
     replay_timeline_memory_limit - replay_input_memory_budget
     - replay_native_batch_memory_budget - replay_canonical_hash_memory_budget;
+// Landing checkpoints are captured every 30 frames, while the batch-entry
+// retention boundary is at most 18 frames apart for a 12-wide batch under the
+// 29-coordinate resimulation limit. A 3:5 split gives both stores the same
+// supported frame horizon without increasing the total replay memory ceiling.
+inline constexpr std::size_t replay_landing_checkpoint_memory_budget =
+    replay_checkpoint_memory_budget * 3 / 8;
+inline constexpr std::size_t replay_batch_entry_checkpoint_memory_budget =
+    replay_checkpoint_memory_budget
+    - replay_landing_checkpoint_memory_budget;
 inline constexpr std::size_t replay_input_entry_budget = 128;
 // Leave a fixed schema margin for the bounded cross-family presentation,
 // 64-dispatch audio burst, audio-terminal, and same-generation camera

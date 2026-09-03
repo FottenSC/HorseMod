@@ -245,13 +245,14 @@ private:
         const CandidateTransientCaptureDiagnostic& diagnostic,
         CandidateTransientCaptureDiagnostic* output) noexcept;
 
-    static constexpr std::size_t checkpoint_memory_limit =
-        Schema::replay_checkpoint_memory_budget / 2;
     // Every admitted SC6 checkpoint owns the fixed MotionBankTriples image.
     // Derive the slot ceiling from that proven allocation floor so reserving
     // heavyweight Snapshot objects cannot consume the payload budget itself.
-    static constexpr std::size_t maximum_checkpoints_per_role =
-        checkpoint_memory_limit
+    static constexpr std::size_t maximum_landing_checkpoints =
+        Schema::replay_landing_checkpoint_memory_budget
+        / (motion_bank_image_bytes + sizeof(Snapshot));
+    static constexpr std::size_t maximum_batch_entry_checkpoints =
+        Schema::replay_batch_entry_checkpoint_memory_budget
         / (motion_bank_image_bytes + sizeof(Snapshot));
 
     struct TimingHistogram
@@ -303,10 +304,12 @@ private:
     HgCpuStreamShim hgcpu_{};
     std::unique_ptr<CandidateGameStateAdapter> adapter_;
     UcrtRandBroker* ucrt_broker_{};
-    SnapshotStore landing_snapshots_{checkpoint_memory_limit,
-        maximum_checkpoints_per_role, CapacityPolicy::RejectNew};
-    SnapshotStore batch_entry_snapshots_{checkpoint_memory_limit,
-        maximum_checkpoints_per_role, CapacityPolicy::RejectNew};
+    SnapshotStore landing_snapshots_{
+        Schema::replay_landing_checkpoint_memory_budget,
+        maximum_landing_checkpoints, CapacityPolicy::RejectNew};
+    SnapshotStore batch_entry_snapshots_{
+        Schema::replay_batch_entry_checkpoint_memory_budget,
+        maximum_batch_entry_checkpoints, CapacityPolicy::RejectNew};
     Snapshot landing_capture_scratch_{};
     Snapshot batch_entry_capture_scratch_{};
     std::unique_ptr<CandidateCheckpointImage> auxiliary_decode_scratch_{};

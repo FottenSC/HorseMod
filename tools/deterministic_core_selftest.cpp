@@ -1172,6 +1172,45 @@ void test_snapshot_capacity_is_atomic()
         "recycled qualification slot re-enters the bounded ring");
 }
 
+void test_checkpoint_memory_matches_capture_cadence()
+{
+    constexpr std::uint64_t maximum_resimulation_distance =
+        Schema::checkpoint_interval - 1;
+    constexpr std::uint64_t batch_entry_spacing =
+        maximum_resimulation_distance
+        - Schema::maximum_supported_native_batch_width + 1;
+    static_assert(batch_entry_spacing == 18);
+    static_assert(Schema::checkpoint_interval == 30);
+    static_assert(
+        Schema::replay_landing_checkpoint_memory_budget
+            + Schema::replay_batch_entry_checkpoint_memory_budget
+        == Schema::replay_checkpoint_memory_budget);
+
+    // Equal-sized checkpoint images require five batch-entry slots for every
+    // three landing slots to cover the same native-frame horizon. This is the
+    // exact retention boundary used by PlanResimulationBase: a 12-wide native
+    // batch must still remain within the 29-coordinate replay limit.
+    expect(
+        Schema::replay_landing_checkpoint_memory_budget / 3
+            == Schema::replay_batch_entry_checkpoint_memory_budget / 5,
+        "checkpoint memory is split by the 30-frame landing and 18-frame "
+        "batch-entry capture cadence");
+
+    SnapshotStore landing{1024 * 1024, 3, CapacityPolicy::RejectNew};
+    SnapshotStore batch_entry{1024 * 1024, 5, CapacityPolicy::RejectNew};
+    for (std::uint64_t frame = 0; frame < 90; frame += 30)
+        expect(landing.Save({{1, frame}, 1, {}, {}}).ok(),
+            "landing checkpoint retains the shared 90-frame horizon");
+    for (std::uint64_t frame = 0; frame < 90; frame += 18)
+        expect(batch_entry.Save({{1, frame}, 1, {}, {}}).ok(),
+            "batch-entry checkpoint retains the shared 90-frame horizon");
+    expect(landing.Save({{1, 90}, 1, {}, {}}).code
+                == FailureCode::CapacityExceeded
+            && batch_entry.Save({{1, 90}, 1, {}, {}}).code
+                == FailureCode::CapacityExceeded,
+        "both checkpoint roles exhaust at the same native-frame boundary");
+}
+
 void test_resimulation_base_planning_respects_batch_width()
 {
     constexpr std::uint32_t maximum_batch_width = 12;
@@ -2203,6 +2242,7 @@ int main()
     test_input_replacement_and_invalidation();
     test_native_batch_timeline_is_exact_and_bounded();
     test_snapshot_capacity_is_atomic();
+    test_checkpoint_memory_matches_capture_cadence();
     test_resimulation_base_planning_respects_batch_width();
     test_owned_gekko_retention_boundary_fails_before_history_discard();
     test_batch_aware_replay_seek_planning();
