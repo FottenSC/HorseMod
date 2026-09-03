@@ -222,17 +222,13 @@ void expect_hash_event(OnlineCoordinator& coordinator,
 
 int main()
 {
-    expect(QualificationCorrectionTransportDelay(11, 0, 12) == 11
-            && QualificationCorrectionTransportDelay(11, 1, 12) == 12
-            && QualificationCorrectionTransportDelay(1, 0, 12) == 1
-            && QualificationCorrectionTransportDelay(1, 1, 12) == 2
-            && QualificationCorrectionTransportDelay(6, 0, 12) == 6
-            && QualificationCorrectionTransportDelay(6, 1, 12) == 7,
-        "SC6 peer-phase guard preserves requested 11-1-6 minimum depths");
-    expect(QualificationCorrectionTransportDelay(12, 1, 12) == 0
-            && QualificationCorrectionTransportDelay(0, 0, 12) == 0
-            && QualificationCorrectionTransportDelay(1, 2, 12) == 0,
-        "peer-phase guard fails closed at invalid or overflowing depths");
+    expect(QualificationCorrectionTransportDelay(11, 12) == 12
+            && QualificationCorrectionTransportDelay(1, 12) == 2
+            && QualificationCorrectionTransportDelay(6, 12) == 7,
+        "SC6 transport guard preserves requested 11-1-6 minimum depths");
+    expect(QualificationCorrectionTransportDelay(12, 12) == 0
+            && QualificationCorrectionTransportDelay(0, 12) == 0,
+        "transport guard fails closed at invalid or overflowing depths");
 
     expect(CanSealGekkoRound(89, 90, false),
         "fully confirmed idle generation can seal before history retirement");
@@ -385,9 +381,9 @@ int main()
     const auto second_rollbacks_before_stimulus =
         second_simulation.rollback_advances;
     expect(first.ArmQualificationCorrectionStimulus(
-                QualificationCorrectionTransportDelay(11, 0, 12), 89).ok()
+                QualificationCorrectionTransportDelay(11, 12), 89).ok()
             && second.ArmQualificationCorrectionStimulus(
-                QualificationCorrectionTransportDelay(11, 1, 12), 89).ok(),
+                QualificationCorrectionTransportDelay(11, 12), 89).ok(),
         "mutual frame-29 hash arms one absolute frame-89 depth-11 correction");
     bool stimulus_healthy = true;
     for (std::uint32_t frame = 0; frame < 80; ++frame)
@@ -513,10 +509,10 @@ int main()
         const auto second_rollbacks = second_simulation.rollback_advances;
         expect(first.ArmQualificationCorrectionStimulus(
                     QualificationCorrectionTransportDelay(
-                        depth, 0, 12), trigger).ok()
+                        depth, 12), trigger).ok()
                 && second.ArmQualificationCorrectionStimulus(
                     QualificationCorrectionTransportDelay(
-                        depth, 1, 12), trigger).ok(),
+                        depth, 12), trigger).ok(),
             "released qualification stimulus re-arms at a later shared boundary");
         bool healthy = true;
         for (std::uint32_t frame = 0; frame < 80 && healthy; ++frame)

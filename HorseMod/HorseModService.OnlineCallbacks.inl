@@ -295,7 +295,7 @@
                             m_online_correction_stimulus_next];
                     const auto transport_delay =
                         QualificationCorrectionTransportDelay(
-                            stimulus_depth, m_online_local_player_slot,
+                            stimulus_depth,
                             static_cast<std::uint8_t>(
                                 m_deterministic_config.rollback_window));
                     const auto trigger_frame =

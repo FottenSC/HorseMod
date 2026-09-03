@@ -184,7 +184,7 @@ def test_repeated_correction_smoke_requires_11_1_6_and_three_convergences():
         f"transport_delay={delays[index]}\n"
         for index, depth in enumerate((11, 1, 6)))
     host_stimuli = stimulus_text((12, 2, 7))
-    sandbox_stimuli = stimulus_text((11, 1, 6))
+    sandbox_stimuli = stimulus_text((12, 2, 7))
     stimulus_evidence = _correction_stimulus_sequence_evidence({
         "host": host_stimuli.format(run="h"),
         "sandbox": sandbox_stimuli.format(run="s"),
@@ -192,7 +192,7 @@ def test_repeated_correction_smoke_requires_11_1_6_and_three_convergences():
     assert stimulus_evidence is not None
     assert [row["depth"] for row in stimulus_evidence["host"]] == [11, 1, 6]
     assert [row["transport_delay"] for row in stimulus_evidence["host"]] == [12, 2, 7]
-    assert [row["transport_delay"] for row in stimulus_evidence["sandbox"]] == [11, 1, 6]
+    assert [row["transport_delay"] for row in stimulus_evidence["sandbox"]] == [12, 2, 7]
 
     def combined(run, correction_counts, stimuli):
         stimulus_rows = stimuli.splitlines(keepends=True)
@@ -232,10 +232,11 @@ def test_repeated_correction_smoke_requires_11_1_6_and_three_convergences():
     assert correction_evidence[1]["sandbox_corrections"] == 2
     # One peer advancing cannot certify the other peer's restore path and
     # must not allow teardown to race the next confirmed-hash exchange.
-    assert _repeated_correction_evidence({
-        "host": combined("h", (1, 2, 3), host_stimuli),
-        "sandbox": combined("s", (1, 1, 2), sandbox_stimuli),
-    }, {"host": "h", "sandbox": "s"}, 3) is None
+    with pytest.raises(RuntimeError, match="correction 2 was not bilateral"):
+        _repeated_correction_evidence({
+            "host": combined("h", (1, 2, 3), host_stimuli),
+            "sandbox": combined("s", (1, 1, 2), sandbox_stimuli),
+        }, {"host": "h", "sandbox": "s"}, 3)
 
 
 def test_paired_online_exposes_typed_authoritative_failure_case():

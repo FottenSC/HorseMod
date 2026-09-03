@@ -552,7 +552,13 @@ def _repeated_correction_evidence(
                 reached = pair
                 break
             if ordinal < required_count and shared_index == 0:
-                return None
+                raise RuntimeError(
+                    f"authenticated correction {ordinal} was not bilateral "
+                    "at its first shared post-correction boundary: "
+                    f"host={pair['host'].group('corrections')}/"
+                    f"{baseline['host']} sandbox="
+                    f"{pair['sandbox'].group('corrections')}/"
+                    f"{baseline['sandbox']}")
         if reached is None:
             return None
         for label, match in reached.items():
@@ -652,7 +658,7 @@ def _correction_stimulus_sequence_evidence(
             "peers armed different authenticated correction sequences")
     for host, sandbox in zip(evidence["host"], evidence["sandbox"]):
         if (host["transport_delay"] != host["depth"] + 1
-                or sandbox["transport_delay"] != sandbox["depth"]):
+                or sandbox["transport_delay"] != sandbox["depth"] + 1):
             raise RuntimeError(
                 "peers armed correction delays without the SC6 phase guard")
     return evidence
