@@ -191,7 +191,7 @@ def required_file(path: Path, label: str) -> Path:
 def load_outcome_control(
     path: Path, replay: Path, dll: Path, replay_mod: Path,
     schema: Path, executable: Path, *, allow_noncertifying: bool = False,
-) -> tuple[tuple[int, ...], int, dict[str, object]]:
+) -> tuple[tuple[int, ...], int, dict[str, object], dict[str, object]]:
     control_path = required_file(path, "same-replay stock outcome control")
     data = json.loads(control_path.read_text(encoding="utf-8"))
     certifying = data.get("certifying") is True
@@ -245,7 +245,36 @@ def load_outcome_control(
     }
     if development_mismatches:
         identity["noncertifying_identity_mismatches"] = development_mismatches
-    return winners, winner, identity
+    summary: dict[str, object] = {
+        "source_commit": outcome.get("source_commit"),
+        "rounds": len(winners),
+        "match_winner": winner,
+        "round_winners": list(winners),
+    }
+    return winners, winner, identity, summary
+
+
+def _outcome_proof_report_fields(
+    live_outcome: object | None,
+    bound_control_outcome: dict[str, object] | None,
+    require_live_outcome: bool,
+    require_control_artifact: bool,
+) -> tuple[dict[str, object] | None, bool]:
+    """Keep certifying seek reports bound to their independently run oracle."""
+    required = require_live_outcome or require_control_artifact
+    if live_outcome is not None:
+        summary: dict[str, object] | None = {
+            "source_commit": live_outcome.source_commit,
+            "rounds": live_outcome.rounds,
+            "match_winner": live_outcome.match_winner,
+            "round_winners": list(live_outcome.round_winners),
+        }
+    else:
+        summary = (None if bound_control_outcome is None
+                   else dict(bound_control_outcome))
+    if required and summary is None:
+        raise RuntimeError("required authored outcome proof is missing")
+    return summary, required
 
 
 def run_online_observer(args: argparse.Namespace) -> int:
@@ -503,13 +532,14 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
     expected_round_winners: tuple[int, ...] = ()
     expected_match_winner: int | None = None
     outcome_control_artifact: dict[str, object] | None = None
+    bound_control_outcome: dict[str, object] | None = None
     if require_outcome_control_artifact and not stock_round_outcome_control:
         if args.outcome_control_report is None:
             raise RuntimeError(
                 "deterministic outcome verification requires "
                 "--outcome-control-report from the same replay")
         (expected_round_winners, expected_match_winner,
-         outcome_control_artifact) = load_outcome_control(
+         outcome_control_artifact, bound_control_outcome) = load_outcome_control(
             args.outcome_control_report, replay, dll, replay_mod, schema, executable,
             allow_noncertifying=args.allow_dirty and not args.certifying,
         )
@@ -732,6 +762,10 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
                 remove_request_files(run_id)
     temporary_mod_removed = not (mods_root / "ReplayQualificationMod").exists()
 
+    outcome_summary, outcome_proof_required = _outcome_proof_report_fields(
+        stock_round_outcome, bound_control_outcome,
+        require_authored_outcomes, require_outcome_control_artifact,
+    )
     report_data: dict[str, object] = {
         "report_schema": 2,
         "kind": ("replay_development_tira_transition_smoke"
@@ -958,13 +992,8 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
                 }
                 for seek in seeks
             ],
-            "stock_round_outcome": None if stock_round_outcome is None else {
-                "source_commit": stock_round_outcome.source_commit,
-                "rounds": stock_round_outcome.rounds,
-                "match_winner": stock_round_outcome.match_winner,
-                "round_winners": list(stock_round_outcome.round_winners),
-            },
-            "authored_outcomes_required": require_authored_outcomes,
+            "stock_round_outcome": outcome_summary,
+            "authored_outcomes_required": outcome_proof_required,
             "correction_probes": [
                 {
                     "depth": probe.depth,

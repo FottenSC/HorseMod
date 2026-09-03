@@ -13,6 +13,7 @@ from tools.deterministic_qualification.runner import (
     _default_replay_timeout,
     _find_failure_line,
     _log_text_since,
+    _outcome_proof_report_fields,
     _read_bounded_log_since,
     _replay_outcome_policy,
     _require_complete_forced_qualification_window,
@@ -179,16 +180,29 @@ def test_outcome_control_binds_every_executable_artifact(tmp_path):
         }},
     }), encoding="utf-8")
 
-    winners, winner, identity = load_outcome_control(
+    winners, winner, identity, summary = load_outcome_control(
         control, replay, dll, replay_mod, schema, executable)
     assert winners == (1, 1)
     assert winner == 1
     assert identity["sha256"] == sha256_file(control)
+    assert summary == {
+        "source_commit": None,
+        "rounds": 2,
+        "match_winner": 1,
+        "round_winners": [1, 1],
+    }
+
+    seek_outcome, required = _outcome_proof_report_fields(
+        None, summary, False, True)
+    assert required is True
+    assert seek_outcome == summary
+    with pytest.raises(RuntimeError, match="outcome proof is missing"):
+        _outcome_proof_report_fields(None, None, False, True)
 
     _write(dll, b"changed")
     with pytest.raises(RuntimeError, match="HorseMod DLL hash mismatch"):
         load_outcome_control(control, replay, dll, replay_mod, schema, executable)
-    winners, winner, identity = load_outcome_control(
+    winners, winner, identity, _ = load_outcome_control(
         control, replay, dll, replay_mod, schema, executable,
         allow_noncertifying=True,
     )
@@ -202,7 +216,7 @@ def test_outcome_control_binds_every_executable_artifact(tmp_path):
     control.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(RuntimeError, match="certifying pass"):
         load_outcome_control(control, replay, dll, replay_mod, schema, executable)
-    winners, winner, _ = load_outcome_control(
+    winners, winner, _, _ = load_outcome_control(
         control, replay, dll, replay_mod, schema, executable,
         allow_noncertifying=True,
     )
