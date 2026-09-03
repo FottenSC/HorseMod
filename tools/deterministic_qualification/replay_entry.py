@@ -96,6 +96,9 @@ def create_request(
     for percentage in seek_percentages:
         if percentage <= 0 or percentage >= 100:
             raise RuntimeError("seek percentages must be between 1 and 99")
+    if require_authored_outcomes and seek_percentages:
+        raise RuntimeError(
+            "authored outcomes and strict seeks require separate replay lifetimes")
     if not 1.0 <= min_resume_tick_rate <= 1000.0:
         raise RuntimeError("minimum resume tick rate must be between 1 and 1000")
     if not 1 <= resume_tick_window <= 36000:

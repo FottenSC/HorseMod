@@ -283,6 +283,15 @@ void test_round_transition_selects_the_last_canonicalized_fencepost()
                 == FrameCoordinate{3, 361}
             && !timeline.GetLastInGeneration(1).has_value(),
         "canonical generation lookup never crosses the round boundary");
+    const auto global_range = timeline.Range();
+    const auto latest_range = timeline.LatestGenerationRange();
+    expect(global_range.has_value()
+            && global_range->first == FrameCoordinate{2, 358}
+            && global_range->second == FrameCoordinate{3, 361}
+            && latest_range.has_value()
+            && latest_range->first == FrameCoordinate{3, 361}
+            && latest_range->second == FrameCoordinate{3, 361},
+        "seekable range selects the latest generation without discarding older history");
 }
 
 void test_round_rearm_clears_prediction_before_checkpoint_reservation()

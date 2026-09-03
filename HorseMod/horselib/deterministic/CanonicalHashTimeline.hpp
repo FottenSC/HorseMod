@@ -47,6 +47,8 @@ public:
         std::span<const CanonicalHashEntry> replacement) noexcept;
     [[nodiscard]] std::optional<std::pair<FrameCoordinate, FrameCoordinate>>
     Range() const noexcept;
+    [[nodiscard]] std::optional<std::pair<FrameCoordinate, FrameCoordinate>>
+    LatestGenerationRange() const noexcept;
     void Clear() noexcept;
 
     [[nodiscard]] std::size_t size() const noexcept { return entries_.size(); }

@@ -1,4 +1,5 @@
 #include "replay_qualification_mod/ReplayQualificationHealth.hpp"
+#include "replay_qualification_mod/ReplaySeekReadiness.hpp"
 
 #include <array>
 #include <cstdlib>
@@ -7,6 +8,8 @@
 namespace
 {
 using Horse::Qualification::IsTerminalReplayQualificationHealth;
+using Horse::Qualification::ClassifyReplaySeekReadiness;
+using Horse::Qualification::ReplaySeekReadiness;
 using Horse::Qualification::replay_qualification_health_value_count;
 
 void expect(bool condition, const char* message)
@@ -43,5 +46,22 @@ int main()
         expect(IsTerminalReplayQualificationHealth(health),
             "authoritative replay failure remains fail-fast terminal");
     }
+
+    expect(ClassifyReplaySeekReadiness(
+        false, 0, 0, 600, true, 1)
+            == ReplaySeekReadiness::RangeUnavailable,
+        "seek readiness reports an unavailable native range");
+    expect(ClassifyReplaySeekReadiness(
+        true, 100, 699, 600, true, 1)
+            == ReplaySeekReadiness::RangeTooShort,
+        "seek readiness enforces the full retained history span");
+    expect(ClassifyReplaySeekReadiness(
+        true, 100, 700, 600, true, 0)
+            == ReplaySeekReadiness::PhaseInactive,
+        "seek readiness requires the active authored replay phase");
+    expect(ClassifyReplaySeekReadiness(
+        true, 100, 700, 600, true, 1)
+            == ReplaySeekReadiness::Ready,
+        "seek readiness admits the exact 600-frame active boundary");
     return 0;
 }

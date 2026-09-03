@@ -143,6 +143,23 @@ def test_outcome_verification_requires_and_serializes_control_oracle(
     assert "expected_match_winner=1\n" in request
 
 
+def test_outcomes_and_strict_seeks_require_separate_replay_lifetimes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    replay = tmp_path / "separate-lifetimes.bin"
+    replay.write_bytes(b"ULX1test")
+
+    with pytest.raises(RuntimeError, match="separate replay lifetimes"):
+        create_request(
+            replay, 600, seek_percentages=(50,),
+            stock_round_outcome_control=False,
+            require_authored_outcomes=True,
+            expected_round_winners=(1, 0, 0, 0),
+            expected_match_winner=0,
+        )
+
+
 def test_active_request_guard_surfaces_native_terminal_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

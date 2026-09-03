@@ -14,6 +14,7 @@ from tools.deterministic_qualification.runner import (
     _find_failure_line,
     _log_text_since,
     _read_bounded_log_since,
+    _replay_outcome_policy,
     _require_complete_forced_qualification_window,
     _require_forced_qualification_timing,
     _temporarily_armed_smoke_config,
@@ -45,6 +46,17 @@ def test_replay_timeout_default_distinguishes_probes_from_full_outcomes():
         mode[field] = True
         assert _default_replay_timeout(SimpleNamespace(**mode)) == (
             REPLAY_AUTHORED_OUTCOME_TIMEOUT_SECONDS)
+
+
+def test_certifying_seek_binds_control_without_waiting_for_match_outcome():
+    base = dict(
+        seek_percentages=[50], development_smoke=False, certifying=True,
+        require_authored_outcomes=False, require_tira_stance_change=False,
+        require_tira_probability_transition=False,
+    )
+    assert _replay_outcome_policy(SimpleNamespace(**base)) == (False, True)
+    base["seek_percentages"] = []
+    assert _replay_outcome_policy(SimpleNamespace(**base)) == (True, True)
 
 
 def test_forced_qualification_requires_full_rate_window():

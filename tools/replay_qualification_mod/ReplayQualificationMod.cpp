@@ -10,6 +10,7 @@
 #include "ReplayPayloadImporter.hpp"
 #include "ReplayQualificationHealth.hpp"
 #include "ReplaySceneNavigator.hpp"
+#include "ReplaySeekReadiness.hpp"
 #include "OnlineRoomAutomation.hpp"
 #include "deterministic/Sc6OnlineObserverProbe.hpp"
 
@@ -946,6 +947,7 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)
         && fields["require_authored_outcomes"] != "true"
         && fields["require_authored_outcomes"] != "false")
         return false;
+    if (require_authored_outcomes && !percentages.empty()) return false;
     std::vector<std::int8_t> expected_round_winners;
     std::int32_t expected_match_winner = -1;
     if (fields["version"] == "8" || fields["version"] == "9"
@@ -1583,7 +1585,9 @@ private:
         seek_resume_last_observed_frame_ = 0;
         seek_resume_last_round_state_frame_ = 0;
         seek_resume_observation_active_ = false;
+        seek_wait_log_counter_ = 0;
         phase_wait_log_counter_ = 0;
+        outcome_wait_log_counter_ = 0;
         replay_metadata_ = {};
         observed_round_winner_count_ = 0;
         observed_round_winners_.clear();
@@ -2546,7 +2550,22 @@ private:
     {
         if (round_outcomes_verified_) return true;
         BattleResult result{};
-        if (!TryReadBattleResult(battle_manager_, result)) return false;
+        const bool result_available = TryReadBattleResult(
+            battle_manager_, result);
+        if (++outcome_wait_log_counter_ >= 600)
+        {
+            outcome_wait_log_counter_ = 0;
+            Output::send<LogLevel::Default>(STR(
+                "[ReplayQualification] authored outcome progress "
+                "available={} timer={} result_type={} round_winner={} "
+                "match_winner={} observed_rounds={} expected_rounds={}\n"),
+                result_available ? STR("yes") : STR("no"),
+                result.timer_seconds, result.result_type,
+                result.round_winner_index, result.match_winner_index,
+                observed_round_winner_count_,
+                request_.expected_round_winners.size());
+        }
+        if (!result_available) return false;
         const bool round_result_valid = result.result_type != 0
             && result.round_winner_index >= 0
             && result.round_winner_index
@@ -2593,6 +2612,13 @@ private:
             }
             observed_round_winners_.push_back(observed);
             ++observed_round_winner_count_;
+            outcome_wait_log_counter_ = 0;
+            Output::send<LogLevel::Default>(STR(
+                "[ReplayQualification] authored round outcome observed "
+                "ordinal={} winner={} result_type={} timer={} "
+                "match_winner={}\n"), observed_round_winner_count_,
+                observed, result.result_type, result.timer_seconds,
+                result.match_winner_index);
         }
         if (result.match_winner_index < 0) return false;
         if (!request_.stock_round_outcome_control
@@ -2857,16 +2883,34 @@ private:
         std::uint64_t generation{}, first{}, last{};
         std::int32_t native_round{}, native_time{}, unpause_countdown{};
         std::uint32_t round_state_frame{};
-        if (!get_range_(&generation, &first, &last) || first >= last
-            || last - first < request_.watch_frames)
+        const bool range_available = get_range_(&generation, &first, &last);
+        const bool phase_available = get_phase_(&native_round, &native_time,
+            &round_state_frame, &unpause_countdown);
+        const auto readiness =
+            Horse::Qualification::ClassifyReplaySeekReadiness(
+                range_available, first, last, request_.watch_frames,
+                phase_available, round_state_frame);
+        if (readiness != Horse::Qualification::ReplaySeekReadiness::Ready)
         {
+            if (++seek_wait_log_counter_ >= 120)
+            {
+                seek_wait_log_counter_ = 0;
+                Output::send<LogLevel::Default>(STR(
+                    "[ReplayQualification] strict seek waiting reason={} "
+                    "range_available={} generation={} range={}-{} "
+                    "required_span={} phase_available={} round={} time={} "
+                    "round_state_frame={} unpause={} index={}\n"),
+                    RC::to_generic_string(std::string(
+                        Horse::Qualification::ReplaySeekReadinessName(
+                            readiness))),
+                    range_available ? 1 : 0, generation, first, last,
+                    request_.watch_frames, phase_available ? 1 : 0,
+                    native_round, native_time, round_state_frame,
+                    unpause_countdown, seek_index_);
+            }
             return;
         }
-        if (!get_phase_(&native_round, &native_time, &round_state_frame,
-                &unpause_countdown) || round_state_frame == 0)
-        {
-            return;
-        }
+        seek_wait_log_counter_ = 0;
         // A completed seek resumes live simulation for the full qualification
         // window.  That window may legitimately cross a round barrier and
         // advance the native timeline generation before the next percentage
@@ -3067,6 +3111,8 @@ private:
     std::uint32_t seek_resume_last_round_state_frame_{};
     bool seek_resume_observation_active_{};
     std::uint16_t phase_wait_log_counter_{};
+    std::uint16_t outcome_wait_log_counter_{};
+    std::uint16_t seek_wait_log_counter_{};
     std::uint32_t observed_round_winner_count_{};
     std::vector<std::int8_t> observed_round_winners_{};
     BattleResult last_round_result_{};

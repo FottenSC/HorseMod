@@ -103,6 +103,27 @@ def _default_replay_timeout(args: argparse.Namespace) -> float:
     return REPLAY_PROBE_TIMEOUT_SECONDS
 
 
+def _replay_outcome_policy(args: argparse.Namespace) -> tuple[bool, bool]:
+    """Separate full-match outcome proof from active-phase strict seeking."""
+    seeks = bool(args.seek_percentages)
+    if args.require_authored_outcomes and seeks:
+        raise RuntimeError(
+            "authored outcomes and strict seeks require separate replay lifetimes")
+    if args.development_smoke:
+        return False, False
+    require_authored = bool(
+        args.require_authored_outcomes
+        or args.require_tira_stance_change
+        or args.require_tira_probability_transition
+        or (args.certifying and not seeks)
+    )
+    # A certifying seek does not wait for the final result in its active replay
+    # lifetime, but it remains bound to the exact same-replay stock oracle.
+    require_control_artifact = require_authored or (
+        args.certifying and seeks)
+    return require_authored, require_control_artifact
+
+
 @contextmanager
 def _temporarily_armed_smoke_config(config: Path):
     """Arm observer hooks while preserving the caller's exact full-run config."""
@@ -470,17 +491,12 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
         and not args.require_authored_outcomes
         and not args.require_tira_stance_change
         and not args.require_tira_probability_transition)
-    require_authored_outcomes = bool(
-        not args.development_smoke
-        and (args.certifying or args.require_authored_outcomes
-        or args.require_tira_stance_change
-        or args.require_tira_probability_transition
-        )
-    )
+    (require_authored_outcomes,
+     require_outcome_control_artifact) = _replay_outcome_policy(args)
     expected_round_winners: tuple[int, ...] = ()
     expected_match_winner: int | None = None
     outcome_control_artifact: dict[str, object] | None = None
-    if require_authored_outcomes and not stock_round_outcome_control:
+    if require_outcome_control_artifact and not stock_round_outcome_control:
         if args.outcome_control_report is None:
             raise RuntimeError(
                 "deterministic outcome verification requires "
@@ -520,22 +536,24 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
                     args.log, args.timeout, guard, log_start
                 )
             entry = wait_for_replay_entry(run_id, args.timeout, guard)
-            if not args.seek_percentages:
-                normal_render_rate = wait_for_normal_render_rate_evidence(
-                    args.log, args.timeout, guard, log_start
+            # Strict seeks still begin with a normal-render active window. Keep
+            # that independent FPS/TPS proof in the report before requesting a
+            # seek; resume-rate evidence measures a different boundary.
+            normal_render_rate = wait_for_normal_render_rate_evidence(
+                args.log, args.timeout, guard, log_start
+            )
+            minimum_rate_milli = round(args.min_resume_tick_rate * 1000)
+            if (not normal_render_rate.independent_clocks
+                    or normal_render_rate.fps_milli < minimum_rate_milli
+                    or normal_render_rate.tick_rate_milli < minimum_rate_milli
+                    or normal_render_rate.active_fps_milli
+                        < minimum_rate_milli
+                    or normal_render_rate.active_tick_rate_milli
+                        < minimum_rate_milli):
+                raise RuntimeError(
+                    "normal-render frame/tick rate was below the required "
+                    f"{args.min_resume_tick_rate:.3f} Hz"
                 )
-                minimum_rate_milli = round(args.min_resume_tick_rate * 1000)
-                if (not normal_render_rate.independent_clocks
-                        or normal_render_rate.fps_milli < minimum_rate_milli
-                        or normal_render_rate.tick_rate_milli < minimum_rate_milli
-                        or normal_render_rate.active_fps_milli
-                            < minimum_rate_milli
-                        or normal_render_rate.active_tick_rate_milli
-                            < minimum_rate_milli):
-                    raise RuntimeError(
-                        "normal-render frame/tick rate was below the required "
-                        f"{args.min_resume_tick_rate:.3f} Hz"
-                    )
             replay_metadata = wait_for_replay_metadata_evidence(
                 args.log, args.timeout, guard, log_start)
             if not stock_round_outcome_control and not args.development_smoke:

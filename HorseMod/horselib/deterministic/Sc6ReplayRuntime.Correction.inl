@@ -284,9 +284,8 @@ bool Sc6ReplayRuntime::GetSeekableRange(
 {
     first = {};
     last = {};
-    const auto range = canonical_timeline_.Range();
-    if (!range.has_value() || range->first.generation == 0
-        || range->first.generation != range->second.generation)
+    const auto range = canonical_timeline_.LatestGenerationRange();
+    if (!range.has_value() || range->first.generation == 0)
         return false;
     first = range->first;
     last = range->second;

@@ -137,6 +137,23 @@ CanonicalHashTimeline::Range() const noexcept
     return std::pair{entries_.front().coordinate, entries_.back().coordinate};
 }
 
+std::optional<std::pair<FrameCoordinate, FrameCoordinate>>
+CanonicalHashTimeline::LatestGenerationRange() const noexcept
+{
+    if (entries_.empty()) return std::nullopt;
+    const FrameCoordinate last = entries_.back().coordinate;
+    const auto first = std::lower_bound(entries_.begin(), entries_.end(),
+        FrameCoordinate{last.generation, 0},
+        [](const CanonicalHashEntry& entry, FrameCoordinate value)
+        {
+            return entry.coordinate < value;
+        });
+    if (first == entries_.end()
+        || first->coordinate.generation != last.generation)
+        return std::nullopt;
+    return std::pair{first->coordinate, last};
+}
+
 void CanonicalHashTimeline::Clear() noexcept
 {
     entries_.clear();
