@@ -95,10 +95,14 @@ REPLAY_AUTHORED_OUTCOME_TIMEOUT_SECONDS = 300.0
 
 def _default_replay_timeout(args: argparse.Namespace) -> float:
     """Keep short probes bounded while allowing an authored match to finish."""
-    if any(bool(getattr(args, field, False)) for field in (
-            "stock_round_outcome_control", "certifying",
-            "require_authored_outcomes", "require_tira_stance_change",
-            "require_tira_probability_transition")):
+    full_authored_outcome = any(bool(getattr(args, field, False)) for field in (
+            "stock_round_outcome_control", "require_authored_outcomes",
+            "require_tira_stance_change",
+            "require_tira_probability_transition"))
+    certifying_full_baseline = (
+        bool(getattr(args, "certifying", False))
+        and not bool(getattr(args, "seek_percentages", ())))
+    if full_authored_outcome or certifying_full_baseline:
         return REPLAY_AUTHORED_OUTCOME_TIMEOUT_SECONDS
     return REPLAY_PROBE_TIMEOUT_SECONDS
 
@@ -1189,6 +1193,11 @@ def run_replay_entry(args: argparse.Namespace) -> int:
     timeout_was_defaulted = getattr(args, "timeout", None) is None
     if timeout_was_defaulted:
         args.timeout = _default_replay_timeout(args)
+    # Strict seeking consumes canonical/checkpoint history and cannot run from
+    # the safe trace=false production config. Always use the reversible
+    # deterministic-baseline arm scope, even if the caller omitted the flag.
+    if getattr(args, "seek_percentages", ()):
+        args.deterministic_baseline = True
     if args.certifying and args.skip_development_smoke:
         raise RuntimeError("certifying deterministic baselines require the smoke preflight")
     if not 60 <= args.smoke_frames <= 120:

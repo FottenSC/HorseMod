@@ -47,6 +47,10 @@ def test_replay_timeout_default_distinguishes_probes_from_full_outcomes():
         assert _default_replay_timeout(SimpleNamespace(**mode)) == (
             REPLAY_AUTHORED_OUTCOME_TIMEOUT_SECONDS)
 
+    certifying_seek = dict(base, certifying=True, seek_percentages=[50])
+    assert _default_replay_timeout(SimpleNamespace(**certifying_seek)) == (
+        REPLAY_PROBE_TIMEOUT_SECONDS)
+
 
 def test_certifying_seek_binds_control_without_waiting_for_match_outcome():
     base = dict(
@@ -397,6 +401,52 @@ def test_baseline_wrapper_arms_smoke_and_full_run_then_restores(
     assert [smoke for smoke, _ in observed] == [True, False]
     assert all("trace=true\n" in text for _, text in observed)
     assert all("enabled=false\n" in text for _, text in observed)
+    assert config.read_bytes() == original
+
+
+def test_strict_seek_implicitly_uses_armed_baseline_scope(
+    tmp_path, monkeypatch,
+):
+    config = tmp_path / "rollback.ini"
+    original = (
+        b"config_version=1\nenabled=false\nrollback_window=12\n"
+        b"input_delay=1\ntrace=false\ncorrection_probe=false\n"
+        b"forced_depth7_qualification=false\nqualification_depth=7\n"
+        b"qualification_location=2\n"
+    )
+    config.write_bytes(original)
+    observed = []
+
+    def capture(args):
+        observed.append((
+            args.deterministic_baseline,
+            config.read_text(encoding="utf-8"),
+        ))
+        return 0
+
+    monkeypatch.setattr(
+        "tools.deterministic_qualification.runner._run_replay_entry_once",
+        capture,
+    )
+    args = SimpleNamespace(
+        timeout=None,
+        stock_round_outcome_control=False,
+        certifying=False,
+        require_authored_outcomes=False,
+        require_tira_stance_change=False,
+        require_tira_probability_transition=False,
+        skip_development_smoke=True,
+        smoke_frames=120,
+        deterministic_baseline=False,
+        development_smoke=False,
+        seek_percentages=[50],
+        config=config,
+    )
+
+    assert run_replay_entry(args) == 0
+    assert len(observed) == 1
+    assert observed[0][0] is True
+    assert "trace=true\n" in observed[0][1]
     assert config.read_bytes() == original
 
 
