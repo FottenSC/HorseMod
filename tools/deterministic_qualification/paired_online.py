@@ -130,6 +130,11 @@ EVENT = re.compile(
     r"\[HorseMod\] online qualification run_id=(?P<run>\S+) event=(?P<event>\S+) "
     r"generation=(?P<generation>\d+) frame=(?P<frame>\d+)"
 )
+BASELINE_IDENTITY = re.compile(
+    r"\[HorseMod\] online qualification run_id=(?P<run>\S+) "
+    r"baseline_identity generation=(?P<generation>\d+) frame=(?P<frame>\d+) "
+    r"components=(?P<components>[0-9a-f]{16}(?:/[0-9a-f]{16}){4})"
+)
 TAKEOVER_EVENTS = (
     "session_content_resolved",
     "transport_authenticated",
@@ -216,13 +221,83 @@ def _event_records_for_run(text: str, run_id: str) -> list[dict[str, Any]]:
     ]
 
 
-def _require_ordered_takeover(events: list[str], label: str) -> None:
+def _require_ordered_takeover(
+    events: list[str], label: str, generations: int = 2,
+) -> None:
     ownership_events = [event for event in events
                         if event in TAKEOVER_EVENTS]
-    required = list(TAKEOVER_EVENTS) + list(ROUND_TAKEOVER_EVENTS)
+    if generations < 1:
+        raise ValueError("takeover generation count must be positive")
+    required = (list(TAKEOVER_EVENTS)
+                + list(ROUND_TAKEOVER_EVENTS) * (generations - 1))
     if ownership_events[:len(required)] != required:
         raise RuntimeError(
-            f"{label} lacked two exact ordered ownership generations")
+            f"{label} lacked {generations} exact ordered ownership "
+            f"generation{'s' if generations != 1 else ''}")
+
+
+def _validate_online_status_evidence(
+    statuses: list[int], events: list[str], label: str,
+) -> None:
+    """Validate sampled status against native events, not poll completeness."""
+    for prior, current in zip(statuses, statuses[1:]):
+        if current < prior:
+            raise RuntimeError(f"{label} online status regressed")
+    active_statuses = [status for status in statuses if status <= 5]
+    if not active_statuses:
+        return
+    highest = active_statuses[-1]
+    required_by_status = {
+        1: (),
+        2: TAKEOVER_EVENTS[:1],
+        3: TAKEOVER_EVENTS[:5],
+        4: TAKEOVER_EVENTS[:7],
+        5: TAKEOVER_EVENTS,
+    }
+    required = required_by_status.get(highest)
+    if required is None:
+        raise RuntimeError(f"{label} reported unknown online status {highest}")
+    ownership_events = [event for event in events
+                        if event in TAKEOVER_EVENTS]
+    if ownership_events[:len(required)] != list(required):
+        raise RuntimeError(
+            f"{label} online status {highest} lacked its exact ordered "
+            "native lifecycle evidence")
+
+
+def _baseline_identities_for_run(
+    text: str, run_id: str,
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "generation": int(match.group("generation")),
+            "frame": int(match.group("frame")),
+            "components": match.group("components"),
+        }
+        for match in BASELINE_IDENTITY.finditer(text)
+        if match.group("run") == run_id
+    ]
+
+
+def _require_matching_independent_baselines(
+    logs: dict[str, str], run_ids: dict[str, str], minimum_count: int = 1,
+) -> list[dict[str, Any]]:
+    histories = {
+        label: _baseline_identities_for_run(logs[label], run_ids[label])
+        for label in ("host", "sandbox")
+    }
+    for label, history in histories.items():
+        if len(history) < minimum_count:
+            raise RuntimeError(
+                f"{label} status 5 lacked {minimum_count} independently "
+                "captured baseline identities")
+    host = histories["host"][:minimum_count]
+    sandbox = histories["sandbox"][:minimum_count]
+    if host != sandbox:
+        raise RuntimeError(
+            "peers did not independently capture identical baseline "
+            "coordinates and component identities")
+    return host
 
 
 def _require_two_owned_generations(
@@ -750,13 +825,8 @@ def _wait_online(paths: ObserverPairPaths, run_ids: dict[str, str], case: dict[s
             event_records = _event_records_for_run(text, run_id)
             if 6 in statuses:
                 raise RuntimeError(f"{label} online qualification entered failure status 6")
-            prior = 0
-            for status in statuses:
-                if status < prior:
-                    raise RuntimeError(f"{label} online status regressed")
-                if status > prior + 1:
-                    raise RuntimeError(f"{label} online status skipped required phase")
-                prior = status
+            _validate_online_status_evidence(statuses, events, label)
+            prior = statuses[-1] if statuses else 0
             if prior > highest_status[label]:
                 highest_status[label] = prior
                 status_changed_at[label] = time.monotonic()
@@ -806,7 +876,11 @@ def _wait_online(paths: ObserverPairPaths, run_ids: dict[str, str], case: dict[s
         if all(5 in latest.get(label, {}).get("statuses", ())
                for label in ("host", "sandbox")):
             for label in ("host", "sandbox"):
-                _require_ordered_takeover(latest[label]["events"], label)
+                _require_ordered_takeover(
+                    latest[label]["events"], label, generations=1)
+            latest["baseline_identities"] = (
+                _require_matching_independent_baselines(
+                    polled_logs, run_ids, minimum_count=1))
             if active_started_at is None:
                 active_started_at = time.monotonic()
                 if on_active is not None:
@@ -1131,6 +1205,8 @@ def _wait_development_setup_smoke(
             if 6 in statuses:
                 raise RuntimeError(
                     f"{label} failed before native online admission")
+            events = _events_for_run(logs[label], online_run_ids[label])
+            _validate_online_status_evidence(statuses, events, label)
             handshakes = [match for match in HANDSHAKE.finditer(logs[label])
                           if match.group("run") == online_run_ids[label]]
             # Status 2 proves only authenticated exact-content handshake.  A
@@ -1152,6 +1228,9 @@ def _wait_development_setup_smoke(
             setup_metrics[label]["native_handshake"] = handshake.groupdict()
             setup_metrics[label]["native_online_status"] = 5
         if admitted:
+            baseline_identities = _require_matching_independent_baselines(
+                logs, online_run_ids, minimum_count=1)
+            setup_metrics["baseline_identities"] = baseline_identities
             break
         time.sleep(0.25)
     else:

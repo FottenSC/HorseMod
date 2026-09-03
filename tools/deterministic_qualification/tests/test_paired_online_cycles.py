@@ -10,6 +10,7 @@ from tools.deterministic_qualification.runner import (
 from tools.deterministic_qualification.paired_online import (
     FAILURE, NativeOnlineTerminal, ROUND_TAKEOVER_EVENTS, TAKEOVER_EVENTS,
     _atomic_online_request,
+    _require_matching_independent_baselines,
     _confirmed_convergence, _development_session_latch,
     _development_smoke_complete,
     _completed_teardown_reports,
@@ -21,6 +22,7 @@ from tools.deterministic_qualification.paired_online import (
     _required_correction_stimulus,
     _require_ordered_takeover, _require_two_owned_generations,
     _raise_on_native_terminal, _root_failure_evidence,
+    _validate_online_status_evidence,
     _wait_development_setup_smoke,
 )
 from tools.deterministic_qualification.paired_online_evaluation import (
@@ -366,6 +368,12 @@ def test_setup_smoke_teardown_aborts_immediately_on_native_failure(tmp_path):
     }
     for label, current_peer in (("host", paths.host), ("sandbox", paths.sandbox)):
         current_peer.qualification_root.mkdir()
+        takeover_events = "".join(
+            f"[HorseMod] online qualification run_id={online_ids[label]} "
+            f"event={event} generation={0 if index < 2 else 1} "
+            f"frame={0 if index < 2 else 124}\n"
+            for index, event in enumerate(TAKEOVER_EVENTS)
+        )
         current_peer.log.write_text(
             f"[HorseMod] online qualification run_id={online_ids[label]} "
             f"session_identity_latched lobby_id=42 local_slot="
@@ -375,6 +383,11 @@ def test_setup_smoke_teardown_aborts_immediately_on_native_failure(tmp_path):
             "display_map=Silver Wolves' Haven fighters=012/015 "
             f"local_slot={0 if label == 'host' else 1} "
             f"loaded_map_sha256={'11' * 32} session_state=3\n"
+            f"{takeover_events}"
+            f"[HorseMod] online qualification run_id={online_ids[label]} "
+            "baseline_identity generation=1 frame=124 components="
+            "0000000000000001/0000000000000002/0000000000000003/"
+            "0000000000000004/0000000000000005\n"
             f"[ReplayQualification] online qualification "
             f"run_id={online_ids[label]} status=5\n",
             encoding="utf-8",
@@ -569,6 +582,42 @@ def test_takeover_lifecycle_requires_exact_event_order_before_ownership():
     reordered[3], reordered[4] = reordered[4], reordered[3]
     with pytest.raises(RuntimeError, match="exact ordered"):
         _require_ordered_takeover(reordered, "host")
+
+
+def test_sampled_status_jump_requires_native_lifecycle_evidence():
+    # ReplayQualification samples the native accessor once per game tick. The
+    # live host therefore exposed 1 -> 2 -> 5 while native status 3/4 and their
+    # authoritative events completed between samples.
+    events = list(TAKEOVER_EVENTS)
+    _validate_online_status_evidence([1, 2, 5], events, "host")
+    with pytest.raises(RuntimeError, match="lifecycle evidence"):
+        _validate_online_status_evidence(
+            [1, 2, 5],
+            [event for event in events
+             if event != "bilateral_baseline_acknowledged"],
+            "host",
+        )
+
+
+def test_status_five_requires_matching_independent_baseline_identities():
+    line = (
+        "[HorseMod] online qualification run_id={run} baseline_identity "
+        "generation=1 frame=124 components={components}\n"
+    )
+    components = "/".join(("%016x" % value) for value in range(1, 6))
+    proof = _require_matching_independent_baselines({
+        "host": line.format(run="h", components=components),
+        "sandbox": line.format(run="s", components=components),
+    }, {"host": "h", "sandbox": "s"})
+    assert proof == [{
+        "generation": 1, "frame": 124, "components": components,
+    }]
+    with pytest.raises(RuntimeError, match="identical baseline"):
+        _require_matching_independent_baselines({
+            "host": line.format(run="h", components=components),
+            "sandbox": line.format(
+                run="s", components=components[:-16] + "0000000000000099"),
+        }, {"host": "h", "sandbox": "s"})
 
 
 def test_two_owned_generations_require_hashes_and_second_generation_correction():
