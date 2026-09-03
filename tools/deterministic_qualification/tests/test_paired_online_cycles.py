@@ -17,6 +17,7 @@ from tools.deterministic_qualification.paired_online import (
     _cycle_teardown_run_ids,
     _first_correction_evidence,
     _correction_stimulus_sequence_evidence,
+    _qualification_correction_stimulus_depths,
     _qualification_failure_plan, _read_since,
     _repeated_correction_evidence,
     _required_correction_stimulus,
@@ -78,6 +79,26 @@ def test_paired_online_exposes_noncertifying_repeated_correction_smoke():
         "--report", "report.json", "--development-correction-smoke",
     ])
     assert arguments.development_correction_smoke is True
+
+
+def test_functional_certification_arms_authenticated_11_1_6_corrections():
+    arguments = build_parser().parse_args([
+        "paired-online", "--case-manifest", "cases.json", "--case", "case-a",
+        "--dll", "HorseMod.dll", "--output-dir", "evidence",
+        "--report", "report.json",
+    ])
+    assert _qualification_correction_stimulus_depths(arguments, "") == (
+        11, 1, 6)
+
+
+def test_typed_failure_certification_does_not_mix_correction_stimuli():
+    arguments = build_parser().parse_args([
+        "paired-online", "--case-manifest", "cases.json", "--case", "case-a",
+        "--dll", "HorseMod.dll", "--output-dir", "evidence",
+        "--report", "report.json", "--failure-case", "postownership_restore",
+    ])
+    assert _qualification_correction_stimulus_depths(
+        arguments, "postownership_restore") == ()
 
 
 def test_paired_online_exposes_noncertifying_depth7_timing_smoke():

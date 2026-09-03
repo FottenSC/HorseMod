@@ -474,6 +474,24 @@ def _development_smoke_complete(args: Any, completed_cycles: int) -> bool:
             or completed_cycles >= args.match_cycles)
 
 
+def _qualification_correction_stimulus_depths(
+    args: Any, failure_case: str,
+) -> tuple[int, ...]:
+    if args.development_correction_smoke:
+        return (11, 1, 6)
+    if args.development_depth7_smoke:
+        return (7,)
+    if (failure_case or args.development_setup_smoke
+            or args.development_round_barrier_smoke
+            or args.development_reentry_smoke):
+        return ()
+    # Functional certification must create repeatable prediction error even
+    # when two local Steam peers exchange ordinary inputs before prediction.
+    # These authenticated delayed payloads exercise the real Gekko
+    # restore/resimulation path; they do not transfer canonical state.
+    return (11, 1, 6)
+
+
 def _cycle_teardown_run_ids(run_id: str, cycle_ordinal: int) -> dict[str, str]:
     if cycle_ordinal < 1:
         raise ValueError("teardown cycle ordinal must be positive")
@@ -820,6 +838,7 @@ def _wait_online(paths: ObserverPairPaths, run_ids: dict[str, str], case: dict[s
                  guard: Any, minimum_active_seconds: float = 0.0,
                  on_active: Any | None = None,
                  request_lobby_return: Any | None = None,
+                 required_correction_depths: tuple[int, ...] = (11, 1, 6),
                  ) -> tuple[dict[str, Any], dict[str, str]]:
     deadline = time.monotonic() + timeout
     latest: dict[str, dict[str, Any]] = {}
@@ -918,9 +937,15 @@ def _wait_online(paths: ObserverPairPaths, run_ids: dict[str, str], case: dict[s
                 latest[label].get("authenticated") is not None
                 for label in ("host", "sandbox")
             )
-            correction_complete = all(
-                metric and metric["corrections"] > 0 and metric["checks"] > 0
-                for metric in metrics
+            stimulus_sequence = _correction_stimulus_sequence_evidence(
+                polled_logs, run_ids, required_correction_depths)
+            correction_convergences = _repeated_correction_evidence(
+                polled_logs, run_ids, len(required_correction_depths))
+            correction_complete = (
+                bool(required_correction_depths)
+                and stimulus_sequence is not None
+                and correction_convergences is not None
+                and all(metric and metric["checks"] > 0 for metric in metrics)
             )
             convergence = _confirmed_convergence(latest)
             presentation_complete = all(
@@ -967,6 +992,9 @@ def _wait_online(paths: ObserverPairPaths, run_ids: dict[str, str], case: dict[s
                     and generations_complete
                     and duration_complete):
                 latest["convergence"] = convergence
+                latest["correction_stimulus_sequence"] = stimulus_sequence
+                latest["bilateral_correction_convergence"] = (
+                    correction_convergences)
                 break
         time.sleep(0.25)
     else:
@@ -1361,9 +1389,8 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
         or args.development_depth7_smoke
         or args.development_round_barrier_smoke
         or args.development_reentry_smoke)
-    correction_stimulus_depths = (
-        (11, 1, 6) if args.development_correction_smoke
-        else (7,) if args.development_depth7_smoke else ())
+    correction_stimulus_depths = _qualification_correction_stimulus_depths(
+        args, failure_case)
     if sum((args.development_setup_smoke,
             args.development_correction_smoke,
             args.development_depth7_smoke,
@@ -1575,6 +1602,7 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
                          if args.soak_seconds > 0 else 0.0),
                         memory_tracker.restart_warmup if cycle_index == 0 else None,
                         request_lobby_return,
+                        correction_stimulus_depths,
                     )
                 cycle_metrics.append({
                     "cycle": cycle_index + 1,
