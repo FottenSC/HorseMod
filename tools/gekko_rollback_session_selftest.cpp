@@ -234,13 +234,13 @@ int main()
             && held_stimulus[0] == PlayerInput{}
             && held_stimulus[1] == PlayerInput{.held = 1, .rising = 1},
         "qualification pair contains both bit-0 predictions in release order");
-    expect(QualificationCorrectionTransportDelay(11, 12, 0) == 13
+    expect(QualificationCorrectionTransportDelay(11, 12, 0) == 12
             && QualificationCorrectionTransportDelay(1, 12, 0) == 3
             && QualificationCorrectionTransportDelay(6, 12, 0) == 8
-            && QualificationCorrectionTransportDelay(11, 12, 1) == 13
+            && QualificationCorrectionTransportDelay(11, 12, 1) == 12
             && QualificationCorrectionTransportDelay(1, 12, 1) == 3
             && QualificationCorrectionTransportDelay(6, 12, 1) == 8,
-        "either SC6 callback phase retains the complete 11-1-6 input pair");
+        "11-1-6 retains complementary inputs without exhausting max depth");
     expect(QualificationCorrectionTransportDelay(12, 12, 0) == 0
             && QualificationCorrectionTransportDelay(0, 12, 0) == 0
             && QualificationCorrectionTransportDelay(1, 12, 2) == 0,
@@ -421,7 +421,7 @@ int main()
         transfer(first_transport, second_transport);
     }
 
-    for (std::uint32_t frame = 0; frame < 40; ++frame)
+    for (std::uint32_t frame = 0; frame < 19; ++frame)
     {
         std::array<PlayerInput, 2> first_authoritative{};
         std::array<PlayerInput, 2> second_authoritative{};
@@ -442,20 +442,31 @@ int main()
     }
     expect(first.confirmed_frame() >= 29 && second.confirmed_frame() >= 29,
         "both owned peers independently reach Gekko frame 29 before arming");
+    expect(first.confirmed_frame() == 29 && second.confirmed_frame() == 29
+            && first.qualification_next_local_input_frame() == 29
+            && second.qualification_next_local_input_frame() == 30,
+        "live failure boundary retains the 29/29 confirmed and 29/30 cursor skew");
     const auto first_rollbacks_before_stimulus =
         first_simulation.rollback_advances;
     const auto second_rollbacks_before_stimulus =
         second_simulation.rollback_advances;
+    const auto first_stimulus_trigger = first.confirmed_frame()
+        + QualificationCorrectionStimulusLead(12);
     expect(first.ArmQualificationCorrectionStimulus(
-                QualificationCorrectionTransportDelay(11, 12, 0), 89).ok()
+                QualificationCorrectionTransportDelay(
+                    11, 12, 0), first_stimulus_trigger).ok()
             && second.ArmQualificationCorrectionStimulus(
-                QualificationCorrectionTransportDelay(11, 12, 1), 89).ok(),
-        "mutual frame-29 hash arms one absolute frame-89 depth-11 correction");
+                QualificationCorrectionTransportDelay(
+                    11, 12, 1), first_stimulus_trigger).ok(),
+        "mutual frame-29 hash arms the exact live frame-43 depth-11 correction");
     bool stimulus_healthy = true;
+    bool withheld_first_release_for_one_receiver_update = false;
     for (std::uint32_t frame = 0; frame < 80; ++frame)
     {
         std::array<PlayerInput, 2> first_authoritative{};
         std::array<PlayerInput, 2> second_authoritative{};
+        const bool first_released_before =
+            first.qualification_correction_stimulus_released();
         const auto first_flush = first.FlushCorrections();
         const auto first_advance = first_flush.ok()
             ? first.Advance({}, first_authoritative) : first_flush;
@@ -485,7 +496,21 @@ int main()
             stimulus_healthy = false;
             break;
         }
-        transfer(first_transport, second_transport);
+        const bool first_released_now = !first_released_before
+            && first.qualification_correction_stimulus_released();
+        if (first_released_now
+            && !withheld_first_release_for_one_receiver_update)
+        {
+            // Steam delivery is asynchronous. The failed Silver Wolves'
+            // Haven run had the slot-0 release callback complete immediately
+            // before slot 1's prediction-limit update, without the packet
+            // becoming pollable in that sub-millisecond interval.
+            withheld_first_release_for_one_receiver_update = true;
+        }
+        else
+        {
+            transfer(first_transport, second_transport);
+        }
         const auto second_flush = second.FlushCorrections();
         const auto second_advance = second_flush.ok()
             ? second.Advance({}, second_authoritative) : second_flush;
@@ -507,6 +532,8 @@ int main()
             stimulus_healthy = false;
             break;
         }
+        if (first_released_now)
+            transfer(first_transport, second_transport);
         transfer(second_transport, first_transport);
     }
     expect(stimulus_healthy,
@@ -532,13 +559,14 @@ int main()
             && second_simulation.rollback_advances
                 > second_rollbacks_before_stimulus,
         "bilateral late authenticated inputs force restore/resimulation on both peers");
-    const auto has_staged_frame_90 = [](const auto& history,
+    const auto staged_frame = first_stimulus_trigger + 1;
+    const auto has_staged_frame = [staged_frame](const auto& history,
                                           std::uint32_t first_p0,
                                           std::uint32_t first_p1) {
         bool partial{};
         for (const auto& value : history)
         {
-            if (value.frame != 90) continue;
+            if (value.frame != staged_frame) continue;
             if (!partial)
             {
                 if (value.inputs[0].held != first_p0
@@ -552,31 +580,34 @@ int main()
         }
         return false;
     };
-    if (!has_staged_frame_90(first_simulation.advance_history, 1, 0)
-        || !has_staged_frame_90(second_simulation.advance_history, 0, 1))
+    if (!has_staged_frame(first_simulation.advance_history, 1, 0)
+        || !has_staged_frame(second_simulation.advance_history, 0, 1))
     {
-        const auto dump_frame_90 = [](const char* label, const auto& history) {
-            std::cerr << label << " frame-90 rollback inputs:";
+        const auto dump_staged_frame = [staged_frame](
+                const char* label, const auto& history) {
+            std::cerr << label << " staged-frame rollback inputs:";
             for (const auto& value : history)
             {
-                if (value.frame == 90)
+                if (value.frame == staged_frame)
                     std::cerr << ' ' << value.inputs[0].held << '/'
                               << value.inputs[1].held;
             }
             std::cerr << '\n';
         };
-        dump_frame_90("first", first_simulation.advance_history);
-        dump_frame_90("second", second_simulation.advance_history);
+        dump_staged_frame("first", first_simulation.advance_history);
+        dump_staged_frame("second", second_simulation.advance_history);
     }
-    expect(has_staged_frame_90(first_simulation.advance_history, 1, 0)
-            && has_staged_frame_90(second_simulation.advance_history, 0, 1),
-        "Gekko revisits frame 90 after local-only knowledge with both delayed "
+    expect(has_staged_frame(first_simulation.advance_history, 1, 0)
+            && has_staged_frame(second_simulation.advance_history, 0, 1),
+        "Gekko revisits the stimulus tail after local-only knowledge with both delayed "
         "authenticated inputs; the first remote value is not immutable");
     expect(first_simulation.state == second_simulation.state,
         "bilateral depth-11 restore/resimulation converges independently");
 
-    expect(!MayRearmQualificationCorrectionStimulus(true, true, 89, 89)
-            && MayRearmQualificationCorrectionStimulus(true, true, 119, 89),
+    expect(!MayRearmQualificationCorrectionStimulus(true, true,
+                first_stimulus_trigger, first_stimulus_trigger)
+            && MayRearmQualificationCorrectionStimulus(true, true,
+                first_stimulus_trigger + 30, first_stimulus_trigger),
         "stimulus re-arm waits for a later mutually confirmed boundary");
     expect(QualificationCorrectionStimulusLead(12) == 14
             && 29 + 14 < 59 && 59 + 14 < 89 && 89 + 14 < 235,
@@ -700,9 +731,22 @@ int main()
             second_simulation.advance_history,
             second_history_begin, trigger + 1, 0, 1);
         if (!second_transition)
+        {
             std::cerr << "re-armed depth " << static_cast<unsigned>(depth)
                       << " slot-0 stimulus was not corrected by slot 1"
                       << " target=" << trigger + 1 << '\n';
+            for (std::size_t index = second_history_begin;
+                 index < second_simulation.advance_history.size(); ++index)
+            {
+                const auto& value = second_simulation.advance_history[index];
+                if (value.frame < trigger - 2 || value.frame > trigger + 2)
+                    continue;
+                std::cerr << "  frame=" << value.frame
+                          << " inputs=" << value.inputs[0].held << '/'
+                          << value.inputs[1].held
+                          << " rollback=" << value.rolling_back << '\n';
+            }
+        }
         expect(second_transition,
             "slot 0's re-armed edge differs from slot 1's prior prediction");
         expect(first_simulation.state == second_simulation.state,

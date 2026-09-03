@@ -7,6 +7,7 @@
 #endif
 #include <gekkonet.h>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -27,22 +28,21 @@ QualificationCorrectionStimulusLead(std::uint32_t rollback_window) noexcept
 QualificationCorrectionTransportDelay(std::uint8_t requested_depth,
     std::uint8_t rollback_window, std::uint8_t local_player_slot) noexcept
 {
-    // Release replacement history after the requested number of receiver
-    // predictions. A mutually confirmed hash does not equalize the peers'
-    // next-local-input cursors: either sender can be one update ahead at a
-    // later stimulus. Retain both slots through depth+1 and release on
-    // depth+2 so the receiver has predicted both members of the complementary
-    // input pair in either callback phase. SendData allows that final update
-    // through, so depth-11 update 13 suppresses only twelve complete updates.
+    // Retain both complementary stimulus inputs when the prediction window
+    // has room, because a mutually confirmed hash does not equalize the
+    // peers' next-local-input cursors. At the maximum requested depth, cap
+    // retention one update earlier: Steam payloads sent by one callback need
+    // not be pollable by the other callback in the same sub-millisecond
+    // interval, so consuming the entire window can strand that receiver with
+    // no current advance. The basis-derived edge still guarantees the max-
+    // depth misprediction while the cap preserves one delivery-poll margin.
     if (requested_depth == 0 || requested_depth >= rollback_window
         || local_player_slot > 1)
         return 0;
-    const std::uint16_t release_update = static_cast<std::uint16_t>(
+    const std::uint16_t preferred_release = static_cast<std::uint16_t>(
         requested_depth) + 2u;
-    const std::uint16_t maximum_release_update = static_cast<std::uint16_t>(
-        rollback_window) + 1u;
-    return release_update <= maximum_release_update
-        ? static_cast<std::uint8_t>(release_update) : 0;
+    return static_cast<std::uint8_t>((std::min)(preferred_release,
+        static_cast<std::uint16_t>(rollback_window)));
 }
 
 [[nodiscard]] inline constexpr std::optional<std::int32_t>

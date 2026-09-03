@@ -778,8 +778,12 @@ def _correction_stimulus_sequence_evidence(
         raise RuntimeError(
             "peers armed different authenticated correction sequences")
     for host, sandbox in zip(evidence["host"], evidence["sandbox"]):
-        if (host["transport_delay"] != host["depth"] + 2
-                or sandbox["transport_delay"] != sandbox["depth"] + 2):
+        rollback_window = host["lead_frames"] - 2
+        expected_release = min(host["depth"] + 2, rollback_window)
+        if (rollback_window <= 1
+                or sandbox["lead_frames"] - 2 != rollback_window
+                or host["transport_delay"] != expected_release
+                or sandbox["transport_delay"] != expected_release):
             raise RuntimeError(
                 "peers armed correction delays outside the phase-safe "
                 "release-update contract")
