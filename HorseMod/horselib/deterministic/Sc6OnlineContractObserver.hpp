@@ -15,6 +15,18 @@
 
 namespace Horse::Deterministic
 {
+enum class Sc6OnlineSessionObservationStage : std::uint8_t
+{
+    None,
+    Acquired,
+    ExpectedVtable,
+    RoleAndState,
+    OnlineSession,
+    NamedSession,
+    SessionInfo,
+    LobbyIdentity,
+};
+
 struct Sc6OnlineSessionIdentity
 {
     std::uint64_t lobby_id{};
@@ -27,31 +39,63 @@ struct Sc6OnlineSessionIdentity
     std::int8_t role{-1};
     std::uint8_t virtual_session_state{};
     std::uint8_t local_player_slot{};
+    Sc6OnlineSessionObservationStage observation_stage{
+        Sc6OnlineSessionObservationStage::None};
 };
 
-// Native Lux online-session state consumers treat 1, 4, and 6 as live.
-// Pre-ownership may bind while the pair is connected (1) or has entered the
-// match transport state (4). State 6 can transition back into state 4 and is
-// therefore not a fresh-match boundary; admitting it could bind stale battle
-// sync content between matches.
+// State 1 waits for the named session connection; opcode 0x0B writes state 3
+// only after resolving the peer transport entry and expected session route;
+// state 4 begins match transport. These are the fresh pre-ownership windows.
+// State 5 is deferred, state 6 can recycle into state 4, and state 9 is failure.
 [[nodiscard]] constexpr bool IsSc6PreownershipSessionState(
     std::uint8_t state) noexcept
 {
-    return state == 1 || state == 4;
+    return state == 1 || state == 3 || state == 4;
+}
+
+[[nodiscard]] constexpr Sc6OnlineSessionIdentity
+ValueOnlySc6OnlineSessionIdentity(
+    const Sc6OnlineSessionIdentity& observed) noexcept
+{
+    auto value = observed;
+    value.session_interface = 0;
+    value.active_connect = 0;
+    value.online_session = 0;
+    value.named_session = 0;
+    value.session_info = 0;
+    return value;
 }
 
 struct Sc6BattleSyncIdentity
 {
+    enum class ObservationStage : std::uint8_t
+    {
+        None,
+        Acquired,
+        CompletionFlags,
+        FighterCodes,
+        StageFields,
+        StageCatalog,
+        SelectionIdentity,
+    };
+
     OnlineContentContract content{};
     std::uintptr_t battle_sync_object{};
+    std::uint16_t native_stage_code{};
+    std::uint8_t native_stage_random{};
+    std::array<bool, 2> fighter_code_valid{};
     bool characters_received{};
     bool stage_received{};
+    ObservationStage observation_stage{ObservationStage::None};
 };
 
 struct SteamLobbyIdentity
 {
     std::array<std::uint64_t, 2> members{};
     std::uint64_t local_steam_id{};
+    std::int32_t observed_member_count{-1};
+    std::uint32_t observation_mask{};
+    std::uint32_t search_discriminator{};
     std::uint8_t member_count{};
     bool casual_player_match{};
 };
@@ -69,10 +113,23 @@ public:
         Sc6BattleSyncIdentity& output) const noexcept;
 };
 
+// Copies the completed selection once. A valid latch is value-only and this
+// helper deliberately returns without dereferencing a later raw pointer.
+Status LatchSc6BattleSyncContent(
+    const Sc6BattleSyncObserver& observer,
+    const void* battle_sync_object,
+    OnlineContentContract& latched_content,
+    bool& latched_valid,
+    Sc6BattleSyncIdentity& observation) noexcept;
+
 class Sc6OnlineSessionObserver
 {
 public:
     Status Initialize(std::uintptr_t image_base) noexcept;
+    // Reads the current structurally valid player-session identity without
+    // imposing the narrower fresh pre-ownership state gate. Native pointers
+    // are diagnostic only and must never be retained across ticks.
+    Status ObserveCurrent(Sc6OnlineSessionIdentity& output) const noexcept;
     Status Observe(Sc6OnlineSessionIdentity& output) const noexcept;
 
 private:

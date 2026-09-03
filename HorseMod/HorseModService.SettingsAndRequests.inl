@@ -720,9 +720,6 @@
     std::uint64_t m_replay_qualification_batch_accounting_mismatch_baseline{};
     std::uint64_t m_replay_qualification_round_transition_barrier_baseline{};
     Horse::Deterministic::DeterministicHookSet m_deterministic_hooks{};
-#if HORSE_ENABLE_GEKKONET || HORSE_ENABLE_OBSERVER_PROBE
-    Horse::GlobalPtr m_online_battle_sync{};
-#endif
 #if HORSE_ENABLE_OBSERVER_PROBE
     Horse::Deterministic::Sc6OnlineObserverReadOnlyAccess
         m_online_observer_access{};
@@ -738,6 +735,16 @@
     Horse::Fn m_online_request_battle_end_to_lobby{};
     Horse::Deterministic::Sc6OnlineSessionObserver
         m_sc6_online_session_observer{};
+    Horse::Deterministic::Sc6OnlineSessionIdentity
+        m_online_latched_session_identity{};
+    bool m_online_latched_session_valid{};
+    std::uint32_t m_online_session_observation_stage_mask{};
+    std::uint32_t m_online_session_observation_state_mask{};
+    bool m_online_lobby_observation_failure_logged{};
+    std::uint32_t m_online_content_observation_stage_mask{};
+    Horse::Deterministic::OnlineContentContract
+        m_online_latched_content_identity{};
+    bool m_online_latched_content_valid{};
     Horse::Deterministic::SteamLobbyObserver m_steam_lobby_observer{};
     Horse::Deterministic::Sc6BattleSyncObserver m_battle_sync_observer{};
     Horse::Deterministic::ProductionOnlineAllowlist m_online_allowlist{};
@@ -749,6 +756,7 @@
     OnlineCoordinatorRouter m_online_coordinator{
         m_online_qualification_coordinator, m_online_production_coordinator};
     Horse::Deterministic::OnlineLifecycle m_online_lifecycle{};
+    Horse::Deterministic::OnlineSceneExitGate m_online_scene_exit_gate{};
     Horse::Deterministic::GekkoRollbackSession m_online_gekko{};
     Horse::Deterministic::FrameCoordinate m_online_baseline_coordinate{};
     Horse::Deterministic::FrameCoordinate m_online_pending_coordinate{};
@@ -790,14 +798,29 @@
     std::uint64_t m_online_audio_sequence_mismatches{};
     std::uint64_t m_online_camera_publication_mismatches{};
     std::uint64_t m_online_presentation_failures{};
+    std::array<std::uint8_t, 3> m_online_correction_stimulus_depths{};
+    std::size_t m_online_correction_stimulus_count{};
+    std::size_t m_online_correction_stimulus_next{};
+    std::int32_t m_online_correction_stimulus_trigger_frame{-1};
+    bool m_online_correction_stimulus_armed{};
     OnlineQualificationFault m_online_qualification_fault{
         OnlineQualificationFault::None};
     bool m_online_qualification_fault_triggered{};
     std::uint64_t m_online_qualification_fault_started_ms{};
     std::uint32_t m_online_event_mask{};
     std::uint32_t m_online_preownership_failure_cleanup_delay{};
+    Horse::Deterministic::FailureCode m_online_root_failure{
+        Horse::Deterministic::FailureCode::None};
+    Horse::Deterministic::OnlineLifecyclePhase m_online_root_lifecycle_phase{
+        Horse::Deterministic::OnlineLifecyclePhase::ClearForStock};
+    Horse::Deterministic::OnlineState m_online_root_coordinator_state{
+        Horse::Deterministic::OnlineState::Disabled};
+    Horse::Deterministic::FrameCoordinate m_online_root_failure_coordinate{};
+    bool m_online_root_owned_simulation{};
     Horse::Deterministic::OnlineQualificationMetrics
         m_online_qualification_metrics{};
+    Horse::Deterministic::DeterministicOwnedStorageStatus
+        m_online_pre_match_storage{};
 #endif
 
     // Configured backends can target Persistent for active hit/hurt trails.

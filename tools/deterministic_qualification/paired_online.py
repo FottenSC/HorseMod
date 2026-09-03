@@ -16,7 +16,8 @@ from .artifacts import (
     source_identity, source_identity_sha256,
 )
 from .configuration import (
-    canonicalize_contract, disarm_diagnostics, read_fields, write_fields,
+    canonicalize_contract, disarm_diagnostics, read_fields, require_disarmed,
+    write_fields,
 )
 from .impairment import ClumsyImpairment
 from .observer_pair import (
@@ -25,6 +26,7 @@ from .observer_pair import (
     create_host_room_request,
     create_host_room_suppression,
     create_match_setup_request,
+    create_match_teardown_request,
     deploy_observer_pair,
     raise_for_match_setup_failures,
     stop_observer_processes,
@@ -36,6 +38,7 @@ from .process_control import list_game_processes
 from .process_memory import PrivateMemoryTracker
 from .report import write_report
 from .sandboxie_pair import SandboxiePairSpec
+from .trace_parser import LogCursor, capture_log_offset
 
 
 STATUS = re.compile(
@@ -44,11 +47,32 @@ STATUS = re.compile(
 FAILURE = re.compile(
     r"\[HorseMod\] online qualification run_id=(?P<run>\S+) failed status=(?P<failure>\S+)"
 )
+ROOT_FAILURE = re.compile(
+    r"^(?:\[(?P<timestamp>\d{4}-\d{2}-\d{2} "
+    r"\d{2}:\d{2}:\d{2}\.\d+)\]\s*)?"
+    r"\[HorseMod\] online qualification run_id=(?P<run>\S+) failed "
+    r"status=(?P<failure>\S+) lifecycle_phase=(?P<lifecycle>\S+) "
+    r"coordinator_phase=(?P<coordinator>\S+) local_slot=(?P<slot>[01]) "
+    r"generation=(?P<generation>\d+) frame=(?P<frame>\d+) "
+    r"owns=(?P<owns>[01])", re.MULTILINE,
+)
 HANDSHAKE = re.compile(
     r"\[HorseMod\] online qualification run_id=(?P<run>\S+) handshake map=(?P<map>\S+) "
     r"display_map=(?P<display>.*?) fighters=(?P<f0>\d{3})/(?P<f1>\d{3}) "
     r"local_slot=(?P<slot>[01]) loaded_map_sha256=(?P<loaded>[0-9a-f]{64}) "
-    r"session_state=(?P<session_state>[14])"
+    r"session_state=(?P<session_state>[134])"
+)
+SESSION_IDENTITY_LATCHED = re.compile(
+    r"\[HorseMod\] online qualification run_id=(?P<run>\S+) "
+    r"session_identity_latched lobby_id=(?P<lobby>\d+) "
+    r"local_slot=(?P<slot>[01]) session_state=(?P<session_state>[134])"
+)
+SESSION_LOBBY_PENDING = re.compile(
+    r"\[HorseMod\] online qualification run_id=(?P<run>\S+) "
+    r"session_lobby_pending lobby_id=(?P<lobby>\d+) status=(?P<status>\S+) "
+    r"mask=(?P<mask>0x[0-9a-fA-F]+) count=(?P<count>-?\d+) "
+    r"local=(?P<local>\d+) members=(?P<member0>\d+)/(?P<member1>\d+) "
+    r"discriminator=(?P<discriminator>\d+)"
 )
 CONFIRMED = re.compile(
     r"\[HorseMod\] online qualification run_id=(?P<run>\S+) confirmed_hash generation=(?P<generation>\d+) "
@@ -87,6 +111,15 @@ AUTHENTICATED = re.compile(
     r"local_steamid64=(?P<local>\d+) peer_steamid64=(?P<peer>\d+) "
     r"session_key_established=1 transport=steam_legacy_p2p"
 )
+CORRECTION_STIMULUS = re.compile(
+    r"\[HorseMod\] online qualification run_id=(?P<run>\S+) "
+    r"armed authenticated correction stimulus depth=(?P<depth>\d+) "
+    r"trigger_frame=(?P<trigger>\d+) "
+    r"after_confirmed_gekko_frame=(?P<confirmed>\d+)"
+    r"(?: ordinal=(?P<ordinal>\d+) total=(?P<total>\d+)"
+    r" lead_frames=(?P<lead>\d+)"
+    r"(?: corrections_before=(?P<corrections_before>\d+))?)?"
+)
 CLEANUP_STORAGE = re.compile(
     r"\[HorseMod\] online qualification run_id=(?P<run>\S+) cleanup_storage "
     r"pre_match_owned_bytes=(?P<pre>\d+) ending_owned_bytes=(?P<ending>\d+) "
@@ -108,6 +141,62 @@ TAKEOVER_EVENTS = (
     "first_owned_input",
 )
 ROUND_TAKEOVER_EVENTS = TAKEOVER_EVENTS[2:]
+
+
+def _root_failure_evidence(logs: dict[str, str]) -> dict[str, Any] | None:
+    """Select native root failures without promoting a peer's later disconnect."""
+    records: list[dict[str, Any]] = []
+    for artifact_label, text in logs.items():
+        peer = ("host" if artifact_label == "host" or artifact_label.endswith("-host")
+                else "sandbox" if artifact_label == "sandbox"
+                or artifact_label.endswith("-sandbox") else artifact_label)
+        match = ROOT_FAILURE.search(text)
+        if match is None:
+            continue
+        values = match.groupdict()
+        records.append({
+            "peer": peer,
+            "timestamp": values["timestamp"],
+            "run_id": values["run"],
+            "status": values["failure"],
+            "lifecycle_phase": values["lifecycle"],
+            "coordinator_phase": values["coordinator"],
+            "local_slot": int(values["slot"]),
+            "generation": int(values["generation"]),
+            "frame": int(values["frame"]),
+            "owned": values["owns"] == "1",
+        })
+    if not records:
+        return None
+    substantive = [record for record in records
+                   if record["status"] != "peer_disconnected"]
+    candidates = substantive or records
+    timestamp_ordered = all(
+        record["timestamp"] is not None for record in candidates)
+    if timestamp_ordered:
+        candidates.sort(key=lambda record: record["timestamp"])
+    peers = sorted({record["peer"] for record in candidates})
+    same_root = len(candidates) > 1 and all(
+        (record["status"], record["generation"], record["frame"],
+         record["lifecycle_phase"], record["coordinator_phase"])
+        == (candidates[0]["status"], candidates[0]["generation"],
+            candidates[0]["frame"], candidates[0]["lifecycle_phase"],
+            candidates[0]["coordinator_phase"])
+        for record in candidates[1:]
+    )
+    if same_root and set(peers) == {"host", "sandbox"}:
+        responsible = "both"
+    elif len(peers) == 1 or timestamp_ordered:
+        responsible = candidates[0]["peer"]
+    else:
+        responsible = "undetermined"
+    return {
+        "responsible_peer": responsible,
+        "earliest_root_failure": candidates[0],
+        "cross_peer_ordering": ("logger_timestamp" if timestamp_ordered
+                                 else "unavailable"),
+        "peer_root_failures": records,
+    }
 
 
 def _events_for_run(text: str, run_id: str) -> list[str]:
@@ -197,14 +286,18 @@ def _qualification_failure_plan(
 
 
 def _atomic_online_request(path: Path, run_id: str, not_before_ms: int,
-                           qualification_fault: int) -> Path:
+                           qualification_fault: int,
+                           correction_stimulus_depths: tuple[int, ...] = ()) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".publish.tmp")
     with temporary.open("w", encoding="utf-8", newline="\n") as stream:
         stream.write(
-            f"version=2\nrun_id={run_id}\n"
+            f"version=4\nrun_id={run_id}\n"
             f"not_before_unix_ms={not_before_ms}\n"
-            f"qualification_fault={qualification_fault}\narm=true\n"
+            f"qualification_fault={qualification_fault}\n"
+            "correction_stimulus_depths="
+            f"{','.join(str(depth) for depth in correction_stimulus_depths)}\n"
+            f"arm=true\n"
         )
         stream.flush()
         os.fsync(stream.fileno())
@@ -212,14 +305,17 @@ def _atomic_online_request(path: Path, run_id: str, not_before_ms: int,
 
 
 def _publish_pair(paths: ObserverPairPaths, run_ids: dict[str, str],
-                  faults: dict[str, int]) -> None:
+                  faults: dict[str, int],
+                  correction_stimulus_depths: tuple[int, ...] = ()) -> None:
     not_before = int(time.time() * 1000) + 3000
     host = paths.host.qualification_root / "online_request.txt"
     sandbox = paths.sandbox.qualification_root / "online_request.txt"
     temporaries = [
-        _atomic_online_request(host, run_ids["host"], not_before, faults["host"]),
+        _atomic_online_request(host, run_ids["host"], not_before,
+                               faults["host"], correction_stimulus_depths),
         _atomic_online_request(
-            sandbox, run_ids["sandbox"], not_before, faults["sandbox"]),
+            sandbox, run_ids["sandbox"], not_before, faults["sandbox"],
+            correction_stimulus_depths),
     ]
     try:
         os.replace(temporaries[0], host)
@@ -230,10 +326,329 @@ def _publish_pair(paths: ObserverPairPaths, run_ids: dict[str, str],
         raise
 
 
-def _read_since(path: Path, offset: int) -> str:
+def _read_since(path: Path, cursor: LogCursor | int) -> str:
     with path.open("rb") as stream:
-        stream.seek(offset)
+        size = stream.seek(0, 2)
+        if isinstance(cursor, int):
+            start_offset = cursor if cursor <= size else 0
+        elif cursor.offset <= size:
+            stream.seek(0)
+            prefix_matches = stream.read(len(cursor.prefix)) == cursor.prefix
+            stream.seek(cursor.sentinel_offset)
+            tail_matches = stream.read(len(cursor.sentinel)) == cursor.sentinel
+            start_offset = cursor.offset if prefix_matches and tail_matches else 0
+        else:
+            start_offset = 0
+        stream.seek(start_offset)
         return stream.read().decode("utf-8", errors="replace")
+
+
+class NativeOnlineTerminal(RuntimeError):
+    """A native online failure that requires immediate paired shutdown."""
+
+    def __init__(self, peer: str, failure: str, context: str) -> None:
+        self.peer = peer
+        self.failure = failure
+        self.context = context
+        super().__init__(
+            f"{peer} native online terminal failure during {context}: {failure}")
+
+
+def _raise_on_native_terminal(
+    logs: dict[str, str], run_ids: dict[str, str], context: str,
+) -> None:
+    """Fail on the first explicit native failure or status 6 in either log."""
+    root = _root_failure_evidence(logs)
+    if root is not None:
+        record = root["earliest_root_failure"]
+        if record["run_id"] in run_ids.values():
+            raise NativeOnlineTerminal(
+                root["responsible_peer"], record["status"], context)
+    for label in ("host", "sandbox"):
+        text = logs.get(label, "")
+        run_id = run_ids[label]
+        failures = [match for match in FAILURE.finditer(text)
+                    if match.group("run") == run_id]
+        if failures:
+            raise NativeOnlineTerminal(
+                label, failures[0].group("failure"), context)
+        statuses = [int(match.group("status")) for match in STATUS.finditer(text)
+                    if match.group("run") == run_id]
+        if 6 in statuses:
+            raise NativeOnlineTerminal(label, "status=6", context)
+
+
+def _read_pair_logs(
+    paths: ObserverPairPaths, offsets: dict[str, LogCursor],
+) -> dict[str, str]:
+    return {
+        "host": _read_since(paths.host.log, offsets["host"]),
+        "sandbox": _read_since(paths.sandbox.log, offsets["sandbox"]),
+    }
+
+
+def _development_smoke_complete(args: Any, completed_cycles: int) -> bool:
+    if not (args.development_setup_smoke
+            or args.development_correction_smoke
+            or args.development_reentry_smoke):
+        return False
+    return (not args.development_reentry_smoke
+            or completed_cycles >= args.match_cycles)
+
+
+def _cycle_teardown_run_ids(run_id: str, cycle_ordinal: int) -> dict[str, str]:
+    if cycle_ordinal < 1:
+        raise ValueError("teardown cycle ordinal must be positive")
+    return {
+        "host": f"{run_id}-td{cycle_ordinal:03d}-h",
+        "sandbox": f"{run_id}-td{cycle_ordinal:03d}-s",
+    }
+
+
+def _completed_teardown_reports(
+    report_paths: dict[str, Path], run_ids: dict[str, str],
+) -> dict[str, dict[str, Any]] | None:
+    reports: dict[str, dict[str, Any]] = {}
+    for label in ("host", "sandbox"):
+        try:
+            report = json.loads(report_paths[label].read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if report.get("run_id") != run_ids[label]:
+            return None
+        if report.get("state") == "failed":
+            raise RuntimeError(
+                f"{label} automatic Player Match return failed: "
+                f"{report.get('detail')}")
+        if (report.get("schema_version") != 2
+                or report.get("kind") != "online_match_teardown"
+                or report.get("state") != "complete"
+                or report.get("detail") != "returned_to_player_match_lobby"):
+            return None
+        reports[label] = report
+    return reports
+
+
+def _development_session_latch(
+    text: str, run_id: str, lobby_id: int,
+) -> dict[str, int] | None:
+    pending = [match for match in SESSION_LOBBY_PENDING.finditer(text)
+               if match.group("run") == run_id]
+    latches = [match for match in SESSION_IDENTITY_LATCHED.finditer(text)
+               if match.group("run") == run_id]
+    if not latches:
+        if pending:
+            diagnostic = pending[-1]
+            raise RuntimeError(
+                "native Steam lobby identity remained unresolved: "
+                f"status={diagnostic.group('status')} "
+                f"mask={diagnostic.group('mask')} "
+                f"count={diagnostic.group('count')} "
+                f"members={diagnostic.group('member0')}/"
+                f"{diagnostic.group('member1')} "
+                f"discriminator={diagnostic.group('discriminator')}"
+            )
+        return None
+    latch = latches[-1]
+    observed_lobby = int(latch.group("lobby"))
+    if observed_lobby != lobby_id:
+        raise RuntimeError(
+            "native session latch does not match the automated Steam lobby: "
+            f"expected={lobby_id} observed={observed_lobby}"
+        )
+    return {
+        "lobby_id": observed_lobby,
+        "local_slot": int(latch.group("slot")),
+        "session_state": int(latch.group("session_state")),
+    }
+
+
+def _first_correction_evidence(
+    logs: dict[str, str], online_run_ids: dict[str, str],
+) -> dict[str, Any] | None:
+    first: dict[str, re.Match[str]] = {}
+    for label in ("host", "sandbox"):
+        for match in CONFIRMED.finditer(logs[label]):
+            if (match.group("run") == online_run_ids[label]
+                    and int(match.group("corrections")) > 0):
+                first[label] = match
+                break
+    if set(first) != {"host", "sandbox"}:
+        return None
+    identities = {
+        label: (
+            int(match.group("generation")), int(match.group("frame")),
+            match.group("sha256"),
+        ) for label, match in first.items()
+    }
+    if identities["host"] != identities["sandbox"]:
+        raise RuntimeError(
+            "first authenticated correction did not converge at an identical "
+            "canonical coordinate/hash")
+    generation, frame, sha256 = identities["host"]
+    return {
+        "generation": generation,
+        "frame": frame,
+        "sha256": sha256,
+        "host_corrections": int(first["host"].group("corrections")),
+        "sandbox_corrections": int(first["sandbox"].group("corrections")),
+        "host_max_depth": int(first["host"].group("depth")),
+        "sandbox_max_depth": int(first["sandbox"].group("depth")),
+    }
+
+
+def _repeated_correction_evidence(
+    logs: dict[str, str], online_run_ids: dict[str, str], required_count: int,
+) -> list[dict[str, Any]] | None:
+    histories = {label: [match for match in CONFIRMED.finditer(logs[label])
+        if match.group("run") == online_run_ids[label]]
+        for label in ("host", "sandbox")}
+    stimuli = {label: [match for match in CORRECTION_STIMULUS.finditer(
+        logs[label]) if match.group("run") == online_run_ids[label]]
+        for label in ("host", "sandbox")}
+    if any(len(stimuli[label]) < required_count
+           for label in ("host", "sandbox")):
+        return None
+    evidence: list[dict[str, Any]] = []
+    for ordinal in range(1, required_count + 1):
+        baseline: dict[str, int] = {}
+        candidates: dict[str, dict[tuple[int, int], re.Match[str]]] = {}
+        for label in ("host", "sandbox"):
+            arm = stimuli[label][ordinal - 1]
+            prior = [match for match in histories[label]
+                     if match.start() < arm.start()]
+            recorded_baseline = arm.group("corrections_before")
+            baseline[label] = (int(recorded_baseline)
+                if recorded_baseline is not None
+                else int(prior[-1].group("corrections")) if prior else 0)
+            candidates[label] = {
+                (int(match.group("generation")), int(match.group("frame"))): match
+                for match in histories[label]
+                if match.start() > arm.end()
+                and int(match.group("corrections")) >= baseline[label]
+            }
+        shared = sorted(set(candidates["host"]) & set(candidates["sandbox"]))
+        reached: dict[str, re.Match[str]] | None = None
+        for coordinate in shared:
+            pair = {label: candidates[label][coordinate]
+                    for label in ("host", "sandbox")}
+            if pair["host"].group("sha256") != pair["sandbox"].group("sha256"):
+                raise RuntimeError(
+                    f"authenticated correction {ordinal} diverged at "
+                    f"{coordinate[0]}:{coordinate[1]}")
+            total = sum(int(pair[label].group("corrections"))
+                        for label in ("host", "sandbox"))
+            if total > baseline["host"] + baseline["sandbox"]:
+                reached = pair
+                break
+        if reached is None:
+            return None
+        for label, match in reached.items():
+            if (int(match.group("pending")) != 0
+                    or int(match.group("audio_sequence_mismatches")) != 0
+                    or int(match.group("camera_publication_mismatches")) != 0
+                    or int(match.group("presentation_failures")) != 0
+                    or int(match.group("journal_duplicates")) != 0
+                    or int(match.group("journal_publish_failures")) != 0):
+                raise RuntimeError(
+                    f"{label} correction {ordinal} converged with dirty "
+                    "presentation or pending-event state")
+        generation = int(reached["host"].group("generation"))
+        frame = int(reached["host"].group("frame"))
+        sha256 = reached["host"].group("sha256")
+        evidence.append({
+            "ordinal": ordinal, "generation": generation, "frame": frame,
+            "sha256": sha256,
+            "host_corrections": int(reached["host"].group("corrections")),
+            "sandbox_corrections": int(
+                reached["sandbox"].group("corrections")),
+            "host_max_depth": int(reached["host"].group("depth")),
+            "sandbox_max_depth": int(reached["sandbox"].group("depth")),
+        })
+    return evidence
+
+
+def _correction_stimulus_evidence(
+    logs: dict[str, str], online_run_ids: dict[str, str], expected_depth: int,
+) -> dict[str, dict[str, int]] | None:
+    evidence: dict[str, dict[str, int]] = {}
+    for label in ("host", "sandbox"):
+        stimuli = [match for match in CORRECTION_STIMULUS.finditer(logs[label])
+                   if match.group("run") == online_run_ids[label]]
+        if not stimuli:
+            continue
+        if (int(stimuli[-1].group("depth")) != expected_depth
+                or int(stimuli[-1].group("trigger"))
+                    - int(stimuli[-1].group("confirmed")) != 60):
+            raise RuntimeError(
+                f"{label} reached status 5 without the requested "
+                f"depth-{expected_depth} authenticated correction stimulus")
+        evidence[label] = {
+            "depth": int(stimuli[-1].group("depth")),
+            "trigger_frame": int(stimuli[-1].group("trigger")),
+            "confirmed_gekko_frame": int(stimuli[-1].group("confirmed")),
+        }
+    if set(evidence) != {"host", "sandbox"}:
+        return None
+    if evidence["host"] != evidence["sandbox"]:
+        raise RuntimeError(
+            "peers armed different authenticated correction coordinates")
+    return evidence
+
+
+def _correction_stimulus_sequence_evidence(
+    logs: dict[str, str], online_run_ids: dict[str, str],
+    expected_depths: tuple[int, ...],
+) -> dict[str, list[dict[str, int]]] | None:
+    evidence: dict[str, list[dict[str, int]]] = {}
+    for label in ("host", "sandbox"):
+        stimuli = [match for match in CORRECTION_STIMULUS.finditer(logs[label])
+                   if match.group("run") == online_run_ids[label]]
+        if len(stimuli) < len(expected_depths):
+            continue
+        rows: list[dict[str, int]] = []
+        for index, (match, expected_depth) in enumerate(
+                zip(stimuli, expected_depths), 1):
+            ordinal = int(match.group("ordinal") or 1)
+            total = int(match.group("total") or 1)
+            lead = int(match.group("lead") or 60)
+            if (int(match.group("depth")) != expected_depth
+                    or int(match.group("trigger"))
+                        - int(match.group("confirmed")) != lead
+                    or lead < 2 or lead > 32
+                    or ordinal != index or total != len(expected_depths)):
+                raise RuntimeError(
+                    f"{label} armed an invalid authenticated correction "
+                    f"sequence at ordinal {index}")
+            rows.append({
+                "ordinal": ordinal,
+                "depth": int(match.group("depth")),
+                "trigger_frame": int(match.group("trigger")),
+                "confirmed_gekko_frame": int(match.group("confirmed")),
+                "lead_frames": lead,
+            })
+        evidence[label] = rows
+    if set(evidence) != {"host", "sandbox"}:
+        return None
+    if evidence["host"] != evidence["sandbox"]:
+        raise RuntimeError(
+            "peers armed different authenticated correction sequences")
+    return evidence
+
+
+def _required_correction_stimulus(
+    logs: dict[str, str], online_run_ids: dict[str, str], expected_depth: int,
+) -> dict[str, dict[str, int]]:
+    evidence = _correction_stimulus_evidence(
+        logs, online_run_ids, expected_depth)
+    if evidence is None:
+        missing = next(label for label in ("host", "sandbox")
+                       if not any(match.group("run") == online_run_ids[label]
+                           for match in CORRECTION_STIMULUS.finditer(logs[label])))
+        raise RuntimeError(
+            f"{missing} reached status 5 without the requested "
+            f"depth-{expected_depth} authenticated correction stimulus")
+    return evidence
 
 
 def _confirmed_convergence(latest: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
@@ -274,10 +689,11 @@ def _confirmed_convergence(latest: dict[str, dict[str, Any]]) -> dict[str, Any] 
 
 
 def _wait_online(paths: ObserverPairPaths, run_ids: dict[str, str], case: dict[str, Any],
-                 offsets: dict[str, int], timeout: float, phase_timeout: float,
+                 offsets: dict[str, LogCursor], timeout: float, phase_timeout: float,
                  expected_steam_ids: dict[str, tuple[int, int]],
                  guard: Any, minimum_active_seconds: float = 0.0,
                  on_active: Any | None = None,
+                 request_lobby_return: Any | None = None,
                  ) -> tuple[dict[str, Any], dict[str, str]]:
     deadline = time.monotonic() + timeout
     latest: dict[str, dict[str, Any]] = {}
@@ -286,8 +702,10 @@ def _wait_online(paths: ObserverPairPaths, run_ids: dict[str, str], case: dict[s
     active_started_at: float | None = None
     while time.monotonic() < deadline:
         guard()
+        polled_logs = _read_pair_logs(paths, offsets)
+        _raise_on_native_terminal(polled_logs, run_ids, "active match")
         for label, peer in (("host", paths.host), ("sandbox", paths.sandbox)):
-            text = _read_since(peer.log, offsets[label])
+            text = polled_logs[label]
             run_id = run_ids[label]
             statuses = [int(m.group("status")) for m in STATUS.finditer(text)
                         if m.group("run") == run_id]
@@ -428,17 +846,21 @@ def _wait_online(paths: ObserverPairPaths, run_ids: dict[str, str], case: dict[s
         time.sleep(0.25)
     else:
         raise TimeoutError("paired online match did not prove multi-round real corrections")
+    if request_lobby_return is None:
+        raise RuntimeError("automatic Player Match lobby return is unavailable")
+    request_lobby_return()
     print(
-        f"{case['native_display_name']} passed owned multi-round correction activity. "
-        "Return both games visibly to the Player Match lobby for teardown verification.",
-        flush=True,
+        f"{case['native_display_name']} passed owned multi-round correction activity; "
+        "automatic Player Match lobby return requested.", flush=True,
     )
     teardown_deadline = time.monotonic() + min(300.0, timeout)
     while time.monotonic() < teardown_deadline:
         guard()
+        polled_logs = _read_pair_logs(paths, offsets)
+        _raise_on_native_terminal(polled_logs, run_ids, "lobby teardown")
         ready = True
         for label, peer in (("host", paths.host), ("sandbox", paths.sandbox)):
-            text = _read_since(peer.log, offsets[label])
+            text = polled_logs[label]
             run_id = run_ids[label]
             statuses = [int(m.group("status")) for m in STATUS.finditer(text)
                         if m.group("run") == run_id]
@@ -467,7 +889,8 @@ def _wait_online(paths: ObserverPairPaths, run_ids: dict[str, str], case: dict[s
 
 
 def _wait_expected_impairment_failure(
-    paths: ObserverPairPaths, run_ids: dict[str, str], offsets: dict[str, int],
+    paths: ObserverPairPaths, run_ids: dict[str, str],
+    offsets: dict[str, LogCursor],
     timeout: float, guard: Any, profile: str, case: dict[str, Any],
     expected_steam_ids: dict[str, tuple[int, int]],
     start_post_ownership: Any | None = None,
@@ -477,8 +900,10 @@ def _wait_expected_impairment_failure(
     latest: dict[str, Any] = {}
     while time.monotonic() < deadline:
         guard()
+        polled_logs = _read_pair_logs(paths, offsets)
+        _raise_on_native_terminal(polled_logs, run_ids, "expected failure case")
         for label, peer in (("host", paths.host), ("sandbox", paths.sandbox)):
-            text = _read_since(peer.log, offsets[label])
+            text = polled_logs[label]
             statuses = [int(match.group("status")) for match in STATUS.finditer(text)
                         if match.group("run") == run_ids[label]]
             failures = [match.group("failure") for match in FAILURE.finditer(text)
@@ -573,16 +998,28 @@ def _wait_development_setup_smoke(
     online_run_ids: dict[str, str],
     automation_run_ids: dict[str, str],
     case: dict[str, Any],
-    offsets: dict[str, int],
+    offsets: dict[str, LogCursor],
     timeout_seconds: float,
     guard: Any,
+    request_lobby_return: Any,
+    require_first_correction: bool = False,
 ) -> tuple[dict[str, Any], dict[str, str]]:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         guard()
+        current_logs = _read_pair_logs(paths, offsets)
+        _raise_on_native_terminal(
+            current_logs, online_run_ids, "automatic match setup")
         reports: dict[str, dict[str, Any]] = {}
         logs: dict[str, str] = {}
         for label, peer in (("host", paths.host), ("sandbox", paths.sandbox)):
+            log_text = current_logs[label]
+            failures = [match for match in FAILURE.finditer(log_text)
+                        if match.group("run") == online_run_ids[label]]
+            if failures:
+                raise RuntimeError(
+                    f"{label} failed before native online admission: "
+                    f"{failures[-1].group('failure')}")
             report_path = peer.qualification_root / "online_room_report.json"
             try:
                 report = json.loads(report_path.read_text(encoding="utf-8"))
@@ -607,11 +1044,27 @@ def _wait_development_setup_smoke(
                 raise RuntimeError(
                     f"{label} automatic setup lacks exact native content proof")
             reports[label] = report
-            logs[label] = _read_since(peer.log, offsets[label])
+            logs[label] = log_text
         if set(reports) == {"host", "sandbox"}:
-            return {
+            lobby_ids = {int(report["lobby_id"])
+                         for report in reports.values()}
+            if len(lobby_ids) != 1:
+                raise RuntimeError(
+                    "automatic peers reported different Steam lobby IDs")
+            latches = {
+                label: _development_session_latch(
+                    logs[label], online_run_ids[label],
+                    int(reports[label]["lobby_id"]),
+                )
+                for label in ("host", "sandbox")
+            }
+            if any(latch is None for latch in latches.values()):
+                time.sleep(0.25)
+                continue
+            setup_metrics = {
                 label: {
                     "automation": reports[label],
+                    "native_session_latch": latches[label],
                     "native_content": {
                         "fighter_order": list(case["fighter_order"]),
                         "stage_selection_code": case["stage_selection_code"],
@@ -619,10 +1072,134 @@ def _wait_development_setup_smoke(
                         "display_map_name": case["native_display_name"],
                     },
                 } for label in ("host", "sandbox")
-            }, logs
+            }
+            break
+        time.sleep(0.25)
+    else:
+        raise TimeoutError(
+            f"automatic exact-content setup timed out on "
+            f"{case['native_display_name']}")
+
+    while time.monotonic() < deadline:
+        guard()
+        admitted = True
+        logs = {
+            "host": _read_since(paths.host.log, offsets["host"]),
+            "sandbox": _read_since(paths.sandbox.log, offsets["sandbox"]),
+        }
+        _raise_on_native_terminal(
+            logs, online_run_ids, "native first-owned admission")
+        for label in ("host", "sandbox"):
+            failures = [match for match in FAILURE.finditer(logs[label])
+                        if match.group("run") == online_run_ids[label]]
+            if failures:
+                raise RuntimeError(
+                    f"{label} failed before native online admission: "
+                    f"{failures[-1].group('failure')}")
+            statuses = [int(match.group("status"))
+                        for match in STATUS.finditer(logs[label])
+                        if match.group("run") == online_run_ids[label]]
+            if 6 in statuses:
+                raise RuntimeError(
+                    f"{label} failed before native online admission")
+            handshakes = [match for match in HANDSHAKE.finditer(logs[label])
+                          if match.group("run") == online_run_ids[label]]
+            # Status 2 proves only authenticated exact-content handshake.  A
+            # teardown there races the committed future baseline and destroys
+            # its timeline before either peer can reach it.  The bounded smoke
+            # must wait through bilateral baseline freeze/ack, prefix catch-up,
+            # and the first owned input (status 5) before requesting stock
+            # lobby return.
+            if 5 not in statuses or not handshakes:
+                admitted = False
+                continue
+            handshake = handshakes[-1]
+            if (handshake.group("map") != case["stage_package_root"]
+                    or handshake.group("display") != case["native_display_name"]
+                    or [handshake.group("f0"), handshake.group("f1")]
+                        != case["fighter_order"]):
+                raise RuntimeError(
+                    f"{label} native admission used the wrong exact content")
+            setup_metrics[label]["native_handshake"] = handshake.groupdict()
+            setup_metrics[label]["native_online_status"] = 5
+        if admitted:
+            break
+        time.sleep(0.25)
+    else:
+        raise TimeoutError(
+            f"native first-owned admission timed out on "
+            f"{case['native_display_name']}")
+
+    if require_first_correction:
+        expected_depths = (11, 1, 6)
+        correction_deadline = min(deadline, time.monotonic() + 75.0)
+        stimulus_sequence = None
+        corrections = None
+        while time.monotonic() < correction_deadline:
+            guard()
+            logs = _read_pair_logs(paths, offsets)
+            _raise_on_native_terminal(
+                logs, online_run_ids,
+                "repeated authenticated corrections")
+            stimulus_sequence = _correction_stimulus_sequence_evidence(
+                logs, online_run_ids, expected_depths)
+            corrections = _repeated_correction_evidence(
+                logs, online_run_ids, len(expected_depths))
+            if stimulus_sequence is not None and corrections is not None:
+                break
+            time.sleep(0.25)
+        if stimulus_sequence is None or corrections is None:
+            raise TimeoutError(
+                "repeated authenticated corrections timed out on "
+                f"{case['native_display_name']}")
+        for label in ("host", "sandbox"):
+            setup_metrics[label]["correction_stimulus_sequence"] = (
+                stimulus_sequence[label])
+        setup_metrics["corrections"] = corrections
+
+    teardown_run_ids = request_lobby_return()
+
+    while time.monotonic() < deadline:
+        guard()
+        logs = {
+            "host": _read_since(paths.host.log, offsets["host"]),
+            "sandbox": _read_since(paths.sandbox.log, offsets["sandbox"]),
+        }
+        _raise_on_native_terminal(
+            logs, online_run_ids, "automatic Player Match return")
+        teardown_reports = _completed_teardown_reports({
+            "host": paths.host.qualification_root / "online_room_report.json",
+            "sandbox": (paths.sandbox.qualification_root
+                        / "online_room_report.json"),
+        }, teardown_run_ids)
+        cleanup: dict[str, dict[str, int]] = {}
+        ready = teardown_reports is not None
+        for label in ("host", "sandbox"):
+            statuses = [int(match.group("status"))
+                        for match in STATUS.finditer(logs[label])
+                        if match.group("run") == online_run_ids[label]]
+            proofs = [match for match in CLEANUP_STORAGE.finditer(logs[label])
+                      if match.group("run") == online_run_ids[label]]
+            if not statuses or 7 not in statuses or not proofs:
+                ready = False
+                continue
+            proof = proofs[-1]
+            cleanup[label] = {
+                key: int(value) for key, value in proof.groupdict().items()
+                if key != "run"
+            }
+            if (cleanup[label]["returned"] != 1
+                    or cleanup[label]["pre"] != cleanup[label]["ending"]):
+                raise RuntimeError(
+                    f"{label} automatic setup cleanup did not return storage")
+        if ready:
+            for label in ("host", "sandbox"):
+                setup_metrics[label]["cleanup_storage"] = cleanup[label]
+            setup_metrics["automatic_teardown"] = teardown_reports
+            return setup_metrics, logs
         time.sleep(0.25)
     raise TimeoutError(
-        f"automatic exact-content setup timed out on {case['native_display_name']}")
+        f"automatic Player Match return timed out on {case['native_display_name']}")
 
 
 def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
@@ -638,13 +1215,24 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
         args.impairment_profile, args.failure_case)
     if args.match_cycles < 1 or args.cycling_soak_seconds < 0:
         raise RuntimeError("match cycles must be positive and cycling soak non-negative")
-    if args.development_setup_smoke and (
-        args.match_cycles != 1 or args.cycling_soak_seconds != 0
+    development_smoke = (
+        args.development_setup_smoke or args.development_correction_smoke
+        or args.development_reentry_smoke)
+    correction_stimulus_depths = (
+        (11, 1, 6) if args.development_correction_smoke else ())
+    if sum((args.development_setup_smoke,
+            args.development_correction_smoke,
+            args.development_reentry_smoke)) > 1:
+        raise RuntimeError("select only one paired development smoke")
+    if development_smoke and (
+        args.match_cycles != (2 if args.development_reentry_smoke else 1)
+        or args.cycling_soak_seconds != 0
         or args.soak_seconds != 0 or args.failure_case
         or args.impairment_profile != "clean" or args.fresh_box
     ):
         raise RuntimeError(
-            "development setup smoke is one clean, non-soak, non-failure cycle")
+            "development smoke must use its exact clean, non-soak, "
+            "non-failure cycle count")
     if ((args.match_cycles > 1 or args.cycling_soak_seconds > 0)
             and args.impairment_profile != "clean"):
         raise RuntimeError("same-process cycling is a clean-profile qualification")
@@ -666,7 +1254,7 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
     if list_game_processes():
         raise RuntimeError("SC6 must be closed before paired deployment")
     identity = source_identity(root)
-    if identity["dirty"] and not args.development_setup_smoke:
+    if identity["dirty"] and not development_smoke:
         raise RuntimeError("paired certification requires frozen deterministic sources")
     fresh_roots_initially_absent = not any((
         paths.sandbox.mods_root.exists(), paths.sandbox.qualification_root.exists(),
@@ -692,7 +1280,7 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
     cycle_metrics: list[dict[str, Any]] = []
     cycle_raw_logs: dict[str, str] = {}
     cycle_run_ids: list[dict[str, str]] = [dict(run_ids)]
-    log_offsets: dict[str, int] | None = None
+    log_offsets: dict[str, LogCursor] | None = None
     initial_log_offsets: dict[str, int] | None = None
     config_hashes: dict[str, str] = {}
     config_fields: dict[str, dict[str, str]] = {}
@@ -724,12 +1312,13 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
             "sandbox": read_fields(paths.sandbox.config),
         }
         log_offsets = {
-            "host": paths.host.log.stat().st_size if paths.host.log.exists() else 0,
-            "sandbox": paths.sandbox.log.stat().st_size
-                if paths.sandbox.log.exists() else 0,
+            "host": capture_log_offset(paths.host.log),
+            "sandbox": capture_log_offset(paths.sandbox.log),
         }
-        initial_log_offsets = dict(log_offsets)
-        _publish_pair(paths, run_ids, faults)
+        initial_log_offsets = {
+            label: cursor.offset for label, cursor in log_offsets.items()
+        }
+        _publish_pair(paths, run_ids, faults, correction_stimulus_depths)
         create_host_room_suppression(paths.sandbox, run_ids["host"])
         create_host_room_request(paths.host, run_ids["host"])
         subprocess.Popen(spec.host_command(), close_fds=True)
@@ -739,6 +1328,13 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
             {"host": pair.host_pid, "sandbox": pair.sandbox_pid},
             args.memory_warmup_seconds)
         def guard() -> None:
+            assert log_offsets is not None
+            # Read both logs before inspecting process identity. A peer can
+            # publish its authoritative failure immediately before exiting;
+            # reporting only the later disconnect would mask the root cause.
+            current_logs = _read_pair_logs(paths, log_offsets)
+            _raise_on_native_terminal(
+                current_logs, run_ids, "paired online polling")
             if {p.pid for p in list_game_processes()} != {
                     pair.host_pid, pair.sandbox_pid}:
                 raise RuntimeError("paired SC6 process identity changed")
@@ -805,10 +1401,21 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
                     f"{case['fighter_names'][1]} on "
                     f"{case['native_display_name']}.", flush=True,
                 )
-                if args.development_setup_smoke:
+                def request_lobby_return() -> dict[str, str]:
+                    teardown_run_ids = _cycle_teardown_run_ids(
+                        run_id, cycle_index + 1)
+                    create_match_teardown_request(
+                        paths.host, teardown_run_ids["host"], 2)
+                    create_match_teardown_request(
+                        paths.sandbox, teardown_run_ids["sandbox"], 2)
+                    return teardown_run_ids
+                if development_smoke:
                     metrics, raw_logs = _wait_development_setup_smoke(
                         paths, run_ids, active_automation_run_ids, case,
                         log_offsets, args.match_timeout, guard,
+                        request_lobby_return,
+                        require_first_correction=
+                            args.development_correction_smoke,
                     )
                 else:
                     metrics, raw_logs = _wait_online(
@@ -820,17 +1427,21 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
                         (args.memory_warmup_seconds + args.soak_seconds
                          if args.soak_seconds > 0 else 0.0),
                         memory_tracker.restart_warmup if cycle_index == 0 else None,
+                        request_lobby_return,
                     )
                 cycle_metrics.append({
                     "cycle": cycle_index + 1,
                     "run_ids": dict(run_ids),
-                    "log_offsets": dict(log_offsets),
+                    "log_offsets": {
+                        label: cursor.offset
+                        for label, cursor in log_offsets.items()
+                    },
                     "peers": metrics,
                 })
                 for label, text in raw_logs.items():
                     cycle_raw_logs[f"cycle-{cycle_index + 1:03d}-{label}"] = text
                 cycle_index += 1
-                if args.development_setup_smoke:
+                if _development_smoke_complete(args, cycle_index):
                     cycling_elapsed_seconds = time.monotonic() - cycling_started_at
                     break
                 enough_cycles = cycle_index >= args.match_cycles
@@ -845,10 +1456,11 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
                 }
                 cycle_run_ids.append(dict(run_ids))
                 log_offsets = {
-                    "host": paths.host.log.stat().st_size,
-                    "sandbox": paths.sandbox.log.stat().st_size,
+                    "host": capture_log_offset(paths.host.log),
+                    "sandbox": capture_log_offset(paths.sandbox.log),
                 }
-                _publish_pair(paths, run_ids, faults)
+                _publish_pair(paths, run_ids, faults,
+                              correction_stimulus_depths)
         memory_tracker.sample()
         memory_evidence = memory_tracker.report()
         if args.soak_seconds > 0 or args.cycling_soak_seconds > 0:
@@ -861,21 +1473,21 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
         primary = error
     finally:
         errors: list[str] = []
+        requests_disarmed = False
+        diagnostic_flags_false = False
         try:
             impairment.stop()
         except RuntimeError as error:
             errors.append(str(error))
         if log_offsets is not None:
             try:
-                raw_logs = {
-                    "host": _read_since(paths.host.log, log_offsets["host"]),
-                    "sandbox": _read_since(
-                        paths.sandbox.log, log_offsets["sandbox"]),
-                }
-                if primary is not None and cycle_raw_logs:
+                raw_logs = _read_pair_logs(paths, log_offsets)
+                if cycle_raw_logs:
+                    cycle_number = max(1, len(cycle_metrics))
                     for label, text in raw_logs.items():
-                        cycle_raw_logs.setdefault(
-                            f"cycle-{len(cycle_metrics) + 1:03d}-{label}", text)
+                        key = f"cycle-{cycle_number:03d}-{label}"
+                        if len(text) > len(cycle_raw_logs.get(key, "")):
+                            cycle_raw_logs[key] = text
             except OSError as error:
                 errors.append(f"raw log capture failed: {error}")
         try:
@@ -883,35 +1495,76 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
             if processes:
                 graceful_process_teardown = stop_observer_processes(
                     processes,
-                    require_graceful=not args.development_setup_smoke,
+                    require_graceful=(
+                        primary is None and (not development_smoke
+                                             or args.development_reentry_smoke)),
+                    graceful_timeout_seconds=(5.0 if primary is not None else 60.0),
                 )
             else:
                 graceful_process_teardown = True
         except (RuntimeError, TimeoutError) as error:
             errors.append(str(error))
-        for peer in (paths.host, paths.sandbox):
+        # Capture again after both processes stop so shutdown-flushed native
+        # lines are preserved and evaluated instead of treating silence as
+        # evidence of health.
+        if log_offsets is not None:
             try:
-                (peer.qualification_root / "online_request.txt").unlink(missing_ok=True)
-                disarm_diagnostics(peer.config)
+                final_logs = _read_pair_logs(paths, log_offsets)
+                raw_logs = final_logs
+                cycle_number = max(1, len(cycle_metrics))
+                for label, text in final_logs.items():
+                    key = f"cycle-{cycle_number:03d}-{label}"
+                    if len(text) > len(cycle_raw_logs.get(key, "")):
+                        cycle_raw_logs[key] = text
             except OSError as error:
-                errors.append(str(error))
+                errors.append(f"final raw log capture failed: {error}")
         try:
             cleanup_observer_pair(paths, None)
         except RuntimeError as error:
             errors.append(str(error))
+        for peer in (paths.host, paths.sandbox):
+            try:
+                (peer.qualification_root / "online_request.txt").unlink(missing_ok=True)
+                disarm_diagnostics(peer.config)
+                require_disarmed(peer.config)
+            except OSError as error:
+                errors.append(str(error))
+            except RuntimeError as error:
+                errors.append(str(error))
+        requests_disarmed = all(
+            not (peer.qualification_root / name).exists()
+            for peer in (paths.host, paths.sandbox)
+            for name in ("online_request.txt", "online_room_request.txt")
+        )
+        if not requests_disarmed:
+            errors.append("paired qualification requests remain armed")
+        try:
+            diagnostic_flags_false = all(
+                require_disarmed(peer.config) is None
+                for peer in (paths.host, paths.sandbox)
+            )
+        except (OSError, RuntimeError) as error:
+            errors.append(str(error))
         if list_game_processes():
             errors.append("SC6 processes remain after paired cleanup")
         cleanup_errors = errors
-        if errors:
-            primary = RuntimeError(f"{primary}; cleanup: {'; '.join(errors)}")
+        if errors and primary is None:
+            primary = RuntimeError("paired cleanup failed: " + "; ".join(errors))
     raw_dir = args.output_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
     report_logs = cycle_raw_logs or (raw_logs or {})
+    raw_log_artifacts: dict[str, dict[str, Any]] = {}
     if report_logs:
         for label, text in report_logs.items():
-            (raw_dir / f"{run_id}-{label}.log").write_text(
-                text, encoding="utf-8")
+            path = raw_dir / f"{run_id}-{label}.log"
+            path.write_text(text, encoding="utf-8")
+            raw_log_artifacts[label] = {
+                "path": str(path.resolve()),
+                "size": path.stat().st_size,
+                "sha256": sha256_file(path),
+            }
     if primary is not None:
+        root_failure = _root_failure_evidence(report_logs)
         failure_report = {
             "report_schema": 2,
             "kind": "paired_online_case",
@@ -930,6 +1583,7 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
                 "type": type(primary).__name__,
                 "message": str(primary),
                 "cleanup_errors": cleanup_errors,
+                "native_root": root_failure,
             },
             "identities": None if hashes is None else {
                 "source": identity,
@@ -952,7 +1606,8 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
             "initial_log_offsets": initial_log_offsets,
             "process_memory": memory_evidence,
             "cleanup": {
-                "diagnostic_flags_false": not cleanup_errors,
+                "requests_disarmed": requests_disarmed,
+                "diagnostic_flags_false": diagnostic_flags_false,
                 "game_processes_remaining": len(list_game_processes()),
                 "graceful_process_teardown": graceful_process_teardown,
                 "emergency_cleanup_used": graceful_process_teardown is False,
@@ -961,16 +1616,19 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
                 label: str((raw_dir / f"{run_id}-{label}.log").resolve())
                 for label in report_logs
             },
+            "raw_log_artifacts": raw_log_artifacts or None,
         }
         args.output_dir.mkdir(parents=True, exist_ok=True)
         write_report(args.report, failure_report)
         raise primary
-    if args.development_setup_smoke:
+    if development_smoke:
         assert (pair is not None and process_rows is not None
                 and metrics is not None and hashes is not None)
         report = {
             "report_schema": 2,
-            "kind": "paired_online_development_setup_smoke",
+            "kind": ("paired_online_development_correction_smoke"
+                     if args.development_correction_smoke
+                     else "paired_online_development_setup_smoke"),
             "certifying": False,
             "result": "pass",
             "run_id": run_id,
@@ -996,10 +1654,11 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
                 "automatic_exact_content_entry": True,
             },
             "process_memory": memory_evidence,
+            "raw_log_artifacts": raw_log_artifacts,
             "cleanup": {
-                "requests_disarmed": True,
-                "diagnostic_flags_false": True,
-                "game_processes_remaining": 0,
+                "requests_disarmed": requests_disarmed,
+                "diagnostic_flags_false": diagnostic_flags_false,
+                "game_processes_remaining": len(list_game_processes()),
                 "graceful_process_teardown": graceful_process_teardown,
                 "emergency_cleanup_used": graceful_process_teardown is False,
             },
@@ -1101,8 +1760,12 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
             "failed_reasons": [],
         },
         "process_memory": memory_evidence,
-        "cleanup": {"requests_disarmed": True, "diagnostic_flags_false": True,
-                    "game_processes_remaining": 0},
+        "raw_log_artifacts": raw_log_artifacts,
+        "cleanup": {
+            "requests_disarmed": requests_disarmed,
+            "diagnostic_flags_false": diagnostic_flags_false,
+            "game_processes_remaining": len(list_game_processes()),
+        },
     }
     args.output_dir.mkdir(parents=True, exist_ok=True)
     write_report(args.report, report)

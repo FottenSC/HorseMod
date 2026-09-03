@@ -678,21 +678,6 @@ bool NativeCandidateRegions::capture_identities(BoundIdentities& output) noexcep
             }
         }
     }
-    if (addresses_.camera_action_backing != 0)
-    {
-        for (std::size_t index = 0; index < output.camera_vtables.size(); ++index)
-        {
-            if (!read_value(memory_, addresses_.camera_action_backing
-                    + index * camera_action_stride,
-                    output.camera_vtables[index])
-                || output.camera_vtables[index] < addresses_.image_base
-                || output.camera_vtables[index] - addresses_.image_base
-                    > std::numeric_limits<std::uint32_t>::max())
-            {
-                return false;
-            }
-        }
-    }
     if (!read_value(memory_, addresses_.stage_wind_emitter_list,
             output.stage_wind_emitter_sentinel)
         || output.stage_wind_emitter_sentinel == 0)
@@ -748,8 +733,16 @@ bool NativeCandidateRegions::identities_match() noexcept
         && current.event_mask_owner == identities_.event_mask_owner
         && current.pump == identities_.pump
         && current.move_commands == identities_.move_commands
-        && current.camera_components == identities_.camera_components
-        && current.camera_vtables == identities_.camera_vtables
+        // Camera component storage is fixed per slot, but native constructors
+        // clear and rebuild its class in place. Only the object addresses are
+        // generation identity; vtable/serializer are deterministic state.
+        && std::equal(current.camera_components.begin(),
+            current.camera_components.end(),
+            identities_.camera_components.begin(),
+            [](const BoundIdentities::CameraComponentIdentity& left,
+               const BoundIdentities::CameraComponentIdentity& right) {
+                return left.object == right.object;
+            })
         && current.stage_wind_emitter_sentinel
             == identities_.stage_wind_emitter_sentinel
         && current.stage_wind_emitter_nodes
@@ -834,6 +827,13 @@ void NativeCandidateRegions::Invalidate() noexcept
     addresses_ = {};
     identities_ = {};
     bound_ = false;
+}
+
+void NativeCandidateRegions::ReleaseScratchStorage() noexcept
+{
+    Invalidate();
+    restore_undo_scratch_.reset();
+    restore_verification_scratch_.reset();
 }
 
 Status NativeCandidateRegions::PreflightCapture() noexcept
@@ -1168,19 +1168,26 @@ bool NativeCandidateRegions::capture_unchecked(NativeCandidateImage& output) noe
             return region_read_failed(static_cast<std::uint32_t>(110 + index));
     }
     for (std::size_t index = 0;
-         index < output.camera_distance_history.size(); ++index)
+         addresses_.camera_action_backing != 0
+            && index < output.camera_distance_history.size();
+         ++index)
     {
         auto& history = output.camera_distance_history[index];
-        const auto vtable = identities_.camera_vtables[index];
-        if (vtable != addresses_.image_base + player_watch_camera_vtable_rva)
-            continue;
         const auto action = addresses_.camera_action_backing
             + index * camera_action_stride;
         std::uintptr_t current_vtable{};
-        history.present = 1;
         if (!read_value(memory_, action, current_vtable)
-            || current_vtable != vtable
-            || !read_bytes(action + camera_distance_history_offset,
+            || current_vtable < addresses_.image_base
+            || current_vtable - addresses_.image_base
+                > std::numeric_limits<std::uint32_t>::max())
+        {
+            return region_read_failed(static_cast<std::uint32_t>(30 + index));
+        }
+        if (current_vtable
+            != addresses_.image_base + player_watch_camera_vtable_rva)
+            continue;
+        history.present = 1;
+        if (!read_bytes(action + camera_distance_history_offset,
                 std::as_writable_bytes(std::span{history.sample_bits}))
             || !read_value(memory_, action + 0x29C, history.sample_count)
             || !read_value(memory_, action + 0x2A0, history.cursor)
@@ -1209,18 +1216,29 @@ bool NativeCandidateRegions::capture_camera_component(
     const auto& identity = identities_.camera_components[index];
     if (identity.object == 0) return true;
     std::uintptr_t current_vtable{};
+    std::uintptr_t current_writer{};
     if (!read_value(memory_, identity.object, current_vtable)
-        || current_vtable != identity.vtable)
+        || current_vtable < addresses_.image_base
+        || current_vtable - addresses_.image_base
+            > std::numeric_limits<std::uint32_t>::max()
+        || !read_value(memory_, current_vtable + 0x100, current_writer)
+        || current_writer < addresses_.image_base
+        || current_writer - addresses_.image_base
+            > std::numeric_limits<std::uint32_t>::max())
     {
         return false;
     }
+    const auto serialization = camera_serialization_for_identity(
+        addresses_.image_base, current_vtable, current_writer);
+    if (serialization == NativeCameraComponentSerialization::None)
+        return false;
     output.present = 1;
-    output.serialization = identity.serialization;
+    output.serialization = serialization;
     output.vtable_rva = static_cast<std::uint32_t>(
-        identity.vtable - addresses_.image_base);
+        current_vtable - addresses_.image_base);
     output.writer_rva = static_cast<std::uint32_t>(
-        identity.writer - addresses_.image_base);
-    output.derived_size = camera_derived_size(identity.serialization);
+        current_writer - addresses_.image_base);
+    output.derived_size = camera_derived_size(serialization);
     std::size_t cursor{};
     for (const auto range : camera_component_common_ranges)
     {
@@ -1229,7 +1247,7 @@ bool NativeCandidateRegions::capture_camera_component(
             return false;
         cursor += range.size;
     }
-    switch (identity.serialization)
+    switch (serialization)
     {
     case NativeCameraComponentSerialization::StateBuffer:
     {
@@ -1303,16 +1321,27 @@ bool NativeCandidateRegions::write_camera_component(
         return false;
     }
     const auto& identity = identities_.camera_components[index];
+    const auto target_vtable = addresses_.image_base + image.vtable_rva;
+    const auto target_writer = addresses_.image_base + image.writer_rva;
     if (identity.object == 0
-        || identity.serialization != image.serialization
-        || image.vtable_rva != identity.vtable - addresses_.image_base
-        || image.writer_rva != identity.writer - addresses_.image_base)
+        || camera_serialization_for_identity(addresses_.image_base,
+               target_vtable, target_writer) != image.serialization)
     {
         return false;
     }
     std::uintptr_t current_vtable{};
+    std::uintptr_t current_writer{};
+    std::uintptr_t observed_target_writer{};
     if (!read_value(memory_, identity.object, current_vtable)
-        || current_vtable != identity.vtable)
+        || !read_value(memory_, current_vtable + 0x100, current_writer)
+        || camera_serialization_for_identity(addresses_.image_base,
+               current_vtable, current_writer)
+            == NativeCameraComponentSerialization::None
+        || !read_value(memory_, target_vtable + 0x100,
+            observed_target_writer)
+        || observed_target_writer != target_writer
+        || !write_bytes(identity.object,
+            std::as_bytes(std::span{&target_vtable, 1})))
     {
         return false;
     }
@@ -1518,14 +1547,16 @@ Status NativeCandidateRegions::RestoreCameraSourceFrameTransactional(
     {
         const auto& identity = identities_.camera_components[index];
         const auto& component = image.components[index];
+        const auto component_vtable =
+            addresses_.image_base + component.vtable_rva;
+        const auto component_writer =
+            addresses_.image_base + component.writer_rva;
         if ((component.present != 0) != (identity.object != 0)
             || !valid_camera_component(component)
             || (component.present != 0
-                && (component.serialization != identity.serialization
-                    || component.vtable_rva
-                        != identity.vtable - addresses_.image_base
-                    || component.writer_rva
-                        != identity.writer - addresses_.image_base)))
+                && camera_serialization_for_identity(addresses_.image_base,
+                       component_vtable, component_writer)
+                    != component.serialization))
         {
             return Status::failure(FailureCode::IdentityMismatch);
         }
@@ -1567,19 +1598,23 @@ Status NativeCandidateRegions::RestoreCameraSourceFrameTransactional(
     {
         const auto action = addresses_.camera_action_backing
             + index * camera_action_stride;
+        const auto valid_action_record = [&](const auto& bytes) noexcept {
+            const auto offset = index * camera_action_stride;
+            const auto vtable = read_pointer(bytes, offset);
+            return vtable >= addresses_.image_base
+                && vtable - addresses_.image_base
+                    <= std::numeric_limits<std::uint32_t>::max()
+                && (vtable & 7) == 0
+                && read_u32(bytes, offset + 0x08) == index
+                && read_pointer(bytes, offset + 0x10) == current_owner
+                && read_pointer(bytes, offset + 0x18)
+                    == addresses_.camera_timer_node
+                && read_u32(bytes, offset + 0x20) <= 0x1A;
+        };
         if (read_pointer(current.timer_node, 0x10 + index * 8) != action
             || read_pointer(image.timer_node, 0x10 + index * 8) != action
-            || read_pointer(current.action_backing,
-                   index * camera_action_stride) != identities_.camera_vtables[index]
-            || read_pointer(image.action_backing,
-                   index * camera_action_stride) != identities_.camera_vtables[index]
-            || read_u32(image.action_backing,
-                   index * camera_action_stride + 0x08) != index
-            || read_pointer(image.action_backing,
-                   index * camera_action_stride + 0x10) != current_owner
-            || read_pointer(image.action_backing,
-                   index * camera_action_stride + 0x18)
-                != addresses_.camera_timer_node)
+            || !valid_action_record(current.action_backing)
+            || !valid_action_record(image.action_backing))
             return Status::failure(FailureCode::IdentityMismatch);
     }
     NativeCameraSourceFrameImage undo{};
@@ -1681,22 +1716,22 @@ bool NativeCandidateRegions::image_matches_binding(
     {
         const auto& identity = identities_.camera_components[index];
         const auto& component = image.camera_components[index];
+        const auto component_vtable =
+            addresses_.image_base + component.vtable_rva;
+        const auto component_writer =
+            addresses_.image_base + component.writer_rva;
         if (!valid_camera_component(component)
             || (component.present != 0
-                && (component.serialization != identity.serialization
-                    || component.vtable_rva
-                        != identity.vtable - addresses_.image_base
-                    || component.writer_rva
-                        != identity.writer - addresses_.image_base)))
+                && (identity.object == 0
+                    || camera_serialization_for_identity(addresses_.image_base,
+                           component_vtable, component_writer)
+                        != component.serialization)))
             return false;
     }
     for (std::size_t index = 0;
          index < image.camera_distance_history.size(); ++index)
     {
-        const bool expected = identities_.camera_vtables[index]
-            == addresses_.image_base + player_watch_camera_vtable_rva;
-        if (!valid_camera_history(image.camera_distance_history[index])
-            || (image.camera_distance_history[index].present != 0) != expected)
+        if (!valid_camera_history(image.camera_distance_history[index]))
         {
             return false;
         }
@@ -1722,6 +1757,13 @@ Status NativeCandidateRegions::PreflightRestore(
 
 bool NativeCandidateRegions::write_forward(const NativeCandidateImage& image) noexcept
 {
+    validation_diagnostic_ = {};
+    const auto write_failed = [&](std::uint32_t stage) noexcept {
+        validation_diagnostic_.issue =
+            NativeCandidateValidationIssue::CandidateRegionWrite;
+        validation_diagnostic_.index = stage;
+        return false;
+    };
     const std::uintptr_t pending_attacker = image.pending_hit.attacker_slot == 0
         ? 0 : addresses_.fighter_roots[image.pending_hit.attacker_slot - 1];
     const std::int32_t round_sequence_count = image.round_sequence.count;
@@ -1785,36 +1827,41 @@ bool NativeCandidateRegions::write_forward(const NativeCandidateImage& image) no
         || !write_bytes(addresses_.vm_freeze_record,
             image.vm_freeze_record))
     {
-        return false;
+        return write_failed(0);
     }
     for (std::size_t index = 0;
          index < image.stage_wind_emitters.states.size(); ++index)
     {
         if (!write_bytes(identities_.stage_wind_emitters[index],
-                image.stage_wind_emitters.states[index])) return false;
+                image.stage_wind_emitters.states[index]))
+            return write_failed(100 + static_cast<std::uint32_t>(index));
     }
     if (!write_bytes(
             identities_.event_mask_owner,
-            std::as_bytes(std::span{image.move_dispatch_masks}))) return false;
+            std::as_bytes(std::span{image.move_dispatch_masks})))
+        return write_failed(200);
     if (!write_bytes(addresses_.pump_state + 0x20, image.pump.lane_a)
         || !write_bytes(addresses_.pump_state + 0x50, image.pump.lane_b)
-        || !write_bytes(addresses_.pump_state + 0x70, image.pump.controls)) return false;
+        || !write_bytes(addresses_.pump_state + 0x70, image.pump.controls))
+        return write_failed(300);
     for (std::size_t lane = 0; lane < image.schedulers.size(); ++lane)
     {
         const auto scheduler = addresses_.scheduler_base + lane * 0x60;
         if (!write_bytes(scheduler + 0x08, image.schedulers[lane].published_input)
             || !write_bytes(scheduler + 0x30, image.schedulers[lane].command_state)
-            || !write_bytes(scheduler + 0x58, image.schedulers[lane].active_slot)) return false;
+            || !write_bytes(scheduler + 0x58, image.schedulers[lane].active_slot))
+            return write_failed(400 + static_cast<std::uint32_t>(lane));
     }
     for (std::size_t lane = 0; lane < image.sub_vms.size(); ++lane)
     {
         const auto object = identities_.sub_vms[lane].object;
         if (!write_bytes(object + 0x08, image.sub_vms[lane].input_command)
-            || !write_bytes(object + 0x20, image.sub_vms[lane].common)) return false;
+            || !write_bytes(object + 0x20, image.sub_vms[lane].common))
+            return write_failed(500 + static_cast<std::uint32_t>(lane));
         const auto bytes = derived_size(image.sub_vms[lane].extent);
         if (bytes != 0
             && !write_bytes(object + 0x68, std::span{image.sub_vms[lane].derived}.first(bytes)))
-            return false;
+            return write_failed(500 + static_cast<std::uint32_t>(lane));
     }
     for (std::size_t lane = 0; lane < image.move_commands.size(); ++lane)
     {
@@ -1823,92 +1870,21 @@ bool NativeCandidateRegions::write_forward(const NativeCandidateImage& image) no
         for (const auto range : move_command_ranges)
         {
             const auto bank = std::span{image.move_commands[lane]}.subspan(source, range.size);
-            if (!write_bytes(slot + range.offset, bank)) return false;
+            if (!write_bytes(slot + range.offset, bank))
+                return write_failed(600 + static_cast<std::uint32_t>(lane));
             source += range.size;
         }
     }
     for (std::size_t lane = 0; lane < image.slot_params.size(); ++lane)
         if (!write_bytes(addresses_.slot_param_base + lane * 0x2C, image.slot_params[lane]))
-            return false;
+            return write_failed(700 + static_cast<std::uint32_t>(lane));
     for (std::size_t index = 0;
          index < image.camera_components.size(); ++index)
     {
         const auto& component = image.camera_components[index];
-        const auto& identity = identities_.camera_components[index];
         if (component.present == 0) continue;
-        std::size_t cursor{};
-        for (const auto range : camera_component_common_ranges)
-        {
-            if (!write_bytes(identity.object + range.offset,
-                    std::span{component.common}.subspan(cursor, range.size)))
-                return false;
-            cursor += range.size;
-        }
-        const std::uintptr_t null_pointer{};
-        switch (component.serialization)
-        {
-        case NativeCameraComponentSerialization::StateBuffer:
-        {
-            const auto tracked0 = camera_chara_pointer(
-                component.state_buffer_chara_slots[0], addresses_.fighter_roots);
-            const auto tracked1 = camera_chara_pointer(
-                component.state_buffer_chara_slots[1], addresses_.fighter_roots);
-            if (!write_bytes(identity.object + 0x1D0,
-                    std::span{component.derived}.first(0x140))
-                || !write_bytes(identity.object + 0x310,
-                    std::as_bytes(std::span{&tracked0, 1}))
-                || !write_bytes(identity.object + 0x318,
-                    std::as_bytes(std::span{&tracked1, 1}))) return false;
-            break;
-        }
-        case NativeCameraComponentSerialization::State:
-            if (!write_bytes(identity.object + 0x1D0,
-                    std::span{component.derived}.first(0x1C))) return false;
-            break;
-        case NativeCameraComponentSerialization::CharaReference:
-        {
-            const std::uintptr_t tracked = component.tracked_chara_slot < 0
-                ? 0 : addresses_.fighter_roots[static_cast<std::size_t>(
-                    component.tracked_chara_slot)];
-            if (!write_bytes(identity.object + 0x1D0,
-                    std::span{component.derived}.first(0x14))
-                || !write_bytes(identity.object + 0x1E8,
-                    std::as_bytes(std::span{&null_pointer, 1}))
-                || !write_bytes(identity.object + 0x1F0,
-                    std::as_bytes(std::span{&tracked, 1}))) return false;
-            break;
-        }
-        case NativeCameraComponentSerialization::Attention:
-            if (!write_bytes(identity.object + 0x1D0,
-                    std::span{component.derived}.first(0x0C))
-                || !write_bytes(identity.object + 0x1E8,
-                    std::span{component.derived}.subspan(0x0C, 0x04))
-                || !write_bytes(identity.object + 0x1E0,
-                    std::as_bytes(std::span{&null_pointer, 1}))) return false;
-            break;
-        case NativeCameraComponentSerialization::Stay:
-            if (!write_bytes(identity.object + 0x1D0,
-                    std::span{component.derived}.first(0x0C))
-                || !write_bytes(identity.object + 0x1E0,
-                    std::as_bytes(std::span{&null_pointer, 1}))) return false;
-            break;
-        case NativeCameraComponentSerialization::PlayerWatchActive:
-        {
-            std::size_t derived_cursor{};
-            for (const auto range : player_watch_active_ranges)
-            {
-                if (!write_bytes(identity.object + range.offset,
-                        std::span{component.derived}.subspan(
-                            derived_cursor, range.size))) return false;
-                derived_cursor += range.size;
-            }
-            break;
-        }
-        case NativeCameraComponentSerialization::Base:
-            break;
-        default:
-            return false;
-        }
+        if (!write_camera_component(index, component, false))
+            return write_failed(800 + static_cast<std::uint32_t>(index));
     }
     for (std::size_t index = 0;
          index < image.camera_distance_history.size(); ++index)
@@ -1919,7 +1895,8 @@ bool NativeCandidateRegions::write_forward(const NativeCandidateImage& image) no
             + index * camera_action_stride;
         std::uintptr_t vtable{};
         if (!read_value(memory_, action, vtable)
-            || vtable != identities_.camera_vtables[index]
+            || vtable
+                != addresses_.image_base + player_watch_camera_vtable_rva
             || !write_bytes(action + camera_distance_history_offset,
                 std::as_bytes(std::span{history.sample_bits}))
             || !write_bytes(action + 0x29C,
@@ -1927,7 +1904,7 @@ bool NativeCandidateRegions::write_forward(const NativeCandidateImage& image) no
             || !write_bytes(action + 0x2A0,
                 std::as_bytes(std::span{&history.cursor, 1})))
         {
-            return false;
+            return write_failed(900 + static_cast<std::uint32_t>(index));
         }
     }
     return true;
@@ -1947,7 +1924,8 @@ bool NativeCandidateRegions::write_reverse(const NativeCandidateImage& image) no
             + index * camera_action_stride;
         std::uintptr_t vtable{};
         const bool identity_ok = read_value(memory_, action, vtable)
-            && vtable == identities_.camera_vtables[index];
+            && vtable
+                == addresses_.image_base + player_watch_camera_vtable_rva;
         ok = identity_ok
             && write_bytes(action + 0x2A0,
                 std::as_bytes(std::span{&history.cursor, 1})) && ok;
@@ -1961,98 +1939,8 @@ bool NativeCandidateRegions::write_reverse(const NativeCandidateImage& image) no
     for (std::size_t index = image.camera_components.size(); index-- > 0;)
     {
         const auto& component = image.camera_components[index];
-        const auto& identity = identities_.camera_components[index];
         if (component.present == 0) continue;
-        const std::uintptr_t null_pointer{};
-        switch (component.serialization)
-        {
-        case NativeCameraComponentSerialization::StateBuffer:
-        {
-            const auto tracked0 = camera_chara_pointer(
-                component.state_buffer_chara_slots[0], addresses_.fighter_roots);
-            const auto tracked1 = camera_chara_pointer(
-                component.state_buffer_chara_slots[1], addresses_.fighter_roots);
-            ok = write_bytes(identity.object + 0x318,
-                std::as_bytes(std::span{&tracked1, 1})) && ok;
-            ok = write_bytes(identity.object + 0x310,
-                std::as_bytes(std::span{&tracked0, 1})) && ok;
-            ok = write_bytes(identity.object + 0x1D0,
-                std::span{component.derived}.first(0x140)) && ok;
-            break;
-        }
-        case NativeCameraComponentSerialization::State:
-            ok = write_bytes(identity.object + 0x1D0,
-                std::span{component.derived}.first(0x1C)) && ok;
-            break;
-        case NativeCameraComponentSerialization::CharaReference:
-        {
-            const std::uintptr_t tracked = component.tracked_chara_slot < 0
-                ? 0 : addresses_.fighter_roots[static_cast<std::size_t>(
-                    component.tracked_chara_slot)];
-            ok = write_bytes(identity.object + 0x1F0,
-                std::as_bytes(std::span{&tracked, 1})) && ok;
-            ok = write_bytes(identity.object + 0x1E8,
-                std::as_bytes(std::span{&null_pointer, 1})) && ok;
-            ok = write_bytes(identity.object + 0x1D0,
-                std::span{component.derived}.first(0x14)) && ok;
-            break;
-        }
-        case NativeCameraComponentSerialization::Attention:
-            ok = write_bytes(identity.object + 0x1E0,
-                std::as_bytes(std::span{&null_pointer, 1})) && ok;
-            ok = write_bytes(identity.object + 0x1E8,
-                std::span{component.derived}.subspan(0x0C, 0x04)) && ok;
-            ok = write_bytes(identity.object + 0x1D0,
-                std::span{component.derived}.first(0x0C)) && ok;
-            break;
-        case NativeCameraComponentSerialization::Stay:
-            ok = write_bytes(identity.object + 0x1E0,
-                std::as_bytes(std::span{&null_pointer, 1})) && ok;
-            ok = write_bytes(identity.object + 0x1D0,
-                std::span{component.derived}.first(0x0C)) && ok;
-            break;
-        case NativeCameraComponentSerialization::PlayerWatchActive:
-        {
-            std::array<std::size_t, player_watch_active_ranges.size()> starts{};
-            std::size_t cursor{};
-            for (std::size_t field = 0;
-                 field < player_watch_active_ranges.size(); ++field)
-            {
-                starts[field] = cursor;
-                cursor += player_watch_active_ranges[field].size;
-            }
-            for (std::size_t field = player_watch_active_ranges.size();
-                 field-- > 0;)
-            {
-                const auto range = player_watch_active_ranges[field];
-                ok = write_bytes(identity.object + range.offset,
-                    std::span{component.derived}.subspan(
-                        starts[field], range.size)) && ok;
-            }
-            break;
-        }
-        case NativeCameraComponentSerialization::Base:
-            break;
-        default:
-            ok = false;
-            break;
-        }
-        std::array<std::size_t, camera_component_common_ranges.size()> starts{};
-        std::size_t cursor{};
-        for (std::size_t field = 0;
-             field < camera_component_common_ranges.size(); ++field)
-        {
-            starts[field] = cursor;
-            cursor += camera_component_common_ranges[field].size;
-        }
-        for (std::size_t field = camera_component_common_ranges.size();
-             field-- > 0;)
-        {
-            const auto range = camera_component_common_ranges[field];
-            ok = write_bytes(identity.object + range.offset,
-                std::span{component.common}.subspan(
-                    starts[field], range.size)) && ok;
-        }
+        ok = write_camera_component(index, component, true) && ok;
     }
     for (std::size_t lane = image.slot_params.size(); lane-- > 0;)
         ok = write_bytes(addresses_.slot_param_base + lane * 0x2C, image.slot_params[lane]) && ok;
@@ -2172,6 +2060,7 @@ Status NativeCandidateRegions::RestoreTransactional(
     if (!capture_unchecked(*restore_undo_scratch_))
         return Status::failure(FailureCode::CaptureFailed);
     const bool wrote = write_forward(image);
+    const auto forward_write_diagnostic = validation_diagnostic_;
     const bool captured_verification = wrote
         && capture_unchecked(*restore_verification_scratch_);
     if (captured_verification)
@@ -2197,6 +2086,7 @@ Status NativeCandidateRegions::RestoreTransactional(
     if (!capture_unchecked(*restore_verification_scratch_)
         || *restore_verification_scratch_ != *restore_undo_scratch_)
         return Status::failure(FailureCode::UndoFailed);
+    if (!wrote) validation_diagnostic_ = forward_write_diagnostic;
     return Status::failure(
         wrote ? FailureCode::RestoreVerificationFailed : FailureCode::RestoreWriteFailed);
 }
@@ -2418,6 +2308,103 @@ void NativeCandidateRegions::CanonicalBytes(
     }
 }
 
+void NativeCandidateRegions::PeerCanonicalBytes(
+    const NativeCandidateImage& image, std::vector<std::byte>& output)
+{
+    static thread_local std::vector<std::byte> full_canonical;
+    CanonicalBytes(image, full_canonical);
+    PeerCanonicalBytes(image, full_canonical, output);
+}
+
+void NativeCandidateRegions::PeerCanonicalBytes(
+    const NativeCandidateImage& image,
+    std::span<const std::byte> full_canonical,
+    std::vector<std::byte>& output)
+{
+    output.clear();
+    if (output.capacity() < full_canonical.size())
+        output.reserve(full_canonical.size());
+    append_bytes(output, &image.session_generation,
+        sizeof(image.session_generation));
+    append_bytes(output, &image.round_generation,
+        sizeof(image.round_generation));
+    append_frame_boundary(output, image.frame);
+    append_round_sequence(output, image.round_sequence);
+    const auto full_input_offset = output.size();
+    // Decompiled field writers prove only three parts of FrameInputLog are
+    // peer-local: LocalPlayerFlags is derived from the local session role,
+    // CurrentInputBySlot is populated only for those local flags, and the
+    // rolling cache is transport staging whose local and received rows arrive
+    // on different processes. UpdateTime is also transport-local: the native
+    // online source pipeline advances it after stock network processing and a
+    // transport notification, independently from GameTime. Keep InputDelay,
+    // LocalInputMask, PlayerNum, the round/GameTime/PauseTime clocks, and both
+    // recorder cursors canonical.
+    constexpr std::size_t packed_input_size = 0x30
+        + 1024 * (sizeof(std::int32_t) + 2 * sizeof(std::uint32_t)
+            + sizeof(std::uint8_t));
+    if (full_input_offset + packed_input_size > full_canonical.size())
+    {
+        output.clear();
+        return;
+    }
+    // +0x390..+0x39B: InputDelay, LocalInputMask, PlayerNum.
+    append_bytes(output, full_canonical.data() + full_input_offset, 0x0C);
+    // Skip +0x39C LocalPlayerFlags. Keep +0x3A0..+0x3AB: round,
+    // GameTime, and PauseTime.
+    append_bytes(output, full_canonical.data() + full_input_offset + 0x10,
+        0x0C);
+    // Skip transport-local UpdateTime at +0x3AC. Keep RecorderTime and
+    // RecorderStopTime at +0x3B0..+0x3B7.
+    append_bytes(output, full_canonical.data() + full_input_offset + 0x20,
+        0x08);
+    // Skip +0x3B8 current input mirrors and +0x3C0 rolling cache.
+    const auto tail_begin = full_input_offset + packed_input_size;
+    std::size_t camera_history_size{};
+    for (const auto& history : image.camera_distance_history)
+    {
+        camera_history_size += sizeof(history.present);
+        if (history.present != 0)
+            camera_history_size += sizeof(history.sample_bits)
+                + sizeof(history.sample_count) + sizeof(history.cursor);
+    }
+    constexpr std::size_t emitter_unused_euler_w_offset = 0x1C;
+    constexpr std::size_t emitter_unused_euler_w_size = sizeof(std::uint32_t);
+    const auto emitter_count = image.stage_wind_emitters.states.size();
+    const auto emitter_block_size = sizeof(std::uint8_t)
+        + emitter_count * native_stage_wind_emitter_state_size;
+    if (camera_history_size + emitter_block_size > full_canonical.size())
+    {
+        output.clear();
+        return;
+    }
+    const auto emitter_block_offset = full_canonical.size()
+        - camera_history_size - emitter_block_size;
+    if (emitter_block_offset < tail_begin)
+    {
+        output.clear();
+        return;
+    }
+    append_bytes(output, full_canonical.data() + tail_begin,
+        emitter_block_offset - tail_begin);
+    const auto emitter_count_byte = static_cast<std::uint8_t>(emitter_count);
+    append_bytes(output, &emitter_count_byte, sizeof(emitter_count_byte));
+    const std::uint32_t zero{};
+    for (const auto& state : image.stage_wind_emitters.states)
+    {
+        append_bytes(output, state.data(), emitter_unused_euler_w_offset);
+        append_bytes(output, &zero, emitter_unused_euler_w_size);
+        append_bytes(output,
+            state.data() + emitter_unused_euler_w_offset
+                + emitter_unused_euler_w_size,
+            state.size() - emitter_unused_euler_w_offset
+                - emitter_unused_euler_w_size);
+    }
+    append_bytes(output,
+        full_canonical.data() + full_canonical.size() - camera_history_size,
+        camera_history_size);
+}
+
 CanonicalNativeFingerprint NativeCandidateRegions::CanonicalFingerprint(
     const NativeCandidateImage& image)
 {
@@ -2509,8 +2496,16 @@ CanonicalNativeFingerprint NativeCandidateRegions::CanonicalFingerprint(
     output[25] = finish();
     append_bytes(bytes, image.vm_freeze_record.data(), image.vm_freeze_record.size());
     output[26] = finish();
+    constexpr std::size_t emitter_unused_euler_w_offset = 0x1C;
+    const std::uint32_t zero{};
     for (const auto& state : image.stage_wind_emitters.states)
-        append_bytes(bytes, state.data(), state.size());
+    {
+        append_bytes(bytes, state.data(), emitter_unused_euler_w_offset);
+        append_bytes(bytes, &zero, sizeof(zero));
+        append_bytes(bytes,
+            state.data() + emitter_unused_euler_w_offset + sizeof(zero),
+            state.size() - emitter_unused_euler_w_offset - sizeof(zero));
+    }
     output[27] = finish();
     // Component internals remain bounded, generation-checked local
     // reconstruction state. They are advanced by post-coordinate camera

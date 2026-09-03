@@ -138,20 +138,18 @@ Using one immutable newly built DLL, each initial candidate is tested:
 - Raphael versus Maxi, stage 9/map 9.
 - Siegfried versus Cervantes, stage 23/map 23.
 
-Each case runs a 600-frame normal-render baseline plus correction depths 1, 6,
-and 11 near round start, active combat, hit/presentation activity, and round end.
-The same production correction pipeline also has a qualification-only forced
-depth-7 mode. On every normal-render gameplay tick it restores the authoritative
-state from exactly seven frames earlier, resimulates those seven historical
-frames with ephemeral presentation suppressed, reconciles exactly-once
-presentation, and then executes the next authoritative tick normally. Each
-required matchup and each correction location must sustain at least 600
-consecutive forced corrections.
+Each case runs a 600-frame normal-render baseline plus repeated, interleaved
+correction depths 11, 1, and 6 near round start, active combat,
+hit/presentation activity, and round end. At every authoritative anchor the
+production correction pipeline executes 11 -> 1 -> 6 restores before the
+replay advances. Each required matchup, correction location, and depth must
+sustain at least 600 consecutive corrections. The legacy forced-depth-7 switch
+is non-certifying diagnostic instrumentation and adds no release-matrix row.
 Acceptance requires:
 
 - Every confirmed canonical frame equals its no-correction baseline.
-- Every forced depth-7 correction converges exactly before the next authoritative
-  tick executes.
+- Every required depth-11, depth-1, and depth-6 correction converges exactly
+  before the next authoritative tick executes.
 - Final persistent presentation state matches the baseline.
 - Every ephemeral event commits exactly once.
 - No audio, camera, particle, or presentation-journal state leaks across a
@@ -159,7 +157,7 @@ Acceptance requires:
 - No stale native identity or allocation survives restoration.
 - Forced-correction storage is bounded and preallocated, with no allocation or
   lifecycle growth over the run and clean exit and re-entry.
-- Forced depth-7 correction-cycle p99 is below 16.67 ms. The separate checkpoint
+- Every required correction depth has p99 below 16.67 ms. The separate checkpoint
   capture requirement remains capture p99 at most 0.5 ms with no capture over
   1 ms.
 - Replay seek/resume satisfies criterion 4 on the same build.

@@ -144,6 +144,31 @@ std::uint64_t local_checksum(std::span<const std::byte> bytes) noexcept
     return checksum.Finish();
 }
 
+bool peer_scheduler_active(const CharaAnimationPlayerImage& player) noexcept
+{
+    constexpr std::size_t active_offset = 0x64 - 0x10;
+    std::uint32_t active{};
+    static_assert(active_offset + sizeof(active)
+        <= std::tuple_size_v<decltype(player.scheduler_scalars)>);
+    std::memcpy(&active, player.scheduler_scalars.data() + active_offset,
+        sizeof(active));
+    return active != 0;
+}
+
+std::uint64_t peer_stage_emitter_checksum(
+    const std::array<std::byte,
+        native_stage_wind_emitter_state_size>& state) noexcept
+{
+    constexpr std::size_t unused_euler_w_offset = 0x1C;
+    LocalImageChecksum checksum;
+    checksum.Add(state.data(), unused_euler_w_offset);
+    const std::uint32_t zero{};
+    checksum.Add(&zero, sizeof(zero));
+    checksum.Add(state.data() + unused_euler_w_offset + sizeof(zero),
+        state.size() - unused_euler_w_offset - sizeof(zero));
+    return checksum.Finish();
+}
+
 void append_ucrt_canonical(
     std::vector<std::byte>& output, const UcrtRandBrokerImage& image)
 {
@@ -527,6 +552,8 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
         output.canonical_wind = {};
         output.canonical_wind_node = {};
         output.canonical_wind_schedule = {};
+        output.canonical_animation = {};
+        output.canonical_stage_emitters = {};
     }
     else
     {
@@ -555,6 +582,11 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
         if (native_canonical.empty()
             || native_canonical.size() > std::numeric_limits<std::uint32_t>::max())
             return Status::failure(FailureCode::CapacityExceeded);
+        static thread_local std::vector<std::byte> native_peer_canonical;
+        NativeCandidateRegions::PeerCanonicalBytes(
+            image.native, native_canonical, native_peer_canonical);
+        if (native_peer_canonical.empty())
+            return Status::failure(FailureCode::CaptureFailed);
         static thread_local std::vector<std::byte> move_dispatch_canonical;
         MoveDispatchState::CanonicalBytes(
             image.move_dispatch, move_dispatch_canonical);
@@ -568,6 +600,9 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
         static thread_local std::vector<std::byte> animation_canonical;
         CharaAnimationState::CanonicalBytes(
             image.chara_animation, animation_canonical);
+        static thread_local std::vector<std::byte> animation_peer_canonical;
+        CharaAnimationState::PeerCanonicalBytes(
+            image.chara_animation, animation_peer_canonical);
         static thread_local std::vector<std::byte> ucrt_canonical;
         ucrt_canonical.clear();
         if (ucrt_canonical.capacity() < 32) ucrt_canonical.reserve(32);
@@ -577,16 +612,17 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
             image.wind, wind_canonical);
         if (!wind_status.ok()) return wind_status;
         const std::array canonical_components{
-            std::span<const std::byte>{native_canonical},
+            std::span<const std::byte>{native_peer_canonical},
             std::span<const std::byte>{move_dispatch_canonical},
             std::span<const std::byte>{secondary_canonical},
-            std::span<const std::byte>{animation_canonical},
+            std::span<const std::byte>{animation_peer_canonical},
             std::span<const std::byte>{ucrt_canonical},
             std::span<const std::byte>{wind_canonical},
         };
-        std::size_t canonical_size{};
-        for (const auto component : canonical_components)
-            canonical_size += component.size();
+        const std::size_t canonical_size = native_canonical.size()
+            + move_dispatch_canonical.size() + secondary_canonical.size()
+            + animation_canonical.size() + ucrt_canonical.size()
+            + wind_canonical.size();
         static thread_local std::vector<std::byte> wind_local;
         wind_local.clear();
         encode_wind_local(image.wind, wind_local);
@@ -596,7 +632,7 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
         output.context_identity = context_identity;
         LocalImageChecksum native_component_hasher;
         native_component_hasher.Add(
-            native_canonical.data(), native_canonical.size());
+            native_peer_canonical.data(), native_peer_canonical.size());
         native_component_hasher.Add(move_dispatch_canonical.data(),
             move_dispatch_canonical.size());
         const auto native_component_checksum =
@@ -604,10 +640,63 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
         output.canonical_components = {
             native_component_checksum,
             local_checksum(secondary_canonical),
-            local_checksum(animation_canonical),
+            local_checksum(animation_peer_canonical),
             local_checksum(ucrt_canonical),
             local_checksum(wind_canonical),
         };
+        for (std::size_t player_index = 0;
+             player_index < image.chara_animation.players.size();
+             ++player_index)
+        {
+            const auto& player = image.chara_animation.players[player_index];
+            const std::size_t base = player_index * 6;
+            const bool scheduler_active = peer_scheduler_active(player);
+            LocalImageChecksum metadata;
+            const std::uint8_t flags[] = {
+                static_cast<std::uint8_t>(player.clip_owner_bound),
+                static_cast<std::uint8_t>(player.clip_section.present),
+                static_cast<std::uint8_t>(player.runtime_section.present),
+                static_cast<std::uint8_t>(
+                    scheduler_active && player.scheduler_chara_bound)};
+            metadata.Add(flags, sizeof(flags));
+            metadata.Add(&player.clip_section.index,
+                sizeof(player.clip_section.index));
+            metadata.Add(&player.runtime_section.index,
+                sizeof(player.runtime_section.index));
+            output.canonical_animation[base] = metadata.Finish();
+            output.canonical_animation[base + 1] = local_checksum(
+                player.clip_scalars);
+            output.canonical_animation[base + 2] = local_checksum(
+                player.runtime_scalars);
+            output.canonical_animation[base + 3] = local_checksum(
+                player.cue_owner_scalars);
+            LocalImageChecksum scheduler;
+            scheduler.Add(&scheduler_active, sizeof(scheduler_active));
+            if (scheduler_active)
+                scheduler.Add(player.scheduler_scalars.data(),
+                    player.scheduler_scalars.size());
+            output.canonical_animation[base + 4] = scheduler.Finish();
+            LocalImageChecksum triggers;
+            triggers.Add(&scheduler_active, sizeof(scheduler_active));
+            if (scheduler_active)
+            {
+                triggers.Add(&player.trigger_count, sizeof(player.trigger_count));
+                triggers.Add(player.trigger_scalars.data(),
+                    player.trigger_count * sizeof(player.trigger_scalars[0]));
+            }
+            output.canonical_animation[base + 5] = triggers.Finish();
+        }
+        output.canonical_stage_emitters[0] =
+            static_cast<std::uint64_t>(image.native.stage_wind_emitters.states.size());
+        for (std::size_t index = 0;
+             index < image.native.stage_wind_emitters.states.size()
+                && index + 1 < output.canonical_stage_emitters.size();
+             ++index)
+        {
+            output.canonical_stage_emitters[index + 1] =
+                peer_stage_emitter_checksum(
+                    image.native.stage_wind_emitters.states[index]);
+        }
         output.canonical_native =
             NativeCandidateRegions::CanonicalFingerprint(image.native);
         output.canonical_move_dispatch[0] = image.native.move_dispatch_masks[0];
@@ -978,6 +1067,16 @@ Status CandidateCheckpointCodec::Decode(
     const Status battle_audio_selector_decoded =
         decode_battle_audio_selector_local(
             battle_audio_selector_local, output.battle_audio_selector);
+    static thread_local std::vector<std::byte> native_peer_canonical;
+    native_peer_canonical.clear();
+    if (decoded.ok())
+        NativeCandidateRegions::PeerCanonicalBytes(
+            output.native, native_canonical, native_peer_canonical);
+    static thread_local std::vector<std::byte> animation_peer_canonical;
+    animation_peer_canonical.clear();
+    if (animation_decoded.ok())
+        CharaAnimationState::PeerCanonicalBytes(
+            output.chara_animation, animation_peer_canonical);
     static thread_local std::vector<std::byte> wind_canonical;
     wind_canonical.clear();
     if (wind_decoded.ok())
@@ -1001,14 +1100,15 @@ Status CandidateCheckpointCodec::Decode(
     if (!decoded.ok() || !move_dispatch_decoded.ok()
         || !secondary_decoded.ok() || !animation_decoded.ok()
         || !wind_decoded.ok() || !battle_audio_selector_decoded.ok()
+        || native_peer_canonical.empty() || animation_peer_canonical.empty()
         || !generations_match(snapshot.coordinate, output)
         || !valid_local_images(output, true)
         || !hash_candidate(snapshot.coordinate, snapshot.context_identity,
             std::array{
-                native_canonical,
+                std::span<const std::byte>{native_peer_canonical},
                 move_dispatch_canonical,
                 secondary_canonical,
-                animation_canonical,
+                std::span<const std::byte>{animation_peer_canonical},
                 std::span<const std::byte>{ucrt_canonical},
                 std::span<const std::byte>{wind_canonical}},
             verified_hash)

@@ -90,6 +90,7 @@ public:
 
     Status Bind(std::uintptr_t object, std::uint64_t generation) noexcept;
     void Invalidate() noexcept;
+    void ReleaseScratchStorage() noexcept;
     Status Capture(MoveDispatchImage& output) noexcept;
     Status PreflightRestore(const MoveDispatchImage& image) noexcept;
     Status RestoreTransactional(const MoveDispatchImage& image) noexcept;

@@ -108,6 +108,7 @@ enum class NativeCandidateValidationIssue : std::uint8_t
     InputLogPlayerCount,
     InputLogClock,
     CandidateRegionRead,
+    CandidateRegionWrite,
 };
 
 struct NativeCandidateValidationDiagnostic
@@ -133,6 +134,7 @@ struct NativeCandidateValidationDiagnostic
     case NativeCandidateValidationIssue::InputLogPlayerCount: return "input_log_player_count";
     case NativeCandidateValidationIssue::InputLogClock: return "input_log_clock";
     case NativeCandidateValidationIssue::CandidateRegionRead: return "candidate_region_read";
+    case NativeCandidateValidationIssue::CandidateRegionWrite: return "candidate_region_write";
     }
     return "unknown";
 }
@@ -248,8 +250,8 @@ struct NativeStageWindEmitterListImage
 };
 
 // LuxEffectCamera PlayerWatch actions retain the last 16 requested distances.
-// Only slots whose bound vtable is the exact supported PlayerWatch class are
-// present; every other camera-action subtype remains identity-only.
+// Only slots whose current vtable is the exact supported PlayerWatch class are
+// present; native camera constructors rebuild classes in fixed slots in place.
 struct NativeCameraDistanceHistoryImage
 {
     // Preserve IEEE-754 payload bits so NaN payloads, if ever produced by the
@@ -381,6 +383,7 @@ public:
 
     Status Bind(const NativeCandidateAddresses& addresses) noexcept;
     void Invalidate() noexcept;
+    void ReleaseScratchStorage() noexcept;
     [[nodiscard]] bool IsBound() const noexcept { return bound_; }
     [[nodiscard]] NativeCandidateValidationDiagnostic validation_diagnostic()
         const noexcept { return validation_diagnostic_; }
@@ -408,6 +411,20 @@ public:
         const NativeCandidateImage& image);
     static void CanonicalBytes(
         const NativeCandidateImage& image, std::vector<std::byte>& output);
+    // Peer identity excludes only proven role/transport-local FrameInputLog
+    // fields and the unused stage-emitter template Euler-W lane while
+    // retaining deterministic configuration, clocks, emitter timers, and
+    // gameplay wind state.
+    // LocalPlayerFlags, transport UpdateTime, current mirrors, and rolling
+    // cache are intentionally different on stock-online peers; consumed input
+    // pairs and shared gameplay clocks already enter the canonical frame
+    // image, and future inputs are owned by Gekko.
+    static void PeerCanonicalBytes(
+        const NativeCandidateImage& image, std::vector<std::byte>& output);
+    static void PeerCanonicalBytes(
+        const NativeCandidateImage& image,
+        std::span<const std::byte> full_canonical,
+        std::vector<std::byte>& output);
     [[nodiscard]] static CanonicalNativeFingerprint CanonicalFingerprint(
         const NativeCandidateImage& image);
     [[nodiscard]] static Status DecodeCanonicalBytes(
@@ -456,7 +473,6 @@ private:
         std::array<std::array<std::uintptr_t, 17>, 2> move_commands{};
         std::array<CameraComponentIdentity, native_camera_component_count>
             camera_components{};
-        std::array<std::uintptr_t, native_camera_action_count> camera_vtables{};
         std::uintptr_t stage_wind_emitter_sentinel{};
         std::array<std::uintptr_t, native_stage_wind_emitter_max_count>
             stage_wind_emitter_nodes{};

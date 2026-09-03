@@ -117,8 +117,16 @@ void CandidateGameStateAdapter::Reset() noexcept
     last_captured_movevm_short25_ = {};
     last_captured_movevm_state_shorts_ = {};
     last_captured_rng_ = {};
+    last_canonical_capture_coordinate_ = {};
     configured_ = false;
     bound_ = false;
+}
+
+void CandidateGameStateAdapter::ReleaseScratchStorage() noexcept
+{
+    Reset();
+    transaction_target_scratch_.reset();
+    transaction_scratch_.reset();
 }
 
 Status CandidateGameStateAdapter::BindContext(
@@ -272,8 +280,48 @@ Status CandidateGameStateAdapter::Capture(
         std::chrono::duration_cast<std::chrono::nanoseconds>(
             encode_end - total_begin).count()));
     observe_scratch_capacity();
-    if (encoded.ok()) last_capture_phase_ = CandidateCapturePhase::None;
+    if (encoded.ok())
+    {
+        last_capture_phase_ = CandidateCapturePhase::None;
+    }
     return encoded;
+}
+
+Status CandidateGameStateAdapter::GetLastCanonicalPeerDiagnostic(
+    FrameCoordinate coordinate, PeerBaselineStateDiagnostic& output)
+    const noexcept
+{
+    output = {};
+    if (!bound_ || coordinate != last_canonical_capture_coordinate_)
+        return Status::failure(FailureCode::GenerationMismatch);
+    for (std::size_t player = 0; player < 2; ++player)
+    {
+        static_assert(sizeof(output.animation_clip_words[player])
+            == sizeof(canonical_capture_scratch_.chara_animation
+                .players[player].clip_scalars));
+        std::memcpy(output.animation_clip_words[player].data(),
+            canonical_capture_scratch_.chara_animation.players[player]
+                .clip_scalars.data(),
+            sizeof(output.animation_clip_words[player]));
+        static_assert(sizeof(output.animation_scheduler_words[player])
+            == sizeof(canonical_capture_scratch_.chara_animation
+                .players[player].scheduler_scalars));
+        std::memcpy(output.animation_scheduler_words[player].data(),
+            canonical_capture_scratch_.chara_animation.players[player]
+                .scheduler_scalars.data(),
+            sizeof(output.animation_scheduler_words[player]));
+    }
+    output.stage_emitter_count = static_cast<std::uint32_t>(
+        canonical_capture_scratch_.native.stage_wind_emitters.states.size());
+    if (output.stage_emitter_count != 0)
+    {
+        static_assert(sizeof(output.first_stage_emitter_words)
+            == native_stage_wind_emitter_state_size);
+        std::memcpy(output.first_stage_emitter_words.data(),
+            canonical_capture_scratch_.native.stage_wind_emitters.states[0]
+                .data(), sizeof(output.first_stage_emitter_words));
+    }
+    return Status::success();
 }
 
 Status CandidateGameStateAdapter::CaptureCanonical(
@@ -315,7 +363,11 @@ Status CandidateGameStateAdapter::CaptureCanonical(
         std::chrono::duration_cast<std::chrono::nanoseconds>(
             encode_end - total_begin).count()));
     observe_scratch_capacity();
-    if (encoded.ok()) last_capture_phase_ = CandidateCapturePhase::None;
+    if (encoded.ok())
+    {
+        last_canonical_capture_coordinate_ = coordinate;
+        last_capture_phase_ = CandidateCapturePhase::None;
+    }
     return encoded;
 }
 

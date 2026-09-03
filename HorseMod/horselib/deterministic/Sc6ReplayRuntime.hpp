@@ -18,6 +18,82 @@ class Lux;
 
 namespace Deterministic
 {
+// Gekko frame -1 is the independently frozen baseline. Frame zero is the
+// first completed native coordinate after it. Keep this mapping shared by the
+// service and focused retention tests; an off-by-one here selects the wrong
+// canonical state at the rollback-window boundary.
+[[nodiscard]] inline std::optional<FrameCoordinate> PlanGekkoStateCoordinate(
+    FrameCoordinate baseline, std::int32_t frame) noexcept
+{
+    if (baseline.generation == 0 || frame < -1) return std::nullopt;
+    if (frame < 0) return baseline;
+    const auto offset = static_cast<std::uint64_t>(frame) + 1;
+    if (baseline.frame > UINT64_MAX - offset) return std::nullopt;
+    baseline.frame += offset;
+    return baseline;
+}
+
+// Identity rebasing discards every correction input, checkpoint, and
+// canonical entry. That is safe while stock still owns the match, but never
+// after online prediction/ownership has been armed. Owned identity drift must
+// fail at its boundary instead of surfacing later as a misleading missing
+// Gekko state.
+[[nodiscard]] inline bool CanRebaselineOnlineTimeline(
+    bool predicted_remote_player_active) noexcept
+{
+    return !predicted_remote_player_active;
+}
+
+// An owned identity replacement is a two-phase operation. The transition
+// batch may identify the replacement generation, but correction history must
+// remain readable until both peers acknowledge the retired generation's final
+// canonical hash and Gekko has released its saved-state tokens.
+[[nodiscard]] inline bool CanCommitDeferredOnlineRebaseline(
+    bool rebaseline_deferred, bool predicted_remote_player_active,
+    bool at_completed_outer_tick_boundary,
+    bool round_barrier_acknowledged) noexcept
+{
+    return rebaseline_deferred && !predicted_remote_player_active
+        && at_completed_outer_tick_boundary && round_barrier_acknowledged;
+}
+
+[[nodiscard]] inline bool IsIdentityReplacementStatus(
+    FailureCode code) noexcept
+{
+    return code == FailureCode::IdentityMismatch
+        || code == FailureCode::GenerationMismatch;
+}
+
+// Gekko can replay one coordinate more than once as independently delayed
+// player histories arrive. A row observed while online prediction is active is
+// therefore the best-known remote value, not an immutable authority record.
+// Offline/authored rows remain immutable unless the explicit correction probe
+// is armed.
+[[nodiscard]] inline bool CanReviseObservedRemoteInput(
+    bool remote_confirmed,
+    bool corrected_input_qualification_enabled,
+    std::optional<std::size_t> predicted_remote_player,
+    std::size_t player_index) noexcept
+{
+    return !remote_confirmed || corrected_input_qualification_enabled
+        || (predicted_remote_player.has_value()
+            && *predicted_remote_player == player_index);
+}
+
+[[nodiscard]] inline std::optional<std::uint64_t>
+PlanOwnedRoundReplacementGeneration(
+    std::uint64_t retired_generation,
+    std::uint64_t observed_generation) noexcept
+{
+    if (retired_generation == 0 || observed_generation == 0
+        || observed_generation < retired_generation)
+        return std::nullopt;
+    if (observed_generation > retired_generation)
+        return observed_generation;
+    if (retired_generation == UINT64_MAX) return std::nullopt;
+    return retired_generation + 1;
+}
+
 enum class ReplayTimelinePartialReason : std::uint8_t
 {
     None,
@@ -191,6 +267,8 @@ struct ReplayTimelineStatus
     CanonicalWindNodeDiagnostic resume_expected_wind_node{};
     CanonicalWindNodeDiagnostic resume_observed_wind_node{};
     CandidateCapturePhase canonical_capture_phase{};
+    NativeCandidateValidationDiagnostic canonical_capture_validation{};
+    CameraTopologyCaptureDiagnostic canonical_camera_capture{};
     FrameCoordinate canonical_capture_failure_coordinate{};
     CharaAnimationTopologyIssue canonical_animation_topology_issue{};
     std::uintptr_t canonical_animation_topology_observed{};
@@ -237,6 +315,9 @@ struct OwnedCorrectionResult
     FrameCoordinate earliest_changed{};
     FrameCoordinate resimulation_base{};
     FrameCoordinate final_coordinate{};
+    FrameCoordinate planning_changed_batch_entry{};
+    FrameCoordinate planning_nearest_snapshot{};
+    FrameCoordinate planning_last_snapshot{};
     CanonicalHash final_hash{};
     CanonicalMoveDispatchDiagnostic expected_move_dispatch{};
     CanonicalMoveDispatchDiagnostic observed_move_dispatch{};
@@ -251,6 +332,12 @@ struct OwnedCorrectionResult
     NativeBatchEnvelope failed_envelope{};
     OwnedBatchReplayResult failed_batch_result{};
     std::size_t failed_batch_index{SIZE_MAX};
+    std::size_t planning_snapshot_count{};
+    std::size_t planning_batch_count{};
+    std::size_t planning_matching_batch_index{SIZE_MAX};
+    std::uint64_t planning_distance{};
+    std::uint8_t planning_stage{};
+    std::uint8_t input_producer_restore_phase{};
     std::uint64_t replayed_coordinates{};
     std::uint32_t replayed_batches{};
     std::uint64_t suppressed_stage_wall_calls{};
@@ -332,6 +419,56 @@ struct OwnedCorrectionResult
     bool undo_restored{};
 };
 
+[[nodiscard]] inline bool CanRequireOnlineBaselineCheckpoint(
+    FrameCoordinate baseline, FrameCoordinate observed,
+    bool predicted_remote_player_active,
+    bool exact_checkpoint_retained = false) noexcept
+{
+    return baseline.generation != 0 && observed.generation != 0
+        && baseline.generation == observed.generation
+        && !predicted_remote_player_active
+        && (baseline >= observed || exact_checkpoint_retained);
+}
+
+// Reaching the agreed coordinate is not sufficient: its batch-entry image is
+// captured at the beginning of the following native batch. Freezing at the
+// equal-coordinate service turn races that capture and makes status 4 fail as
+// MissingSnapshot (canary 45 at 2:123).
+[[nodiscard]] inline bool CanFreezeOnlineBaseline(
+    FrameCoordinate baseline, FrameCoordinate observed,
+    bool canonical_retained, bool exact_batch_entry_retained) noexcept
+{
+    return baseline.generation != 0
+        && baseline.generation == observed.generation
+        && baseline <= observed && canonical_retained
+        && exact_batch_entry_retained;
+}
+
+// Owned round negotiation must propose a coordinate before it is simulated so
+// the batch-entry snapshot can be forced. Using the next strict checkpoint
+// cadence gives both peers the same bounded set of proposal coordinates.
+[[nodiscard]] inline std::optional<FrameCoordinate>
+PlanOnlineRoundBaselineProposal(FrameCoordinate observed) noexcept
+{
+    if (observed.generation == 0 || Schema::checkpoint_interval == 0)
+        return std::nullopt;
+    const auto remainder = observed.frame % Schema::checkpoint_interval;
+    const auto advance = static_cast<std::uint64_t>(
+        Schema::checkpoint_interval - remainder);
+    if (observed.frame > UINT64_MAX - advance) return std::nullopt;
+    return FrameCoordinate{observed.generation, observed.frame + advance};
+}
+
+[[nodiscard]] inline bool CanRetargetOnlineBaselineCheckpoint(
+    FrameCoordinate reserved, FrameCoordinate requested,
+    FrameCoordinate observed) noexcept
+{
+    return reserved.generation != 0
+        && reserved.generation == requested.generation
+        && reserved.generation == observed.generation
+        && requested > reserved && requested >= observed;
+}
+
 class Sc6ReplayRuntime final
 {
 public:
@@ -347,7 +484,15 @@ public:
     Status SetReplayHistoryCaptureRequired(bool required) noexcept;
     Status SetOnlinePredictedRemotePlayer(
         std::optional<std::size_t> player_index) noexcept;
+    Status RequireOnlineBaselineCheckpoint(FrameCoordinate baseline) noexcept;
     Status PrepareOnlineOwnedStorage(FrameCoordinate baseline) noexcept;
+    [[nodiscard]] bool HasOnlineBaselineCheckpoint(
+        FrameCoordinate baseline) const noexcept
+    {
+        return checkpoint_capture_.snapshots(
+            CandidateCheckpointRole::BatchEntry).FindExact(baseline)
+            != nullptr;
+    }
     [[nodiscard]] std::size_t forced_qualification_bytes() const noexcept;
     void ResetCapturePerformanceWindow() noexcept;
     [[nodiscard]] CandidateAdapterPerformanceStatus capture_performance()
@@ -367,6 +512,13 @@ public:
     Status PreparePresentationOuterTick(DeterministicHookSet& hooks) noexcept;
     Status CommitPresentationThrough(
         FrameCoordinate confirmed, DeterministicHookSet& hooks) noexcept;
+    [[nodiscard]] bool online_rebaseline_deferred() const noexcept
+    {
+        return online_rebaseline_deferred_;
+    }
+    Status CommitDeferredOnlineRebaseline(
+        bool round_barrier_acknowledged,
+        std::uint64_t replacement_generation) noexcept;
     [[nodiscard]] bool presentation_ownership_enabled() const noexcept;
     [[nodiscard]] bool IsOnlineClearForStock() const noexcept;
     [[nodiscard]] std::size_t pending_presentation_events() const noexcept;
@@ -399,8 +551,21 @@ public:
     Status ExecuteOwnedStateSeek(
         FrameCoordinate target, DeterministicHookSet& hooks) noexcept;
     Status CaptureCurrentCanonical(Snapshot& output) noexcept;
+    [[nodiscard]] bool AtCompletedOuterTickBoundary(
+        FrameCoordinate coordinate) const noexcept;
     [[nodiscard]] Status GetCanonicalHash(
         FrameCoordinate coordinate, CanonicalHash& output) const noexcept;
+    [[nodiscard]] Status GetCanonicalEntry(
+        FrameCoordinate coordinate, CanonicalHashEntry& output) const noexcept;
+    [[nodiscard]] Status GetLastCanonicalEntryInGeneration(
+        std::uint64_t generation, CanonicalHashEntry& output) const noexcept;
+    [[nodiscard]] Status GetPeerBaselineStateDiagnostic(
+        FrameCoordinate coordinate,
+        PeerBaselineStateDiagnostic& output) const noexcept
+    {
+        return checkpoint_capture_.GetLastCanonicalPeerDiagnostic(
+            coordinate, output);
+    }
     [[nodiscard]] bool GetSeekableRange(
         FrameCoordinate& first, FrameCoordinate& last) const noexcept;
     Status ExecuteOwnedCorrection(
@@ -584,7 +749,9 @@ private:
     Status PrepareInitialGeneration(
         const OuterTickObservation& observation) noexcept;
     Status CapturePendingCameraSource() noexcept;
-    void RebaselineAfterIdentityDrift() noexcept;
+    void RebaselineAfterIdentityDrift(
+        bool preserve_replacement_generation = false,
+        std::uint64_t replacement_generation = 0) noexcept;
     void ResetQualificationStateRetainingStorage() noexcept;
     static void* ResolveReplayPlayer(void* user) noexcept;
     static void* ResolveBattleManager(void* user) noexcept;
@@ -683,12 +850,14 @@ private:
     bool replay_history_capture_required_{true};
     bool next_replay_history_capture_required_{true};
     std::optional<std::size_t> online_predicted_remote_player_{};
+    std::optional<FrameCoordinate> required_online_baseline_checkpoint_{};
     ReplayTimelineStatus timeline_status_{};
     std::uintptr_t timeline_manager_{};
     std::uintptr_t timeline_input_log_{};
     std::uint32_t timeline_thread_id_{};
     std::uint64_t timeline_session_generation_{};
     std::uint64_t pending_batch_id_{};
+    std::uint64_t active_outer_tick_id_{};
     FrameCoordinate pending_batch_entry_{};
     NativeCameraSourceFrameImage pending_camera_source_frame_{};
     std::vector<FrameCoordinate> pending_batch_coordinates_{};
@@ -705,6 +874,7 @@ private:
     bool resume_validation_active_{};
     bool resume_catchup_pending_{};
     bool generation_rebaseline_pending_{};
+    bool online_rebaseline_deferred_{};
     bool continuing_session_rebaseline_{};
     bool presentation_ownership_enabled_{};
 };

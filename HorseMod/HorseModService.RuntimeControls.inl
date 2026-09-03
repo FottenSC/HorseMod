@@ -324,15 +324,40 @@ private:
             [](UnrealScriptFunctionCallableContext&, void*) {
                 auto* self = s_instance.load(std::memory_order_acquire);
                 if (self == nullptr) return;
+                const auto contract =
+                    self->m_online_coordinator.active_contract();
+                const bool online_requested =
+                    self->m_online_qualification_requested.load(
+                        std::memory_order_acquire)
+                    || self->m_online_production_requested.load(
+                        std::memory_order_acquire);
+                const bool cleanup_armed = contract
+                    && self->m_online_scene_exit_gate
+                        .ArmBeforeBattleTermination(
+                            contract->session_id, online_requested,
+                            self->m_online_lifecycle.phase());
                 Output::send<LogLevel::Default>(STR(
                     "[HorseMod] LuxBattleGameMode termination requested; "
-                    "invalidating native replay identity before BattleManager teardown\n"));
+                    "invalidating native replay identity before BattleManager "
+                    "teardown online_cleanup_armed={}\n"),
+                    cleanup_armed ? 1 : 0);
                 Horse::Deterministic::ReplayExitObservation observation{
                     0, ::GetCurrentThreadId()};
                 HorseMod::on_replay_exit(self, observation);
             };
         UnrealScriptFunctionCallable post_cb =
-            [](UnrealScriptFunctionCallableContext&, void*) {};
+            [](UnrealScriptFunctionCallableContext&, void*) {
+                auto* self = s_instance.load(std::memory_order_acquire);
+                if (self == nullptr) return;
+                const auto evidence = self->m_online_scene_exit_gate
+                    .CompleteAfterBattleTermination();
+                if (!evidence) return;
+                Output::send<LogLevel::Default>(STR(
+                    "[HorseMod] LuxBattleGameMode termination completed; "
+                    "running deferred online scene-exit cleanup session={}\n"),
+                    evidence->session_id);
+                self->reset_online_qualification_after_scene_exit(*evidence);
+            };
         try
         {
             m_battle_terminate_hook_ids = UObjectGlobals::RegisterHook(

@@ -40,6 +40,13 @@ void MotionBankSnapshot::Invalidate() noexcept
     bound_ = false;
 }
 
+void MotionBankSnapshot::ReleaseScratchStorage() noexcept
+{
+    Invalidate();
+    undo_scratch_ = {};
+    observed_scratch_ = {};
+}
+
 Status MotionBankSnapshot::Bind(
     const std::array<std::uintptr_t, 2>& fighters,
     const LocalReconstructionGenerationContext& context) noexcept

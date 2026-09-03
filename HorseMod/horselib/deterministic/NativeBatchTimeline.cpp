@@ -17,12 +17,21 @@ ResimulationBaseAction PlanResimulationBase(
     std::optional<FrameCoordinate> previous,
     FrameCoordinate batch_entry,
     std::uint32_t maximum_batch_width,
-    std::uint64_t maximum_resimulation_distance) noexcept
+    std::uint64_t maximum_resimulation_distance,
+    std::optional<FrameCoordinate> required_checkpoint) noexcept
 {
     if (batch_entry.generation == 0 || maximum_batch_width == 0
         || maximum_batch_width > maximum_resimulation_distance)
     {
         return ResimulationBaseAction::Invalid;
+    }
+    if (required_checkpoint.has_value())
+    {
+        if (required_checkpoint->generation != batch_entry.generation
+            || required_checkpoint->frame < batch_entry.frame)
+            return ResimulationBaseAction::Invalid;
+        if (*required_checkpoint == batch_entry)
+            return ResimulationBaseAction::Capture;
     }
     if (!previous.has_value()
         || previous->generation != batch_entry.generation)

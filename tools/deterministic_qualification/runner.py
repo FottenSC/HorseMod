@@ -421,6 +421,8 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
         line.strip().casefold() == "correction_probe=true"
         for line in config.read_text(encoding="utf-8").splitlines()
     )
+    if forced_depth7_requested:
+        _require_complete_forced_qualification_window(args)
     if args.development_smoke and args.certifying:
         raise RuntimeError("development smoke is non-certifying")
     if args.development_smoke and not 60 <= args.watch_frames <= 120:
@@ -629,6 +631,7 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
                 expected_location = int(config_fields.get("qualification_location", "2"))
                 if forced.depth != expected_depth or forced.location != expected_location:
                     raise RuntimeError("forced correction depth/location identity mismatch")
+                _require_forced_qualification_timing(forced)
                 if args.require_presentation_coverage:
                     require_wall = args.stage_terminal in ("wall", "both")
                     require_barrier = args.stage_terminal in ("barrier", "both")
@@ -1043,6 +1046,29 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
     print(json.dumps(report_data, indent=2, sort_keys=True))
     print(f"report: {args.report.resolve()}")
     return 0
+
+
+def _require_complete_forced_qualification_window(
+    args: argparse.Namespace,
+) -> None:
+    """Reject a rate sample that can terminate before the 600-correction gate."""
+    if args.watch_frames < 600 or args.resume_tick_window < 600:
+        raise RuntimeError(
+            "forced correction qualification requires at least 600 authored "
+            "watch frames and a 600-frame active FPS/TPS window"
+        )
+
+
+def _require_forced_qualification_timing(forced: object) -> None:
+    """Apply the published production-path correction and capture ceilings."""
+    if getattr(forced, "cycle_p99_us", 10**9) >= 16_670:
+        raise RuntimeError("forced correction p99 exceeded 16.67 ms")
+    if getattr(forced, "cycle_max_us", 10**9) >= 33_340:
+        raise RuntimeError("forced correction maximum exceeded 33.34 ms")
+    if getattr(forced, "capture_p99_us", 10**9) > 500:
+        raise RuntimeError("forced checkpoint capture p99 exceeded 0.5 ms")
+    if getattr(forced, "capture_max_us", 10**9) > 1_000:
+        raise RuntimeError("forced checkpoint capture maximum exceeded 1 ms")
 
 
 def _run_independent_seek_entries(
@@ -1853,7 +1879,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="require a non-sc67 box whose UE4SS and qualification roots are initially absent")
     paired.add_argument("--development-setup-smoke", action="store_true",
         help=("allow a dirty, explicitly non-certifying run that stops after "
-              "automated authenticated join and exact-content battle entry"))
+              "automated exact-content entry, bilateral baseline, and first "
+              "owned input"))
+    paired.add_argument("--development-correction-smoke", action="store_true",
+        help=("allow a dirty, explicitly non-certifying run that stops after "
+              "both authenticated peers independently converge corrections "
+              "at depths 11, 1, and 6 in one match"))
+    paired.add_argument("--development-reentry-smoke", action="store_true",
+        help=("allow a dirty, explicitly non-certifying two-match run in one "
+              "SC6 process to verify cleanup and qualification re-entry"))
     paired.add_argument("--memory-warmup-seconds", type=float, default=600.0)
     paired.add_argument("--launch-timeout", type=float, default=180.0)
     paired.add_argument("--phase-timeout", type=float, default=10.0)

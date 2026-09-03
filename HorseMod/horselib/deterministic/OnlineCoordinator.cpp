@@ -29,6 +29,10 @@ public:
     {
         return Bytes(value.data(), value.size());
     }
+    bool Blob(std::span<const std::byte> value) noexcept
+    {
+        return Bytes(value.data(), value.size());
+    }
     void Finish() noexcept { message_.payload_size = static_cast<std::uint16_t>(size_); }
 
 private:
@@ -76,6 +80,14 @@ public:
     bool Fixed(std::array<char, Size>& value) noexcept
     {
         return Bytes(value.data(), value.size());
+    }
+    bool Blob(std::span<std::byte> value) noexcept
+    {
+        return Bytes(value.data(), value.size());
+    }
+    [[nodiscard]] std::size_t Remaining() const noexcept
+    {
+        return bytes_.size() - offset_;
     }
     [[nodiscard]] bool Finished() const noexcept { return offset_ == bytes_.size(); }
 
@@ -246,22 +258,25 @@ bool read_baseline(const TransportMessage& message, FrameCoordinate& coordinate,
 }
 
 bool write_round_boundary(TransportMessage& message,
-    std::uint64_t completed_generation, std::uint64_t next_generation,
+    FrameCoordinate completed_coordinate, std::uint64_t next_generation,
     const CanonicalHash& hash) noexcept
 {
     WireWriter writer(message);
-    const bool written = writer.U64(completed_generation)
+    const bool written = writer.U64(completed_coordinate.generation)
+        && writer.U64(completed_coordinate.frame)
         && writer.U64(next_generation) && writer.Hash(hash);
     writer.Finish();
     return written;
 }
 
 bool read_round_boundary(const TransportMessage& message,
-    std::uint64_t& completed_generation, std::uint64_t& next_generation,
+    FrameCoordinate& completed_coordinate, std::uint64_t& next_generation,
     CanonicalHash& hash) noexcept
 {
     WireReader reader(message);
-    return reader.U64(completed_generation) && reader.U64(next_generation)
+    return reader.U64(completed_coordinate.generation)
+        && reader.U64(completed_coordinate.frame)
+        && reader.U64(next_generation)
         && reader.Hash(hash) && reader.Finished();
 }
 
@@ -410,8 +425,29 @@ Status OnlineCoordinator::Pump() noexcept
     {
         auto message = transport_.Poll();
         if (!message) break;
+        const OnlineCoordinatorFailureContext inbound_context{
+            true,
+            message->kind,
+            state_,
+            message->payload_size >= sizeof(std::uint64_t)
+                ? [&]() noexcept {
+                    std::uint64_t value{};
+                    std::memcpy(&value, message->payload.data(), sizeof(value));
+                    return value;
+                }() : 0,
+            message->payload_size >= 2 * sizeof(std::uint64_t)
+                ? [&]() noexcept {
+                    std::uint64_t value{};
+                    std::memcpy(&value,
+                        message->payload.data() + sizeof(value), sizeof(value));
+                    return value;
+                }() : 0};
         const Status handled = handle_message(*message);
-        if (!handled.ok()) return fail(handled.code);
+        if (!handled.ok())
+        {
+            failure_context_ = inbound_context;
+            return fail(handled.code);
+        }
     }
     return Status::success();
 }
@@ -550,10 +586,14 @@ Status OnlineCoordinator::try_commit_baseline() noexcept
     if (contract_->local_player_slot != 0) return Status::success();
     const auto maximum_frame = (std::max)(local_baseline_ready_->frame,
         remote_baseline_ready_->frame);
-    if (maximum_frame > (std::numeric_limits<std::uint64_t>::max)() - 120)
+    // Section 5.2's 120-tick lead belongs only to the initial stock-owned
+    // bootstrap. After a round barrier, exact new-generation captures remain
+    // available to both owned peers for deterministic prefix catch-up.
+    const std::uint64_t lead = owns_simulation_ ? 0 : 120;
+    if (maximum_frame > (std::numeric_limits<std::uint64_t>::max)() - lead)
         return fail(FailureCode::CapacityExceeded);
     baseline_target_ = FrameCoordinate{
-        local_baseline_ready_->generation, maximum_frame + 120};
+        local_baseline_ready_->generation, maximum_frame + lead};
     const auto sent = send_coordinate(
         TransportMessageKind::BaselineCommit, *baseline_target_);
     if (!sent.ok()) return fail(transport_failure(sent));
@@ -583,8 +623,9 @@ Status OnlineCoordinator::handle_baseline_commit(
         return Status::failure(FailureCode::GenerationMismatch);
     const auto maximum_frame = (std::max)(local_baseline_ready_->frame,
         remote_baseline_ready_->frame);
-    if (maximum_frame > (std::numeric_limits<std::uint64_t>::max)() - 120
-        || target.frame != maximum_frame + 120)
+    const std::uint64_t lead = owns_simulation_ ? 0 : 120;
+    if (maximum_frame > (std::numeric_limits<std::uint64_t>::max)() - lead
+        || target.frame != maximum_frame + lead)
         return Status::failure(FailureCode::ProtocolMismatch);
     baseline_target_ = target;
     state_ = OnlineState::AwaitingBaselineTarget;
@@ -599,8 +640,8 @@ Status OnlineCoordinator::ObserveBaselineProgress(
         return Status::failure(FailureCode::IllegalTransition);
     if (coordinate.generation != baseline_target_->generation)
         return fail(FailureCode::GenerationMismatch);
-    if (coordinate.frame > baseline_target_->frame)
-        return fail(FailureCode::GenerationMismatch);
+    // Reliable round commitment may arrive after this peer captured the exact
+    // target. The runtime separately proves that exact snapshot is retained.
     return check_deadline();
 }
 
@@ -701,14 +742,6 @@ void OnlineCoordinator::try_activate() noexcept
     }
 }
 
-Status OnlineCoordinator::BeginOwnedInputApplication() noexcept
-{
-    if (state_ != OnlineState::Active || owns_simulation_ || !local_baseline_)
-        return Status::failure(FailureCode::IllegalTransition);
-    owns_simulation_ = true;
-    return Status::success();
-}
-
 Status OnlineCoordinator::NotifyOwnedTick(FrameCoordinate coordinate) noexcept
 {
     if (state_ != OnlineState::Active || !local_baseline_
@@ -717,8 +750,10 @@ Status OnlineCoordinator::NotifyOwnedTick(FrameCoordinate coordinate) noexcept
     {
         return Status::failure(FailureCode::IllegalTransition);
     }
-    if (!owns_simulation_)
-        return Status::failure(FailureCode::IllegalTransition);
+    // This is the sole pre-ownership -> owned transition. Baseline agreement
+    // and prefix catch-up may arm an authoritative tick, but do not own the
+    // simulation until that tick has completed at an exact coordinate.
+    owns_simulation_ = true;
     deadline_milliseconds_ = 0;
     return Status::success();
 }
@@ -748,7 +783,8 @@ Status OnlineCoordinator::SendConfirmedHash(
     if (state_ != OnlineState::Active || !contract_ || !local_baseline_
         || coordinate.generation != local_baseline_->coordinate.generation
         || coordinate <= local_baseline_->coordinate
-        || coordinate.frame % Schema::checkpoint_interval != 0)
+        || (coordinate.frame - local_baseline_->coordinate.frame)
+            % Schema::checkpoint_interval != 0)
     {
         return Status::failure(FailureCode::IllegalTransition);
     }
@@ -827,7 +863,10 @@ Status OnlineCoordinator::handle_gekko(
 
 Status OnlineCoordinator::handle_gameplay(const TransportMessage& message) noexcept
 {
-    if (state_ != OnlineState::Active && state_ != OnlineState::RoundBarrier)
+    if (state_ != OnlineState::Active && state_ != OnlineState::RoundBarrier
+        && !(owns_simulation_
+            && (state_ == OnlineState::AwaitingBaselineTarget
+                || state_ == OnlineState::FreezingBaseline)))
         return Status::failure(FailureCode::IllegalTransition);
     if (!local_baseline_)
         return Status::failure(FailureCode::ContextUnavailable);
@@ -845,7 +884,11 @@ Status OnlineCoordinator::handle_gameplay(const TransportMessage& message) noexc
     {
         OnlineStateHashPacket packet{};
         if (!read_state_hash(message, packet)
-            || packet.coordinate.frame % Schema::checkpoint_interval != 0)
+            || packet.coordinate.generation
+                != local_baseline_->coordinate.generation
+            || packet.coordinate <= local_baseline_->coordinate
+            || (packet.coordinate.frame - local_baseline_->coordinate.frame)
+                % Schema::checkpoint_interval != 0)
         {
             return Status::failure(FailureCode::ProtocolMismatch);
         }
@@ -918,24 +961,30 @@ std::optional<OnlineGekkoPacket> OnlineCoordinator::PopGekkoPayload() noexcept
 }
 
 Status OnlineCoordinator::BeginRoundBarrier(
-    std::uint64_t completed_generation, std::uint64_t next_generation,
+    FrameCoordinate completed_coordinate, std::uint64_t next_generation,
     const CanonicalHash& confirmed_hash) noexcept
 {
-    if (state_ != OnlineState::Active || completed_generation == 0
-        || next_generation <= completed_generation || !contract_
+    if (state_ != OnlineState::Active
+        || completed_coordinate.generation == 0
+        || next_generation <= completed_coordinate.generation || !contract_
         || !local_baseline_
-        || completed_generation != local_baseline_->coordinate.generation)
+        || completed_coordinate.generation
+            != local_baseline_->coordinate.generation
+        || completed_coordinate <= local_baseline_->coordinate)
     {
         return Status::failure(FailureCode::IllegalTransition);
     }
-    local_round_boundary_ = RoundBoundary{
-        completed_generation, next_generation, confirmed_hash};
+    const RoundBoundary proposed{
+        completed_coordinate, next_generation, confirmed_hash};
+    if (remote_round_boundary_ && *remote_round_boundary_ != proposed)
+        return fail(FailureCode::StateHashMismatch);
+    local_round_boundary_ = proposed;
     state_ = OnlineState::RoundBarrier;
     arm_deadline(10'000);
     TransportMessage message{};
     message.kind = TransportMessageKind::RoundBarrier;
     message.session_id = contract_->session_id;
-    if (!write_round_boundary(message, completed_generation, next_generation,
+    if (!write_round_boundary(message, completed_coordinate, next_generation,
             confirmed_hash))
     {
         return fail(FailureCode::CapacityExceeded);
@@ -954,13 +1003,13 @@ Status OnlineCoordinator::handle_round_barrier(
         && state_ != OnlineState::FreezingBaseline)
         return Status::failure(FailureCode::IllegalTransition);
     RoundBoundary remote{};
-    if (!read_round_boundary(message, remote.completed_generation,
+    if (!read_round_boundary(message, remote.completed_coordinate,
             remote.next_generation, remote.confirmed_hash))
     {
         return Status::failure(FailureCode::ProtocolMismatch);
     }
-    if (remote.completed_generation == 0
-        || remote.next_generation <= remote.completed_generation)
+    if (remote.completed_coordinate.generation == 0
+        || remote.next_generation <= remote.completed_coordinate.generation)
     {
         return Status::failure(FailureCode::ProtocolMismatch);
     }
@@ -972,7 +1021,7 @@ Status OnlineCoordinator::handle_round_barrier(
         return Status::failure(FailureCode::IllegalTransition);
     }
     if (!local_baseline_
-        || remote.completed_generation
+        || remote.completed_coordinate.generation
             != local_baseline_->coordinate.generation)
     {
         return Status::failure(FailureCode::GenerationMismatch);
@@ -1017,10 +1066,10 @@ void OnlineCoordinator::try_finish_round_barrier() noexcept
 
 Status OnlineCoordinator::ReturnToLobby() noexcept
 {
-    if (state_ == OnlineState::Handshaking
+    if (!owns_simulation_ && (state_ == OnlineState::Handshaking
         || state_ == OnlineState::AwaitingBattle
         || state_ == OnlineState::AwaitingBaselineTarget
-        || state_ == OnlineState::FreezingBaseline)
+        || state_ == OnlineState::FreezingBaseline))
     {
         transport_.Stop();
         clear_session();
@@ -1051,7 +1100,8 @@ Status OnlineCoordinator::NotifyReturnedToLobby(
     }
     const bool owned_exit = state_ == OnlineState::ReturningToLobby
         || disposition_ == OnlineFailureDisposition::TerminateMatchToLobby;
-    if (owned_exit && (!contract_ || !evidence.exited_casual_match
+    if (owned_exit && (!contract_
+        || evidence.boundary == OnlineSceneExitBoundary::None
         || evidence.session_id == 0
         || evidence.session_id != contract_->session_id))
         return Status::failure(FailureCode::IdentityMismatch);
@@ -1073,6 +1123,8 @@ Status OnlineCoordinator::Abort(FailureCode code) noexcept
 
 Status OnlineCoordinator::fail(FailureCode code) noexcept
 {
+    if (failure_ == FailureCode::None)
+        failure_origin_state_ = state_;
     failure_ = code;
     disposition_ = owns_simulation_
         ? OnlineFailureDisposition::TerminateMatchToLobby
@@ -1112,9 +1164,11 @@ void OnlineCoordinator::clear_session() noexcept
     owns_simulation_ = false;
     required_generation_ = 0;
     gekko_epoch_ = 0;
+    failure_context_ = {};
     completed_round_boundary_.reset();
     deadline_milliseconds_ = 0;
     failure_ = FailureCode::None;
+    failure_origin_state_ = OnlineState::Disabled;
     disposition_ = OnlineFailureDisposition::None;
 }
 

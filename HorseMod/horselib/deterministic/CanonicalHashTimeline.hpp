@@ -19,6 +19,8 @@ struct CanonicalHashEntry
     CanonicalWindSemanticDiagnostic wind_semantic{};
     CanonicalWindFingerprint wind{};
     CanonicalWindNodeDiagnostic wind_node{};
+    CanonicalAnimationFingerprint animation{};
+    CanonicalStageEmitterFingerprint stage_emitters{};
 };
 
 class CanonicalHashTimeline final
@@ -33,9 +35,13 @@ public:
         const CanonicalInputDiagnostic& input,
         const CanonicalWindSemanticDiagnostic& wind_semantic,
         const CanonicalWindFingerprint& wind,
-        const CanonicalWindNodeDiagnostic& wind_node) noexcept;
+        const CanonicalWindNodeDiagnostic& wind_node,
+        const CanonicalAnimationFingerprint& animation,
+        const CanonicalStageEmitterFingerprint& stage_emitters) noexcept;
     [[nodiscard]] std::optional<CanonicalHashEntry> GetExact(
         FrameCoordinate coordinate) const noexcept;
+    [[nodiscard]] std::optional<CanonicalHashEntry> GetLastInGeneration(
+        std::uint64_t generation) const noexcept;
     Status ReplaceExactRange(
         std::span<const CanonicalHashEntry> expected,
         std::span<const CanonicalHashEntry> replacement) noexcept;

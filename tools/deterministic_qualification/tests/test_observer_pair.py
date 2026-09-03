@@ -9,6 +9,7 @@ from tools.deterministic_qualification.observer_pair import (
     ObserverPeerPaths,
     create_host_room_suppression,
     create_match_setup_request,
+    create_match_teardown_request,
     stop_observer_processes,
     validate_host_room_suppression,
     validate_observer_reports,
@@ -24,7 +25,8 @@ def test_paired_teardown_starts_both_graceful_closes_together(monkeypatch):
     rendezvous = threading.Barrier(2)
     started: set[int] = set()
 
-    def close(pid: int) -> None:
+    def close(pid: int, timeout_seconds: float) -> None:
+        assert timeout_seconds == 60.0
         started.add(pid)
         rendezvous.wait(timeout=1)
 
@@ -41,8 +43,10 @@ def test_paired_teardown_starts_both_graceful_closes_together(monkeypatch):
 
 def test_development_teardown_records_emergency_cleanup(monkeypatch):
     forced: list[int] = []
+    observed_timeouts: list[float] = []
 
-    def fail_close(_pid: int) -> None:
+    def fail_close(_pid: int, timeout_seconds: float) -> None:
+        observed_timeouts.append(timeout_seconds)
         raise TimeoutError("still active")
 
     monkeypatch.setattr(
@@ -56,8 +60,10 @@ def test_development_teardown_records_emergency_cleanup(monkeypatch):
         lambda: (),
     )
     assert stop_observer_processes(
-        (GameProcess(7, "host"),), require_graceful=False) is False
+        (GameProcess(7, "host"),), require_graceful=False,
+        graceful_timeout_seconds=5.0) is False
     assert forced == [7]
+    assert observed_timeouts == [5.0]
 
 
 def test_sandbox_room_suppression_shadows_host_request_without_arming(tmp_path):
@@ -104,6 +110,22 @@ def test_match_setup_request_binds_exact_pair_and_content(tmp_path):
             "authored_stage_code=111\n"
             "ui_stage_code=STG011_R\n"
             "display_map_name=Silver Wolves' Haven\n"
+        )
+
+
+def test_match_teardown_request_uses_neutral_native_result(tmp_path):
+    peer = ObserverPeerPaths(
+        mods_root=tmp_path / "mods",
+        horsemod_dll=tmp_path / "horsemod.dll",
+        config=tmp_path / "rollback.ini",
+        qualification_root=tmp_path / "qualification",
+        log=tmp_path / "UE4SS.log",
+    )
+    create_match_teardown_request(peer, "return-test")
+    assert (peer.qualification_root / "online_room_request.txt").read_text(
+        encoding="utf-8") == (
+            "version=2\nrequest_type=match_teardown\nrun_id=return-test\n"
+            "result=2\narm=true\n"
         )
 
 

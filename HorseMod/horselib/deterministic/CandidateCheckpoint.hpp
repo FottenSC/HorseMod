@@ -60,7 +60,6 @@ public:
     [[nodiscard]] static Status Decode(
         const Snapshot& snapshot,
         CandidateCheckpointImage& output) noexcept;
-
 private:
     [[nodiscard]] static Status EncodeInternal(
         FrameCoordinate coordinate,

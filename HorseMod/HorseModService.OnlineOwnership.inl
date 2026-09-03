@@ -317,11 +317,33 @@
     void fail_online_qualification(
         Horse::Deterministic::FailureCode code) noexcept
     {
+        using namespace Horse::Deterministic;
         if (code == Horse::Deterministic::FailureCode::CapacityExceeded)
             m_online_qualification_metrics.RecordCapacityFailure();
+        const bool first_root = m_online_root_failure == FailureCode::None;
+        if (first_root)
+        {
+            m_online_root_failure = code;
+            m_online_root_lifecycle_phase = m_online_lifecycle.phase();
+            m_online_root_coordinator_state =
+                m_online_coordinator.state() == OnlineState::Failed
+                ? m_online_coordinator.failure_origin_state()
+                : m_online_coordinator.state();
+            const auto disputed_baseline =
+                m_online_coordinator.baseline_target();
+            m_online_root_failure_coordinate =
+                code == FailureCode::StateHashMismatch
+                    && disputed_baseline.has_value()
+                ? *disputed_baseline
+                : m_replay_native_runtime.timeline_status_view()
+                    .last_coordinate;
+            m_online_root_owned_simulation =
+                m_online_coordinator.owns_simulation();
+        }
+        const auto root_code = m_online_root_failure;
         if (m_online_coordinator.state()
             != Horse::Deterministic::OnlineState::Failed)
-            static_cast<void>(m_online_coordinator.Abort(code));
+            static_cast<void>(m_online_coordinator.Abort(root_code));
         const bool post_ownership = m_online_coordinator.failure_disposition()
             == Horse::Deterministic::OnlineFailureDisposition::
                 TerminateMatchToLobby;
@@ -334,19 +356,88 @@
                 L"RequestBattleEndToLobby", &parameters);
             if (!hub
                 || m_online_request_battle_end_to_lobby.raw() == nullptr)
-                code = Horse::Deterministic::FailureCode::ContextUnavailable;
+            {
+                Output::send<LogLevel::Warning>(STR(
+                    "[HorseMod] online qualification run_id={} "
+                    "secondary_cleanup_failure status=context_unavailable "
+                    "operation=request_battle_end_to_lobby\n"),
+                    RC::to_generic_string(m_online_run_id));
+            }
         }
-        m_frame_fencepost_failure.store(code, std::memory_order_release);
+        m_frame_fencepost_failure.store(root_code, std::memory_order_release);
         m_online_prefix_catchup = false;
         m_online_current_advance_pending = false;
+        const auto gekko_failure =
+            m_online_gekko.simulation_failure_context();
         m_online_gekko.Stop();
         if (!post_ownership) m_online_takeover_ready = false;
         m_online_qualification_status.store(6, std::memory_order_release);
-        Output::send<LogLevel::Warning>(STR(
-            "[HorseMod] online qualification run_id={} failed status={}\n"),
-            RC::to_generic_string(m_online_run_id),
-            RC::to_generic_string(std::string(
-                Horse::Deterministic::failure_code_name(code))));
+        if (first_root)
+        {
+            const auto& failure_timeline =
+                m_replay_native_runtime.timeline_status_view();
+            if (gekko_failure.operation
+                != GekkoSimulationOperation::None)
+            {
+                Output::send<LogLevel::Warning>(STR(
+                    "[HorseMod] online qualification run_id={} "
+                    "gekko_simulation_failure operation={} frame={} "
+                    "save_kind={} rolling_back={} running_ahead={} "
+                    "deferred={} status={}\n"),
+                    RC::to_generic_string(m_online_run_id),
+                    static_cast<unsigned>(gekko_failure.operation),
+                    gekko_failure.frame,
+                    static_cast<unsigned>(gekko_failure.save_kind),
+                    gekko_failure.rolling_back ? 1 : 0,
+                    gekko_failure.running_ahead ? 1 : 0,
+                    gekko_failure.deferred ? 1 : 0,
+                    RC::to_generic_string(std::string(
+                        failure_code_name(code))));
+            }
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] online qualification run_id={} failed status={} "
+                "lifecycle_phase={} coordinator_phase={} local_slot={} "
+                "generation={} frame={} owns={} identity_issue={} "
+                "identity_expected={} identity_observed={} "
+                "checkpoint_failure={} batch_entry_failure={} "
+                "canonical_capture_phase={} canonical_validation={} "
+                "canonical_validation_index={} canonical_camera_status={} "
+                "canonical_camera_stage={} canonical_camera_index={} "
+                "batch_entry_capture_phase={}\n"),
+                RC::to_generic_string(m_online_run_id),
+                RC::to_generic_string(std::string(
+                    failure_code_name(root_code))),
+                RC::to_generic_string(std::string(
+                    online_lifecycle_phase_name(
+                        m_online_root_lifecycle_phase))),
+                RC::to_generic_string(std::string(
+                    online_state_name(m_online_root_coordinator_state))),
+                m_online_local_player_slot,
+                m_online_root_failure_coordinate.generation,
+                m_online_root_failure_coordinate.frame,
+                m_online_root_owned_simulation ? 1 : 0,
+                failure_timeline.identity_issue,
+                failure_timeline.identity_expected,
+                failure_timeline.identity_observed,
+                RC::to_generic_string(std::string(failure_code_name(
+                    failure_timeline.checkpoint_failure))),
+                RC::to_generic_string(std::string(failure_code_name(
+                    failure_timeline.batch_entry_checkpoint_failure))),
+                static_cast<unsigned>(
+                    failure_timeline.canonical_capture_phase),
+                RC::to_generic_string(std::string(
+                    native_candidate_validation_issue_name(
+                        failure_timeline.canonical_capture_validation.issue))),
+                failure_timeline.canonical_capture_validation.index,
+                RC::to_generic_string(std::string(failure_code_name(
+                    failure_timeline.canonical_camera_capture.intended_failure))),
+                RC::to_generic_string(std::string(
+                    camera_topology_capture_stage_name(
+                        failure_timeline.canonical_camera_capture.stage))),
+                failure_timeline.canonical_camera_capture.index,
+                static_cast<unsigned>(
+                    failure_timeline.batch_entry_capture_phase));
+        }
         if (!post_ownership)
         {
             // Keep terminal status 6 observable for two game-thread service
@@ -411,12 +502,21 @@
     }
 
     void reset_online_session_measurements(std::string_view run_id,
-        OnlineQualificationFault fault = OnlineQualificationFault::None) noexcept
+        OnlineQualificationFault fault = OnlineQualificationFault::None,
+        std::span<const std::uint8_t> correction_stimulus_depths = {}) noexcept
     {
         m_online_qualification_allowlist.Clear();
         m_online_executable_identity = {};
         m_online_build_identity = {};
         m_online_loaded_map_identity = {};
+        m_online_latched_session_identity = {};
+        m_online_latched_session_valid = false;
+        m_online_session_observation_stage_mask = 0;
+        m_online_session_observation_state_mask = 0;
+        m_online_lobby_observation_failure_logged = false;
+        m_online_content_observation_stage_mask = 0;
+        m_online_latched_content_identity = {};
+        m_online_latched_content_valid = false;
         m_online_baseline_coordinate = {};
         m_online_pending_coordinate = {};
         m_online_prefix_next_frame = 0;
@@ -443,10 +543,27 @@
         m_online_qualification_fault = fault;
         m_online_qualification_fault_triggered = false;
         m_online_qualification_fault_started_ms = ::GetTickCount64();
+        m_online_correction_stimulus_depths = {};
+        m_online_correction_stimulus_count = correction_stimulus_depths.size();
+        std::copy(correction_stimulus_depths.begin(),
+            correction_stimulus_depths.end(),
+            m_online_correction_stimulus_depths.begin());
+        m_online_correction_stimulus_next = 0;
+        m_online_correction_stimulus_trigger_frame = -1;
+        m_online_correction_stimulus_armed = false;
         m_online_event_mask = 0;
+        m_online_root_failure = Horse::Deterministic::FailureCode::None;
+        m_online_root_lifecycle_phase =
+            Horse::Deterministic::OnlineLifecyclePhase::ClearForStock;
+        m_online_root_coordinator_state =
+            Horse::Deterministic::OnlineState::Disabled;
+        m_online_root_failure_coordinate = {};
+        m_online_root_owned_simulation = false;
         m_online_qualification_metrics.Reset();
+        m_online_pre_match_storage =
+            m_replay_native_runtime.owned_storage_status();
         m_online_qualification_metrics.SetPreMatchOwnedBytes(
-            m_replay_native_runtime.owned_storage_status().aggregate_bytes);
+            m_online_pre_match_storage.aggregate_bytes);
         m_online_prefix_catchup = false;
         m_online_takeover_ready = false;
         m_online_identities_ready = false;
@@ -463,6 +580,7 @@
     void reset_online_qualification_preownership() noexcept
     {
         using namespace Horse::Deterministic;
+        m_online_scene_exit_gate.Clear();
         log_online_event(1u << 9, "cleanup_started");
         const bool reenter_production =
             m_online_coordinator.kind() == OnlineRuntimeKind::Production
@@ -479,16 +597,29 @@
         m_online_round_hold_inputs = {};
         m_online_round_hold_inputs_valid = false;
         m_online_last_observed_coordinate = {};
+        m_online_correction_stimulus_depths = {};
+        m_online_correction_stimulus_count = 0;
+        m_online_correction_stimulus_next = 0;
+        m_online_correction_stimulus_trigger_frame = -1;
+        m_online_correction_stimulus_armed = false;
         m_online_gekko.Stop();
         m_online_coordinator.Disable();
         m_online_qualification_allowlist.Clear();
         m_online_qualification_requested.store(false,
             std::memory_order_release);
-        m_online_battle_sync.invalidate();
+        Horse::Deterministic::Sc6BattleSyncOwnerHook::instance().clear();
         m_online_session_hub.invalidate();
         m_online_executable_identity = {};
         m_online_build_identity = {};
         m_online_loaded_map_identity = {};
+        m_online_latched_session_identity = {};
+        m_online_latched_session_valid = false;
+        m_online_session_observation_stage_mask = 0;
+        m_online_session_observation_state_mask = 0;
+        m_online_lobby_observation_failure_logged = false;
+        m_online_content_observation_stage_mask = 0;
+        m_online_latched_content_identity = {};
+        m_online_latched_content_valid = false;
         m_online_identities_ready = false;
         m_online_authentication_logged = false;
         m_online_owned_storage_prepared = false;
@@ -532,10 +663,21 @@
             == qualification_metrics.pre_match_owned_bytes;
         Output::send<LogLevel::Default>(STR(
             "[HorseMod] online qualification run_id={} cleanup_storage "
-            "pre_match_owned_bytes={} ending_owned_bytes={} returned={}\n"),
+            "pre_match_owned_bytes={} ending_owned_bytes={} returned={} "
+            "pre_timeline={} ending_timeline={} pre_forced={} ending_forced={} "
+            "pre_presentation={} ending_presentation={} pre_scratch={} "
+            "ending_scratch={}\n"),
             RC::to_generic_string(m_online_run_id),
             qualification_metrics.pre_match_owned_bytes,
-            cleanup_storage.aggregate_bytes, storage_returned ? 1 : 0);
+            cleanup_storage.aggregate_bytes, storage_returned ? 1 : 0,
+            m_online_pre_match_storage.timeline_bytes,
+            cleanup_storage.timeline_bytes,
+            m_online_pre_match_storage.forced_snapshot_bytes,
+            cleanup_storage.forced_snapshot_bytes,
+            m_online_pre_match_storage.presentation_bytes,
+            cleanup_storage.presentation_bytes,
+            m_online_pre_match_storage.scratch_metadata_bytes,
+            cleanup_storage.scratch_metadata_bytes);
         const bool cleanup_ok = cleared.ok() && storage_returned;
         if (cleanup_ok) log_online_event(1u << 10, "cleanup_completed");
         m_online_qualification_status.store(cleanup_ok ? 7u : 6u,
@@ -553,6 +695,7 @@
         const Horse::Deterministic::OnlineSceneExitEvidence& evidence) noexcept
     {
         using namespace Horse::Deterministic;
+        m_online_scene_exit_gate.Clear();
         log_online_event(1u << 9, "cleanup_started");
         const bool reenter_production =
             m_online_coordinator.kind() == OnlineRuntimeKind::Production
@@ -585,6 +728,11 @@
         m_online_round_hold_inputs = {};
         m_online_round_hold_inputs_valid = false;
         m_online_last_observed_coordinate = {};
+        m_online_correction_stimulus_depths = {};
+        m_online_correction_stimulus_count = 0;
+        m_online_correction_stimulus_next = 0;
+        m_online_correction_stimulus_trigger_frame = -1;
+        m_online_correction_stimulus_armed = false;
         m_online_gekko.Stop();
         m_online_coordinator.Disable();
         invalidate_stage_break_presentation_identity();
@@ -595,11 +743,19 @@
         m_online_qualification_allowlist.Clear();
         m_online_qualification_requested.store(false,
             std::memory_order_release);
-        m_online_battle_sync.invalidate();
+        Horse::Deterministic::Sc6BattleSyncOwnerHook::instance().clear();
         m_online_session_hub.invalidate();
         m_online_executable_identity = {};
         m_online_build_identity = {};
         m_online_loaded_map_identity = {};
+        m_online_latched_session_identity = {};
+        m_online_latched_session_valid = false;
+        m_online_session_observation_stage_mask = 0;
+        m_online_session_observation_state_mask = 0;
+        m_online_lobby_observation_failure_logged = false;
+        m_online_content_observation_stage_mask = 0;
+        m_online_latched_content_identity = {};
+        m_online_latched_content_valid = false;
         m_online_identities_ready = false;
         m_online_authentication_logged = false;
         m_online_owned_storage_prepared = false;
@@ -650,10 +806,21 @@
             == qualification_metrics.pre_match_owned_bytes;
         Output::send<LogLevel::Default>(STR(
             "[HorseMod] online qualification run_id={} cleanup_storage "
-            "pre_match_owned_bytes={} ending_owned_bytes={} returned={}\n"),
+            "pre_match_owned_bytes={} ending_owned_bytes={} returned={} "
+            "pre_timeline={} ending_timeline={} pre_forced={} ending_forced={} "
+            "pre_presentation={} ending_presentation={} pre_scratch={} "
+            "ending_scratch={}\n"),
             RC::to_generic_string(m_online_run_id),
             qualification_metrics.pre_match_owned_bytes,
-            cleanup_storage.aggregate_bytes, storage_returned ? 1 : 0);
+            cleanup_storage.aggregate_bytes, storage_returned ? 1 : 0,
+            m_online_pre_match_storage.timeline_bytes,
+            cleanup_storage.timeline_bytes,
+            m_online_pre_match_storage.forced_snapshot_bytes,
+            cleanup_storage.forced_snapshot_bytes,
+            m_online_pre_match_storage.presentation_bytes,
+            cleanup_storage.presentation_bytes,
+            m_online_pre_match_storage.scratch_metadata_bytes,
+            cleanup_storage.scratch_metadata_bytes);
         const bool cleanup_ok = cleared.ok() && storage_returned;
         if (cleanup_ok) log_online_event(1u << 10, "cleanup_completed");
         m_online_qualification_status.store(cleanup_ok ? 7u : 6u,
@@ -670,32 +837,170 @@
     Horse::Deterministic::Status observe_online_content(
         Horse::Deterministic::OnlineContentContract& output) noexcept
     {
-        Horse::Obj battle_sync{
-            m_online_battle_sync.get(L"LuxOnlineBattleSync")};
-        const auto selection = m_battle_sync_observer.Observe(
-            battle_sync.raw(), output);
-        if (!selection.ok()) return selection;
+        using namespace Horse::Deterministic;
+        std::uintptr_t battle_sync_address{};
+        const auto mark_stage = [&](std::uint32_t stage, FailureCode code) {
+            // Preserve the transition from an early pending observation to
+            // its first resolved or terminal result without per-tick spam.
+            const auto bit_index = stage
+                + (code == FailureCode::ContextUnavailable ? 0u : 8u);
+            const auto bit = std::uint32_t{1} << bit_index;
+            if ((m_online_content_observation_stage_mask & bit) != 0) return;
+            m_online_content_observation_stage_mask |= bit;
+            Output::send<LogLevel::Default>(STR(
+                "[HorseMod] online qualification run_id={} "
+                "content_observation stage={} status={} battle_sync=0x{:x}\n"),
+                RC::to_generic_string(m_online_run_id), stage,
+                RC::to_generic_string(std::string(failure_code_name(code))),
+                battle_sync_address);
+        };
+        if (!m_online_latched_content_valid)
+        {
+            // The initializer publishes a non-owning raw UObject pointer and
+            // its native receiver keeps only FWeakObjectPtr. Dereference it
+            // solely while constructing the completed value identity. Once
+            // latched, clear our observation pointer and never touch it again.
+            auto& owner =
+                Horse::Deterministic::Sc6BattleSyncOwnerHook::instance();
+            void* const battle_sync = owner.current();
+            battle_sync_address = reinterpret_cast<std::uintptr_t>(battle_sync);
+            Sc6BattleSyncIdentity observed{};
+            const auto selection = LatchSc6BattleSyncContent(
+                m_battle_sync_observer, battle_sync,
+                m_online_latched_content_identity,
+                m_online_latched_content_valid, observed);
+            if (!selection.ok())
+            {
+                mark_stage(1, selection.code);
+                if (selection.code != FailureCode::ContextUnavailable)
+                {
+                    Output::send<LogLevel::Default>(STR(
+                        "[HorseMod] online qualification run_id={} "
+                        "battle_sync_identity_failure observation_stage={} "
+                        "object=0x{:x} received={}/{} fighter_valid={}/{} "
+                        "native_stage={} random={} seed={}\n"),
+                        RC::to_generic_string(m_online_run_id),
+                        static_cast<unsigned>(observed.observation_stage),
+                        observed.battle_sync_object,
+                        observed.characters_received ? 1 : 0,
+                        observed.stage_received ? 1 : 0,
+                        observed.fighter_code_valid[0] ? 1 : 0,
+                        observed.fighter_code_valid[1] ? 1 : 0,
+                        observed.native_stage_code,
+                        observed.native_stage_random,
+                        observed.content.stage_rng_seed);
+                }
+                return selection;
+            }
+            Output::send<LogLevel::Default>(STR(
+                "[HorseMod] online qualification run_id={} "
+                "content_identity_latched fighters={}/{} stage={} "
+                "map={} random={} seed={} owner=0x{:x}\n"),
+                    RC::to_generic_string(m_online_run_id),
+                    RC::to_generic_string(std::string(
+                        observed.content.fighter_codes[0].data())),
+                    RC::to_generic_string(std::string(
+                        observed.content.fighter_codes[1].data())),
+                    RC::to_generic_string(std::string(
+                        observed.content.stage_code.data())),
+                    RC::to_generic_string(std::string(
+                        observed.content.map_name.data())),
+                    observed.content.stage_was_random ? 1 : 0,
+                    observed.content.stage_rng_seed, battle_sync_address);
+            owner.clear();
+            battle_sync_address = 0;
+        }
+        output = m_online_latched_content_identity;
+        mark_stage(1, FailureCode::None);
 
         Horse::Obj battle_manager = m_lux.battleManager();
         auto* world = battle_manager ? battle_manager.raw()->GetWorld() : nullptr;
         if (world == nullptr)
-            return Horse::Deterministic::Status::failure(
-                Horse::Deterministic::FailureCode::ContextUnavailable);
+        {
+            mark_stage(2, FailureCode::ContextUnavailable);
+            return Status::failure(FailureCode::ContextUnavailable);
+        }
+        mark_stage(2, FailureCode::None);
+        const auto* stage = Horse::Deterministic::FindQualifiedStage(
+            output.stage_code.data());
+        if (stage == nullptr)
+        {
+            mark_stage(4, FailureCode::IdentityMismatch);
+            return Status::failure(FailureCode::IdentityMismatch);
+        }
+
+        const auto wide_world_name = world->GetFullName();
+        if (wide_world_name.empty() || wide_world_name.size() > INT32_MAX)
+        {
+            mark_stage(4, FailureCode::ContextUnavailable);
+            return Status::failure(FailureCode::ContextUnavailable);
+        }
+        const int world_name_size = WideCharToMultiByte(CP_UTF8,
+            WC_ERR_INVALID_CHARS, wide_world_name.data(),
+            static_cast<int>(wide_world_name.size()), nullptr, 0, nullptr,
+            nullptr);
+        if (world_name_size <= 0)
+        {
+            mark_stage(4, FailureCode::ContextUnavailable);
+            return Status::failure(FailureCode::ContextUnavailable);
+        }
+        std::string world_name(static_cast<std::size_t>(world_name_size), '\0');
+        if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
+                wide_world_name.data(), static_cast<int>(wide_world_name.size()),
+                world_name.data(), world_name_size, nullptr, nullptr)
+            != world_name_size)
+        {
+            mark_stage(4, FailureCode::ContextUnavailable);
+            return Status::failure(FailureCode::ContextUnavailable);
+        }
+        const auto map_leaf_position = stage->map_path.rfind('/');
+        const auto map_leaf = map_leaf_position == std::string_view::npos
+            ? stage->map_path
+            : stage->map_path.substr(map_leaf_position + 1);
+        std::string expected_world_name{"World "};
+        expected_world_name.append(stage->map_path);
+        expected_world_name.push_back('.');
+        expected_world_name.append(map_leaf);
+        if (world_name != expected_world_name)
+        {
+            const auto code = world_name.find("/Stage/") == std::string::npos
+                ? FailureCode::ContextUnavailable
+                : FailureCode::IdentityMismatch;
+            if (code == FailureCode::IdentityMismatch)
+            {
+                Output::send<LogLevel::Default>(STR(
+                    "[HorseMod] online qualification run_id={} "
+                    "loaded_world_mismatch expected={} observed={}\n"),
+                    RC::to_generic_string(m_online_run_id),
+                    RC::to_generic_string(expected_world_name),
+                    RC::to_generic_string(world_name));
+            }
+            mark_stage(4, code);
+            return Status::failure(code);
+        }
+        mark_stage(4, FailureCode::None);
+
         Horse::Obj world_object{world};
         const auto* streaming = world_object.getPtr<Horse::TArrHdr>(
             L"StreamingLevels");
         constexpr std::size_t maximum_packages = 64;
-        if (streaming == nullptr || streaming->Data == nullptr
-            || streaming->Num <= 0
-            || streaming->Num > static_cast<std::int32_t>(maximum_packages))
-            return Horse::Deterministic::Status::failure(
-                Horse::Deterministic::FailureCode::ContextUnavailable);
+        if (streaming != nullptr
+            && (streaming->Num < 0
+                || streaming->Num >= static_cast<std::int32_t>(maximum_packages)
+                || (streaming->Num > 0 && streaming->Data == nullptr)))
+        {
+            mark_stage(3, FailureCode::ContextUnavailable);
+            return Status::failure(FailureCode::ContextUnavailable);
+        }
         std::array<std::string, maximum_packages> package_storage{};
         std::array<std::string_view, maximum_packages> package_views{};
-        std::size_t package_count{};
-        auto** levels = static_cast<RC::Unreal::UObject**>(streaming->Data);
-        std::string stage_root{};
-        for (std::int32_t index = 0; index < streaming->Num; ++index)
+        std::size_t package_count{1};
+        package_storage[0] = stage->map_path;
+        package_views[0] = package_storage[0];
+        auto** levels = streaming == nullptr ? nullptr
+            : static_cast<RC::Unreal::UObject**>(streaming->Data);
+        const auto streaming_count = streaming == nullptr ? 0 : streaming->Num;
+        for (std::int32_t index = 0; index < streaming_count; ++index)
         {
             auto* level = levels[index];
             if (level == nullptr) continue;
@@ -714,6 +1019,7 @@
                     wide_name.data(), static_cast<int>(wide_name.size()),
                     name.data(), utf8_size, nullptr, nullptr) != utf8_size)
                 continue;
+            if (name == "None") continue;
             const auto duplicate = std::find_if(package_storage.begin(),
                 package_storage.begin() + package_count,
                 [&](const std::string& existing) { return existing == name; });
@@ -731,55 +1037,52 @@
                 const auto root = package_storage[package_count].substr(0,
                     component_end == std::string::npos
                         ? package_storage[package_count].size() : component_end);
-                if (stage_root.empty()) stage_root = root;
-                else if (stage_root != root)
-                    return Horse::Deterministic::Status::failure(
-                        Horse::Deterministic::FailureCode::IdentityMismatch);
+                if (root != output.map_name.data())
+                {
+                    Output::send<LogLevel::Default>(STR(
+                        "[HorseMod] online qualification run_id={} "
+                        "loaded_map_root_mismatch expected={} observed={} "
+                        "package={}\n"),
+                        RC::to_generic_string(m_online_run_id),
+                        RC::to_generic_string(std::string(output.map_name.data())),
+                        RC::to_generic_string(root),
+                        RC::to_generic_string(package_storage[package_count]));
+                    mark_stage(4, FailureCode::IdentityMismatch);
+                    return Status::failure(FailureCode::IdentityMismatch);
+                }
             }
             ++package_count;
         }
-        if (package_count == 0 || stage_root.empty()
-            || stage_root != output.map_name.data())
-            return Horse::Deterministic::Status::failure(
-                Horse::Deterministic::FailureCode::IdentityMismatch);
-        const auto* stage = Horse::Deterministic::FindQualifiedStage(
-            output.stage_code.data());
-        const bool exact_main_map_loaded = stage != nullptr
-            && std::find(package_views.begin(),
-                package_views.begin() + package_count, stage->map_path)
-                != package_views.begin() + package_count;
-        if (!exact_main_map_loaded)
-            return Horse::Deterministic::Status::failure(
-                Horse::Deterministic::FailureCode::IdentityMismatch);
-        Horse::Deterministic::CanonicalHash loaded_map_identity{};
-        const auto map_hash = Horse::Deterministic::HashMapPackageIdentity(
+        mark_stage(3, FailureCode::None);
+        mark_stage(5, FailureCode::None);
+        CanonicalHash loaded_map_identity{};
+        const auto map_hash = HashMapPackageIdentity(
             std::span<const std::string_view>{package_views.data(), package_count},
             loaded_map_identity);
+        mark_stage(6, map_hash.code);
         if (!map_hash.ok()) return map_hash;
         if (m_online_coordinator.kind() == OnlineRuntimeKind::Production)
         {
             const auto* expected = m_online_allowlist
                 .ExpectedLoadedMapIdentity(output);
             if (expected == nullptr || *expected != loaded_map_identity)
-                return Horse::Deterministic::Status::failure(
-                    Horse::Deterministic::FailureCode::IdentityMismatch);
+            {
+                mark_stage(7, FailureCode::IdentityMismatch);
+                return Status::failure(FailureCode::IdentityMismatch);
+            }
         }
         m_online_loaded_map_identity = loaded_map_identity;
-        return Horse::Deterministic::Status::success();
+        mark_stage(7, FailureCode::None);
+        return Status::success();
     }
 
     bool online_coordinate_for_frame(std::int32_t frame,
         Horse::Deterministic::FrameCoordinate& coordinate) const noexcept
     {
-        if (m_online_baseline_coordinate.generation == 0 || frame < -1)
-            return false;
-        coordinate = m_online_baseline_coordinate;
-        if (frame >= 0)
-        {
-            const auto offset = static_cast<std::uint64_t>(frame) + 1;
-            if (coordinate.frame > UINT64_MAX - offset) return false;
-            coordinate.frame += offset;
-        }
+        const auto planned = Horse::Deterministic::PlanGekkoStateCoordinate(
+            m_online_baseline_coordinate, frame);
+        if (!planned.has_value()) return false;
+        coordinate = *planned;
         return true;
     }
 
@@ -917,12 +1220,86 @@
             coordinate, 1u - m_online_local_player_slot,
             value.inputs[1u - m_online_local_player_slot],
             m_deterministic_hooks, correction);
-        if (!corrected.ok()) return corrected;
+        if (!corrected.ok())
+        {
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] online correction failed run_id={} status={} "
+                "confirmed={}:{} final={}:{} changed_entry={}:{} "
+                "nearest_base={}:{} last_base={}:{} distance={}\n"),
+                RC::to_generic_string(m_online_run_id),
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::failure_code_name(corrected.code))),
+                coordinate.generation, coordinate.frame,
+                correction.final_coordinate.generation,
+                correction.final_coordinate.frame,
+                correction.planning_changed_batch_entry.generation,
+                correction.planning_changed_batch_entry.frame,
+                correction.planning_nearest_snapshot.generation,
+                correction.planning_nearest_snapshot.frame,
+                correction.planning_last_snapshot.generation,
+                correction.planning_last_snapshot.frame,
+                correction.planning_distance);
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] online correction plan storage run_id={} "
+                "snapshots={} batches={} matching_batch={} plan_stage={}\n"),
+                RC::to_generic_string(m_online_run_id),
+                correction.planning_snapshot_count,
+                correction.planning_batch_count,
+                correction.planning_matching_batch_index,
+                static_cast<unsigned>(correction.planning_stage));
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] online correction replay boundary run_id={} "
+                "failed_batch={} entry={}:{} exit={}:{} coordinates={} "
+                "batch_failure={} replayed_batches={} replayed_coordinates={}\n"),
+                RC::to_generic_string(m_online_run_id),
+                correction.failed_batch_index,
+                correction.failed_envelope.entry_coordinate.generation,
+                correction.failed_envelope.entry_coordinate.frame,
+                correction.failed_envelope.exit_coordinate.generation,
+                correction.failed_envelope.exit_coordinate.frame,
+                correction.failed_envelope.coordinate_count,
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::failure_code_name(
+                        correction.failed_batch_result.failure))),
+                correction.replayed_batches,
+                correction.replayed_coordinates);
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] online correction input producer restore run_id={} "
+                "phase={} validation={}/{} observed={}/{} expected={}/{}\n"),
+                RC::to_generic_string(m_online_run_id),
+                correction.input_producer_restore_phase,
+                RC::to_generic_string(std::string(
+                    native_candidate_validation_issue_name(
+                        correction.primary_validation.issue))),
+                correction.primary_validation.index,
+                correction.primary_validation.observed_a,
+                correction.primary_validation.observed_b,
+                correction.primary_validation.expected_a,
+                correction.primary_validation.expected_b);
+            return corrected;
+        }
         if (!correction.converged)
             return Horse::Deterministic::Status::failure(
                 Horse::Deterministic::FailureCode::StateHashMismatch);
         if (changed)
         {
+            Output::send<LogLevel::Default>(STR(
+                "[HorseMod] online correction converged run_id={} "
+                "confirmed={}:{} final={}:{} base={}:{} depth={} "
+                "batches={} coordinates={} total_us={} plan_stage={}\n"),
+                RC::to_generic_string(m_online_run_id),
+                coordinate.generation, coordinate.frame,
+                correction.final_coordinate.generation,
+                correction.final_coordinate.frame,
+                correction.resimulation_base.generation,
+                correction.resimulation_base.frame,
+                m_online_next_gekko_frame > value.frame
+                    ? static_cast<std::uint32_t>(
+                        m_online_next_gekko_frame - value.frame) : 0u,
+                correction.replayed_batches,
+                correction.replayed_coordinates,
+                correction.total_ns / 1000,
+                correction.planning_stage);
             ++m_online_corrections;
             m_online_verified_audio_batches += correction.verified_audio_batches;
             m_online_verified_camera_batches += correction.verified_camera_batches;
@@ -985,6 +1362,20 @@
                 stock[self->m_online_local_player_slot], selected);
             if (!selected_status.ok())
             {
+                Output::send<LogLevel::Warning>(STR(
+                    "[HorseMod] online qualification run_id={} "
+                    "owned_input_advance_failed status={} lifecycle={} "
+                    "coordinator_state={} owns={} prefix={} expected_frame={}\n"),
+                    RC::to_generic_string(self->m_online_run_id),
+                    RC::to_generic_string(std::string(
+                        Horse::Deterministic::failure_code_name(
+                            selected_status.code))),
+                    static_cast<unsigned>(lifecycle),
+                    static_cast<unsigned>(
+                        self->m_online_coordinator.state()),
+                    self->m_online_coordinator.owns_simulation() ? 1 : 0,
+                    self->m_online_prefix_catchup ? 1 : 0,
+                    self->m_online_next_gekko_frame);
                 self->fail_online_qualification(selected_status.code);
                 return Horse::Deterministic::
                     AuthoritativeInputDisposition::Stock;
@@ -1037,8 +1428,10 @@
         {
             self->m_online_round_transition_pending = true;
             const bool previous_generation_confirmed =
-                self->m_online_gekko.confirmed_frame()
-                    >= self->m_online_next_gekko_frame - 1;
+                Horse::Deterministic::CanSealGekkoRound(
+                    self->m_online_gekko.confirmed_frame(),
+                    self->m_online_next_gekko_frame,
+                    self->m_online_current_advance_pending);
             const auto confirmed_pair = self->m_replay_native_runtime
                 .input_timeline().GetExact(timeline.last_coordinate);
             if (!previous_generation_confirmed || !confirmed_pair.has_value())

@@ -305,7 +305,8 @@ enum class ResimulationBaseAction : std::uint8_t
     std::optional<FrameCoordinate> previous,
     FrameCoordinate batch_entry,
     std::uint32_t maximum_batch_width,
-    std::uint64_t maximum_resimulation_distance) noexcept;
+    std::uint64_t maximum_resimulation_distance,
+    std::optional<FrameCoordinate> required_checkpoint = std::nullopt) noexcept;
 
 class NativeBatchTimeline final
 {

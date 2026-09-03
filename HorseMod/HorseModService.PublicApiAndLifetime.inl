@@ -233,12 +233,22 @@ public:
 #endif
 #if HORSE_ENABLE_GEKKONET
     bool ArmOnlineQualification(std::string_view run_id = {},
-        std::uint32_t fault_value = 0) noexcept
+        std::uint32_t fault_value = 0,
+        std::span<const std::uint8_t> correction_stimulus_depths = {}) noexcept
     {
         if (fault_value > static_cast<std::uint32_t>(
                 OnlineQualificationFault::PostownershipPeer))
             return false;
         const auto fault = static_cast<OnlineQualificationFault>(fault_value);
+        if (correction_stimulus_depths.size() > 3
+            || std::any_of(correction_stimulus_depths.begin(),
+                correction_stimulus_depths.end(), [](std::uint8_t depth) {
+                    return depth != 1 && depth != 6 && depth != 11;
+                }))
+            return false;
+        if (fault != OnlineQualificationFault::None
+            && !correction_stimulus_depths.empty())
+            return false;
         if (run_id.size() > 96
             || std::any_of(run_id.begin(), run_id.end(), [](char value) {
                 return !(std::isalnum(static_cast<unsigned char>(value))
@@ -262,7 +272,8 @@ public:
             return false;
         m_online_coordinator.Select(OnlineRuntimeKind::Qualification);
         if (!m_online_lifecycle.ArmPreOwnership().ok()) return false;
-        reset_online_session_measurements(run_id, fault);
+        reset_online_session_measurements(
+            run_id, fault, correction_stimulus_depths);
         m_online_qualification_requested.store(true,
             std::memory_order_release);
         return true;
@@ -1597,6 +1608,12 @@ public:
         // Idempotent if install never succeeded.
         Horse::HasSubProviderEntryHook::instance().uninstall();
 
+#if HORSE_ENABLE_GEKKONET || HORSE_ENABLE_OBSERVER_PROBE
+        // The captured pointer is non-owning and must disappear before the
+        // initializer detour is removed or this module begins unloading.
+        Horse::Deterministic::Sc6BattleSyncOwnerHook::instance().uninstall();
+#endif
+
         // Tear down the SetPresence post-hook so the lambda doesn't
         // fire on a freed cached path-string after dllmain unload.
         // Idempotent.
@@ -1677,6 +1694,14 @@ public:
         // pointers cover reset/start-position, online rules, presence
         // tracking, line-batcher refresh, and throw-height prediction.
         Horse::NativeBinding::resolve();
+#if HORSE_ENABLE_GEKKONET || HORSE_ENABLE_OBSERVER_PROBE
+        if (!Horse::Deterministic::Sc6BattleSyncOwnerHook::instance().install())
+        {
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] exact BattleSync ownership observation is "
+                "unavailable; online qualification remains fail-closed\n"));
+        }
+#endif
 #if HORSE_ENABLE_GEKKONET
         const auto online_observer = m_sc6_online_session_observer.Initialize(
             Horse::NativeBinding::imageBase());

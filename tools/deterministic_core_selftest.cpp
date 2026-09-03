@@ -15,6 +15,7 @@
 #include "deterministic/ReplayCoordinator.hpp"
 #include "deterministic/ReplaySeekPlanner.hpp"
 #include "deterministic/Sc6ReplayNativeBridge.hpp"
+#include "deterministic/Sc6ReplayRuntime.hpp"
 #include "deterministic/SnapshotStore.hpp"
 #include "deterministic/StagePresentation.hpp"
 #include "deterministic/UcrtRandBroker.hpp"
@@ -32,6 +33,19 @@ using namespace Horse::Deterministic;
 namespace
 {
 int failures = 0;
+
+static_assert(candidate_capture_phase_name(CandidateCapturePhase::None)
+    == "none");
+static_assert(candidate_capture_phase_name(
+    CandidateCapturePhase::CameraTopology) == "camera_topology");
+static_assert(candidate_capture_phase_name(
+    CandidateCapturePhase::CallbackTopology) == "callback_topology");
+static_assert(candidate_capture_phase_name(CandidateCapturePhase::Adapter)
+    == "adapter");
+static_assert(camera_topology_capture_stage_name(
+    CameraTopologyCaptureStage::ActionBackingTail) == "action_backing_tail");
+static_assert(camera_topology_capture_stage_name(
+    CameraTopologyCaptureStage::BoundTopology) == "bound_topology");
 
 void expect(bool condition, const char* message)
 {
@@ -188,27 +202,28 @@ void test_canonical_hash_timeline_is_immutable_and_bounded()
     CanonicalWindSemanticDiagnostic wind_detail{};
     expect(timeline.Append({1, 10}, first, first_components, native, {}, input,
                 wind_detail, first_wind,
-                first_node).ok()
+                first_node, {}, {}).ok()
             && timeline.Append({1, 11}, second, second_components,
-                native, {}, input, wind_detail, second_wind, second_node).ok(),
+                native, {}, input, wind_detail, second_wind, second_node,
+                {}, {}).ok(),
         "canonical timeline accepts a strictly increasing baseline");
     expect(timeline.Append({1, 10}, first, first_components, native, {}, input,
                 wind_detail, first_wind,
-                first_node).ok(),
+                first_node, {}, {}).ok(),
         "canonical timeline treats an exact resumed frame as validation");
     expect(timeline.Append({1, 10}, second, first_components, native, {}, input,
                 wind_detail, first_wind,
-                first_node).code
+                first_node, {}, {}).code
             == FailureCode::StateHashMismatch,
         "canonical timeline rejects divergence without replacing baseline");
     expect(timeline.Append({1, 9}, first, first_components, native, {}, input,
                 wind_detail, first_wind,
-                first_node).code
+                first_node, {}, {}).code
             == FailureCode::IdentityMismatch,
         "canonical timeline rejects out-of-order history mutation");
     expect(timeline.Append({1, 12}, first, first_components, native, {}, input,
                 wind_detail, first_wind,
-                first_node).code
+                first_node, {}, {}).code
             == FailureCode::CapacityExceeded,
         "canonical timeline stops cleanly at its fixed capacity");
     expect(timeline.GetExact({1, 10}).has_value()
@@ -238,6 +253,89 @@ void test_canonical_hash_timeline_is_immutable_and_bounded()
             && timeline.GetExact({1, 10})->hash == new_first.hash
             && timeline.GetExact({1, 11})->hash == new_second.hash,
         "canonical corrected range rejects stale expectations without mutation");
+}
+
+void test_round_transition_selects_the_last_canonicalized_fencepost()
+{
+    CanonicalHashTimeline timeline{4};
+    CanonicalHash retired_hash{};
+    CanonicalHash current_hash{};
+    retired_hash[0] = std::byte{0x58};
+    current_hash[0] = std::byte{0x61};
+    const CanonicalComponentFingerprint components{};
+    const CanonicalNativeFingerprint native{};
+    const CanonicalInputDiagnostic input{};
+    const CanonicalWindSemanticDiagnostic wind_semantic{};
+    const CanonicalWindFingerprint wind{};
+    const CanonicalWindNodeDiagnostic wind_node{};
+    expect(timeline.Append({2, 358}, retired_hash, components, native, {},
+                input, wind_semantic, wind, wind_node, {}, {}).ok()
+            && timeline.Append({3, 361}, current_hash, components, native, {},
+                input, wind_semantic, wind, wind_node, {}, {}).ok(),
+        "round-transition fixture retains only successful canonical fenceposts");
+    const auto retired = timeline.GetLastInGeneration(2);
+    expect(retired.has_value() && retired->coordinate == FrameCoordinate{2, 358}
+            && retired->hash == retired_hash
+            && !timeline.GetExact({2, 359}).has_value(),
+        "an observed but noncanonical frame 359 cannot replace canonical frame 358");
+    expect(timeline.GetLastInGeneration(3).has_value()
+            && timeline.GetLastInGeneration(3)->coordinate
+                == FrameCoordinate{3, 361}
+            && !timeline.GetLastInGeneration(1).has_value(),
+        "canonical generation lookup never crosses the round boundary");
+}
+
+void test_round_rearm_clears_prediction_before_checkpoint_reservation()
+{
+    expect(!CanFreezeOnlineBaseline(
+                {2, 123}, {2, 123}, true, false)
+            && !CanFreezeOnlineBaseline(
+                {2, 123}, {2, 124}, false, true),
+        "canary-45 baseline 2:123 waits for both canonical and exact batch-entry state");
+    expect(CanFreezeOnlineBaseline(
+                {2, 123}, {2, 124}, true, true),
+        "baseline 2:123 freezes after the following batch captures its entry image");
+    constexpr FrameCoordinate observed{3, 379};
+    constexpr FrameCoordinate target{3, 499};
+    expect(!CanRequireOnlineBaselineCheckpoint(target, observed, true),
+        "next-round checkpoint reservation rejects the retired prediction owner");
+    expect(CanRequireOnlineBaselineCheckpoint(target, observed, false),
+        "next-round checkpoint reservation admits the target after prediction re-arm");
+    expect(!CanRequireOnlineBaselineCheckpoint(
+                {2, 499}, observed, false)
+            && !CanRequireOnlineBaselineCheckpoint(
+                {3, 378}, observed, false),
+        "next-round checkpoint reservation remains generation and order exact");
+    expect(CanRequireOnlineBaselineCheckpoint(
+            {3, 378}, observed, false, true),
+        "next-round reservation accepts a retained exact historical target");
+    expect(!CanRequireOnlineBaselineCheckpoint(
+            {3, 378}, observed, false, false),
+        "next-round reservation rejects a historical target without its exact snapshot");
+    expect(!CanRequireOnlineBaselineCheckpoint(
+            {5, 863}, {6, 963}, false, true),
+        "next-round reservation rejects the canary-40 target after generation drift");
+    expect(PlanOnlineRoundBaselineProposal({3, 366})
+                == FrameCoordinate{3, 390}
+            && PlanOnlineRoundBaselineProposal({3, 379})
+                == FrameCoordinate{3, 390},
+        "canary-41 peers reserve the same future checkpoint before proposing it");
+    expect(PlanOnlineRoundBaselineProposal({3, 390})
+                == FrameCoordinate{3, 420},
+        "an exact checkpoint proposes the next strict cadence instead of a past frame");
+    expect(!PlanOnlineRoundBaselineProposal({}).has_value()
+            && !PlanOnlineRoundBaselineProposal({3, UINT64_MAX}).has_value(),
+        "round baseline proposal rejects absent identity and coordinate overflow");
+    expect(CanRetargetOnlineBaselineCheckpoint(
+            {3, 390}, {3, 420}, {3, 380}),
+        "a lower peer may retarget its future reservation to the committed maximum");
+    expect(!CanRetargetOnlineBaselineCheckpoint(
+                {3, 390}, {3, 389}, {3, 380})
+            && !CanRetargetOnlineBaselineCheckpoint(
+                {3, 390}, {4, 420}, {3, 380})
+            && !CanRetargetOnlineBaselineCheckpoint(
+                {3, 390}, {3, 420}, {3, 421}),
+        "round reservation retargeting rejects regression, identity drift, and missed targets");
 }
 
 enum class AdapterFailure
@@ -936,9 +1034,9 @@ void test_native_batch_timeline_is_exact_and_bounded()
 void test_snapshot_capacity_is_atomic()
 {
     SnapshotStore store{sizeof(Snapshot) + 64, 1, CapacityPolicy::RejectNew};
-    Snapshot first{{1, 0}, 1, {}, {}, {}, {}, {}, {}, {}, {},
+    Snapshot first{{1, 0}, 1, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},
         std::vector<std::byte>(4)};
-    Snapshot second{{1, 1}, 1, {}, {}, {}, {}, {}, {}, {}, {},
+    Snapshot second{{1, 1}, 1, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},
         std::vector<std::byte>(4)};
     const auto reserved_bytes = store.BytesUsed();
     expect(store.Save(first).ok(), "save first snapshot");
@@ -1100,6 +1198,70 @@ void test_resimulation_base_planning_respects_batch_width()
         "a same-generation rewind is not a valid batch entry");
 }
 
+void test_owned_gekko_retention_boundary_fails_before_history_discard()
+{
+    expect(IsIdentityReplacementStatus(FailureCode::GenerationMismatch)
+            && IsIdentityReplacementStatus(FailureCode::IdentityMismatch)
+            && !IsIdentityReplacementStatus(FailureCode::CaptureFailed),
+        "round-entry camera identity replacement defers only proven identity statuses");
+    expect(PlanOwnedRoundReplacementGeneration(2, 2) == 3
+            && PlanOwnedRoundReplacementGeneration(2, 3) == 3
+            && !PlanOwnedRoundReplacementGeneration(3, 2).has_value(),
+        "a lagging round marker assigns replacement generation 3 exactly once");
+    constexpr FrameCoordinate baseline{7, 4830};
+    constexpr FrameCoordinate current{7, 4920};
+    const auto anchor = PlanGekkoStateCoordinate(baseline, 77);
+    expect(anchor == FrameCoordinate{7, 4908},
+        "canary-43 Gekko frame 77 maps to canonical coordinate 4908");
+    expect(PlanGekkoStateCoordinate(baseline, -1) == baseline
+            && !PlanGekkoStateCoordinate(baseline, -2).has_value(),
+        "Gekko baseline and invalid negative frame mapping are exact");
+
+    CanonicalHashTimeline timeline{128};
+    for (std::uint64_t frame = baseline.frame; frame <= current.frame; ++frame)
+    {
+        CanonicalHash hash{};
+        hash[0] = static_cast<std::byte>(frame & 0xffu);
+        expect(timeline.Append({baseline.generation, frame}, hash,
+                   {}, {}, {}, {}, {}, {}, {}, {}, {}).ok(),
+            "retain every canonical coordinate through the depth-12 boundary");
+    }
+    const auto saved = timeline.GetExact(*anchor);
+    expect(saved.has_value(),
+        "frame-77 state exists when the confirmed anchor is saved");
+    expect(!CanRebaselineOnlineTimeline(true),
+        "owned identity drift cannot discard live Gekko history");
+    expect(timeline.GetExact(*anchor).has_value()
+            && timeline.GetExact(*anchor)->hash == saved->hash,
+        "rejected owned rebaseline preserves frame-77 canonical evidence");
+    expect(CanRebaselineOnlineTimeline(false),
+        "preownership identity drift remains eligible for clean rebaseline");
+
+    expect(!CanCommitDeferredOnlineRebaseline(
+                true, true, true, true)
+            && !CanCommitDeferredOnlineRebaseline(
+                true, false, true, false)
+            && !CanCommitDeferredOnlineRebaseline(
+                true, false, false, true),
+        "frame-360 replacement cannot discard history before Gekko release, "
+        "bilateral round acknowledgement, and the completed outer-tick boundary");
+    expect(CanCommitDeferredOnlineRebaseline(
+                true, false, true, true),
+        "frame-360 replacement commits only after the retired generation is sealed");
+
+    expect(CanReviseObservedRemoteInput(
+               true, false, std::optional<std::size_t>{1}, 1)
+            && CanReviseObservedRemoteInput(
+               true, true, std::nullopt, 1),
+        "staged Gekko knowledge and the explicit offline probe may revise an "
+        "already observed remote row");
+    expect(!CanReviseObservedRemoteInput(
+               true, false, std::nullopt, 1)
+            && !CanReviseObservedRemoteInput(
+               true, false, std::optional<std::size_t>{0}, 1),
+        "authored rows and the non-predicted player remain immutable");
+}
+
 void test_batch_aware_replay_seek_planning()
 {
     NativeBatchTimeline batches{4, 8};
@@ -1197,6 +1359,116 @@ void test_batch_aware_replay_seek_planning()
             {2, 1}, {1, 4}, batches, entries, 29, correction).code
             == FailureCode::InvalidConfiguration,
         "correction never crosses native generations");
+
+    // Section 5.2 takeover invariant: each peer retains its own local
+    // pre-ownership history.  A delayed confirmation of the first prefix
+    // input must remain reconstructible at the maximum supported distance;
+    // no authority snapshot transfer is permitted to fill this store.
+    NativeBatchTimeline prefix_batches{64, 64};
+    SnapshotStore prefix_entries{
+        1024 * 1024, 64, CapacityPolicy::RejectNew};
+    constexpr FrameCoordinate baseline{7, 123};
+    std::optional<FrameCoordinate> previous_base{FrameCoordinate{7, 111}};
+    std::optional<FrameCoordinate> required_base{baseline};
+    expect(prefix_entries.Save({*previous_base, 1, {}, {}}).ok(),
+        "retain the preceding periodic checkpoint");
+    for (std::uint64_t offset = 0; offset < 29; ++offset)
+    {
+        const FrameCoordinate entry{baseline.generation,
+            baseline.frame + offset};
+        const FrameCoordinate exit{baseline.generation,
+            baseline.frame + offset + 1};
+        const auto action = PlanResimulationBase(previous_base, entry,
+            12, 29, required_base);
+        expect(action != ResimulationBaseAction::Invalid,
+            "online prefix history planning remains monotonic");
+        if (action == ResimulationBaseAction::Capture)
+        {
+            expect(prefix_entries.Save({entry, 1, {}, {}}).ok(),
+                "retain an independent local online prefix base");
+            previous_base = entry;
+            if (required_base.has_value() && entry == *required_base)
+                required_base.reset();
+        }
+        NativeBatchEnvelope batch{};
+        batch.batch_id = offset + 1;
+        batch.entry_coordinate = entry;
+        batch.exit_coordinate = exit;
+        batch.coordinate_count = 1;
+        const std::array coordinates{exit};
+        expect(prefix_batches.Append(batch, coordinates).ok(),
+            "append independently observed online prefix batch");
+    }
+    expect(PlanReplayCorrection({7, 124}, {7, 152}, prefix_batches,
+            prefix_entries, 29, correction).ok()
+            && correction.resimulation_base == baseline
+            && correction.resimulation_coordinates == 29,
+        "oldest prefix correction uses the local baseline-entry history at "
+        "the exact depth-29 bound");
+    SnapshotStore periodic_only{
+        1024 * 1024, 64, CapacityPolicy::RejectNew};
+    expect(periodic_only.Save({{7, 111}, 1, {}, {}}).ok()
+            && PlanReplayCorrection({7, 124}, {7, 152}, prefix_batches,
+                periodic_only, 29, correction).code
+                == FailureCode::MissingSnapshot,
+        "periodic prewarming alone cannot retain the negotiated baseline at "
+        "the frame-152 correction horizon");
+    SnapshotStore absent_prefix_history{
+        1024 * 1024, 64, CapacityPolicy::RejectNew};
+    expect(PlanReplayCorrection({7, 124}, {7, 152}, prefix_batches,
+            absent_prefix_history, 29, correction).code
+            == FailureCode::MissingSnapshot,
+        "online correction fails closed when local prefix history was not "
+        "captured instead of accepting a peer snapshot");
+
+    // Canary 50 reproduced an asymmetric catch-up: the sandbox caught up at
+    // 125, while the host did not finish until 206.  Once Gekko confirms the
+    // entire prefix, frame 124 is no longer a correction candidate.  Asking
+    // the takeover preflight to replay that immutable prefix incorrectly
+    // exceeds the 29-frame bound even though the current boundary has a
+    // valid independently captured local base.
+    NativeBatchTimeline delayed_prefix_batches{128, 128};
+    SnapshotStore delayed_prefix_entries{
+        1024 * 1024, 128, CapacityPolicy::RejectNew};
+    previous_base = std::nullopt;
+    required_base = baseline;
+    for (std::uint64_t offset = 0; offset < 83; ++offset)
+    {
+        const FrameCoordinate entry{baseline.generation,
+            baseline.frame + offset};
+        const FrameCoordinate exit{baseline.generation,
+            baseline.frame + offset + 1};
+        const auto action = PlanResimulationBase(previous_base, entry,
+            12, 29, required_base);
+        expect(action != ResimulationBaseAction::Invalid,
+            "delayed prefix base planning remains monotonic");
+        if (action == ResimulationBaseAction::Capture)
+        {
+            expect(delayed_prefix_entries.Save({entry, 1, {}, {}}).ok(),
+                "retain delayed prefix checkpoint");
+            previous_base = entry;
+            if (required_base.has_value() && entry == *required_base)
+                required_base.reset();
+        }
+        NativeBatchEnvelope batch{};
+        batch.batch_id = offset + 1;
+        batch.entry_coordinate = entry;
+        batch.exit_coordinate = exit;
+        batch.coordinate_count = 1;
+        const std::array coordinates{exit};
+        expect(delayed_prefix_batches.Append(batch, coordinates).ok(),
+            "append delayed online prefix batch");
+    }
+    constexpr FrameCoordinate delayed_current{7, 206};
+    expect(PlanReplayCorrection({7, 124}, delayed_current,
+            delayed_prefix_batches, delayed_prefix_entries, 29, correction).code
+            == FailureCode::AdapterUnqualified,
+        "first confirmed prefix frame is not a valid delayed takeover preflight");
+    expect(PlanReplayCorrection(delayed_current, delayed_current,
+            delayed_prefix_batches, delayed_prefix_entries, 29, correction).ok()
+            && correction.resimulation_coordinates <= 29,
+        "delayed takeover preflights the current completed boundary within "
+        "the retained correction horizon");
 }
 
 void test_presentation_exactly_once()
@@ -1925,11 +2197,14 @@ int main()
     test_authoritative_input_gate_is_transactional_and_fail_closed();
     test_aborted_outer_tick_reaches_post_completion_callback();
     test_canonical_hash_timeline_is_immutable_and_bounded();
+    test_round_transition_selects_the_last_canonicalized_fencepost();
+    test_round_rearm_clears_prediction_before_checkpoint_reservation();
     test_public_config_contract();
     test_input_replacement_and_invalidation();
     test_native_batch_timeline_is_exact_and_bounded();
     test_snapshot_capacity_is_atomic();
     test_resimulation_base_planning_respects_batch_width();
+    test_owned_gekko_retention_boundary_fails_before_history_discard();
     test_batch_aware_replay_seek_planning();
     test_presentation_exactly_once();
     test_native_audio_presentation_preserves_cross_family_order();

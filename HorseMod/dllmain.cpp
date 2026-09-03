@@ -115,6 +115,9 @@
 #include "horselib/deterministic/HgCpuRuntimeDiagnostics.hpp"
 #include "horselib/deterministic/Sc6ReplayRuntime.hpp"
 #include "horselib/deterministic/Schema.hpp"
+#if HORSE_ENABLE_GEKKONET || HORSE_ENABLE_OBSERVER_PROBE
+#include "horselib/deterministic/Sc6BattleSyncOwnerHook.hpp"
+#endif
 #include "horselib/deterministic/StageBreakListenerDiagnostics.hpp"
 #include "horselib/deterministic/UcrtRandBroker.hpp"
 #if HORSE_ENABLE_OBSERVER_PROBE
@@ -124,6 +127,7 @@
 #include "horselib/deterministic/GekkoRollbackSession.hpp"
 #include "horselib/deterministic/OnlineCoordinator.hpp"
 #include "horselib/deterministic/OnlineLifecycle.hpp"
+#include "horselib/deterministic/OnlineSceneExitGate.hpp"
 #include "horselib/deterministic/OnlineQualificationMetrics.hpp"
 #include "horselib/deterministic/ProductionOnlineAllowlist.hpp"
 #include "horselib/deterministic/ProductionReleaseLoader.hpp"
@@ -658,6 +662,37 @@ extern "C"
         return mod != nullptr && run_id != nullptr
             && mod->ArmOnlineQualification(
                 std::string_view(run_id, run_id_size), fault);
+    }
+
+    HORSE_MOD_API bool horsemod_arm_online_qualification_v4(
+        const char* run_id, std::size_t run_id_size, std::uint32_t fault,
+        std::uint32_t correction_stimulus_depth)
+    {
+        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
+        const auto depth = static_cast<std::uint8_t>(
+            correction_stimulus_depth);
+        return mod != nullptr && run_id != nullptr
+            && mod->ArmOnlineQualification(
+                std::string_view(run_id, run_id_size), fault,
+                correction_stimulus_depth == 0
+                    ? std::span<const std::uint8_t>{}
+                    : std::span<const std::uint8_t>{&depth, 1});
+    }
+
+    HORSE_MOD_API bool horsemod_arm_online_qualification_v5(
+        const char* run_id, std::size_t run_id_size, std::uint32_t fault,
+        const std::uint8_t* correction_stimulus_depths,
+        std::size_t correction_stimulus_count)
+    {
+        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
+        if (mod == nullptr || run_id == nullptr
+            || (correction_stimulus_count != 0
+                && correction_stimulus_depths == nullptr))
+            return false;
+        return mod->ArmOnlineQualification(
+            std::string_view(run_id, run_id_size), fault,
+            std::span<const std::uint8_t>{correction_stimulus_depths,
+                correction_stimulus_count});
     }
 
     HORSE_MOD_API std::uint32_t horsemod_get_online_qualification_status()

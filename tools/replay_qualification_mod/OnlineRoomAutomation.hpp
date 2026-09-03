@@ -17,6 +17,7 @@ enum class OnlineAutomationAction : std::uint8_t
 {
     HostRoomCreate,
     MatchSetup,
+    MatchTeardown,
 };
 
 enum class OnlineAutomationRole : std::uint8_t
@@ -24,6 +25,35 @@ enum class OnlineAutomationRole : std::uint8_t
     Host,
     Sandbox,
 };
+
+enum class MatchTeardownScene : std::uint8_t
+{
+    Other,
+    PlayerMatchSetup,
+    ActivePlayerMatch,
+    PlayerMatchLobby,
+};
+
+struct MatchTeardownPlan
+{
+    OnlineRoomState state{OnlineRoomState::Waiting};
+    bool request_battle_end{};
+    bool request_lobby_transition{};
+};
+
+[[nodiscard]] constexpr MatchTeardownPlan PlanMatchTeardown(
+    MatchTeardownScene scene, bool transition_requested) noexcept
+{
+    if (scene == MatchTeardownScene::PlayerMatchLobby)
+        return {OnlineRoomState::Complete, false, false};
+    if (scene != MatchTeardownScene::ActivePlayerMatch
+        || transition_requested)
+        return {OnlineRoomState::Waiting, false, false};
+    // PlayerMatchScene's cooked result path performs both operations in this
+    // order. The native battle-end request alone destroys BattleGameMode but
+    // does not enqueue the "battlelobby"/"InRoom" UI transition.
+    return {OnlineRoomState::Waiting, true, true};
+}
 
 struct OnlineAutomationRequest
 {
@@ -37,6 +67,7 @@ struct OnlineAutomationRequest
     std::string authored_stage_code{};
     std::string ui_stage_code{};
     std::string display_map_name{};
+    std::int32_t battle_result{2};
 };
 
 // Test-only stock-UI driver. This deliberately lives outside HorseMod's
@@ -94,5 +125,6 @@ private:
     bool stage_focus_requested_{};
     bool stage_decide_requested_{};
     bool match_content_verified_{};
+    bool battle_end_and_lobby_transition_requested_{};
 };
 }

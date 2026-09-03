@@ -1,6 +1,8 @@
 #include "deterministic/OnlineCoordinator.hpp"
 #include "deterministic/ProductionOnlineAllowlist.hpp"
 #include "deterministic/OnlineLifecycle.hpp"
+#include "deterministic/OnlineSceneExitGate.hpp"
+#include "replay_qualification_mod/OnlineRoomAutomation.hpp"
 
 #include <algorithm>
 #include <array>
@@ -13,6 +15,7 @@
 #include <vector>
 
 using namespace Horse::Deterministic;
+using namespace Horse::Qualification;
 
 namespace
 {
@@ -246,9 +249,51 @@ void begin_pair(OnlineCoordinator& first, OnlineCoordinator& second)
 
 bool claim_owned(OnlineCoordinator& coordinator, FrameCoordinate coordinate)
 {
-    return (coordinator.owns_simulation()
-            || coordinator.BeginOwnedInputApplication().ok())
-        && coordinator.NotifyOwnedTick(coordinate).ok();
+    return coordinator.NotifyOwnedTick(coordinate).ok();
+}
+
+void test_baseline_hash_mismatch_fails_before_ownership()
+{
+    FakeAllowlist allowlist;
+    FakeTransport first_transport;
+    FakeTransport second_transport;
+    OnlineCoordinator first{first_transport, allowlist};
+    OnlineCoordinator second{second_transport, allowlist};
+    begin_pair(first, second);
+    complete_handshake(first, first_transport, second, second_transport);
+    expect(first.ReadyBaseline({1, 10}).ok()
+            && second.ReadyBaseline({1, 20}).ok(),
+        "mismatch peers publish baseline readiness");
+    exchange(first_transport, second_transport);
+    expect(first.Pump().ok() && second.Pump().ok(),
+        "mismatch peers compute the committed target");
+    exchange(first_transport, second_transport);
+    expect(first.Pump().ok() && second.Pump().ok(),
+        "mismatch peers receive the committed target");
+    expect(first.baseline_target() == FrameCoordinate{1, 140}
+            && second.baseline_target() == FrameCoordinate{1, 140},
+        "mismatch peers use the same exact target coordinate");
+    expect(!first.owns_simulation() && !second.owns_simulation(),
+        "committed target does not claim simulation ownership");
+    expect(first.FreezeBaseline({1, 140}, hash(1), hash(9)).ok()
+            && second.FreezeBaseline({1, 140}, hash(2), hash(9)).ok(),
+        "each peer independently publishes its target hash");
+    exchange(first_transport, second_transport);
+    const auto first_status = first.Pump();
+    const auto second_status = second.Pump();
+    expect(first_status.code == FailureCode::StateHashMismatch
+            && second_status.code == FailureCode::StateHashMismatch,
+        "different target hashes fail closed");
+    expect(!first.owns_simulation() && !second.owns_simulation(),
+        "baseline mismatch never claims simulation ownership");
+    expect(first.failure_origin_state() == OnlineState::FreezingBaseline
+            && second.failure_origin_state() == OnlineState::FreezingBaseline,
+        "baseline mismatch retains its preterminal coordinator phase");
+    expect(first.failure_disposition()
+                == OnlineFailureDisposition::LeaveStockUntouched
+            && second.failure_disposition()
+                == OnlineFailureDisposition::LeaveStockUntouched,
+        "preownership mismatch leaves stock simulation untouched");
 }
 
 void test_bilateral_activation_and_round_reentry()
@@ -264,28 +309,30 @@ void test_bilateral_activation_and_round_reentry()
     std::vector<TransportMessage> first_generation_baseline;
     complete_baseline(first, first_transport, second, second_transport, 1,
         &first_generation_baseline);
+    expect(!first.owns_simulation() && !second.owns_simulation(),
+        "identical acknowledged baselines remain pre-ownership");
 
     second_transport.inbound.push_back(duplicate_hello);
     expect(second.Pump().ok(), "duplicate hello is idempotent after activation");
     second_transport.outbound.clear();
-    expect(claim_owned(first, {1, 141}), "first peer owns native tick");
-    expect(claim_owned(second, {1, 141}), "second peer owns native tick");
+    expect(claim_owned(first, {1, 261}), "first peer owns native tick");
+    expect(claim_owned(second, {1, 261}), "second peer owns native tick");
 
     PlayerInput input{};
     input.held = 7;
     input.rising = 2;
-    expect(first.SendInput({1, 144}, input).ok(), "send active gameplay input");
+    expect(first.SendInput({1, 264}, input).ok(), "send active gameplay input");
     expect(first_transport.outbound.back().second
             == TransportReliability::Unreliable,
         "gameplay input uses unreliable transport");
     first_transport.outbound.push_back(first_transport.outbound.back());
     input.held = 8;
-    expect(first.SendInput({1, 143}, input).ok(),
+    expect(first.SendInput({1, 263}, input).ok(),
         "send reordered earlier gameplay input");
-    expect(!first.SendConfirmedHash({1, 149}, hash(3)).ok(),
-        "state hash outside confirmed cadence is rejected");
-    expect(first.SendConfirmedHash({1, 150}, hash(3)).ok(),
-        "send confirmed state hash");
+    expect(!first.SendConfirmedHash({1, 169}, hash(3)).ok(),
+        "state hash outside baseline-relative confirmed cadence is rejected");
+    expect(first.SendConfirmedHash({1, 170}, hash(3)).ok(),
+        "send confirmed state hash 30 frames after baseline 140");
     expect(first_transport.outbound.back().second
             == TransportReliability::Reliable,
         "confirmed state hash uses reliable transport");
@@ -301,7 +348,7 @@ void test_bilateral_activation_and_round_reentry()
         "rising input word round-trips through canonical wire encoding");
     expect(reordered_input
             && std::holds_alternative<OnlineInputPacket>(*reordered_input)
-            && std::get<OnlineInputPacket>(*reordered_input).coordinate.frame == 143,
+            && std::get<OnlineInputPacket>(*reordered_input).coordinate.frame == 263,
         "reordered gameplay input retains its exact coordinate");
     expect(remote_hash
             && std::holds_alternative<OnlineStateHashPacket>(*remote_hash),
@@ -323,14 +370,17 @@ void test_bilateral_activation_and_round_reentry()
                 remote_gekko->payload.begin()),
         "Gekko gameplay payload round-trips through bounded queue");
 
-    expect(first.BeginRoundBarrier(1, 2, hash(9)).ok(),
+    expect(first.BeginRoundBarrier({1, 359}, 2, hash(9)).ok(),
         "first peer enters round barrier");
     const TransportMessage old_barrier = first_transport.outbound.front().first;
     transfer(first_transport, second_transport);
     expect(second.Pump().ok(),
         "remote-first barrier is retained before the local fence arrives");
-    expect(second.BeginRoundBarrier(1, 2, hash(9)).ok(),
+    expect(second.BeginRoundBarrier({1, 359}, 2, hash(9)).ok(),
         "second peer enters round barrier after the remote arrival");
+    expect(second.state() == OnlineState::AwaitingBattle
+            && RequiresRoundTransitionRearm(second.state(), true),
+        "remote-first local barrier completion still requires service re-arm");
     transfer(second_transport, first_transport);
     expect(first.Pump().ok(), "first peer completes round barrier");
     expect(second.Pump().ok(), "second peer completes round barrier");
@@ -344,22 +394,73 @@ void test_bilateral_activation_and_round_reentry()
     second_transport.inbound.push_back(prior_round_gekko);
     expect(second.Pump().ok() && !second.PopGekkoPayload().has_value(),
         "late prior-round opaque Gekko payload cannot enter the new session");
-    expect(!first.FreezeBaseline({1, 140}, hash(1), hash(9)).ok(),
+    expect(!first.FreezeBaseline({1, 260}, hash(1), hash(9)).ok(),
         "old native generation cannot be frozen");
     second_transport.inbound.push_back(old_barrier);
     expect(second.Pump().ok(), "duplicate completed round barrier is ignored");
-    complete_baseline(first, first_transport, second, second_transport, 2);
-    expect(claim_owned(first, {2, 141})
-            && claim_owned(second, {2, 141}),
+    const CanonicalHash round_baseline = hash(2);
+    expect(first.ReadyBaseline({2, 870}).ok()
+            && second.ReadyBaseline({2, 870}).ok(),
+        "owned round peers publish first safe new-generation captures");
+    exchange(first_transport, second_transport);
+    expect(first.Pump().ok() && second.Pump().ok(),
+        "owned round peers exchange baseline readiness");
+    exchange(first_transport, second_transport);
+    expect(first.Pump().ok() && second.Pump().ok(),
+        "owned round peers receive the exact baseline commitment");
+    expect(first.baseline_target() == FrameCoordinate{2, 870}
+            && second.baseline_target() == FrameCoordinate{2, 870},
+        "owned round baseline uses max proposals without initial plus-120 lead");
+    expect(first.ObserveBaselineProgress({2, 963}).ok(),
+        "peer past an exact retained round target remains valid in-generation");
+    expect(first.FreezeBaseline({2, 870}, round_baseline, hash(9)).ok()
+            && second.FreezeBaseline(
+                {2, 870}, round_baseline, hash(9)).ok(),
+        "owned peers independently freeze the retained exact round baseline");
+    exchange(first_transport, second_transport);
+    expect(first.Pump().ok() && second.Pump().ok(),
+        "owned peers validate independent round baseline values");
+    exchange(first_transport, second_transport);
+    expect(first.Pump().ok() && second.Pump().ok()
+            && first.state() == OnlineState::Active
+            && second.state() == OnlineState::Active,
+        "owned peers acknowledge and reactivate the exact round baseline");
+    expect(claim_owned(first, {2, 964})
+            && claim_owned(second, {2, 964}),
         "both peers re-enter ownership after the first barrier");
-    expect(first.BeginRoundBarrier(2, 3, hash(10)).ok()
-            && second.BeginRoundBarrier(2, 3, hash(10)).ok(),
+    expect(first.BeginRoundBarrier({2, 999}, 3, hash(10)).ok()
+            && second.BeginRoundBarrier({2, 999}, 3, hash(10)).ok(),
         "a second owned round barrier starts without stale state");
     exchange(first_transport, second_transport);
     expect(first.Pump().ok() && second.Pump().ok()
             && first.state() == OnlineState::AwaitingBattle
             && second.state() == OnlineState::AwaitingBattle,
         "the second round barrier completes bilaterally");
+}
+
+void test_round_barrier_requires_the_same_canonical_coordinate()
+{
+    FakeAllowlist allowlist;
+    FakeTransport first_transport;
+    FakeTransport second_transport;
+    OnlineCoordinator first{first_transport, allowlist};
+    OnlineCoordinator second{second_transport, allowlist};
+    begin_pair(first, second);
+    complete_handshake(first, first_transport, second, second_transport);
+    complete_baseline(first, first_transport, second, second_transport, 1);
+    expect(claim_owned(first, {1, 261})
+            && claim_owned(second, {1, 261}),
+        "round-coordinate mismatch fixture reaches owned simulation");
+    expect(first.BeginRoundBarrier({1, 359}, 2, hash(9)).ok(),
+        "first peer publishes its last canonical round fencepost");
+    transfer(first_transport, second_transport);
+    expect(second.Pump().ok(),
+        "second peer retains a remote-first round fencepost");
+    expect(second.BeginRoundBarrier({1, 358}, 2, hash(9)).code
+            == FailureCode::StateHashMismatch
+            && second.state() == OnlineState::Failed
+            && second.failure_origin_state() == OnlineState::Active,
+        "equal round hashes at different coordinates fail closed immediately");
 }
 
 void test_failure_disposition_and_reentry()
@@ -387,7 +488,7 @@ void test_failure_disposition_and_reentry()
     begin_pair(first, second);
     complete_handshake(first, first_transport, second, second_transport);
     complete_baseline(first, first_transport, second, second_transport, 1);
-    expect(claim_owned(first, {1, 141}), "own tick before failure");
+    expect(claim_owned(first, {1, 261}), "own tick before failure");
     first_transport.terminal = FailureCode::PeerDisconnected;
     expect(!first.Pump().ok(), "post-ownership transport failure is terminal");
     expect(first.failure_disposition()
@@ -396,10 +497,12 @@ void test_failure_disposition_and_reentry()
     expect(first.NotifyReturnedToLobby({}).code
             == FailureCode::IdentityMismatch,
         "owned failure rejects an unverified scene exit");
-    expect(first.NotifyReturnedToLobby({999, true}).code
+    expect(first.NotifyReturnedToLobby({999,
+                OnlineSceneExitBoundary::BattleTerminationCompleted}).code
             == FailureCode::IdentityMismatch,
         "owned failure rejects scene evidence for another session");
-    expect(first.NotifyReturnedToLobby({0x12345678, true}).ok(),
+    expect(first.NotifyReturnedToLobby({0x12345678,
+                OnlineSceneExitBoundary::BattleTerminationCompleted}).ok(),
         "post-ownership failure acknowledges lobby return");
     expect(first.state() == OnlineState::ObservingLobby,
         "coordinator permits a clean later match re-entry");
@@ -463,6 +566,11 @@ void test_bilateral_agreement_mismatch()
         "build disagreement fails before ownership");
     expect(second.Pump().code == FailureCode::ProtocolMismatch,
         "build disagreement is bilateral");
+    const auto context = first.failure_context();
+    expect(context.has_inbound_message
+            && context.message_kind == TransportMessageKind::Hello
+            && context.state_before_message == OnlineState::Handshaking,
+        "terminal inbound failure retains bounded message and lifecycle context");
     expect(first.failure_disposition()
             == OnlineFailureDisposition::LeaveStockUntouched,
         "agreement mismatch leaves stock simulation untouched");
@@ -546,9 +654,11 @@ void test_monotonic_phase_deadlines()
         exchange(first_transport, second_transport);
         expect(first.Pump().ok() && second.Pump().ok(),
             "slot one receives target for timeout fixture");
-        expect(first.ObserveBaselineProgress({1, 141}).code
+        expect(first.ObserveBaselineProgress({1, 261}).ok(),
+            "progress past a retained exact target remains valid in-generation");
+        expect(first.ObserveBaselineProgress({2, 261}).code
                 == FailureCode::GenerationMismatch,
-            "missing the exact committed target is terminal");
+            "generation drift before freezing the committed target is terminal");
     }
 
     {
@@ -636,9 +746,9 @@ void test_monotonic_phase_deadlines()
         begin_pair(first, second);
         complete_handshake(first, first_transport, second, second_transport);
         complete_baseline(first, first_transport, second, second_transport, 1);
-        expect(claim_owned(first, {1, 141}),
+        expect(claim_owned(first, {1, 261}),
             "round timeout fixture takes ownership");
-        expect(first.BeginRoundBarrier(1, 2, hash(4)).ok(),
+        expect(first.BeginRoundBarrier({1, 359}, 2, hash(4)).ok(),
             "round timeout fixture enters owned barrier");
         clock.milliseconds = 10'000;
         expect(first.Pump().code == FailureCode::Timeout,
@@ -691,10 +801,107 @@ void test_terminal_cleanup_lifecycle()
     expect(lifecycle.CompleteSceneExitCleanup(clear).ok(),
         "verified scene exit completes post-ownership teardown");
 }
+
+void test_confirmed_hash_waits_for_completed_native_coordinate()
+{
+    constexpr FrameCoordinate baseline{2, 123};
+    expect(!PlanConfirmedHashPublication(
+                baseline, 29, 29, {2, 152}).has_value(),
+        "confirmed Gekko input frame 29 cannot publish missing native "
+        "coordinate 153 at the frame-152 fencepost");
+    expect(PlanConfirmedHashPublication(
+                baseline, 29, 29, {2, 153}) == FrameCoordinate{2, 153},
+        "confirmed hash publishes when its exact native coordinate completes");
+    expect(!PlanConfirmedHashPublication(
+                baseline, 29, 28, {2, 153}).has_value(),
+        "native completion cannot publish before Gekko input confirmation");
+}
+
+void test_prefix_activation_requires_a_real_confirmed_frame()
+{
+    expect(!CanCompleteOnlinePrefixCatchup(
+            0, -1, {6, 991}, {6, 990}),
+        "canary-42 sandbox cannot preflight baseline-plus-one with an empty prefix");
+    expect(CanCompleteOnlinePrefixCatchup(
+            1, 0, {6, 992}, {6, 991}),
+        "canary-42 host may activate after observing and confirming prefix frame 991");
+    expect(!CanCompleteOnlinePrefixCatchup(
+            1, -1, {6, 992}, {6, 991}),
+        "an observed prefix cannot activate before Gekko confirms it");
+}
+
+void test_player_match_teardown_requires_the_complete_blueprint_sequence()
+{
+    const auto active = PlanMatchTeardown(
+        MatchTeardownScene::ActivePlayerMatch, false);
+    expect(active.state == OnlineRoomState::Waiting
+            && active.request_battle_end
+            && active.request_lobby_transition,
+        "active teardown requests native battle end and the cooked lobby transition");
+
+    const auto published = PlanMatchTeardown(
+        MatchTeardownScene::ActivePlayerMatch, true);
+    expect(published.state == OnlineRoomState::Waiting
+            && !published.request_battle_end
+            && !published.request_lobby_transition,
+        "the complete teardown sequence is published exactly once");
+
+    const auto destroyed_battle = PlanMatchTeardown(
+        MatchTeardownScene::Other, true);
+    expect(destroyed_battle.state == OnlineRoomState::Waiting,
+        "BattleGameMode destruction alone is not lobby-return proof");
+
+    const auto lobby = PlanMatchTeardown(
+        MatchTeardownScene::PlayerMatchLobby, true);
+    expect(lobby.state == OnlineRoomState::Complete,
+        "only PlayerMatchLobbyScene completes teardown");
+}
+
+void test_online_cleanup_waits_for_native_battle_termination_post_hook()
+{
+    OnlineSceneExitGate gate;
+    expect(!gate.ArmBeforeBattleTermination(
+            0x12345678, true, OnlineLifecyclePhase::PreOwnership),
+        "pre-ownership termination cannot release owned online state");
+    expect(!gate.ArmBeforeBattleTermination(
+            0, true, OnlineLifecyclePhase::Owned),
+        "termination without an immutable session identity fails closed");
+    expect(!gate.ArmBeforeBattleTermination(
+            0x12345678, false, OnlineLifecyclePhase::Owned),
+        "stock termination does not arm HorseMod cleanup");
+
+    expect(gate.ArmBeforeBattleTermination(
+            0x12345678, true, OnlineLifecyclePhase::Owned)
+            && gate.pending(),
+        "owned pre-hook retains only the session identity");
+    expect(!gate.ArmBeforeBattleTermination(
+            0x12345678, true, OnlineLifecyclePhase::Owned),
+        "duplicate pre-hook cannot publish a second cleanup edge");
+
+    const auto evidence = gate.CompleteAfterBattleTermination();
+    expect(evidence.has_value()
+            && evidence->session_id == 0x12345678
+            && evidence->boundary
+                == OnlineSceneExitBoundary::BattleTerminationCompleted
+            && !gate.pending(),
+        "only the native post-hook publishes completed scene-exit evidence");
+    expect(!gate.CompleteAfterBattleTermination().has_value(),
+        "completed teardown evidence is consumed exactly once");
+
+    expect(gate.ArmBeforeBattleTermination(
+            0x87654321, true,
+            OnlineLifecyclePhase::FailClosedAwaitingSceneExit),
+        "post-ownership failure retains the same deferred cleanup invariant");
+    gate.Clear();
+    expect(!gate.pending()
+            && !gate.CompleteAfterBattleTermination().has_value(),
+        "forced cleanup cannot leak a stale termination into re-entry");
+}
 }
 
 int main()
 {
+    test_baseline_hash_mismatch_fails_before_ownership();
     {
         ProductionOnlineAllowlist production{};
         OnlineContentContract content{};
@@ -710,6 +917,7 @@ int main()
         assert(!production.IsQualified(content));
     }
     test_bilateral_activation_and_round_reentry();
+    test_round_barrier_requires_the_same_canonical_coordinate();
     test_failure_disposition_and_reentry();
     test_fail_closed_lobby_contract();
     test_preownership_exit();
@@ -717,6 +925,10 @@ int main()
     test_reordered_handshake_control();
     test_monotonic_phase_deadlines();
     test_terminal_cleanup_lifecycle();
+    test_confirmed_hash_waits_for_completed_native_coordinate();
+    test_prefix_activation_requires_a_real_confirmed_frame();
+    test_player_match_teardown_requires_the_complete_blueprint_sequence();
+    test_online_cleanup_waits_for_native_battle_termination_post_hook();
     if (failures == 0)
         std::cout << "OnlineCoordinatorSelfTest passed\n";
     return failures == 0 ? 0 : 1;

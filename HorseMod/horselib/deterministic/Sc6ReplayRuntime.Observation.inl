@@ -59,6 +59,7 @@ void Sc6ReplayRuntime::Shutdown() noexcept
     timeline_thread_id_ = 0;
     timeline_session_generation_ = 0;
     pending_batch_id_ = 0;
+    active_outer_tick_id_ = 0;
     pending_batch_entry_ = {};
     pending_camera_source_frame_ = {};
     pending_batch_coordinates_.clear();
@@ -74,7 +75,9 @@ void Sc6ReplayRuntime::Shutdown() noexcept
     resume_validation_active_ = false;
     resume_catchup_pending_ = false;
     generation_rebaseline_pending_ = false;
+    online_rebaseline_deferred_ = false;
     continuing_session_rebaseline_ = false;
+    required_online_baseline_checkpoint_.reset();
     replay_history_capture_required_ = true;
     next_replay_history_capture_required_ = true;
 }
@@ -174,14 +177,44 @@ Status Sc6ReplayRuntime::SetOnlinePredictedRemotePlayer(
     return Status::success();
 }
 
+Status Sc6ReplayRuntime::RequireOnlineBaselineCheckpoint(
+    FrameCoordinate baseline) noexcept
+{
+    if (baseline.generation == 0
+        || timeline_status_.last_coordinate.generation == 0)
+        return Status::failure(FailureCode::IllegalTransition);
+    if (baseline.generation != timeline_status_.last_coordinate.generation)
+        return Status::failure(FailureCode::GenerationMismatch);
+    const auto* exact = checkpoint_capture_.snapshots(
+        CandidateCheckpointRole::BatchEntry).FindExact(baseline);
+    if (baseline < timeline_status_.last_coordinate && exact == nullptr)
+        return Status::failure(FailureCode::MissingSnapshot);
+    if (!CanRequireOnlineBaselineCheckpoint(baseline,
+            timeline_status_.last_coordinate,
+            online_predicted_remote_player_.has_value(), exact != nullptr))
+        return Status::failure(FailureCode::IllegalTransition);
+    if (exact != nullptr)
+    {
+        required_online_baseline_checkpoint_.reset();
+        return Status::success();
+    }
+    if (required_online_baseline_checkpoint_.has_value()
+        && *required_online_baseline_checkpoint_ != baseline)
+    {
+        if (!CanRetargetOnlineBaselineCheckpoint(
+                *required_online_baseline_checkpoint_, baseline,
+                timeline_status_.last_coordinate))
+            return Status::failure(FailureCode::IdentityMismatch);
+    }
+    required_online_baseline_checkpoint_ = baseline;
+    return Status::success();
+}
+
 Status Sc6ReplayRuntime::PrepareOnlineOwnedStorage(
     FrameCoordinate baseline) noexcept
 {
     const Snapshot* prototype = checkpoint_capture_.snapshots(
-        CandidateCheckpointRole::BatchEntry).FindNearestAtOrBefore(baseline);
-    if (prototype == nullptr)
-        prototype = checkpoint_capture_.snapshots(
-            CandidateCheckpointRole::Landing).FindNearestAtOrBefore(baseline);
+        CandidateCheckpointRole::BatchEntry).FindExact(baseline);
     if (prototype == nullptr)
         return Status::failure(FailureCode::MissingSnapshot);
     try
@@ -527,22 +560,27 @@ Status Sc6ReplayRuntime::ValidateResumedFrame(
             return Status::failure(timeline_status_.failure);
         }
         Snapshot& observed = timeline_canonical_capture_scratch_;
+        CandidateTransientCaptureDiagnostic capture_diagnostic{};
         const Status captured = checkpoint_capture_.CaptureCanonical(
-            coordinate, observed);
+            coordinate, observed, &capture_diagnostic);
         if (!captured.ok())
         {
             timeline_status_.identity_issue =
-                100 + checkpoint_capture_.transient_identity_issue();
+                100 + capture_diagnostic.identity_issue;
             timeline_status_.identity_expected =
-                checkpoint_capture_.transient_identity_expected();
+                capture_diagnostic.identity_expected;
             timeline_status_.identity_observed =
-                checkpoint_capture_.transient_identity_observed();
+                capture_diagnostic.identity_observed;
             timeline_status_.canonical_capture_phase =
-                checkpoint_capture_.transient_capture_phase();
+                capture_diagnostic.phase;
+            timeline_status_.canonical_capture_validation =
+                capture_diagnostic.validation;
+            timeline_status_.canonical_camera_capture =
+                capture_diagnostic.camera;
             timeline_status_.canonical_animation_topology_issue =
-                checkpoint_capture_.transient_animation_topology_issue();
+                capture_diagnostic.animation_topology_issue;
             timeline_status_.canonical_animation_topology_observed =
-                checkpoint_capture_.transient_animation_topology_observed();
+                capture_diagnostic.animation_topology_observed;
             timeline_status_.canonical_capture_failure_coordinate = coordinate;
             timeline_status_.failure = captured.code;
             return captured;
@@ -667,8 +705,7 @@ void Sc6ReplayRuntime::CaptureLandingCheckpoint(
                 ReplayTimelinePartialReason::LandingCheckpoint;
             timeline_status_.partial_coordinate = coordinate;
         }
-        else if (checkpoint.code == FailureCode::IdentityMismatch
-            || checkpoint.code == FailureCode::GenerationMismatch)
+        else if (IsIdentityReplacementStatus(checkpoint.code))
         {
             generation_rebaseline_pending_ = true;
             timeline_status_.checkpoint_failure = FailureCode::None;
@@ -679,32 +716,48 @@ void Sc6ReplayRuntime::CaptureLandingCheckpoint(
 Status Sc6ReplayRuntime::CaptureCanonicalFrame(
     FrameCoordinate coordinate, bool new_generation) noexcept
 {
+    timeline_status_.identity_issue = 0;
+    timeline_status_.identity_expected = 0;
+    timeline_status_.identity_observed = 0;
+    timeline_status_.canonical_capture_phase = CandidateCapturePhase::None;
+    timeline_status_.canonical_capture_validation = {};
+    timeline_status_.canonical_camera_capture = {};
+    timeline_status_.canonical_animation_topology_issue =
+        CharaAnimationTopologyIssue::None;
+    timeline_status_.canonical_animation_topology_observed = 0;
+    timeline_status_.canonical_capture_failure_coordinate = {};
     if (!generation_rebaseline_pending_)
     {
         Snapshot& canonical = timeline_canonical_capture_scratch_;
         if (forced_depth7_qualification_enabled_)
             static_cast<void>(
                 forced_qualification_snapshots_.TakeOldestIfFull(canonical));
+        CandidateTransientCaptureDiagnostic capture_diagnostic{};
         const Status captured = forced_depth7_qualification_enabled_
-            ? checkpoint_capture_.CaptureTransient(coordinate, canonical)
-            : checkpoint_capture_.CaptureCanonical(coordinate, canonical);
+            ? checkpoint_capture_.CaptureTransient(
+                coordinate, canonical, &capture_diagnostic)
+            : checkpoint_capture_.CaptureCanonical(
+                coordinate, canonical, &capture_diagnostic);
         if (!captured.ok())
         {
             timeline_status_.identity_issue =
-                100 + checkpoint_capture_.transient_identity_issue();
+                100 + capture_diagnostic.identity_issue;
             timeline_status_.identity_expected =
-                checkpoint_capture_.transient_identity_expected();
+                capture_diagnostic.identity_expected;
             timeline_status_.identity_observed =
-                checkpoint_capture_.transient_identity_observed();
+                capture_diagnostic.identity_observed;
             timeline_status_.canonical_capture_phase =
-                checkpoint_capture_.transient_capture_phase();
+                capture_diagnostic.phase;
+            timeline_status_.canonical_capture_validation =
+                capture_diagnostic.validation;
+            timeline_status_.canonical_camera_capture =
+                capture_diagnostic.camera;
             timeline_status_.canonical_animation_topology_issue =
-                checkpoint_capture_.transient_animation_topology_issue();
+                capture_diagnostic.animation_topology_issue;
             timeline_status_.canonical_animation_topology_observed =
-                checkpoint_capture_.transient_animation_topology_observed();
+                capture_diagnostic.animation_topology_observed;
             timeline_status_.canonical_capture_failure_coordinate = coordinate;
-            if (captured.code == FailureCode::IdentityMismatch
-                || captured.code == FailureCode::GenerationMismatch)
+            if (IsIdentityReplacementStatus(captured.code))
             {
                 generation_rebaseline_pending_ = true;
                 return Status::success();
@@ -719,7 +772,9 @@ Status Sc6ReplayRuntime::CaptureCanonicalFrame(
             canonical.canonical_input,
             canonical.canonical_wind_semantic,
             canonical.canonical_wind,
-            canonical.canonical_wind_node);
+            canonical.canonical_wind_node,
+            canonical.canonical_animation,
+            canonical.canonical_stage_emitters);
         timeline_status_.canonical_frames = archived_canonical_frames_
             + canonical_timeline_.size();
         timeline_status_.canonical_hash_bytes = canonical_timeline_.bytes_used();
@@ -838,9 +893,18 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
         timeline_status_.failure = FailureCode::ContextUnavailable;
         return Status::failure(timeline_status_.failure);
     }
+    if (observation.batch_id == 0 || active_outer_tick_id_ != 0)
+    {
+        timeline_status_.identity_issue = 3;
+        timeline_status_.identity_expected = 0;
+        timeline_status_.identity_observed = active_outer_tick_id_;
+        timeline_status_.failure = FailureCode::IdentityMismatch;
+        return Status::failure(timeline_status_.failure);
+    }
+    active_outer_tick_id_ = observation.batch_id;
     if (observation.before.main_state != 2)
         return Status::success();
-    if (observation.batch_id == 0 || pending_batch_id_ != 0)
+    if (pending_batch_id_ != 0)
     {
         timeline_status_.identity_issue = 3;
         timeline_status_.identity_expected = 0;
@@ -923,7 +987,8 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
         previous_coordinate,
         coordinate,
         Schema::maximum_supported_native_batch_width,
-        Schema::checkpoint_interval - 1);
+        Schema::checkpoint_interval - 1,
+        required_online_baseline_checkpoint_);
     if (action == ResimulationBaseAction::Invalid)
     {
         timeline_status_.identity_issue = 6;
@@ -941,6 +1006,9 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
         coordinate,
         timeline_session_generation_,
         observation.thread_id);
+    if (captured.ok() && required_online_baseline_checkpoint_.has_value()
+        && *required_online_baseline_checkpoint_ == coordinate)
+        required_online_baseline_checkpoint_.reset();
     const auto status = checkpoint_capture_.status(
         CandidateCheckpointRole::BatchEntry);
     timeline_status_.captured_batch_entry_checkpoints = status.captured;
@@ -972,8 +1040,7 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
     }
     if (!captured.ok())
     {
-        if (captured.code == FailureCode::IdentityMismatch
-            || captured.code == FailureCode::GenerationMismatch)
+        if (IsIdentityReplacementStatus(captured.code))
         {
             generation_rebaseline_pending_ = true;
             timeline_status_.batch_entry_checkpoint_failure = FailureCode::None;
@@ -997,6 +1064,16 @@ Status Sc6ReplayRuntime::CapturePendingCameraSource() noexcept
 {
     const Status captured = checkpoint_capture_.CaptureCameraSourceFrame(
         pending_camera_source_frame_);
+    if (IsIdentityReplacementStatus(captured.code))
+    {
+        // Camera ownership can switch at round entry before the frame
+        // fencepost publishes the new FrameInputLog generation. Classify this
+        // exactly like the landing/canonical/checkpoint capture paths so the
+        // completed transition batch reaches the seal-before-discard barrier.
+        pending_camera_source_frame_ = {};
+        generation_rebaseline_pending_ = true;
+        return Status::success();
+    }
     if (!captured.ok()) timeline_status_.failure = captured.code;
     return captured;
 }
@@ -1038,11 +1115,29 @@ Status Sc6ReplayRuntime::PrepareResumeOuterTick(
     return restored;
 }
 
-void Sc6ReplayRuntime::RebaselineAfterIdentityDrift() noexcept
+void Sc6ReplayRuntime::RebaselineAfterIdentityDrift(
+    bool preserve_replacement_generation,
+    std::uint64_t replacement_generation) noexcept
 {
     const std::uint64_t sessions = timeline_status_.sessions;
-    const std::uint64_t generations = timeline_status_.generations;
+    const std::uint64_t generations = preserve_replacement_generation
+            && replacement_generation > timeline_status_.generations
+        ? replacement_generation : timeline_status_.generations;
     const std::uint64_t rebaselines = timeline_status_.identity_rebaselines + 1;
+    FrameCoordinate replacement_coordinate = timeline_status_.last_coordinate;
+    if (preserve_replacement_generation && replacement_generation != 0)
+        replacement_coordinate.generation = replacement_generation;
+    const std::int32_t replacement_round = timeline_status_.native_round;
+    const std::int32_t replacement_time = timeline_status_.native_time;
+    const std::uint32_t replacement_round_state_frame =
+        timeline_status_.round_state_frame;
+    const std::int32_t replacement_unpause =
+        timeline_status_.unpause_countdown;
+    const std::uint8_t replacement_move_state =
+        timeline_status_.pending_move_state;
+    const std::uintptr_t replacement_manager = timeline_manager_;
+    const std::uintptr_t replacement_input_log = timeline_input_log_;
+    const std::uint32_t replacement_thread = timeline_thread_id_;
     // Presentation/RNG observations belong to the replay session, not to the
     // replaceable native object generation. Preserve them when a round or
     // identity transition invalidates restorable timeline storage.
@@ -1064,6 +1159,7 @@ void Sc6ReplayRuntime::RebaselineAfterIdentityDrift() noexcept
         timeline_canonical_capture_scratch_ = {};
     }
     checkpoint_capture_.InvalidateHistory();
+    required_online_baseline_checkpoint_.reset();
     presentation_controller_.EndGeneration();
     timeline_status_ = {};
     timeline_status_.sessions = sessions;
@@ -1072,14 +1168,27 @@ void Sc6ReplayRuntime::RebaselineAfterIdentityDrift() noexcept
     timeline_status_.canonical_frames = archived_canonical_frames_;
     timeline_status_.canonical_hash_bytes = archived_canonical_frames_
         * sizeof(CanonicalHashEntry);
-    if (archived_last_canonical_.has_value())
+    if (preserve_replacement_generation)
+    {
+        timeline_status_.last_coordinate = replacement_coordinate;
+        timeline_status_.native_round = replacement_round;
+        timeline_status_.native_time = replacement_time;
+        timeline_status_.round_state_frame = replacement_round_state_frame;
+        timeline_status_.unpause_countdown = replacement_unpause;
+        timeline_status_.pending_move_state = replacement_move_state;
+    }
+    else if (archived_last_canonical_.has_value())
         timeline_status_.last_coordinate =
             archived_last_canonical_->coordinate;
     RestoreReplaySessionCoverage(timeline_status_, coverage);
-    timeline_manager_ = 0;
-    timeline_input_log_ = 0;
-    timeline_thread_id_ = 0;
+    timeline_manager_ = preserve_replacement_generation
+        ? replacement_manager : 0;
+    timeline_input_log_ = preserve_replacement_generation
+        ? replacement_input_log : 0;
+    timeline_thread_id_ = preserve_replacement_generation
+        ? replacement_thread : 0;
     pending_batch_id_ = 0;
+    active_outer_tick_id_ = 0;
     pending_batch_entry_ = {};
     pending_camera_source_frame_ = {};
     pending_batch_coordinates_.clear();
@@ -1095,7 +1204,8 @@ void Sc6ReplayRuntime::RebaselineAfterIdentityDrift() noexcept
     resume_validation_active_ = false;
     resume_catchup_pending_ = false;
     generation_rebaseline_pending_ = false;
-    continuing_session_rebaseline_ = true;
+    online_rebaseline_deferred_ = false;
+    continuing_session_rebaseline_ = !preserve_replacement_generation;
 }
 
 void Sc6ReplayRuntime::ArchivePresentationIdentity() noexcept
@@ -1214,6 +1324,15 @@ Status Sc6ReplayRuntime::BeginObservedOuterTick(
     if ((observation.read_mask & state_reads) != state_reads)
     {
         timeline_status_.failure = FailureCode::ContextUnavailable;
+        return Status::failure(timeline_status_.failure);
+    }
+    if (observation.batch_id == 0
+        || active_outer_tick_id_ != observation.batch_id)
+    {
+        timeline_status_.identity_issue = 15;
+        timeline_status_.identity_expected = active_outer_tick_id_;
+        timeline_status_.identity_observed = observation.batch_id;
+        timeline_status_.failure = FailureCode::IdentityMismatch;
         return Status::failure(timeline_status_.failure);
     }
     if (observation.before.main_state != 2)

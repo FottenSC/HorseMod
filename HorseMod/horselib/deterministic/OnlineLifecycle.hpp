@@ -17,6 +17,21 @@ enum class OnlineLifecyclePhase : std::uint8_t
     SceneExitCleanup,
 };
 
+constexpr std::string_view online_lifecycle_phase_name(
+    OnlineLifecyclePhase phase) noexcept
+{
+    switch (phase)
+    {
+    case OnlineLifecyclePhase::ClearForStock: return "clear_for_stock";
+    case OnlineLifecyclePhase::PreOwnership: return "preownership";
+    case OnlineLifecyclePhase::Owned: return "owned";
+    case OnlineLifecyclePhase::FailClosedAwaitingSceneExit:
+        return "fail_closed_awaiting_scene_exit";
+    case OnlineLifecyclePhase::SceneExitCleanup: return "scene_exit_cleanup";
+    }
+    return "unknown";
+}
+
 enum class OnlineCleanupResource : std::uint8_t
 {
     Coordinator,

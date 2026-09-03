@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <span>
 #include <variant>
@@ -49,6 +50,53 @@ struct OnlineStateHashPacket
         const OnlineStateHashPacket&) = default;
 };
 
+// Gekko confirms input availability independently of the native simulation
+// fencepost. A confirmed input frame must not request a canonical hash for a
+// coordinate the game has not completed yet.
+[[nodiscard]] inline std::optional<FrameCoordinate>
+PlanConfirmedHashPublication(FrameCoordinate baseline,
+    std::int32_t next_hash_frame, std::int32_t gekko_confirmed_frame,
+    FrameCoordinate completed_native) noexcept
+{
+    if (baseline.generation == 0 || next_hash_frame < 0
+        || gekko_confirmed_frame < next_hash_frame
+        || completed_native.generation != baseline.generation)
+        return std::nullopt;
+    const auto offset = static_cast<std::uint64_t>(next_hash_frame) + 1;
+    if (baseline.frame > UINT64_MAX - offset) return std::nullopt;
+    const FrameCoordinate candidate{
+        baseline.generation, baseline.frame + offset};
+    return candidate <= completed_native
+        ? std::optional<FrameCoordinate>{candidate} : std::nullopt;
+}
+
+// A remote-first round barrier can complete synchronously inside the local
+// BeginRoundBarrier call. Service re-arm therefore keys off the completed
+// coordinator state plus its local pending token, not on observing the
+// transient RoundBarrier state.
+[[nodiscard]] inline bool RequiresRoundTransitionRearm(
+    OnlineState state, bool transition_pending) noexcept
+{
+    return transition_pending && state == OnlineState::AwaitingBattle;
+}
+
+// Correction preflight starts at baseline+1. A peer exactly on the baseline
+// has no such snapshot yet, even though the empty Gekko prefix is vacuously
+// confirmed. Wait for at least one observed and confirmed prefix frame.
+[[nodiscard]] inline bool CanCompleteOnlinePrefixCatchup(
+    std::size_t prefix_frames, std::int32_t gekko_confirmed_frame,
+    FrameCoordinate next, FrameCoordinate completed_native) noexcept
+{
+    if (prefix_frames == 0
+        || prefix_frames - 1
+            > static_cast<std::size_t>((std::numeric_limits<std::int32_t>::max)()))
+        return false;
+    return gekko_confirmed_frame
+            >= static_cast<std::int32_t>(prefix_frames - 1)
+        && next.generation == completed_native.generation
+        && next > completed_native;
+}
+
 struct OnlineGekkoPacket
 {
     std::uint64_t epoch{};
@@ -56,10 +104,30 @@ struct OnlineGekkoPacket
     std::array<std::byte, Schema::maximum_transport_payload> payload{};
 };
 
+enum class OnlineSceneExitBoundary : std::uint8_t
+{
+    None,
+    CasualMatchPresenceExit,
+    BattleTerminationCompleted,
+};
+
 struct OnlineSceneExitEvidence
 {
     std::uint64_t session_id{};
-    bool exited_casual_match{};
+    OnlineSceneExitBoundary boundary{OnlineSceneExitBoundary::None};
+};
+
+// Bounded value-only context for the first inbound message that terminates a
+// coordinator.  Qualification must be able to distinguish a bad coordinate,
+// a stale Gekko epoch, and a lifecycle error without retaining transport data
+// or relying on an unbounded packet trace.
+struct OnlineCoordinatorFailureContext
+{
+    bool has_inbound_message{};
+    TransportMessageKind message_kind{};
+    OnlineState state_before_message{OnlineState::Disabled};
+    std::uint64_t payload_word0{};
+    std::uint64_t payload_word1{};
 };
 
 using OnlineGameplayEvent = std::variant<OnlineInputPacket, OnlineStateHashPacket>;
@@ -85,7 +153,6 @@ public:
         FrameCoordinate coordinate,
         const CanonicalHash& hash,
         const CanonicalHash& loaded_map_identity) noexcept;
-    Status BeginOwnedInputApplication() noexcept;
     Status NotifyOwnedTick(FrameCoordinate coordinate) noexcept;
     Status SendInput(FrameCoordinate coordinate, const PlayerInput& input) noexcept;
     Status SendConfirmedHash(
@@ -95,7 +162,7 @@ public:
     [[nodiscard]] std::optional<OnlineGameplayEvent> PopGameplay() noexcept;
     [[nodiscard]] std::optional<OnlineGekkoPacket> PopGekkoPayload() noexcept;
     Status BeginRoundBarrier(
-        std::uint64_t completed_generation,
+        FrameCoordinate completed_coordinate,
         std::uint64_t next_generation,
         const CanonicalHash& confirmed_hash) noexcept;
     Status ReturnToLobby() noexcept;
@@ -106,6 +173,22 @@ public:
 
     [[nodiscard]] OnlineState state() const noexcept { return state_; }
     [[nodiscard]] FailureCode terminal_failure() const noexcept { return failure_; }
+    [[nodiscard]] OnlineState failure_origin_state() const noexcept
+    {
+        return failure_origin_state_;
+    }
+    [[nodiscard]] OnlineCoordinatorFailureContext failure_context() const noexcept
+    {
+        return failure_context_;
+    }
+    [[nodiscard]] std::optional<FrameCoordinate> local_baseline_ready() const noexcept
+    {
+        return local_baseline_ready_;
+    }
+    [[nodiscard]] std::optional<FrameCoordinate> remote_baseline_ready() const noexcept
+    {
+        return remote_baseline_ready_;
+    }
     [[nodiscard]] OnlineFailureDisposition failure_disposition() const noexcept
     {
         return disposition_;
@@ -135,7 +218,7 @@ private:
 
     struct RoundBoundary
     {
-        std::uint64_t completed_generation{};
+        FrameCoordinate completed_coordinate{};
         std::uint64_t next_generation{};
         CanonicalHash confirmed_hash{};
 
@@ -190,6 +273,7 @@ private:
     std::size_t gekko_size_{};
     OnlineState state_{OnlineState::Disabled};
     FailureCode failure_{FailureCode::None};
+    OnlineState failure_origin_state_{OnlineState::Disabled};
     OnlineFailureDisposition disposition_{OnlineFailureDisposition::None};
     bool peer_hello_received_{};
     bool peer_hello_ack_received_{};
@@ -197,6 +281,7 @@ private:
     bool owns_simulation_{};
     std::uint64_t required_generation_{};
     std::uint64_t gekko_epoch_{};
+    OnlineCoordinatorFailureContext failure_context_{};
     std::optional<RoundBoundary> completed_round_boundary_;
     std::uint64_t deadline_milliseconds_{};
 };

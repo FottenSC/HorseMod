@@ -77,20 +77,42 @@ struct CandidateAdapterPerformanceStatus
         scratch_capacity_high_water_by_owner{};
 };
 
+struct PeerBaselineStateDiagnostic
+{
+    static constexpr std::size_t animation_clip_word_count = 0x20 / 4;
+    static constexpr std::size_t animation_scheduler_word_count = 0x5C / 4;
+    static constexpr std::size_t stage_emitter_word_count =
+        native_stage_wind_emitter_state_size / 4;
+    std::array<std::array<std::uint32_t,
+        animation_clip_word_count>, 2> animation_clip_words{};
+    std::array<std::array<std::uint32_t,
+        animation_scheduler_word_count>, 2> animation_scheduler_words{};
+    std::uint32_t stage_emitter_count{};
+    std::array<std::uint32_t, stage_emitter_word_count>
+        first_stage_emitter_words{};
+};
+
 enum class CandidateCapturePhase : std::uint8_t
 {
-    None,
-    NativeTyped,
-    BattleAudioSelector,
-    MoveDispatch,
-    SecondaryEvents,
-    CharaAnimation,
-    HgCpu,
-    MotionBanks,
-    Ucrt,
-    StageWind,
-    Encode,
+    None = 0,
+    NativeTyped = 1,
+    BattleAudioSelector = 2,
+    MoveDispatch = 3,
+    SecondaryEvents = 4,
+    CharaAnimation = 5,
+    HgCpu = 6,
+    MotionBanks = 7,
+    Ucrt = 8,
+    StageWind = 9,
+    Encode = 10,
+    CameraTopology = 11,
+    CallbackTopology = 12,
+    Adapter = 13,
 };
+
+static_assert(static_cast<std::uint8_t>(CandidateCapturePhase::NativeTyped) == 1
+    && static_cast<std::uint8_t>(CandidateCapturePhase::Encode) == 10,
+    "existing capture-phase diagnostic values are an append-only contract");
 
 constexpr std::string_view candidate_capture_phase_name(
     CandidateCapturePhase phase) noexcept
@@ -98,6 +120,9 @@ constexpr std::string_view candidate_capture_phase_name(
     switch (phase)
     {
     case CandidateCapturePhase::None: return "none";
+    case CandidateCapturePhase::CameraTopology: return "camera_topology";
+    case CandidateCapturePhase::CallbackTopology: return "callback_topology";
+    case CandidateCapturePhase::Adapter: return "adapter";
     case CandidateCapturePhase::NativeTyped: return "native_typed";
     case CandidateCapturePhase::BattleAudioSelector: return "battle_audio_selector";
     case CandidateCapturePhase::MoveDispatch: return "move_dispatch";
@@ -120,12 +145,16 @@ public:
 
     Status Configure(const CandidateAdapterBinding& binding) noexcept;
     void Reset() noexcept;
+    void ReleaseScratchStorage() noexcept;
 
     Status BindContext(const NativeContext& context) noexcept override;
     Status PreflightCapture(FrameCoordinate coordinate) noexcept override;
     Status Capture(FrameCoordinate coordinate, Snapshot& output) noexcept override;
     Status CaptureCanonical(
         FrameCoordinate coordinate, Snapshot& output) noexcept;
+    [[nodiscard]] Status GetLastCanonicalPeerDiagnostic(
+        FrameCoordinate coordinate,
+        PeerBaselineStateDiagnostic& output) const noexcept;
     Status PreflightRestore(const Snapshot& snapshot) noexcept override;
     Status Restore(const Snapshot& snapshot) noexcept override;
     Status RebuildDerivedState() noexcept override;
@@ -253,6 +282,7 @@ private:
     std::array<std::uint16_t, 2> last_captured_movevm_short25_{};
     NativeMoveVmStateShortImage last_captured_movevm_state_shorts_{};
     NativeRngImage last_captured_rng_{};
+    FrameCoordinate last_canonical_capture_coordinate_{};
     std::uint32_t last_restore_difference_mask_{};
     std::uint32_t last_restore_operation_failure_mask_{};
     bool configured_{};

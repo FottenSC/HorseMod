@@ -191,7 +191,7 @@ void test_real_coordinator_over_authenticated_pair() {
       "real coordinators activate through production authenticated transport");
 
   PlayerInput input{0x41, 0x02};
-  expect(first.SendInput({1, 125}, input).ok(),
+  expect(first.SendInput({1, 245}, input).ok(),
          "active production coordinator sends gameplay input");
   expect(second.Pump().ok(),
          "remote production coordinator pumps authenticated gameplay");

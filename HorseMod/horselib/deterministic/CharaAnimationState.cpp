@@ -15,6 +15,8 @@ constexpr std::size_t cue_owner_scalar_offset = 8;
 constexpr std::size_t cue_owner_enst_offset = 0x28;
 constexpr std::size_t cue_owner_scheduler_offset = 0x30;
 constexpr std::size_t scheduler_scalar_offset = 0x10;
+constexpr std::size_t scheduler_active_scalar_offset = 0x64
+    - scheduler_scalar_offset;
 constexpr std::size_t scheduler_list_head_offset = 0x70;
 constexpr std::size_t scheduler_list_count_offset = 0x78;
 constexpr std::size_t trigger_scalar_offset = 8;
@@ -46,6 +48,17 @@ bool clip_is_active(const CharaAnimationPlayerImage& player) noexcept
         <= std::tuple_size_v<decltype(player.clip_scalars)>);
     std::memcpy(&active,
         player.clip_scalars.data() + clip_active_scalar_offset,
+        sizeof(active));
+    return active != 0;
+}
+
+bool scheduler_is_active(const CharaAnimationPlayerImage& player) noexcept
+{
+    std::uint32_t active{};
+    static_assert(scheduler_active_scalar_offset + sizeof(active)
+        <= std::tuple_size_v<decltype(player.scheduler_scalars)>);
+    std::memcpy(&active,
+        player.scheduler_scalars.data() + scheduler_active_scalar_offset,
         sizeof(active));
     return active != 0;
 }
@@ -519,6 +532,46 @@ void CharaAnimationState::CanonicalBytes(
             player.runtime_scalars.size());
         append(output, player.cue_owner_scalars.data(),
             player.cue_owner_scalars.size());
+        const std::uint8_t scheduler_chara_bound =
+            player.scheduler_chara_bound ? 1 : 0;
+        append(output, &scheduler_chara_bound,
+            sizeof(scheduler_chara_bound));
+        append(output, player.scheduler_scalars.data(),
+            player.scheduler_scalars.size());
+        append(output, &player.trigger_count, sizeof(player.trigger_count));
+        append(output, player.trigger_scalars.data(),
+            player.trigger_count * sizeof(player.trigger_scalars[0]));
+    }
+}
+
+void CharaAnimationState::PeerCanonicalBytes(
+    const CharaAnimationStateImage& image, std::vector<std::byte>& output)
+{
+    output.clear();
+    if (output.capacity() < 0x1000) output.reserve(0x1000);
+    append(output, &image.round_generation, sizeof(image.round_generation));
+    for (const auto& player : image.players)
+    {
+        const std::uint8_t clip_owner_bound = player.clip_owner_bound ? 1 : 0;
+        append(output, &clip_owner_bound, sizeof(clip_owner_bound));
+        append(output, &player.clip_section.index,
+            sizeof(player.clip_section.index));
+        const std::uint8_t clip_present = player.clip_section.present ? 1 : 0;
+        append(output, &clip_present, sizeof(clip_present));
+        append(output, player.clip_scalars.data(), player.clip_scalars.size());
+        append(output, &player.runtime_section.index,
+            sizeof(player.runtime_section.index));
+        const std::uint8_t runtime_present =
+            player.runtime_section.present ? 1 : 0;
+        append(output, &runtime_present, sizeof(runtime_present));
+        append(output, player.runtime_scalars.data(),
+            player.runtime_scalars.size());
+        append(output, player.cue_owner_scalars.data(),
+            player.cue_owner_scalars.size());
+        const std::uint8_t scheduler_active = scheduler_is_active(player)
+            ? 1 : 0;
+        append(output, &scheduler_active, sizeof(scheduler_active));
+        if (scheduler_active == 0) continue;
         const std::uint8_t scheduler_chara_bound =
             player.scheduler_chara_bound ? 1 : 0;
         append(output, &scheduler_chara_bound,

@@ -174,6 +174,7 @@ set(HORSELIB_HEADERS
     horselib/OnlineRules.hpp
     horselib/LuxBattleLauncherStartHook.hpp
     horselib/HasSubProviderEntryHook.hpp
+    horselib/deterministic/Sc6BattleSyncOwnerHook.hpp
 )
 
 set(HORSELIB_SOURCES

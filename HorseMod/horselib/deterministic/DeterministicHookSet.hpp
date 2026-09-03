@@ -224,6 +224,9 @@ struct OuterTickObservation
     // Set only when the live outer tick was unwound before any native input
     // consumer could run. This is distinct from a post-frame failure.
     bool authoritative_input_aborted_before_consume{};
+    std::uint32_t input_filter_invocations{};
+    bool input_filter_observed{};
+    bool outer_capture_context_preserved{};
     bool fp_before_valid{};
     bool fp_after_valid{};
     // Owned correction replay re-enters the native outer-tick detour. This

@@ -18,9 +18,39 @@ CanonicalHash Identity(std::byte value)
 int main()
 {
     assert(IsSc6PreownershipSessionState(1));
+    assert(IsSc6PreownershipSessionState(3));
     assert(IsSc6PreownershipSessionState(4));
     assert(!IsSc6PreownershipSessionState(0));
+    assert(!IsSc6PreownershipSessionState(5));
     assert(!IsSc6PreownershipSessionState(6));
+    assert(!IsSc6PreownershipSessionState(9));
+    Sc6OnlineSessionIdentity native_session{};
+    native_session.lobby_id = 42;
+    native_session.session_name = 7;
+    native_session.session_interface = 0x1000;
+    native_session.active_connect = 0x2000;
+    native_session.online_session = 0x3000;
+    native_session.named_session = 0x4000;
+    native_session.session_info = 0x5000;
+    native_session.role = 1;
+    native_session.virtual_session_state = 1;
+    native_session.local_player_slot = 1;
+    native_session.observation_stage =
+        Sc6OnlineSessionObservationStage::LobbyIdentity;
+    const auto value_session = ValueOnlySc6OnlineSessionIdentity(
+        native_session);
+    assert(value_session.lobby_id == native_session.lobby_id);
+    assert(value_session.session_name == native_session.session_name);
+    assert(value_session.role == native_session.role);
+    assert(value_session.virtual_session_state
+        == native_session.virtual_session_state);
+    assert(value_session.local_player_slot == native_session.local_player_slot);
+    assert(value_session.observation_stage == native_session.observation_stage);
+    assert(value_session.session_interface == 0);
+    assert(value_session.active_connect == 0);
+    assert(value_session.online_session == 0);
+    assert(value_session.named_session == 0);
+    assert(value_session.session_info == 0);
 
     struct WideString { const wchar_t* data; std::int32_t count; std::int32_t capacity; };
     std::array<std::byte, 0x1bd0> sync{};
@@ -50,9 +80,29 @@ int main()
         == "/Game/DLC/11/Stage/STG017");
     assert(observed.stage_was_random);
     assert(observed.stage_rng_seed == seed);
+    Sc6BattleSyncIdentity detailed{};
+    assert(Sc6BattleSyncObserver{}.ObserveDetailed(sync.data(), detailed).ok());
+    assert(detailed.observation_stage
+        == Sc6BattleSyncIdentity::ObservationStage::SelectionIdentity);
+    assert(detailed.native_stage_code == stage);
+    assert(detailed.native_stage_random == 1);
+    assert(detailed.fighter_code_valid[0]);
+    assert(detailed.fighter_code_valid[1]);
     sync[0x1bce] = std::byte{0xff};
     sync[0x1bcf] = std::byte{0x7f};
     assert(Sc6BattleSyncObserver{}.Observe(sync.data(), observed).ok());
+    OnlineContentContract latched{};
+    bool latched_valid{};
+    Sc6BattleSyncIdentity latch_observation{};
+    const Sc6BattleSyncObserver battle_sync_observer{};
+    assert(LatchSc6BattleSyncContent(battle_sync_observer, sync.data(),
+        latched, latched_valid, latch_observation).ok());
+    const auto immutable_latch = latched;
+    assert(latched_valid);
+    assert(LatchSc6BattleSyncContent(battle_sync_observer, nullptr,
+        latched, latched_valid, latch_observation).ok());
+    assert(latched == immutable_latch);
+    assert(latch_observation.battle_sync_object == 0);
 
     CanonicalHash first_map{};
     CanonicalHash reordered_map{};

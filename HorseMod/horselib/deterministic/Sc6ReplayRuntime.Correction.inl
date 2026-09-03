@@ -222,6 +222,15 @@ Status Sc6ReplayRuntime::CaptureCurrentCanonical(Snapshot& output) noexcept
         timeline_status_.last_coordinate, output);
 }
 
+bool Sc6ReplayRuntime::AtCompletedOuterTickBoundary(
+    FrameCoordinate coordinate) const noexcept
+{
+    return coordinate.generation != 0
+        && timeline_status_.failure == FailureCode::None
+        && timeline_status_.last_coordinate == coordinate
+        && active_outer_tick_id_ == 0 && pending_batch_id_ == 0;
+}
+
 Status Sc6ReplayRuntime::GetCanonicalHash(
     FrameCoordinate coordinate, CanonicalHash& output) const noexcept
 {
@@ -233,6 +242,41 @@ Status Sc6ReplayRuntime::GetCanonicalHash(
         output = archived_last_canonical_->hash;
     else return Status::failure(FailureCode::MissingSnapshot);
     return Status::success();
+}
+
+Status Sc6ReplayRuntime::GetCanonicalEntry(
+    FrameCoordinate coordinate, CanonicalHashEntry& output) const noexcept
+{
+    output = {};
+    const auto entry = canonical_timeline_.GetExact(coordinate);
+    if (entry.has_value()) output = *entry;
+    else if (archived_last_canonical_.has_value()
+        && archived_last_canonical_->coordinate == coordinate)
+        output = *archived_last_canonical_;
+    else return Status::failure(FailureCode::MissingSnapshot);
+    return Status::success();
+}
+
+Status Sc6ReplayRuntime::GetLastCanonicalEntryInGeneration(
+    std::uint64_t generation, CanonicalHashEntry& output) const noexcept
+{
+    output = {};
+    const auto live = canonical_timeline_.GetLastInGeneration(generation);
+    const bool archived_matches = archived_last_canonical_.has_value()
+        && archived_last_canonical_->coordinate.generation == generation;
+    if (live.has_value()
+        && (!archived_matches
+            || live->coordinate > archived_last_canonical_->coordinate))
+    {
+        output = *live;
+        return Status::success();
+    }
+    if (archived_matches)
+    {
+        output = *archived_last_canonical_;
+        return Status::success();
+    }
+    return Status::failure(FailureCode::MissingSnapshot);
 }
 
 bool Sc6ReplayRuntime::GetSeekableRange(
@@ -604,11 +648,60 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrectionInternal(
         forced_depth7_qualification_enabled_
         ? forced_qualification_snapshots_
         : checkpoint_capture_.snapshots(CandidateCheckpointRole::BatchEntry);
+    output.planning_snapshot_count = correction_snapshots.entry_count();
+    output.planning_batch_count = batch_timeline_.batch_count();
+    const auto capture_status = checkpoint_capture_.status(
+        CandidateCheckpointRole::BatchEntry);
+    output.planning_last_snapshot = capture_status.last_coordinate;
+    const auto changed_membership = batch_timeline_.FindCoordinate(
+        earliest_changed);
+    if (!changed_membership.has_value())
+    {
+        output.planning_stage = 1;
+    }
+    else if (const auto* changed_batch = batch_timeline_.GetBatch(
+                 changed_membership->batch_index))
+    {
+        output.planning_changed_batch_entry = changed_batch->entry_coordinate;
+        const auto* nearest = correction_snapshots.FindNearestAtOrBefore(
+            changed_batch->entry_coordinate);
+        if (nearest == nullptr)
+        {
+            output.planning_stage = 2;
+        }
+        else
+        {
+            output.planning_nearest_snapshot = nearest->coordinate;
+            output.planning_distance = timeline_status_.last_coordinate.frame
+                    >= nearest->coordinate.frame
+                ? timeline_status_.last_coordinate.frame
+                    - nearest->coordinate.frame
+                : 0;
+            for (std::size_t index = 0;
+                 index <= changed_membership->batch_index; ++index)
+            {
+                const auto* batch = batch_timeline_.GetBatch(index);
+                if (batch != nullptr
+                    && batch->entry_coordinate == nearest->coordinate)
+                {
+                    output.planning_matching_batch_index = index;
+                    break;
+                }
+            }
+            output.planning_stage =
+                output.planning_matching_batch_index == SIZE_MAX ? 3 : 4;
+        }
+    }
+    else
+    {
+        output.planning_stage = 1;
+    }
     Status status = PlanReplayCorrection(earliest_changed,
         timeline_status_.last_coordinate, batch_timeline_,
         correction_snapshots,
         Schema::checkpoint_interval - 1, plan);
     if (!status.ok()) return finish(status);
+    output.planning_stage = 5;
     output.resimulation_base = plan.resimulation_base;
 
     // Capture is valid while the UCRT broker observes the stock stream, but
@@ -736,6 +829,22 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrectionInternal(
         if (!restore_undo()) status = Status::failure(FailureCode::UndoFailed);
         return finish(status);
     }
+
+    // FrameInputLog is a separately ticked producer. By this prepare boundary
+    // its complete actor transaction (source/update work, cache publication,
+    // replay drain, and GameTime advance) already precedes the pending live
+    // BattleManager tick. Historical replay necessarily rewinds that producer
+    // while rebuilding simulation state, so restore its exact pre-correction
+    // image only after canonical convergence has been verified.
+    output.input_producer_restore_phase = 1;
+    status = checkpoint_capture_.RestoreInputLogForReplay(undo);
+    if (!status.ok())
+    {
+        record_primary_failure(status);
+        if (!restore_undo()) status = Status::failure(FailureCode::UndoFailed);
+        return finish(status);
+    }
+    output.input_producer_restore_phase = 2;
 
     output.converged = true;
     output.primary_performance = checkpoint_capture_.adapter_performance();
@@ -876,7 +985,9 @@ Status Sc6ReplayRuntime::ApplyConfirmedRemoteInput(
     const auto previous = input_timeline_.GetExact(coordinate);
     if (!previous.has_value())
         return Status::failure(FailureCode::MissingInput);
-    if (previous->remote_confirmed && !corrected_input_qualification_enabled_)
+    if (!CanReviseObservedRemoteInput(previous->remote_confirmed,
+            corrected_input_qualification_enabled_,
+            online_predicted_remote_player_, player_index))
     {
         if (previous->players[player_index] != confirmed_remote)
             return Status::failure(FailureCode::IdentityMismatch);

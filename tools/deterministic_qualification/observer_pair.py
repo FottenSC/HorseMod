@@ -36,6 +36,8 @@ input_delay=1
 trace=false
 correction_probe=false
 forced_depth7_qualification=false
+qualification_depth=7
+qualification_location=2
 """
 
 OBSERVER_CONFIG = SAFE_CONFIG.replace("trace=false", "trace=true")
@@ -224,6 +226,23 @@ def create_match_setup_request(
         f"authored_stage_code={authored_stage_code}\n"
         f"ui_stage_code={ui_stage_code}\n"
         f"display_map_name={display_map_name}\n"
+    )
+    _atomic_write(peer.qualification_root / ROOM_REQUEST_NAME, request)
+
+
+def create_match_teardown_request(
+    peer: ObserverPeerPaths, run_id: str, result: int = 2,
+) -> None:
+    if not _RUN_ID.fullmatch(run_id):
+        raise ValueError("match-teardown run ID is invalid")
+    if result not in (0, 1, 2):
+        raise ValueError("match-teardown result is invalid")
+    request = (
+        "version=2\n"
+        "request_type=match_teardown\n"
+        f"run_id={run_id}\n"
+        f"result={result}\n"
+        "arm=true\n"
     )
     _atomic_write(peer.qualification_root / ROOM_REQUEST_NAME, request)
 
@@ -501,7 +520,8 @@ def launch_observer_pair(spec: SandboxiePairSpec) -> str:
 
 
 def stop_observer_processes(
-    processes: tuple[GameProcess, ...], require_graceful: bool = True
+    processes: tuple[GameProcess, ...], require_graceful: bool = True,
+    graceful_timeout_seconds: float = 60.0,
 ) -> bool:
     failures: list[str] = []
     # Both authenticated peers must receive their graceful close together.
@@ -510,7 +530,8 @@ def stop_observer_processes(
     with concurrent.futures.ThreadPoolExecutor(
             max_workers=max(1, len(processes))) as executor:
         closing = {
-            executor.submit(close_game, process.pid): process
+            executor.submit(
+                close_game, process.pid, graceful_timeout_seconds): process
             for process in processes
         }
         for future, process in closing.items():

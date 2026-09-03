@@ -249,6 +249,16 @@ Status Sc6ReplayRuntime::FinalizeObservedBatch(
 {
     if (generation_rebaseline_pending_)
     {
+        if (!CanRebaselineOnlineTimeline(
+                online_predicted_remote_player_.has_value()))
+        {
+            // A saved Gekko token still names retired-generation history. Keep
+            // that history intact until the service has compared the peers'
+            // final canonical hashes, completed the round barrier, and stopped
+            // Gekko. The transition batch itself is not presentation-owned.
+            online_rebaseline_deferred_ = true;
+            return Status::success();
+        }
         // A native round/identity replacement can occur inside this outer
         // batch.  Its entry coordinate belongs to the retired generation and
         // its exit coordinate belongs to the replacement, so the envelope is
@@ -306,6 +316,27 @@ Status Sc6ReplayRuntime::FinalizeObservedBatch(
     return Status::success();
 }
 
+Status Sc6ReplayRuntime::CommitDeferredOnlineRebaseline(
+    bool round_barrier_acknowledged,
+    std::uint64_t replacement_generation) noexcept
+{
+    const bool at_boundary = active_outer_tick_id_ == 0
+        && pending_batch_id_ == 0 && !resume_validation_active_;
+    if (!CanCommitDeferredOnlineRebaseline(
+            online_rebaseline_deferred_,
+            online_predicted_remote_player_.has_value(), at_boundary,
+            round_barrier_acknowledged)
+        || replacement_generation == 0
+        || timeline_status_.last_coordinate.generation == 0
+        || replacement_generation
+            < timeline_status_.last_coordinate.generation)
+    {
+        return Status::failure(FailureCode::IllegalTransition);
+    }
+    RebaselineAfterIdentityDrift(true, replacement_generation);
+    return Status::success();
+}
+
 Status Sc6ReplayRuntime::ObserveOuterTick(
     const OuterTickObservation& observation) noexcept
 {
@@ -314,21 +345,27 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
     bool skip_batch{};
     Status status = BeginObservedOuterTick(observation, coordinate_count,
         input_generation_changed, skip_batch);
-    if (!status.ok() || skip_batch) return status;
+    const auto complete_outer_tick = [this](Status result) noexcept {
+        active_outer_tick_id_ = 0;
+        return result;
+    };
+    if (!status.ok() || skip_batch) return complete_outer_tick(status);
 
     NativeBatchEnvelope envelope{};
     FillObservedGameplayEnvelope(observation, coordinate_count,
         input_generation_changed, envelope);
     FillObservedPresentationEnvelope(observation, input_generation_changed,
         envelope);
-    if (ConsumeResumeValidation()) return Status::success();
+    if (ConsumeResumeValidation())
+        return complete_outer_tick(Status::success());
 
     status = AccumulateObservedGameplayIdentity(observation);
-    if (!status.ok()) return status;
+    if (!status.ok()) return complete_outer_tick(status);
     status = StoreObservedBatch(observation, envelope);
-    if (!status.ok() || timeline_status_.partial) return status;
-    return FinalizeObservedBatch(observation, envelope, coordinate_count,
-        input_generation_changed);
+    if (!status.ok() || timeline_status_.partial)
+        return complete_outer_tick(status);
+    return complete_outer_tick(FinalizeObservedBatch(observation, envelope,
+        coordinate_count, input_generation_changed));
 }
 
 void Sc6ReplayRuntime::ObserveReplayExit() noexcept
@@ -362,6 +399,7 @@ void Sc6ReplayRuntime::ObserveReplayExit() noexcept
     timeline_input_log_ = 0;
     timeline_thread_id_ = 0;
     pending_batch_id_ = 0;
+    active_outer_tick_id_ = 0;
     pending_batch_entry_ = {};
     pending_camera_source_frame_ = {};
     pending_batch_coordinates_.clear();
@@ -376,11 +414,16 @@ void Sc6ReplayRuntime::ObserveReplayExit() noexcept
     resume_source_end_ = {};
     resume_validation_active_ = false;
     resume_catchup_pending_ = false;
-    checkpoint_capture_.ReleaseBinding();
+    // A full native scene exit releases binding-owned transaction scratch.
+    // Round rebind and qualification-only re-arm use the narrower reset paths
+    // above so their already bounded prewarmed capacity remains reusable.
+    checkpoint_capture_.ReleaseBindingStorage();
     generation_rebaseline_pending_ = false;
+    online_rebaseline_deferred_ = false;
     continuing_session_rebaseline_ = false;
     replay_history_capture_required_ =
         next_replay_history_capture_required_;
+    required_online_baseline_checkpoint_.reset();
 }
 
 void Sc6ReplayRuntime::ResetQualificationStateRetainingStorage() noexcept
@@ -416,6 +459,7 @@ void Sc6ReplayRuntime::ResetQualificationStateRetainingStorage() noexcept
     timeline_input_log_ = 0;
     timeline_thread_id_ = 0;
     pending_batch_id_ = 0;
+    active_outer_tick_id_ = 0;
     pending_batch_entry_ = {};
     pending_camera_source_frame_ = {};
     pending_batch_coordinates_.clear();
@@ -431,9 +475,11 @@ void Sc6ReplayRuntime::ResetQualificationStateRetainingStorage() noexcept
     resume_validation_active_ = false;
     resume_catchup_pending_ = false;
     generation_rebaseline_pending_ = false;
+    online_rebaseline_deferred_ = false;
     continuing_session_rebaseline_ = false;
     replay_history_capture_required_ =
         next_replay_history_capture_required_;
+    required_online_baseline_checkpoint_.reset();
 }
 
 Status Sc6ReplayRuntime::ResetQualificationCycle(
@@ -708,7 +754,8 @@ Status Sc6ReplayRuntime::CaptureCorrectedCoordinate(
         coordinate, snapshot.canonical_hash, snapshot.canonical_components,
         snapshot.canonical_native, snapshot.canonical_move_dispatch,
         snapshot.canonical_input, snapshot.canonical_wind_semantic,
-        snapshot.canonical_wind, snapshot.canonical_wind_node};
+        snapshot.canonical_wind, snapshot.canonical_wind_node,
+        snapshot.canonical_animation, snapshot.canonical_stage_emitters};
     if (retained_landing != nullptr)
     {
         corrected.expected_landing_hashes[corrected.landing_count] =

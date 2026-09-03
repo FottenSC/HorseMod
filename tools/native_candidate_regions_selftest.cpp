@@ -22,7 +22,9 @@
 #include <algorithm>
 #include <cstring>
 #include <iostream>
+#include <memory>
 #include <span>
+#include <unordered_map>
 #include <vector>
 
 using namespace Horse::Deterministic;
@@ -51,8 +53,17 @@ public:
     bool Read(std::uintptr_t address, std::span<std::byte> destination) noexcept override
     {
         const auto offset = resolve(address, destination.size());
-        if (offset == invalid) return false;
-        std::memcpy(destination.data(), bytes_.data() + offset, destination.size());
+        if (offset != invalid)
+        {
+            std::memcpy(destination.data(), bytes_.data() + offset, destination.size());
+            return true;
+        }
+        for (std::size_t index = 0; index < destination.size(); ++index)
+        {
+            const auto found = external_bytes_.find(address + index);
+            if (found == external_bytes_.end()) return false;
+            destination[index] = found->second;
+        }
         return true;
     }
 
@@ -73,6 +84,14 @@ public:
     void Set(std::uintptr_t address, const T& value)
     {
         SetBytes(address, std::as_bytes(std::span{&value, 1}));
+    }
+
+    template <typename T>
+    void SetExternal(std::uintptr_t address, const T& value)
+    {
+        const auto bytes = std::as_bytes(std::span{&value, 1});
+        for (std::size_t index = 0; index < bytes.size(); ++index)
+            external_bytes_[address + index] = bytes[index];
     }
 
     void SetBytes(std::uintptr_t address, std::span<const std::byte> source)
@@ -132,6 +151,7 @@ private:
     static constexpr std::size_t invalid = static_cast<std::size_t>(-1);
     std::uintptr_t base_{};
     std::vector<std::byte> bytes_;
+    std::unordered_map<std::uintptr_t, std::byte> external_bytes_;
     std::size_t write_calls_{};
     std::size_t fail_write_call_{};
     std::size_t corrupt_after_write_call_{};
@@ -741,6 +761,136 @@ void test_candidate_checkpoint_codec()
             && captured_snapshot.local_images.size() == 2
             && captured_snapshot.canonical_hash == snapshot.canonical_hash,
         "fresh-capture encoding externalizes local images without changing canonical truth");
+
+    auto local_staging_image = std::make_unique<CandidateCheckpointImage>(image);
+    local_staging_image->native.input_log.scalars[0x0c] ^= std::byte{3};
+    local_staging_image->native.input_log.scalars[0x1c] ^= std::byte{7};
+    local_staging_image->native.input_log.scalars[0x28] ^= std::byte{0x40};
+    local_staging_image->native.input_log.scalars[0x2c] ^= std::byte{0x20};
+    local_staging_image->native.input_log.cache_rows[123].input_value ^= 0x4000;
+    if (local_staging_image->native.camera_components[0].present != 0)
+        local_staging_image->native.camera_components[0].common[0]
+            ^= std::byte{0x33};
+    Snapshot local_staging_snapshot{};
+    expect(CandidateCheckpointCodec::Encode(
+            {7, 30}, 0x9191, *local_staging_image,
+            local_staging_snapshot).ok()
+            && local_staging_snapshot.canonical_hash == snapshot.canonical_hash
+            && local_staging_snapshot.bytes != snapshot.bytes,
+        "peer identity excludes proven input-transport and camera-presentation local state");
+
+    auto deterministic_input_log_image =
+        std::make_unique<CandidateCheckpointImage>(*local_staging_image);
+    deterministic_input_log_image->native.input_log.scalars[0x04]
+        ^= std::byte{1};
+    Snapshot deterministic_input_log_snapshot{};
+    expect(CandidateCheckpointCodec::Encode(
+            {7, 30}, 0x9191, *deterministic_input_log_image,
+            deterministic_input_log_snapshot).ok()
+            && deterministic_input_log_snapshot.canonical_hash
+                != snapshot.canonical_hash,
+        "peer identity retains deterministic FrameInputLog fields");
+
+    constexpr std::size_t scheduler_active_offset = 0x64 - 0x10;
+    auto inactive_scheduler_a =
+        std::make_unique<CandidateCheckpointImage>(*local_staging_image);
+    std::fill_n(inactive_scheduler_a->chara_animation.players[0]
+            .scheduler_scalars.begin() + scheduler_active_offset,
+        sizeof(std::uint32_t), std::byte{});
+    inactive_scheduler_a->chara_animation.players[0]
+        .scheduler_chara_bound = false;
+    Snapshot inactive_scheduler_snapshot_a{};
+    expect(CandidateCheckpointCodec::Encode(
+            {7, 30}, 0x9191, *inactive_scheduler_a,
+            inactive_scheduler_snapshot_a).ok(),
+        "encode inactive scheduler peer baseline");
+    auto inactive_scheduler_b =
+        std::make_unique<CandidateCheckpointImage>(*inactive_scheduler_a);
+    inactive_scheduler_b->chara_animation.players[0]
+        .scheduler_scalars[0] ^= std::byte{0x21};
+    inactive_scheduler_b->chara_animation.players[0]
+        .scheduler_chara_bound = true;
+    Snapshot inactive_scheduler_snapshot_b{};
+    expect(CandidateCheckpointCodec::Encode(
+            {7, 30}, 0x9191, *inactive_scheduler_b,
+            inactive_scheduler_snapshot_b).ok()
+            && inactive_scheduler_snapshot_b.canonical_hash
+                == inactive_scheduler_snapshot_a.canonical_hash
+            && inactive_scheduler_snapshot_b.bytes
+                != inactive_scheduler_snapshot_a.bytes,
+        "inactive scheduler residue and pChara binding are local-only");
+
+    auto active_scheduler_a =
+        std::make_unique<CandidateCheckpointImage>(*inactive_scheduler_a);
+    const std::uint32_t active = 1;
+    std::memcpy(active_scheduler_a->chara_animation.players[0]
+            .scheduler_scalars.data() + scheduler_active_offset,
+        &active, sizeof(active));
+    active_scheduler_a->chara_animation.players[0]
+        .scheduler_chara_bound = true;
+    Snapshot active_scheduler_snapshot_a{};
+    expect(CandidateCheckpointCodec::Encode(
+            {7, 30}, 0x9191, *active_scheduler_a,
+            active_scheduler_snapshot_a).ok(),
+        "encode active scheduler peer baseline");
+    auto active_scheduler_b =
+        std::make_unique<CandidateCheckpointImage>(*active_scheduler_a);
+    active_scheduler_b->chara_animation.players[0]
+        .scheduler_scalars[0] ^= std::byte{0x21};
+    Snapshot active_scheduler_snapshot_b{};
+    expect(CandidateCheckpointCodec::Encode(
+            {7, 30}, 0x9191, *active_scheduler_b,
+            active_scheduler_snapshot_b).ok()
+            && active_scheduler_snapshot_b.canonical_hash
+                != active_scheduler_snapshot_a.canonical_hash,
+        "active scheduler fields remain peer-canonical");
+
+    auto inert_emitter_a =
+        std::make_unique<CandidateCheckpointImage>(*local_staging_image);
+    if (inert_emitter_a->native.stage_wind_emitters.states.empty())
+        inert_emitter_a->native.stage_wind_emitters.states.push_back({});
+    Snapshot inert_emitter_snapshot_a{};
+    expect(CandidateCheckpointCodec::Encode(
+            {7, 30}, 0x9191, *inert_emitter_a,
+            inert_emitter_snapshot_a).ok(),
+        "encode stage-emitter peer baseline");
+    auto inert_emitter_b =
+        std::make_unique<CandidateCheckpointImage>(*inert_emitter_a);
+    inert_emitter_b->native.stage_wind_emitters.states[0][0x1C]
+        ^= std::byte{0x33};
+    Snapshot inert_emitter_snapshot_b{};
+    expect(CandidateCheckpointCodec::Encode(
+            {7, 30}, 0x9191, *inert_emitter_b,
+            inert_emitter_snapshot_b).ok()
+            && inert_emitter_snapshot_b.canonical_hash
+                == inert_emitter_snapshot_a.canonical_hash
+            && inert_emitter_snapshot_b.bytes != inert_emitter_snapshot_a.bytes,
+        "unused stage-emitter Euler-W lane is local-only");
+    inert_emitter_b->native.stage_wind_emitters.states[0][0x18]
+        ^= std::byte{0x44};
+    Snapshot semantic_emitter_snapshot{};
+    expect(CandidateCheckpointCodec::Encode(
+            {7, 30}, 0x9191, *inert_emitter_b,
+            semantic_emitter_snapshot).ok()
+            && semantic_emitter_snapshot.canonical_hash
+                != inert_emitter_snapshot_a.canonical_hash,
+        "consumed stage-emitter Euler lanes remain peer-canonical");
+
+    auto deterministic_state_image =
+        std::make_unique<CandidateCheckpointImage>(*local_staging_image);
+    deterministic_state_image->chara_animation.players[0].scheduler_scalars[0]
+        ^= std::byte{0x21};
+    if (deterministic_state_image->native.stage_wind_emitters.states.empty())
+        deterministic_state_image->native.stage_wind_emitters.states.push_back({});
+    deterministic_state_image->native.stage_wind_emitters.states[0][0]
+        ^= std::byte{0x17};
+    Snapshot deterministic_state_snapshot{};
+    expect(CandidateCheckpointCodec::Encode(
+            {7, 30}, 0x9191, *deterministic_state_image,
+            deterministic_state_snapshot).ok()
+            && deterministic_state_snapshot.canonical_hash
+                != snapshot.canonical_hash,
+        "peer identity retains deterministic animation and stage-emitter state");
     auto canonical_image = image;
     canonical_image.local_images.clear();
     Snapshot canonical_snapshot{};
@@ -915,6 +1065,91 @@ void test_candidate_checkpoint_codec()
     expect(CandidateCheckpointCodec::Decode(wrong_generation, decoded).code
             == FailureCode::RestoreVerificationFailed,
         "checkpoint rejects native generation drift");
+}
+
+void test_correction_restores_complete_pre_tick_input_producer_boundary()
+{
+    Fixture fixture;
+    expect(fixture.regions.Bind(fixture.addresses).ok(),
+        "bind pre-tick input-producer fixture");
+
+    constexpr std::int32_t input_delay = 0;
+    constexpr std::int32_t game_round = 9;
+    constexpr std::int32_t game_time = 238;
+    constexpr std::uint32_t source_frame = 237;
+    fixture.memory.Set(fixture.addresses.input_log + 0x390, input_delay);
+    fixture.memory.Set(fixture.addresses.input_log + 0x3A0, game_round);
+    fixture.memory.Set(fixture.addresses.input_log + 0x3A4, game_time);
+    fixture.memory.Set(fixture.addresses.input_log + 0x3AC,
+        std::uint32_t{0xA1B2C3D4});
+    fixture.memory.Set(fixture.addresses.input_log + 0x3B8,
+        std::uint32_t{0x10203040});
+    const auto row_address = [&](std::size_t slot) {
+        return fixture.addresses.input_log + 0x3C0
+            + (slot * 512 + (source_frame & 0x1ffu)) * 0x10;
+    };
+    const std::array<NativeInputCacheRowImage, 2> produced{{
+        {game_round, source_frame, 0x1111u, 1},
+        {game_round, source_frame, 0x2222u, 1}}};
+    for (std::size_t slot = 0; slot < produced.size(); ++slot)
+    {
+        fixture.memory.Set(row_address(slot), produced[slot].game_round);
+        fixture.memory.Set(row_address(slot) + 4, produced[slot].frame_index);
+        fixture.memory.Set(row_address(slot) + 8, produced[slot].input_value);
+        fixture.memory.Set(row_address(slot) + 12, produced[slot].filled);
+    }
+    const auto unrelated = fixture.addresses.input_log + 0x3C0
+        + (91u & 0x1ffu) * 0x10;
+    const NativeInputCacheRowImage unrelated_produced{
+        game_round, 91u, 0xABCDEF01u, 1};
+    fixture.memory.Set(unrelated, unrelated_produced.game_round);
+    fixture.memory.Set(unrelated + 4, unrelated_produced.frame_index);
+    fixture.memory.Set(unrelated + 8, unrelated_produced.input_value);
+    fixture.memory.Set(unrelated + 12, unrelated_produced.filled);
+
+    NativeCandidateImage producer_boundary{};
+    expect(fixture.regions.Capture(producer_boundary).ok(),
+        "capture the complete pre-correction input-producer transaction");
+
+    const NativeInputCacheRowImage historical{};
+    fixture.memory.Set(fixture.addresses.input_log + 0x3A4,
+        std::int32_t{game_time - 1});
+    fixture.memory.Set(fixture.addresses.input_log + 0x3AC,
+        std::uint32_t{0x55667788});
+    fixture.memory.Set(fixture.addresses.input_log + 0x3B8,
+        std::uint32_t{0x99AABBCC});
+    for (std::size_t slot = 0; slot < produced.size(); ++slot)
+    {
+        fixture.memory.Set(row_address(slot), historical.game_round);
+        fixture.memory.Set(row_address(slot) + 4, historical.frame_index);
+        fixture.memory.Set(row_address(slot) + 8, historical.input_value);
+        fixture.memory.Set(row_address(slot) + 12, historical.filled);
+    }
+    fixture.memory.Set(unrelated, historical.game_round);
+    fixture.memory.Set(unrelated + 4, historical.frame_index);
+    fixture.memory.Set(unrelated + 8, historical.input_value);
+    fixture.memory.Set(unrelated + 12, historical.filled);
+    expect(fixture.regions.RestoreInputLogTransactional(producer_boundary).ok(),
+        "restore the exact producer boundary after historical resimulation");
+    NativeCandidateImage restored{};
+    expect(fixture.regions.Capture(restored).ok()
+            && restored.input_log == producer_boundary.input_log,
+        "restore scalars, current/update state, both source rows, and unrelated cache");
+
+    fixture.memory.Set(fixture.addresses.input_log + 0x3A4,
+        std::int32_t{game_time - 1});
+    fixture.memory.Set(fixture.addresses.input_log + 0x3AC,
+        std::uint32_t{0x01020304});
+    fixture.memory.Set(row_address(0) + 8, std::uint32_t{0xDEADBEEF});
+    fixture.memory.Set(unrelated + 8, std::uint32_t{0xCAFEBABE});
+    const auto before_partial_write = fixture.memory.bytes();
+    fixture.memory.FailWrite(2);
+    expect(fixture.regions.RestoreInputLogTransactional(producer_boundary).code
+                == FailureCode::RestoreWriteFailed,
+        "partial full-producer write reports the authoritative restore failure");
+    fixture.memory.AllowWrites();
+    expect(fixture.memory.bytes() == before_partial_write,
+        "partial full-producer write restores the exact pre-write image");
 }
 
 void test_motion_bank_snapshot_is_bounded_and_transactional()
@@ -1368,6 +1603,30 @@ void test_candidate_adapter_restore_and_outer_undo()
         restored_binding.context, {7, 0}).ok(),
         "capture real candidate adapter baseline");
     restored_fixture.memory.Fill(
+        restored_fixture.addresses.fighter_roots[0]
+            + chara_anim_clip_player_offset + 0x10,
+        sizeof(std::uint32_t), std::byte{0x4A});
+    Snapshot canonical_diagnostic_snapshot{};
+    expect(restored_adapter.CaptureCanonical(
+            {7, 1}, canonical_diagnostic_snapshot).ok(),
+        "capture canonical peer diagnostic source");
+    PeerBaselineStateDiagnostic canonical_diagnostic{};
+    expect(restored_adapter.GetLastCanonicalPeerDiagnostic(
+            {7, 1}, canonical_diagnostic).ok()
+            && canonical_diagnostic.animation_clip_words[0][0]
+                == 0x4A4A4A4Au,
+        "canonical peer diagnostic retains its canonical coordinate");
+    Snapshot transient_diagnostic_snapshot{};
+    expect(restored_adapter.Capture(
+            {7, 2}, transient_diagnostic_snapshot).ok(),
+        "capture transient state after canonical peer diagnostic");
+    expect(restored_adapter.GetLastCanonicalPeerDiagnostic(
+            {7, 1}, canonical_diagnostic).ok()
+            && restored_adapter.GetLastCanonicalPeerDiagnostic(
+                {7, 2}, canonical_diagnostic).code
+                == FailureCode::GenerationMismatch,
+        "transient capture cannot relabel canonical peer diagnostic state");
+    restored_fixture.memory.Fill(
         restored_fixture.event_masks, 0x10, std::byte{0x91});
     restored_fixture.memory.Fill(
         restored_fixture.addresses.pump_state + 0x20, 0x1C, std::byte{0x92});
@@ -1423,6 +1682,28 @@ void test_candidate_adapter_restore_and_outer_undo()
     expect(failed_fixture.memory.bytes() == before_failed_memory
             && hgcpu_payload == before_failed_hgcpu,
         "partial HgCpu reader failure restores exact outer undo image");
+}
+
+void test_full_binding_exit_releases_transaction_scratch_storage()
+{
+    Fixture fixture;
+    expect(fixture.regions.Bind(fixture.addresses).ok(),
+        "bind full-exit scratch fixture");
+    HgCpuStreamShim hgcpu;
+    CandidateGameStateAdapter adapter{fixture.regions, hgcpu};
+    CandidateWindFixture wind{fixture};
+    const auto binding = candidate_binding(&fake_hgcpu_reader, wind);
+    expect(adapter.Configure(binding).ok(),
+        "configure binding-owned transaction scratch");
+    expect(adapter.owned_scratch_bytes() > 0
+            && fixture.regions.ScratchCapacityBytes() > 0,
+        "restore-capable binding owns prewarmed transaction scratch");
+
+    adapter.ReleaseScratchStorage();
+    fixture.regions.ReleaseScratchStorage();
+    expect(adapter.owned_scratch_bytes() == 0
+            && fixture.regions.ScratchCapacityBytes() == 0,
+        "full scene exit returns binding-owned scratch to its pre-match footprint");
 }
 
 void test_candidate_adapter_native_failure_undoes_hgcpu()
@@ -1648,12 +1929,27 @@ void test_unknown_class_and_invalid_header_fail_closed()
         "capture camera-class drift baseline");
     camera_class.memory.Set(camera_class.addresses.camera_action_backing + 3 * 0x3E0,
         Fixture::image_base + std::uintptr_t{0x3E88018});
-    const auto camera_before = camera_class.memory.bytes();
-    expect(camera_class.regions.RestoreTransactional(baseline).code
-            == FailureCode::IdentityMismatch,
-        "camera action class drift rejects restore");
-    expect(camera_class.memory.bytes() == camera_before,
-        "camera class rejection performs zero mutation");
+    NativeCandidateImage changed_camera_class{};
+    expect(camera_class.regions.Capture(changed_camera_class).ok(),
+        "in-place camera action class transition remains capture-qualified");
+    expect(changed_camera_class.camera_distance_history[3].present == 0,
+        "distance history follows the current action class, not bind-time class");
+    expect(camera_class.regions.PreflightRestore(baseline).ok(),
+        "a checkpoint from an earlier action class remains generation-compatible");
+
+    const auto new_player_watch =
+        camera_class.addresses.camera_action_backing + 4 * 0x3E0;
+    camera_class.memory.Set(new_player_watch,
+        Fixture::image_base + std::uintptr_t{0x3E87EB0});
+    for (std::size_t index = 0; index < 16; ++index)
+        camera_class.memory.Set(new_player_watch + 0x25C + index * sizeof(float),
+            static_cast<float>(200 + index));
+    camera_class.memory.Set(new_player_watch + 0x29C, std::int32_t{4});
+    camera_class.memory.Set(new_player_watch + 0x2A0, std::uint32_t{3});
+    expect(camera_class.regions.Capture(changed_camera_class).ok()
+            && changed_camera_class.camera_distance_history[3].present == 0
+            && changed_camera_class.camera_distance_history[4].present == 1,
+        "PlayerWatch history tracks a native in-place class move between slots");
 
     Fixture camera_cursor;
     camera_cursor.memory.Set(
@@ -1662,6 +1958,23 @@ void test_unknown_class_and_invalid_header_fail_closed()
     expect(camera_cursor.regions.Bind(camera_cursor.addresses).code
             == FailureCode::CapturePreflightFailed,
         "PlayerWatch distance-history cursor outside the 16-slot ring fails closed");
+
+    Fixture camera_boundary;
+    expect(camera_boundary.regions.Bind(camera_boundary.addresses).ok(),
+        "bind camera capture-boundary fixture");
+    camera_boundary.memory.Set(
+        camera_boundary.addresses.camera_action_backing + 3 * 0x3E0 + 0x2A0,
+        std::uint32_t{16});
+    NativeCandidateImage rejected_camera{};
+    expect(camera_boundary.regions.Capture(rejected_camera).code
+            == FailureCode::CaptureFailed,
+        "camera history becoming invalid after bind fails the exact capture boundary");
+    const auto camera_boundary_diagnostic =
+        camera_boundary.regions.validation_diagnostic();
+    expect(camera_boundary_diagnostic.issue
+                == NativeCandidateValidationIssue::CandidateRegionRead
+            && camera_boundary_diagnostic.index == 33,
+        "post-bind camera capture failure preserves the exact PlayerWatch action index");
 
     Fixture no_camera;
     no_camera.addresses.camera_action_backing = 0;
@@ -1708,6 +2021,75 @@ void test_unknown_class_and_invalid_header_fail_closed()
         "oversized round-state sequence fails closed before capture");
 }
 
+void test_camera_component_class_is_mutable_state()
+{
+    Fixture fixture;
+    fixture.addresses.camera_director = Fixture::memory_base + 0x30000;
+    fixture.addresses.camera_velocity_basis = Fixture::memory_base + 0x30400;
+    fixture.addresses.camera_timer_config = Fixture::memory_base + 0x30500;
+    fixture.addresses.camera_timer_node = Fixture::memory_base + 0x30700;
+    fixture.addresses.camera_timer_globals = {
+        Fixture::memory_base + 0x30A00, Fixture::memory_base + 0x30A08,
+        Fixture::memory_base + 0x30A10, Fixture::memory_base + 0x30A18};
+    const auto component = Fixture::memory_base + 0x31000;
+    const auto base_vtable = Fixture::image_base + std::uintptr_t{0x3E88000};
+    const auto attention_vtable =
+        Fixture::image_base + std::uintptr_t{0x3E88008};
+    fixture.memory.Set(fixture.addresses.camera_director + 0x270, component);
+    fixture.memory.Set(component, base_vtable);
+    fixture.memory.SetExternal(base_vtable + 0x100,
+        Fixture::image_base + std::uintptr_t{0x33FBC0});
+    fixture.memory.SetExternal(attention_vtable + 0x100,
+        Fixture::image_base + std::uintptr_t{0x340ED0});
+    fixture.memory.Fill(component + 8, 0x320, std::byte{0});
+    fixture.memory.Fill(fixture.addresses.camera_director, 0x360, std::byte{0});
+    fixture.memory.Set(fixture.addresses.camera_director + 0x270, component);
+    fixture.memory.Fill(fixture.addresses.camera_velocity_basis,
+        native_camera_velocity_basis_bytes, std::byte{0x21});
+    fixture.memory.Fill(fixture.addresses.camera_timer_config + 0xA8,
+        native_camera_timer_config_state_bytes, std::byte{0x22});
+    fixture.memory.Fill(fixture.addresses.camera_timer_node,
+        native_camera_timer_node_bytes, std::byte{0});
+    const auto action_owner = Fixture::memory_base + 0x30B00;
+    fixture.memory.Set(fixture.addresses.camera_timer_node, action_owner);
+    fixture.memory.Set(fixture.addresses.camera_timer_node + 8,
+        fixture.addresses.camera_action_backing);
+    for (std::size_t index = 0; index < native_camera_action_count; ++index)
+    {
+        const auto action = fixture.addresses.camera_action_backing
+            + index * 0x3E0;
+        fixture.memory.Set(fixture.addresses.camera_timer_node
+            + 0x10 + index * sizeof(std::uintptr_t), action);
+        fixture.memory.Set(action + 0x08, static_cast<std::uint32_t>(index));
+        fixture.memory.Set(action + 0x10, action_owner);
+        fixture.memory.Set(action + 0x18, fixture.addresses.camera_timer_node);
+        fixture.memory.Set(action + 0x20, std::uint32_t{});
+    }
+    for (const auto timer_global : fixture.addresses.camera_timer_globals)
+        fixture.memory.Set(timer_global, std::uint64_t{});
+
+    expect(fixture.regions.Bind(fixture.addresses).ok(),
+        "bind camera component class-transition fixture");
+    NativeCameraSourceFrameImage before{};
+    expect(fixture.regions.CaptureCameraSourceFrame(before).ok()
+            && before.components[0].serialization
+                == NativeCameraComponentSerialization::Base,
+        "capture the initial camera component class");
+
+    fixture.memory.Set(component, attention_vtable);
+    NativeCameraSourceFrameImage after{};
+    expect(fixture.regions.CaptureCameraSourceFrame(after).ok()
+            && after.components[0].serialization
+                == NativeCameraComponentSerialization::Attention,
+        "capture an in-place native camera component class transition");
+    expect(fixture.regions.RestoreCameraSourceFrameTransactional(before).ok(),
+        "transactionally restore a prior camera component class and state");
+    NativeCameraSourceFrameImage restored{};
+    expect(fixture.regions.CaptureCameraSourceFrame(restored).ok()
+            && restored == before,
+        "camera source restore verifies the exact prior component generation");
+}
+
 void test_lfsr_refill_sentinel_is_bounded()
 {
     Fixture sentinel;
@@ -1738,6 +2120,9 @@ void test_partial_write_undoes_exactly()
     expect(
         fixture.regions.RestoreTransactional(baseline).code == FailureCode::RestoreWriteFailed,
         "partial write reports typed failure");
+    expect(fixture.regions.validation_diagnostic().issue
+            == NativeCandidateValidationIssue::CandidateRegionWrite,
+        "partial write records the native write stage");
     expect(fixture.memory.bytes() == before, "partial write restores exact undo image");
 }
 
@@ -2668,16 +3053,19 @@ int main()
 {
     test_hgcpu_stream_contract();
     test_candidate_checkpoint_codec();
+    test_correction_restores_complete_pre_tick_input_producer_boundary();
     test_motion_bank_snapshot_is_bounded_and_transactional();
     test_secondary_event_state_is_pointer_free_and_transactional();
     test_chara_animation_state_normalizes_sections_and_undoes_exactly();
     test_battle_audio_selector_is_generation_bound_and_transactional();
     test_candidate_adapter_restore_and_outer_undo();
+    test_full_binding_exit_releases_transaction_scratch_storage();
     test_candidate_adapter_native_failure_undoes_hgcpu();
     test_hgcpu_direct_source_coverage();
     test_capture_restore_preserves_exclusions();
     test_preflight_is_atomic();
     test_unknown_class_and_invalid_header_fail_closed();
+    test_camera_component_class_is_mutable_state();
     test_lfsr_refill_sentinel_is_bounded();
     test_partial_write_undoes_exactly();
     test_move_dispatch_action_phase_restore();

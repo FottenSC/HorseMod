@@ -8,7 +8,7 @@
 namespace Horse::Deterministic::Schema
 {
 inline constexpr std::uint32_t protocol_version = 2;
-inline constexpr std::uint32_t snapshot_schema_version = 50;
+inline constexpr std::uint32_t snapshot_schema_version = 53;
 inline constexpr std::size_t maximum_transport_payload = 1200;
 inline constexpr std::size_t maximum_presentation_payload = 256;
 inline constexpr std::uint64_t checkpoint_interval = 30;

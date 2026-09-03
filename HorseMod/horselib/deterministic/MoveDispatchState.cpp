@@ -118,6 +118,13 @@ void MoveDispatchState::Invalidate() noexcept
     bound_ = false;
 }
 
+void MoveDispatchState::ReleaseScratchStorage() noexcept
+{
+    Invalidate();
+    restore_undo_scratch_ = {};
+    restore_verification_scratch_ = {};
+}
+
 bool MoveDispatchState::capture_unchecked(MoveDispatchImage& output) noexcept
 {
     output.generation = generation_;

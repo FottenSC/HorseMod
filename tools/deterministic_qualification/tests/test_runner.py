@@ -11,6 +11,8 @@ from tools.deterministic_qualification.runner import (
     _find_failure_line,
     _log_text_since,
     _read_bounded_log_since,
+    _require_complete_forced_qualification_window,
+    _require_forced_qualification_timing,
     _temporarily_armed_smoke_config,
     _qualification_cycle_lines,
     _write_compact_replay_failure,
@@ -22,6 +24,34 @@ from tools.deterministic_qualification.trace_parser import LogCursor, capture_lo
 
 
 ROOT = Path(__file__).resolve().parents[3]
+
+
+def test_forced_qualification_requires_full_rate_window():
+    with pytest.raises(RuntimeError, match="600-frame active FPS/TPS"):
+        _require_complete_forced_qualification_window(SimpleNamespace(
+            watch_frames=600, resume_tick_window=120))
+
+    _require_complete_forced_qualification_window(SimpleNamespace(
+        watch_frames=600, resume_tick_window=600))
+
+
+def test_forced_qualification_enforces_production_timing_ceilings():
+    passing = SimpleNamespace(
+        cycle_p99_us=16_669, cycle_max_us=33_339,
+        capture_p99_us=500, capture_max_us=1_000,
+    )
+    _require_forced_qualification_timing(passing)
+
+    for field, value, message in (
+        ("cycle_p99_us", 16_670, "p99 exceeded 16.67 ms"),
+        ("cycle_max_us", 33_340, "maximum exceeded 33.34 ms"),
+        ("capture_p99_us", 501, "capture p99 exceeded 0.5 ms"),
+        ("capture_max_us", 1_001, "capture maximum exceeded 1 ms"),
+    ):
+        evidence = SimpleNamespace(**vars(passing))
+        setattr(evidence, field, value)
+        with pytest.raises(RuntimeError, match=message):
+            _require_forced_qualification_timing(evidence)
 
 
 def test_cycle_log_parser_pairs_terminal_and_cleanup(tmp_path):

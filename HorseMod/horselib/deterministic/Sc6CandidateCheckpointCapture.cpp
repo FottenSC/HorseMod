@@ -319,30 +319,53 @@ bool Sc6CandidateCheckpointCapture::read_fighter_roots(
 }
 
 Status Sc6CandidateCheckpointCapture::capture_camera_topology(
-    CameraTopology& output) noexcept
+    CameraTopology& output, CameraTopologyCaptureDiagnostic* diagnostic) noexcept
 {
     output = {};
+    if (diagnostic != nullptr) *diagnostic = {};
+    const auto fail = [diagnostic](FailureCode code,
+                          CameraTopologyCaptureStage stage,
+                          std::uint32_t index = 0,
+                          std::uint64_t observed = 0,
+                          std::uint64_t expected = 0) noexcept {
+        if (diagnostic != nullptr)
+            *diagnostic = {code, stage, index, observed, expected};
+        return Status::failure(code);
+    };
     std::uintptr_t root{};
     if (!memory_->Read(image_base_ + effect_camera_pointer_rva,
             std::as_writable_bytes(std::span{&root, 1})))
     {
-        return Status::failure(FailureCode::CapturePreflightFailed);
+        return fail(FailureCode::CapturePreflightFailed,
+            CameraTopologyCaptureStage::RootPointer);
     }
     if (root == 0) return Status::success();
 
     std::array<std::byte, hgcpu_camera_state_size> readable{};
     std::array<std::uintptr_t, 2> vtables{};
-    if (root != image_base_ + camera_director_state_rva
-        || !memory_->Read(root, readable)
-        || !memory_->Read(root,
+    const auto expected_root = image_base_ + camera_director_state_rva;
+    if (root != expected_root)
+        return fail(FailureCode::IdentityMismatch,
+            CameraTopologyCaptureStage::RootIdentity, 0, root, expected_root);
+    if (!memory_->Read(root, readable))
+        return fail(FailureCode::IdentityMismatch,
+            CameraTopologyCaptureStage::RootReadable);
+    if (!memory_->Read(root,
             std::as_writable_bytes(std::span{vtables.data(), 1}))
         || !memory_->Read(root + 0x10,
-            std::as_writable_bytes(std::span{vtables.data() + 1, 1}))
-        || vtables[0] != image_base_ + camera_director_vtable_rva
-        || vtables[1] != image_base_ + camera_interface_vtable_rva)
-    {
-        return Status::failure(FailureCode::IdentityMismatch);
-    }
+            std::as_writable_bytes(std::span{vtables.data() + 1, 1})))
+        return fail(FailureCode::IdentityMismatch,
+            CameraTopologyCaptureStage::DirectorVtables);
+    const std::array expected_vtables{
+        image_base_ + camera_director_vtable_rva,
+        image_base_ + camera_interface_vtable_rva};
+    if (vtables != expected_vtables)
+        return fail(FailureCode::IdentityMismatch,
+            CameraTopologyCaptureStage::DirectorVtables,
+            vtables[0] == expected_vtables[0] ? 1u : 0u,
+            vtables[0] == expected_vtables[0] ? vtables[1] : vtables[0],
+            vtables[0] == expected_vtables[0]
+                ? expected_vtables[1] : expected_vtables[0]);
 
     const std::uintptr_t list = image_base_ + camera_action_list_rva;
     std::uintptr_t owner{};
@@ -350,17 +373,29 @@ Status Sc6CandidateCheckpointCapture::capture_camera_topology(
     std::array<std::uintptr_t, camera_action_count> slots{};
     std::byte backing_tail{};
     if (!memory_->Read(list,
-            std::as_writable_bytes(std::span{&owner, 1}))
-        || !memory_->Read(list + 0x08,
-            std::as_writable_bytes(std::span{&backing, 1}))
-        || !memory_->Read(list + 0x10,
-            std::as_writable_bytes(std::span{slots}))
-        || owner != image_base_ + camera_action_owner_rva || backing == 0
-        || !memory_->Read(backing + camera_action_backing_size - 1,
+            std::as_writable_bytes(std::span{&owner, 1})))
+        return fail(FailureCode::IdentityMismatch,
+            CameraTopologyCaptureStage::ActionListOwner);
+    const auto expected_owner = image_base_ + camera_action_owner_rva;
+    if (owner != expected_owner)
+        return fail(FailureCode::IdentityMismatch,
+            CameraTopologyCaptureStage::ActionListOwner,
+            0, owner, expected_owner);
+    if (!memory_->Read(list + 0x08,
+            std::as_writable_bytes(std::span{&backing, 1})))
+        return fail(FailureCode::IdentityMismatch,
+            CameraTopologyCaptureStage::ActionListBacking);
+    if (backing == 0)
+        return fail(FailureCode::IdentityMismatch,
+            CameraTopologyCaptureStage::ActionListBacking);
+    if (!memory_->Read(list + 0x10,
+            std::as_writable_bytes(std::span{slots})))
+        return fail(FailureCode::IdentityMismatch,
+            CameraTopologyCaptureStage::ActionListSlots);
+    if (!memory_->Read(backing + camera_action_backing_size - 1,
             std::span<std::byte>{&backing_tail, 1}))
-    {
-        return Status::failure(FailureCode::IdentityMismatch);
-    }
+        return fail(FailureCode::IdentityMismatch,
+            CameraTopologyCaptureStage::ActionBackingTail);
 
     for (std::size_t index = 0; index < slots.size(); ++index)
     {
@@ -368,27 +403,61 @@ Status Sc6CandidateCheckpointCapture::capture_camera_topology(
         std::uint32_t slot_index{};
         std::uintptr_t action_owner{};
         std::uintptr_t action_list{};
-        if (slots[index] != expected
-            || !memory_->Read(expected,
+        if (slots[index] != expected)
+            return fail(FailureCode::IdentityMismatch,
+                CameraTopologyCaptureStage::ActionSlotPointer,
+                static_cast<std::uint32_t>(index), slots[index], expected);
+        if (!memory_->Read(expected,
                 std::as_writable_bytes(
-                    std::span{output.action_vtables.data() + index, 1}))
-            || !memory_->Read(expected + 0x08,
-                std::as_writable_bytes(std::span{&slot_index, 1}))
-            || !memory_->Read(expected + 0x10,
-                std::as_writable_bytes(std::span{&action_owner, 1}))
-            || !memory_->Read(expected + 0x18,
-                std::as_writable_bytes(std::span{&action_list, 1}))
-            || !memory_->Read(expected + 0x20,
+                    std::span{output.action_vtables.data() + index, 1})))
+            return fail(FailureCode::IdentityMismatch,
+                CameraTopologyCaptureStage::ActionVtable,
+                static_cast<std::uint32_t>(index));
+        if (!memory_->Read(expected + 0x08,
+                std::as_writable_bytes(std::span{&slot_index, 1})))
+            return fail(FailureCode::IdentityMismatch,
+                CameraTopologyCaptureStage::ActionIndex,
+                static_cast<std::uint32_t>(index));
+        if (!memory_->Read(expected + 0x10,
+                std::as_writable_bytes(std::span{&action_owner, 1})))
+            return fail(FailureCode::IdentityMismatch,
+                CameraTopologyCaptureStage::ActionOwner,
+                static_cast<std::uint32_t>(index));
+        if (!memory_->Read(expected + 0x18,
+                std::as_writable_bytes(std::span{&action_list, 1})))
+            return fail(FailureCode::IdentityMismatch,
+                CameraTopologyCaptureStage::ActionList,
+                static_cast<std::uint32_t>(index));
+        if (!memory_->Read(expected + 0x20,
                 std::as_writable_bytes(
-                    std::span{output.action_types.data() + index, 1}))
-            || slot_index != index || action_owner != owner || action_list != list
-            || output.action_vtables[index] < image_base_
+                    std::span{output.action_types.data() + index, 1})))
+            return fail(FailureCode::IdentityMismatch,
+                CameraTopologyCaptureStage::ActionType,
+                static_cast<std::uint32_t>(index));
+        if (slot_index != index)
+            return fail(FailureCode::IdentityMismatch,
+                CameraTopologyCaptureStage::ActionIndex,
+                static_cast<std::uint32_t>(index), slot_index, index);
+        if (action_owner != owner)
+            return fail(FailureCode::IdentityMismatch,
+                CameraTopologyCaptureStage::ActionOwner,
+                static_cast<std::uint32_t>(index), action_owner, owner);
+        if (action_list != list)
+            return fail(FailureCode::IdentityMismatch,
+                CameraTopologyCaptureStage::ActionList,
+                static_cast<std::uint32_t>(index), action_list, list);
+        if (output.action_vtables[index] < image_base_
             || output.action_vtables[index] >= image_base_ + image_size_
-            || (output.action_vtables[index] & 7) != 0
-            || output.action_types[index] > 0x1A)
-        {
-            return Status::failure(FailureCode::IdentityMismatch);
-        }
+            || (output.action_vtables[index] & 7) != 0)
+            return fail(FailureCode::IdentityMismatch,
+                CameraTopologyCaptureStage::ActionVtable,
+                static_cast<std::uint32_t>(index),
+                output.action_vtables[index], image_base_);
+        if (output.action_types[index] > 0x1A)
+            return fail(FailureCode::IdentityMismatch,
+                CameraTopologyCaptureStage::ActionType,
+                static_cast<std::uint32_t>(index),
+                output.action_types[index], 0x1A);
     }
     output.camera_root = root;
     output.action_backing = backing;
@@ -770,88 +839,150 @@ Status Sc6CandidateCheckpointCapture::BindForCanonicalCapture(
     return Status::success();
 }
 
-Status Sc6CandidateCheckpointCapture::CaptureTransient(
-    FrameCoordinate coordinate, Snapshot& output) noexcept
+Status Sc6CandidateCheckpointCapture::finish_transient_capture(Status status,
+    const CandidateTransientCaptureDiagnostic& diagnostic,
+    CandidateTransientCaptureDiagnostic* output) noexcept
 {
-    transient_identity_issue_ = 0;
-    transient_identity_expected_ = 0;
-    transient_identity_observed_ = 0;
+    auto completed = diagnostic;
+    completed.failure = status.ok() ? FailureCode::None : status.code;
+    completed.validation = regions_->validation_diagnostic();
+    completed.animation_topology_issue = chara_animation_->topology_issue();
+    completed.animation_topology_observed =
+        chara_animation_->topology_observed();
+    transient_identity_issue_ = completed.identity_issue;
+    transient_identity_expected_ = completed.identity_expected;
+    transient_identity_observed_ = completed.identity_observed;
+    transient_capture_phase_ = completed.phase;
+    if (output != nullptr) *output = completed;
+    return status;
+}
+
+Status Sc6CandidateCheckpointCapture::CaptureTransient(
+    FrameCoordinate coordinate, Snapshot& output,
+    CandidateTransientCaptureDiagnostic* output_diagnostic) noexcept
+{
+    CandidateTransientCaptureDiagnostic diagnostic{};
+    diagnostic.phase = CandidateCapturePhase::Adapter;
     if (!regions_->IsBound() || bound_manager_ == 0
         || coordinate.generation != bound_round_generation_)
     {
         output = {};
-        return Status::failure(FailureCode::GenerationMismatch);
+        return finish_transient_capture(
+            Status::failure(FailureCode::GenerationMismatch),
+            diagnostic, output_diagnostic);
     }
     CameraTopology camera_topology{};
-    const Status camera = capture_camera_topology(camera_topology);
+    diagnostic.phase = CandidateCapturePhase::CameraTopology;
+    const Status camera = capture_camera_topology(
+        camera_topology, &diagnostic.camera);
     if (!camera.ok() || camera_topology != bound_camera_topology_)
     {
-        transient_identity_issue_ = 1;
-        transient_identity_expected_ = bound_camera_topology_.camera_root;
-        transient_identity_observed_ = camera_topology.camera_root;
-        return Status::failure(camera.ok()
-            ? FailureCode::IdentityMismatch : camera.code);
+        if (camera.ok())
+            diagnostic.camera = {FailureCode::IdentityMismatch,
+                CameraTopologyCaptureStage::BoundTopology};
+        diagnostic.identity_issue = 1;
+        diagnostic.identity_expected = bound_camera_topology_.camera_root;
+        diagnostic.identity_observed = camera_topology.camera_root;
+        return finish_transient_capture(Status::failure(camera.ok()
+                ? FailureCode::IdentityMismatch : camera.code),
+            diagnostic, output_diagnostic);
     }
+    diagnostic.phase = CandidateCapturePhase::CallbackTopology;
     const Status callbacks = capture_callback_topology(
         callback_topology_scratch_);
     if (!callbacks.ok()
         || callback_topology_scratch_ != bound_callback_topology_)
     {
-        transient_identity_issue_ = 2;
-        transient_identity_expected_ = bound_callback_topology_.signature;
-        transient_identity_observed_ = callback_topology_scratch_.signature;
-        return Status::failure(callbacks.ok()
-            ? FailureCode::IdentityMismatch : callbacks.code);
+        diagnostic.identity_issue = 2;
+        diagnostic.identity_expected = bound_callback_topology_.signature;
+        diagnostic.identity_observed = callback_topology_scratch_.signature;
+        return finish_transient_capture(Status::failure(callbacks.ok()
+                ? FailureCode::IdentityMismatch : callbacks.code),
+            diagnostic, output_diagnostic);
     }
+    diagnostic.phase = CandidateCapturePhase::Adapter;
     const Status captured = adapter_->Capture(coordinate, output);
+    if (!captured.ok()
+        && adapter_->last_capture_phase() != CandidateCapturePhase::None)
+    {
+        diagnostic.phase = adapter_->last_capture_phase();
+    }
     if (captured.code == FailureCode::IdentityMismatch)
-        transient_identity_issue_ = 3;
-    return captured;
+        diagnostic.identity_issue = 3;
+    if (captured.ok()) diagnostic.phase = CandidateCapturePhase::None;
+    return finish_transient_capture(captured, diagnostic, output_diagnostic);
+}
+
+Status Sc6CandidateCheckpointCapture::StoreSynchronizedBatchEntry(
+    const Snapshot& snapshot) noexcept
+{
+    if (!regions_->IsBound() || snapshot.coordinate.generation == 0
+        || snapshot.coordinate.generation != bound_round_generation_
+        || snapshot.bytes.empty() || snapshot.local_images.empty())
+        return Status::failure(FailureCode::GenerationMismatch);
+    return batch_entry_snapshots_.SaveCopyPrewarmed(snapshot);
 }
 
 Status Sc6CandidateCheckpointCapture::CaptureCanonical(
-    FrameCoordinate coordinate, Snapshot& output) noexcept
+    FrameCoordinate coordinate, Snapshot& output,
+    CandidateTransientCaptureDiagnostic* output_diagnostic) noexcept
 {
-    transient_identity_issue_ = 0;
-    transient_identity_expected_ = 0;
-    transient_identity_observed_ = 0;
+    CandidateTransientCaptureDiagnostic diagnostic{};
+    diagnostic.phase = CandidateCapturePhase::Adapter;
     if (!regions_->IsBound() || bound_manager_ == 0
         || coordinate.generation != bound_round_generation_)
     {
         output = {};
-        return Status::failure(FailureCode::GenerationMismatch);
+        return finish_transient_capture(
+            Status::failure(FailureCode::GenerationMismatch),
+            diagnostic, output_diagnostic);
     }
     CameraTopology camera_topology{};
-    const Status camera = capture_camera_topology(camera_topology);
+    diagnostic.phase = CandidateCapturePhase::CameraTopology;
+    const Status camera = capture_camera_topology(
+        camera_topology, &diagnostic.camera);
     if (!camera.ok() || camera_topology != bound_camera_topology_)
     {
-        transient_identity_issue_ = 1;
-        transient_identity_expected_ = bound_camera_topology_.camera_root;
-        transient_identity_observed_ = camera_topology.camera_root;
-        return Status::failure(camera.ok()
-            ? FailureCode::IdentityMismatch : camera.code);
+        if (camera.ok())
+            diagnostic.camera = {FailureCode::IdentityMismatch,
+                CameraTopologyCaptureStage::BoundTopology};
+        diagnostic.identity_issue = 1;
+        diagnostic.identity_expected = bound_camera_topology_.camera_root;
+        diagnostic.identity_observed = camera_topology.camera_root;
+        return finish_transient_capture(Status::failure(camera.ok()
+                ? FailureCode::IdentityMismatch : camera.code),
+            diagnostic, output_diagnostic);
     }
+    diagnostic.phase = CandidateCapturePhase::CallbackTopology;
     const Status callbacks = capture_callback_topology(
         callback_topology_scratch_);
     if (!callbacks.ok()
         || callback_topology_scratch_ != bound_callback_topology_)
     {
-        transient_identity_issue_ = 2;
-        transient_identity_expected_ = bound_callback_topology_.signature;
-        transient_identity_observed_ = callback_topology_scratch_.signature;
-        return Status::failure(callbacks.ok()
-            ? FailureCode::IdentityMismatch : callbacks.code);
+        diagnostic.identity_issue = 2;
+        diagnostic.identity_expected = bound_callback_topology_.signature;
+        diagnostic.identity_observed = callback_topology_scratch_.signature;
+        return finish_transient_capture(Status::failure(callbacks.ok()
+                ? FailureCode::IdentityMismatch : callbacks.code),
+            diagnostic, output_diagnostic);
     }
+    diagnostic.phase = CandidateCapturePhase::Adapter;
     const Status captured = adapter_->CaptureCanonical(coordinate, output);
+    if (!captured.ok()
+        && adapter_->last_capture_phase() != CandidateCapturePhase::None)
+    {
+        diagnostic.phase = adapter_->last_capture_phase();
+    }
     if (captured.code == FailureCode::IdentityMismatch)
-        transient_identity_issue_ = 3;
-    return captured;
+        diagnostic.identity_issue = 3;
+    if (captured.ok()) diagnostic.phase = CandidateCapturePhase::None;
+    return finish_transient_capture(captured, diagnostic, output_diagnostic);
 }
 
 CandidateCapturePhase
 Sc6CandidateCheckpointCapture::transient_capture_phase() const noexcept
 {
-    return adapter_->last_capture_phase();
+    return transient_capture_phase_;
 }
 
 std::array<std::uint16_t, 2>
@@ -875,6 +1006,15 @@ NativeRngImage Sc6CandidateCheckpointCapture::last_captured_rng() const noexcept
     return adapter_ == nullptr
         ? NativeRngImage{}
         : adapter_->last_captured_rng();
+}
+
+Status Sc6CandidateCheckpointCapture::GetLastCanonicalPeerDiagnostic(
+    FrameCoordinate coordinate, PeerBaselineStateDiagnostic& output)
+    const noexcept
+{
+    return adapter_ == nullptr
+        ? Status::failure(FailureCode::ContextUnavailable)
+        : adapter_->GetLastCanonicalPeerDiagnostic(coordinate, output);
 }
 
 void Sc6CandidateCheckpointCapture::ResetCapturePerformanceWindow() noexcept
@@ -1068,6 +1208,19 @@ void Sc6CandidateCheckpointCapture::ReleaseBinding() noexcept
     bound_round_generation_ = 0;
     bound_camera_topology_ = {};
     bound_callback_topology_ = {};
+    transient_identity_issue_ = 0;
+    transient_identity_expected_ = 0;
+    transient_identity_observed_ = 0;
+    transient_capture_phase_ = CandidateCapturePhase::None;
+}
+
+void Sc6CandidateCheckpointCapture::ReleaseBindingStorage() noexcept
+{
+    ReleaseBinding();
+    adapter_->ReleaseScratchStorage();
+    regions_->ReleaseScratchStorage();
+    motion_banks_->ReleaseScratchStorage();
+    move_dispatch_->ReleaseScratchStorage();
 }
 
 void Sc6CandidateCheckpointCapture::Reset() noexcept

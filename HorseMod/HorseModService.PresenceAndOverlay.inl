@@ -36,9 +36,16 @@
         m_backend_stage.invalidate();
         m_stage_boundary.invalidate();
         m_stage_visuals.invalidate();
+#if HORSE_ENABLE_GEKKONET || HORSE_ENABLE_OBSERVER_PROBE
+        // The initializer can run while entering CasualMatch, before the
+        // presence callback is observed. Preserve that newly published
+        // pointer on entry; clear it on every transition out of the owning
+        // scene. Qualification reset paths also clear it between cycles.
+        if (to != GMP::CasualMatch)
+            Horse::Deterministic::Sc6BattleSyncOwnerHook::instance().clear();
+#endif
 #if HORSE_ENABLE_GEKKONET
         const auto online_contract = m_online_coordinator.active_contract();
-        m_online_battle_sync.invalidate();
         m_online_session_hub.invalidate();
         if (from == GMP::CasualMatch && to != GMP::CasualMatch
             && (m_online_qualification_requested.load(
@@ -47,7 +54,9 @@
                     std::memory_order_acquire)))
         {
             const Horse::Deterministic::OnlineSceneExitEvidence evidence{
-                online_contract ? online_contract->session_id : 0, true};
+                online_contract ? online_contract->session_id : 0,
+                Horse::Deterministic::OnlineSceneExitBoundary::
+                    CasualMatchPresenceExit};
             if (m_online_lifecycle.RequiresOwnedInput())
                 reset_online_qualification_after_scene_exit(evidence);
             else
@@ -55,7 +64,6 @@
         }
 #endif
 #if HORSE_ENABLE_OBSERVER_PROBE
-        m_online_battle_sync.invalidate();
         m_online_observer_probe.Disarm();
 #endif
     }

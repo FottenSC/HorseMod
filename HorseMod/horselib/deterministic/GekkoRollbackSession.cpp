@@ -34,6 +34,7 @@ Status GekkoRollbackSession::Start(OnlineCoordinator& coordinator,
     local_player_slot_ = local_player_slot;
     input_delay_ = input_delay;
     state_bytes_ = state_bytes;
+    next_local_input_frame_ = 0;
     adapter_ = {&SendData, &ReceiveData, &FreeData};
 
     GekkoConfig config{};
@@ -129,8 +130,21 @@ Status GekkoRollbackSession::Advance(const PlayerInput& local_input,
     {
         return Status::failure(FailureCode::IllegalTransition);
     }
+    PlayerInput effective_local_input = local_input;
+    if (qualification_stimulus_armed_
+        && !qualification_stimulus_injected_
+        && next_local_input_frame_ == qualification_trigger_frame_)
+    {
+        // This input is submitted normally and traverses the authenticated
+        // Steam/coordinator path.  Only its delivery to the remote Gekko
+        // instance is delayed; no snapshot or canonical state is transferred.
+        effective_local_input.held ^= 1u;
+        effective_local_input.rising ^= 1u;
+        qualification_stimulus_injected_ = true;
+        qualification_delay_active_ = true;
+    }
     gekko_add_local_input(session_, local_player_slot_,
-        const_cast<PlayerInput*>(&local_input));
+        &effective_local_input);
     int count{};
     GekkoGameEvent** events{};
     current_adapter_owner_ = this;
@@ -139,7 +153,40 @@ Status GekkoRollbackSession::Advance(const PlayerInput& local_input,
     if (failure_ != FailureCode::None) return Status::failure(failure_);
     const auto sessions = process_session_events();
     if (!sessions.ok()) return sessions;
-    return process_game_events(events, count, &authoritative);
+    const auto processed = process_game_events(events, count, &authoritative);
+    if (processed.ok() && qualification_stimulus_armed_
+        && qualification_delay_active_)
+    {
+        if (qualification_delay_remaining_ != 0)
+            --qualification_delay_remaining_;
+        if (qualification_delay_remaining_ == 0)
+        {
+            qualification_delay_active_ = false;
+            qualification_stimulus_released_ = true;
+        }
+    }
+    if (processed.ok()) ++next_local_input_frame_;
+    return processed;
+}
+
+Status GekkoRollbackSession::ArmQualificationCorrectionStimulus(
+    std::uint8_t delay_frames, std::int32_t trigger_frame) noexcept
+{
+    if (!started_ || session_ == nullptr || !ReadyForBaseline()
+        || delay_frames == 0 || delay_frames > 30
+        || trigger_frame < next_local_input_frame_
+        || (qualification_stimulus_armed_
+            && !qualification_stimulus_released_))
+    {
+        return Status::failure(FailureCode::InvalidConfiguration);
+    }
+    qualification_delay_remaining_ = delay_frames;
+    qualification_trigger_frame_ = trigger_frame;
+    qualification_stimulus_armed_ = true;
+    qualification_delay_active_ = false;
+    qualification_stimulus_injected_ = false;
+    qualification_stimulus_released_ = false;
+    return Status::success();
 }
 
 Status GekkoRollbackSession::CompleteDeferredSaves() noexcept
@@ -150,7 +197,7 @@ Status GekkoRollbackSession::CompleteDeferredSaves() noexcept
     {
         if (deferred_saves_[index] == nullptr)
             return fail(FailureCode::ProtocolMismatch);
-        const auto status = complete_save(*deferred_saves_[index]);
+        const auto status = complete_save(*deferred_saves_[index], true);
         if (!status.ok()) return status;
         deferred_saves_[index] = nullptr;
     }
@@ -183,6 +230,14 @@ void GekkoRollbackSession::Stop() noexcept
     session_started_ = false;
     deferred_saves_ = {};
     deferred_save_count_ = 0;
+    simulation_failure_context_ = {};
+    qualification_delay_remaining_ = 0;
+    next_local_input_frame_ = 0;
+    qualification_trigger_frame_ = -1;
+    qualification_stimulus_armed_ = false;
+    qualification_delay_active_ = false;
+    qualification_stimulus_injected_ = false;
+    qualification_stimulus_released_ = false;
 }
 
 void GekkoRollbackSession::SendData(
@@ -201,6 +256,8 @@ void GekkoRollbackSession::SendData(
         if (self != nullptr) self->failure_ = FailureCode::ProtocolMismatch;
         return;
     }
+    if (self->qualification_delay_active_)
+        return;
     const auto sent = self->coordinator_->SendGekkoPayload(
         std::span{reinterpret_cast<const std::byte*>(data),
             static_cast<std::size_t>(length)});
@@ -278,12 +335,18 @@ Status GekkoRollbackSession::process_game_events(GekkoGameEvent** events,
                     return fail(FailureCode::CapacityExceeded);
                 deferred_saves_[deferred_save_count_++] = &event;
             }
-            else status = complete_save(event);
+            else status = complete_save(event, false);
             break;
         case GekkoLoadEvent:
             status = sink_->Load(event.data.load.frame,
                 std::span{reinterpret_cast<const std::byte*>(
                     event.data.load.state), event.data.load.state_len});
+            if (!status.ok())
+            {
+                simulation_failure_context_ = {
+                    GekkoSimulationOperation::Load,
+                    event.data.load.frame};
+            }
             break;
         case GekkoAdvanceEvent:
         {
@@ -296,6 +359,15 @@ Status GekkoRollbackSession::process_game_events(GekkoGameEvent** events,
             std::memcpy(value.inputs.data(), event.data.adv.inputs,
                 event.data.adv.input_len);
             status = sink_->Advance(value);
+            if (!status.ok())
+            {
+                simulation_failure_context_ = {
+                    GekkoSimulationOperation::Advance,
+                    value.frame,
+                    GekkoSaveBaseline,
+                    value.rolling_back,
+                    value.running_ahead};
+            }
             if (status.ok() && authoritative != nullptr
                 && !value.rolling_back && !value.running_ahead)
             {
@@ -316,7 +388,8 @@ Status GekkoRollbackSession::process_game_events(GekkoGameEvent** events,
     return Status::success();
 }
 
-Status GekkoRollbackSession::complete_save(GekkoGameEvent& event) noexcept
+Status GekkoRollbackSession::complete_save(
+    GekkoGameEvent& event, bool deferred) noexcept
 {
     if (event.type != GekkoSaveEvent || event.data.save.state == nullptr
         || event.data.save.state_len == nullptr
@@ -329,6 +402,16 @@ Status GekkoRollbackSession::complete_save(GekkoGameEvent& event) noexcept
     auto status = sink_->Save(event.data.save.frame, event.data.save.kind,
         std::span{reinterpret_cast<std::byte*>(event.data.save.state),
             state_bytes_}, written, checksum);
+    if (!status.ok())
+    {
+        simulation_failure_context_ = {
+            GekkoSimulationOperation::Save,
+            event.data.save.frame,
+            event.data.save.kind,
+            false,
+            false,
+            deferred};
+    }
     if (status.ok() && written <= state_bytes_)
     {
         *event.data.save.state_len = written;

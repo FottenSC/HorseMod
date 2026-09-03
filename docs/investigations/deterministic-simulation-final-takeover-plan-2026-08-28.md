@@ -303,6 +303,11 @@ for explicit fresh-process lifecycle gates. Zero required presentation activity
 or terminal coverage other than `complete` fails. `lux-no-render` is diagnostic
 only.
 
+This 39-row definition is normative and supersedes the older 51-row/depth-7
+wording in the goal and handoff documents. The legacy forced-depth-7 switch is
+diagnostic only and cannot satisfy or add a release row; release qualification
+uses repeated interleaved restores at depths 11, 1, and 6 in that order.
+
 Require exact same-build baseline canonical equality, ordered audio payload IDs,
 exactly-once ephemeral events, final persistent presentation, no camera/particle/
 wall/barrier/stage leak, no stale identity/allocation, zero capacity failure or
@@ -454,7 +459,7 @@ dumps, or identical logs.
 3. Build the **final release DLL** with those manifests; freeze complete source,
    DLL/schema/config/runner/tool/game hashes. Any semantic/artifact change
    invalidates qualification and returns here.
-4. On that unchanged hash run all 51 offline rows, strict seeks,
+4. On that unchanged hash run all 39 offline rows, strict seeks,
    authored-winner/vanilla controls, Tira transition, and every paired clean/
    impairment/failure/re-entry/soak case for all three content contracts.
 5. On the same hash run the fresh-box clean release gate with real corrections,

@@ -1,6 +1,7 @@
 #include "CanonicalHashTimeline.hpp"
 
 #include <algorithm>
+#include <limits>
 
 namespace Horse::Deterministic
 {
@@ -26,7 +27,9 @@ Status CanonicalHashTimeline::Append(
     const CanonicalInputDiagnostic& input,
     const CanonicalWindSemanticDiagnostic& wind_semantic,
     const CanonicalWindFingerprint& wind,
-    const CanonicalWindNodeDiagnostic& wind_node) noexcept
+    const CanonicalWindNodeDiagnostic& wind_node,
+    const CanonicalAnimationFingerprint& animation,
+    const CanonicalStageEmitterFingerprint& stage_emitters) noexcept
 {
     const auto found = std::lower_bound(entries_.begin(), entries_.end(),
         coordinate, [](const CanonicalHashEntry& entry, FrameCoordinate value)
@@ -41,6 +44,8 @@ Status CanonicalHashTimeline::Append(
                 && found->input == input
                 && found->wind_semantic == wind_semantic
                 && found->wind == wind && found->wind_node == wind_node
+                && found->animation == animation
+                && found->stage_emitters == stage_emitters
             ? Status::success()
             : Status::failure(FailureCode::StateHashMismatch);
     }
@@ -50,8 +55,8 @@ Status CanonicalHashTimeline::Append(
         return Status::failure(FailureCode::CapacityExceeded);
     try
     {
-        entries_.push_back({coordinate, hash, components, native, move_dispatch, input,
-            wind_semantic, wind, wind_node});
+        entries_.push_back({coordinate, hash, components, native, move_dispatch,
+            input, wind_semantic, wind, wind_node, animation, stage_emitters});
     }
     catch (...)
     {
@@ -70,6 +75,22 @@ std::optional<CanonicalHashEntry> CanonicalHashTimeline::GetExact(
         });
     return found != entries_.end() && found->coordinate == coordinate
         ? std::optional<CanonicalHashEntry>{*found} : std::nullopt;
+}
+
+std::optional<CanonicalHashEntry> CanonicalHashTimeline::GetLastInGeneration(
+    std::uint64_t generation) const noexcept
+{
+    if (generation == 0 || entries_.empty()) return std::nullopt;
+    const auto after = std::upper_bound(entries_.begin(), entries_.end(),
+        FrameCoordinate{generation, std::numeric_limits<std::uint64_t>::max()},
+        [](FrameCoordinate value, const CanonicalHashEntry& entry)
+        {
+            return value < entry.coordinate;
+        });
+    if (after == entries_.begin()) return std::nullopt;
+    const auto& candidate = *std::prev(after);
+    return candidate.coordinate.generation == generation
+        ? std::optional<CanonicalHashEntry>{candidate} : std::nullopt;
 }
 
 Status CanonicalHashTimeline::ReplaceExactRange(
@@ -99,7 +120,9 @@ Status CanonicalHashTimeline::ReplaceExactRange(
             || current.input != expected[index].input
             || current.wind_semantic != expected[index].wind_semantic
             || current.wind != expected[index].wind
-            || current.wind_node != expected[index].wind_node)
+            || current.wind_node != expected[index].wind_node
+            || current.animation != expected[index].animation
+            || current.stage_emitters != expected[index].stage_emitters)
             return Status::failure(FailureCode::StateHashMismatch);
     }
     for (std::size_t index = 0; index < replacement.size(); ++index)

@@ -2,22 +2,21 @@
     static bool on_authoritative_input_commit(void* user) noexcept
     {
         auto* self = static_cast<HorseMod*>(user);
-        if (self == nullptr
-            || self->m_online_lifecycle.phase()
+        if (self == nullptr)
+            return false;
+        if (self->m_online_lifecycle.phase()
+                == Horse::Deterministic::OnlineLifecyclePhase::Owned)
+            return self->m_online_coordinator.owns_simulation();
+        if (self->m_online_lifecycle.phase()
                 != Horse::Deterministic::OnlineLifecyclePhase::PreOwnership)
             return false;
-        const auto claimed = self->m_online_coordinator
-            .BeginOwnedInputApplication();
-        const auto owned = claimed.ok()
-            ? self->m_online_lifecycle.MarkOwned()
-            : Horse::Deterministic::Status::failure(claimed.code);
-        if (!claimed.ok() || !owned.ok())
-        {
-            self->fail_online_qualification(claimed.ok()
-                ? owned.code : claimed.code);
-            return false;
-        }
-        return true;
+        // Publication only arms the first authoritative tick. Ownership is
+        // recorded after its completed fencepost by NotifyOwnedTick below.
+        return self->m_online_coordinator.state()
+                == Horse::Deterministic::OnlineState::Active
+            && !self->m_online_coordinator.owns_simulation()
+            && self->m_online_takeover_ready
+            && !self->m_online_prefix_catchup;
     }
 
     Horse::Deterministic::Status complete_online_native_frame(
@@ -27,8 +26,9 @@
         const auto& timeline = m_replay_native_runtime.timeline_status_view();
         if (m_online_coordinator.owns_simulation()
             && m_online_last_observed_coordinate.generation != 0
-            && timeline.last_coordinate.generation
-                != m_online_last_observed_coordinate.generation)
+            && (m_replay_native_runtime.online_rebaseline_deferred()
+                || timeline.last_coordinate.generation
+                    != m_online_last_observed_coordinate.generation))
         {
             if (m_online_coordinator.state() != OnlineState::Active)
                 return (m_online_coordinator.state() == OnlineState::RoundBarrier
@@ -36,31 +36,91 @@
                             == OnlineState::AwaitingBattle)
                     ? Status::success()
                     : Status::failure(FailureCode::IllegalTransition);
-            const auto completed_coordinate = m_online_last_observed_coordinate;
-            CanonicalHash final_hash{};
-            auto status = m_replay_native_runtime.GetCanonicalHash(
-                m_online_last_observed_coordinate, final_hash);
-            if (status.ok()) status = m_online_gekko.PollNetwork();
-            if (status.ok()) status = m_online_gekko.FlushCorrections();
+            const auto observed_end = m_online_last_observed_coordinate;
+            CanonicalHashEntry final_entry{};
+            std::uint8_t transition_phase = 1;
+            auto status = m_replay_native_runtime
+                .GetLastCanonicalEntryInGeneration(
+                    observed_end.generation, final_entry);
             if (status.ok()
-                && m_online_gekko.confirmed_frame()
-                    < m_online_next_gekko_frame - 1)
-                status = Status::failure(FailureCode::MissingInput);
+                && (final_entry.coordinate.generation
+                        != observed_end.generation
+                    || final_entry.coordinate > observed_end))
+                status = Status::failure(FailureCode::IdentityMismatch);
+            if (status.ok()) transition_phase = 2;
+            // The runtime has identified the replacement generation but keeps
+            // the retired correction history intact until this exact boundary
+            // is sealed and bilaterally acknowledged.
+            GekkoRoundSealPlan seal{};
+            if (status.ok())
+            {
+                seal = PlanGekkoRoundSeal(
+                    m_online_gekko.confirmed_frame(),
+                    m_online_next_gekko_frame,
+                    m_online_current_advance_pending,
+                    m_online_pending_coordinate, observed_end,
+                    timeline.last_coordinate,
+                    m_replay_native_runtime.online_rebaseline_deferred());
+                if (!seal.sealed)
+                    status = Status::failure(FailureCode::MissingInput);
+                else if (seal.discard_cross_generation_advance)
+                {
+                    m_online_current_advance_pending = false;
+                    m_online_pending_coordinate = {};
+                }
+            }
+            if (status.ok()) transition_phase = 3;
             if (status.ok())
                 status = m_replay_native_runtime.CommitPresentationThrough(
-                    m_online_last_observed_coordinate,
+                    final_entry.coordinate,
                     m_deterministic_hooks);
+            if (status.ok()) transition_phase = 4;
+            const auto replacement_generation =
+                PlanOwnedRoundReplacementGeneration(
+                    final_entry.coordinate.generation,
+                    timeline.last_coordinate.generation);
+            if (status.ok() && !replacement_generation.has_value())
+                status = Status::failure(FailureCode::GenerationMismatch);
             if (status.ok())
                 status = m_online_coordinator.BeginRoundBarrier(
-                    m_online_last_observed_coordinate.generation,
-                    timeline.last_coordinate.generation, final_hash);
-            if (!status.ok()) return status;
+                    final_entry.coordinate,
+                    *replacement_generation, final_entry.hash);
+            if (!status.ok())
+            {
+                const auto gekko_failure =
+                    m_online_gekko.simulation_failure_context();
+                Output::send<LogLevel::Warning>(STR(
+                    "[HorseMod] online qualification run_id={} "
+                    "round_transition_failure phase={} status={} "
+                    "observed_end={}:{} canonical_end={}:{} current={}:{} "
+                    "gekko_confirmed={} next_gekko_frame={} "
+                    "advance_pending={} pending_coordinate={}:{} "
+                    "gekko_operation={} gekko_frame={} deferred={}\n"),
+                    RC::to_generic_string(m_online_run_id), transition_phase,
+                    RC::to_generic_string(std::string(
+                        failure_code_name(status.code))),
+                    observed_end.generation, observed_end.frame,
+                    final_entry.coordinate.generation,
+                    final_entry.coordinate.frame,
+                    timeline.last_coordinate.generation,
+                    timeline.last_coordinate.frame,
+                    m_online_gekko.confirmed_frame(),
+                    m_online_next_gekko_frame,
+                    m_online_current_advance_pending ? 1 : 0,
+                    m_online_pending_coordinate.generation,
+                    m_online_pending_coordinate.frame,
+                    static_cast<unsigned>(gekko_failure.operation),
+                    gekko_failure.frame,
+                    gekko_failure.deferred ? 1 : 0);
+                return status;
+            }
             Output::send<LogLevel::Default>(STR(
                 "[HorseMod] online qualification run_id={} "
                 "event=round_barrier_started generation={} frame={}\n"),
                 RC::to_generic_string(m_online_run_id),
-                completed_coordinate.generation, completed_coordinate.frame);
-            m_online_round_completed_coordinate = completed_coordinate;
+                final_entry.coordinate.generation,
+                final_entry.coordinate.frame);
+            m_online_round_completed_coordinate = final_entry.coordinate;
             m_online_round_transition_pending = true;
             return Status::success();
         }
@@ -71,20 +131,45 @@
             return Status::success();
         }
         if (timeline.last_coordinate != m_online_pending_coordinate)
+        {
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] online qualification run_id={} "
+                "owned_frame_coordinate_mismatch observed={}:{} "
+                "expected={}:{} next_gekko_frame={}\n"),
+                RC::to_generic_string(m_online_run_id),
+                timeline.last_coordinate.generation,
+                timeline.last_coordinate.frame,
+                m_online_pending_coordinate.generation,
+                m_online_pending_coordinate.frame,
+                m_online_next_gekko_frame);
             return m_online_coordinator.Abort(
                 FailureCode::GenerationMismatch);
+        }
         m_online_current_advance_pending = false;
         m_online_pending_coordinate = {};
         auto status = m_online_gekko.CompleteDeferredSaves();
-        while (status.ok()
-            && m_online_gekko.confirmed_frame()
-                >= m_online_next_confirmed_hash_frame)
+        if (!status.ok())
         {
-            const FrameCoordinate confirmed{
-                m_online_baseline_coordinate.generation,
-                m_online_baseline_coordinate.frame
-                    + static_cast<std::uint64_t>(
-                        m_online_next_confirmed_hash_frame) + 1};
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] online qualification run_id={} "
+                "owned_frame_save_failed status={} coordinate={}:{} "
+                "next_gekko_frame={}\n"),
+                RC::to_generic_string(m_online_run_id),
+                RC::to_generic_string(std::string(
+                    failure_code_name(status.code))),
+                timeline.last_coordinate.generation,
+                timeline.last_coordinate.frame,
+                m_online_next_gekko_frame);
+        }
+        while (status.ok())
+        {
+            const auto publish = PlanConfirmedHashPublication(
+                m_online_baseline_coordinate,
+                m_online_next_confirmed_hash_frame,
+                m_online_gekko.confirmed_frame(),
+                timeline.last_coordinate);
+            if (!publish.has_value()) break;
+            const FrameCoordinate confirmed = *publish;
             CanonicalHash hash{};
             status = m_replay_native_runtime.GetCanonicalHash(confirmed, hash);
             if (status.ok())
@@ -153,6 +238,87 @@
             if (status.ok())
                 status = m_replay_native_runtime.CommitPresentationThrough(
                     remote->coordinate, m_deterministic_hooks);
+            std::int32_t confirmed_gekko_frame{-1};
+            const auto stimulus_lead =
+                QualificationCorrectionStimulusLead(
+                    m_deterministic_config.rollback_window);
+            if (status.ok()
+                && remote->coordinate.frame
+                    > m_online_baseline_coordinate.frame
+                && remote->coordinate.frame
+                    - m_online_baseline_coordinate.frame - 1
+                    <= static_cast<std::uint64_t>(INT32_MAX))
+                confirmed_gekko_frame = static_cast<std::int32_t>(
+                    remote->coordinate.frame
+                        - m_online_baseline_coordinate.frame - 1);
+            if (status.ok() && MayRearmQualificationCorrectionStimulus(
+                    m_online_correction_stimulus_armed,
+                    m_online_gekko
+                        .qualification_correction_stimulus_released(),
+                    confirmed_gekko_frame,
+                    m_online_correction_stimulus_trigger_frame))
+            {
+                // Correction counts are process-local: depending on peer tick
+                // phase, a one-frame late input may roll back only its remote
+                // receiver. Payload release plus this later mutually matching
+                // hash is the bilateral convergence boundary.
+                m_online_correction_stimulus_armed = false;
+            }
+            if (status.ok()
+                && m_online_coordinator.kind()
+                    == OnlineRuntimeKind::Qualification
+                && m_online_correction_stimulus_next
+                    < m_online_correction_stimulus_count
+                && !m_online_correction_stimulus_armed)
+            {
+                // A matching remote confirmed hash is the first existing
+                // protocol boundary proving both peers are owned and
+                // independently canonical at one coordinate. Derive the
+                // absolute Gekko trigger from that shared coordinate so
+                // asymmetric prefix lengths cannot arm different frames.
+                if (remote->coordinate.frame
+                        <= m_online_baseline_coordinate.frame
+                    || remote->coordinate.frame
+                        - m_online_baseline_coordinate.frame - 1
+                        > static_cast<std::uint64_t>(
+                            INT32_MAX - stimulus_lead))
+                {
+                    status = Status::failure(
+                        FailureCode::InvalidConfiguration);
+                }
+                else
+                {
+                    const auto stimulus_ordinal =
+                        m_online_correction_stimulus_next + 1;
+                    const auto stimulus_depth =
+                        m_online_correction_stimulus_depths[
+                            m_online_correction_stimulus_next];
+                    const auto trigger_frame =
+                        confirmed_gekko_frame + stimulus_lead;
+                    status = m_online_gekko
+                        .ArmQualificationCorrectionStimulus(
+                            stimulus_depth, trigger_frame);
+                    if (status.ok())
+                    {
+                        m_online_correction_stimulus_armed = true;
+                        m_online_correction_stimulus_trigger_frame =
+                            trigger_frame;
+                        ++m_online_correction_stimulus_next;
+                        Output::send<LogLevel::Default>(STR(
+                            "[HorseMod] online qualification run_id={} "
+                            "armed authenticated correction stimulus "
+                            "depth={} trigger_frame={} "
+                            "after_confirmed_gekko_frame={} ordinal={} "
+                            "total={} lead_frames={} "
+                            "corrections_before={}\n"),
+                            RC::to_generic_string(m_online_run_id),
+                            stimulus_depth, trigger_frame,
+                            confirmed_gekko_frame, stimulus_ordinal,
+                            m_online_correction_stimulus_count,
+                            stimulus_lead, m_online_corrections);
+                    }
+                }
+            }
             if (status.ok())
             {
                 const auto hash_hex = [](const CanonicalHash& value) {
@@ -221,16 +387,20 @@
                 timeline.last_coordinate);
             if (status.ok())
             {
-                m_online_first_owned_generation =
-                    timeline.last_coordinate.generation;
-                advance_online_qualification_status(5);
-                log_online_event(1u << 8, "first_owned_input",
-                    timeline.last_coordinate);
-                Output::send<LogLevel::Default>(STR(
-                    "[HorseMod] online qualification proved first owned "
-                    "native input generation={} frame={}\n"),
-                    timeline.last_coordinate.generation,
-                    timeline.last_coordinate.frame);
+                status = m_online_lifecycle.MarkOwned();
+                if (status.ok())
+                {
+                    m_online_first_owned_generation =
+                        timeline.last_coordinate.generation;
+                    advance_online_qualification_status(5);
+                    log_online_event(1u << 8, "first_owned_input",
+                        timeline.last_coordinate);
+                    Output::send<LogLevel::Default>(STR(
+                        "[HorseMod] online qualification proved first owned "
+                        "native input generation={} frame={}\n"),
+                        timeline.last_coordinate.generation,
+                        timeline.last_coordinate.frame);
+                }
             }
         }
         if (status.ok() && !m_online_qualification_fault_triggered
@@ -259,7 +429,8 @@
         using namespace Horse::Deterministic;
         if (m_online_observer_probe.state() != OnlineObserverProbeState::Armed)
             return;
-        Horse::Obj sync{m_online_battle_sync.get(L"LuxOnlineBattleSync")};
+        Horse::Obj sync{reinterpret_cast<RC::Unreal::UObject*>(
+            Horse::Deterministic::Sc6BattleSyncOwnerHook::instance().current())};
         constexpr std::size_t maximum_packages = 64;
         std::array<std::string, maximum_packages> package_storage{};
         std::array<std::string_view, maximum_packages> package_views{};
@@ -413,11 +584,33 @@
             {
                 Output::send<LogLevel::Warning>(STR(
                     "[HorseMod] canonical frame capture failed coordinate={} "
-                    "phase={} animation={} observed=0x{:x}\n"),
+                    "phase={} validation={} validation_index={} "
+                    "validation_observed={}/{} validation_expected={}/{} "
+                    "camera_status={} camera_stage={} camera_index={} "
+                    "camera_observed=0x{:x} camera_expected=0x{:x} "
+                    "animation={} observed=0x{:x}\n"),
                     failed.canonical_capture_failure_coordinate.frame,
                     RC::to_generic_string(std::string(
                         Horse::Deterministic::candidate_capture_phase_name(
                             failed.canonical_capture_phase))),
+                    RC::to_generic_string(std::string(
+                        Horse::Deterministic::
+                            native_candidate_validation_issue_name(
+                                failed.canonical_capture_validation.issue))),
+                    failed.canonical_capture_validation.index,
+                    failed.canonical_capture_validation.observed_a,
+                    failed.canonical_capture_validation.observed_b,
+                    failed.canonical_capture_validation.expected_a,
+                    failed.canonical_capture_validation.expected_b,
+                    RC::to_generic_string(std::string(
+                        Horse::Deterministic::failure_code_name(
+                            failed.canonical_camera_capture.intended_failure))),
+                    RC::to_generic_string(std::string(
+                        Horse::Deterministic::camera_topology_capture_stage_name(
+                            failed.canonical_camera_capture.stage))),
+                    failed.canonical_camera_capture.index,
+                    failed.canonical_camera_capture.observed,
+                    failed.canonical_camera_capture.expected,
                     RC::to_generic_string(std::string(
                         Horse::Deterministic::chara_animation_topology_issue_name(
                             failed.canonical_animation_topology_issue))),
@@ -428,7 +621,11 @@
             {
                 Output::send<LogLevel::Warning>(STR(
                     "[HorseMod] canonical frame capture rejected status={} "
-                    "coordinate={} phase={} animation={} observed=0x{:x} "
+                    "coordinate={} phase={} validation={} validation_index={} "
+                    "validation_observed={}/{} validation_expected={}/{} "
+                    "camera_status={} camera_stage={} camera_index={} "
+                    "camera_observed=0x{:x} camera_expected=0x{:x} "
+                    "animation={} observed=0x{:x} "
                     "identity_issue={} expected=0x{:x} actual=0x{:x}\n"),
                     RC::to_generic_string(std::string(
                         Horse::Deterministic::failure_code_name(capture.code))),
@@ -436,6 +633,24 @@
                     RC::to_generic_string(std::string(
                         Horse::Deterministic::candidate_capture_phase_name(
                             failed.canonical_capture_phase))),
+                    RC::to_generic_string(std::string(
+                        Horse::Deterministic::
+                            native_candidate_validation_issue_name(
+                                failed.canonical_capture_validation.issue))),
+                    failed.canonical_capture_validation.index,
+                    failed.canonical_capture_validation.observed_a,
+                    failed.canonical_capture_validation.observed_b,
+                    failed.canonical_capture_validation.expected_a,
+                    failed.canonical_capture_validation.expected_b,
+                    RC::to_generic_string(std::string(
+                        Horse::Deterministic::failure_code_name(
+                            failed.canonical_camera_capture.intended_failure))),
+                    RC::to_generic_string(std::string(
+                        Horse::Deterministic::camera_topology_capture_stage_name(
+                            failed.canonical_camera_capture.stage))),
+                    failed.canonical_camera_capture.index,
+                    failed.canonical_camera_capture.observed,
+                    failed.canonical_camera_capture.expected,
                     RC::to_generic_string(std::string(
                         Horse::Deterministic::chara_animation_topology_issue_name(
                             failed.canonical_animation_topology_issue))),
@@ -584,6 +799,57 @@
             observation);
         if (!status.ok())
         {
+            const auto failed = self->m_replay_native_runtime.timeline_status();
+            const auto fencepost_failure_before_outer =
+                self->m_frame_fencepost_failure.load(std::memory_order_acquire);
+            const auto fencepost_read_mask =
+                self->m_frame_fencepost_last_read_mask.load(
+                    std::memory_order_acquire);
+            const auto fencepost_expected_thread =
+                self->m_frame_fencepost_expected_thread.load(
+                    std::memory_order_acquire);
+            Output::send<LogLevel::Warning>(STR(
+                "[HorseMod] outer-tick accounting failed status={} batch={} "
+                "frame={}->{} coordinates={} filter={}/{} capture_preserved={} "
+                "authoritative={}/{} aborted={} input_log=0x{:x}->0x{:x} "
+                "input_round={}->{} input_time={}->{} "
+                "manager_round={}->{} manager_time={}->{} "
+                "main_state={}->{} round_state={}->{} "
+                "fencepost_status={} read_mask=0x{:x} "
+                "expected_thread={} outer_thread={} "
+                "identity_issue={} expected={} observed={}\n"),
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::failure_code_name(status.code))),
+                observation.batch_id,
+                observation.before.frame_counter,
+                observation.after.frame_counter,
+                observation.observed_coordinates,
+                observation.input_filter_observed ? 1 : 0,
+                observation.input_filter_invocations,
+                observation.outer_capture_context_preserved ? 1 : 0,
+                observation.authoritative_input_requested ? 1 : 0,
+                observation.authoritative_input_applied ? 1 : 0,
+                observation.authoritative_input_aborted_before_consume ? 1 : 0,
+                observation.before.input_log, observation.after.input_log,
+                observation.before.input_game_round,
+                observation.after.input_game_round,
+                observation.before.input_game_time,
+                observation.after.input_game_time,
+                observation.before.manager_game_round_cursor,
+                observation.after.manager_game_round_cursor,
+                observation.before.manager_game_time_cursor,
+                observation.after.manager_game_time_cursor,
+                static_cast<unsigned>(observation.before.main_state),
+                static_cast<unsigned>(observation.after.main_state),
+                static_cast<unsigned>(observation.before.round_state),
+                static_cast<unsigned>(observation.after.round_state),
+                RC::to_generic_string(std::string(
+                    Horse::Deterministic::failure_code_name(
+                        fencepost_failure_before_outer))),
+                fencepost_read_mask, fencepost_expected_thread,
+                observation.thread_id,
+                failed.identity_issue, failed.identity_expected,
+                failed.identity_observed);
             if (status.code == Horse::Deterministic::FailureCode::ProtocolMismatch
                 || status.code
                     == Horse::Deterministic::FailureCode::UnsupportedContent)
@@ -683,6 +949,19 @@
             }
             self->m_frame_fencepost_failure.store(
                 status.code, std::memory_order_release);
+#if HORSE_ENABLE_GEKKONET
+            const auto lifecycle = self->m_online_lifecycle.phase();
+            if (lifecycle
+                    == Horse::Deterministic::OnlineLifecyclePhase::PreOwnership
+                || lifecycle
+                    == Horse::Deterministic::OnlineLifecyclePhase::Owned)
+            {
+                // Preserve the first native observation failure as the root
+                // and release Gekko before another authoritative-input hook
+                // can mask it with a secondary Advance failure.
+                self->fail_online_qualification(status.code);
+            }
+#endif
             return;
         }
 
@@ -793,6 +1072,12 @@
                         committed.code, std::memory_order_release);
             }
         }
+#if HORSE_ENABLE_GEKKONET
+        // This callback runs after the native outer tick has been completely
+        // observed. Service a pending exact-frame baseline handoff here so it
+        // cannot be armed from the middle of a skipped or active native batch.
+        self->service_online_qualification();
+#endif
     }
 
     static void on_outer_tick_begin(

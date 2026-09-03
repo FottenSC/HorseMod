@@ -459,6 +459,60 @@ bool EnterPlayerMatch(RC::Unreal::UObject* scene) noexcept
     return true;
 }
 
+bool RequestPlayerMatchLobbyTransition(
+    RC::Unreal::UObject* scene) noexcept
+{
+    if (!IsReal(scene)) return false;
+    auto* function = scene->GetFunctionByNameInChain(L"RequestChangeScene");
+    if (function == nullptr || function->GetPropertiesSize() <= 0
+        || function->GetPropertiesSize() > 4096)
+        return false;
+    auto* tag = RC::Unreal::CastField<RC::Unreal::FStrProperty>(
+        Param(function, L"inTag"));
+    if (tag == nullptr)
+        tag = RC::Unreal::CastField<RC::Unreal::FStrProperty>(
+            Param(function, L"InTag"));
+    auto* inherited = Param(function, L"inInheritedData");
+    if (inherited == nullptr) inherited = Param(function, L"InInheritedData");
+    if (tag == nullptr || inherited == nullptr
+        || inherited->GetSize() <= 0
+        || inherited->GetSize()
+            > static_cast<std::int32_t>(sizeof(UIDataObject)))
+        return false;
+
+    UIDataObject data{};
+    if (!CreateDataObject(L"Conv_StringToUIDataObject", L"inString",
+            L"InRoom", data)
+        && !CreateDataObject(L"Conv_StringToUIDataObject", L"InString",
+            L"InRoom", data))
+        return false;
+    std::vector<std::uint8_t> params(
+        static_cast<std::size_t>(function->GetPropertiesSize()), 0);
+    tag->InitializeValue_InContainer(params.data());
+    tag->SetPropertyValueInContainer(
+        params.data(), RC::Unreal::FString(L"battlelobby"));
+    void* inherited_slot =
+        inherited->ContainerPtrToValuePtr<void>(params.data());
+    if (inherited_slot == nullptr)
+    {
+        tag->DestroyValue_InContainer(params.data());
+        Destroy(data);
+        return false;
+    }
+    std::memcpy(inherited_slot, &data,
+        static_cast<std::size_t>(inherited->GetSize()));
+    try { scene->ProcessEvent(function, params.data()); }
+    catch (...)
+    {
+        tag->DestroyValue_InContainer(params.data());
+        Destroy(data);
+        return false;
+    }
+    tag->DestroyValue_InContainer(params.data());
+    Destroy(data);
+    return true;
+}
+
 RC::Unreal::FProperty* FirstParam(
     RC::Unreal::UFunction* function,
     std::initializer_list<const wchar_t*> names) noexcept
@@ -1726,6 +1780,7 @@ void OnlineRoomAutomation::Reset(const OnlineAutomationRequest& request) noexcep
     stage_focus_requested_ = false;
     stage_decide_requested_ = false;
     match_content_verified_ = false;
+    battle_end_and_lobby_transition_requested_ = false;
 }
 
 OnlineRoomState OnlineRoomAutomation::Tick(std::string& detail) noexcept
@@ -1782,6 +1837,54 @@ OnlineRoomState OnlineRoomAutomation::Tick(std::string& detail) noexcept
         { title_decide_stage_ = 5; scene_ticks_ = 0; }
         detail = "title_state:" + state_code;
         return OnlineRoomState::Waiting;
+    }
+
+    if (request_.action == OnlineAutomationAction::MatchTeardown)
+    {
+        if (request_.battle_result < 0 || request_.battle_result > 2)
+        {
+            detail = "invalid_battle_end_result";
+            return OnlineRoomState::Failed;
+        }
+        const auto scene_kind =
+            scene_name.find("PlayerMatchLobbyScene") != std::string::npos
+                ? MatchTeardownScene::PlayerMatchLobby
+                : scene_name.find("SetupScene") != std::string::npos
+                    ? MatchTeardownScene::PlayerMatchSetup
+                    : scene_name.find("PlayerMatchScene") != std::string::npos
+                        ? MatchTeardownScene::ActivePlayerMatch
+                        : MatchTeardownScene::Other;
+        const auto plan = PlanMatchTeardown(
+            scene_kind, battle_end_and_lobby_transition_requested_);
+        if (plan.state == OnlineRoomState::Complete)
+        {
+            detail = "returned_to_player_match_lobby";
+            return plan.state;
+        }
+        if (plan.request_battle_end)
+        {
+            if (!CallNoParam(scene, L"RequestBattleEnd"))
+            {
+                detail = "player_match_request_battle_end_failed";
+                return OnlineRoomState::Failed;
+            }
+            if (!plan.request_lobby_transition
+                || !RequestPlayerMatchLobbyTransition(scene))
+            {
+                detail = "player_match_lobby_transition_failed";
+                return OnlineRoomState::Failed;
+            }
+            battle_end_and_lobby_transition_requested_ = true;
+            detail = "battle_end_and_lobby_transition_requested";
+            return plan.state;
+        }
+        if (scene_kind != MatchTeardownScene::ActivePlayerMatch)
+        {
+            detail = "waiting_for_active_player_match";
+            return plan.state;
+        }
+        detail = "waiting_for_player_match_lobby";
+        return plan.state;
     }
 
     if (request_.action == OnlineAutomationAction::MatchSetup)

@@ -610,6 +610,11 @@ void __fastcall DeterministicHookSet::OuterTickDetour(
         observation.authoritative_input_aborted_before_consume =
             InvokeOuterTickWithAbortGuard(
                 original, battle_manager, delta_seconds);
+    observation.input_filter_invocations =
+        capture_context.input_filter_invocations;
+    observation.input_filter_observed = capture_context.input_filter_observed;
+    observation.outer_capture_context_preserved =
+        active_outer_capture_ == &capture_context;
     if (hooks == nullptr
         || !CaptureCameraPublicationSignature(
             hooks->image_base_, observation.camera_publication,

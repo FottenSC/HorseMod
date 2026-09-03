@@ -24,6 +24,7 @@ public:
     Status Bind(const std::array<std::uintptr_t, 2>& fighters,
         const LocalReconstructionGenerationContext& context) noexcept;
     void Invalidate() noexcept;
+    void ReleaseScratchStorage() noexcept;
     Status Capture(LocalReconstructionImage& output) noexcept;
     Status RestoreTransactional(const LocalReconstructionImage& image) noexcept;
     [[nodiscard]] std::size_t ScratchCapacityBytes() const noexcept

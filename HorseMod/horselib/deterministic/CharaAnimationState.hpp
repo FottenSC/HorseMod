@@ -111,6 +111,13 @@ public:
         const CharaAnimationStateImage& image);
     static void CanonicalBytes(const CharaAnimationStateImage& image,
         std::vector<std::byte>& output);
+    // Peer identity keeps the complete active scheduler transaction. An
+    // inactive scheduler's payload, trigger list, and pChara binding are
+    // stale residue: the native tick returns on nActive == 0, the intro
+    // controller reads only nActive, and configuration overwrites/clears the
+    // state before rearming it. Local checkpoint bytes remain unchanged.
+    static void PeerCanonicalBytes(const CharaAnimationStateImage& image,
+        std::vector<std::byte>& output);
     static Status DecodeCanonicalBytes(std::span<const std::byte> bytes,
         CharaAnimationStateImage& output) noexcept;
     static bool Validate(const CharaAnimationStateImage& image) noexcept;

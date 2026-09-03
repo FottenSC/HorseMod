@@ -7,16 +7,17 @@
 #include <charconv>
 #include <cstring>
 #include <cstdio>
+#include <string>
 
 namespace Horse::Deterministic
 {
 namespace
 {
 constexpr std::uintptr_t get_local_online_session_rva = 0x003f07a0;
+constexpr std::uintptr_t get_online_session_interface_rva = 0x02ea0470;
 constexpr std::uintptr_t message_router_vtable_rva = 0x03d27940;
 constexpr std::size_t message_router_subobject_offset = 0x18;
 constexpr std::size_t session_name_offset = 0x30;
-constexpr std::size_t online_session_object_offset = 0x118;
 constexpr std::size_t named_session_info_offset = 0xa8;
 constexpr std::size_t steam_lobby_id_offset = 0x48;
 constexpr std::uint32_t tournament_discriminator_bit = 0x40000;
@@ -45,9 +46,10 @@ struct SharedSession
 };
 
 using GetLocalOnlineSessionFn = SharedSession* (*)(SharedSession*);
+using GetOnlineSessionInterfaceFn = SharedSession* (*)(SharedSession*, void*);
 using GetRoleFn = std::int8_t (*)(void*);
 using GetStateFn = std::uint8_t (*)(void*);
-using GetNamedSessionFn = void* (*)(void*, const std::uint64_t*);
+using GetNamedSessionFn = void* (*)(void*, std::uint64_t);
 
 void ReleaseSharedSession(SharedSession& value) noexcept
 {
@@ -122,6 +124,7 @@ Status Sc6BattleSyncObserver::ObserveDetailed(
         return Status::failure(FailureCode::ContextUnavailable);
     output.battle_sync_object = reinterpret_cast<std::uintptr_t>(
         battle_sync_object);
+    output.observation_stage = Sc6BattleSyncIdentity::ObservationStage::Acquired;
     Status status = Status::failure(FailureCode::ContextUnavailable);
 #if defined(_MSC_VER)
     __try
@@ -137,6 +140,8 @@ Status Sc6BattleSyncObserver::ObserveDetailed(
         // not strand exact-content qualification after the payload is valid.
         output.characters_received = characters_received != 0;
         output.stage_received = stage_received != 0;
+        output.observation_stage =
+            Sc6BattleSyncIdentity::ObservationStage::CompletionFlags;
         if (characters_received != 0 && stage_received != 0)
         {
             auto& content = output.content;
@@ -147,16 +152,23 @@ Status Sc6BattleSyncObserver::ObserveDetailed(
                     object + sync_character_data_offset
                     + player * sync_character_data_stride
                     + sync_character_code_offset);
-                valid = valid && CopyUnrealString(
+                output.fighter_code_valid[player] = CopyUnrealString(
                     *text, content.fighter_codes[player]);
+                valid = valid && output.fighter_code_valid[player];
             }
+            output.observation_stage =
+                Sc6BattleSyncIdentity::ObservationStage::FighterCodes;
             const auto stage = *reinterpret_cast<const std::uint16_t*>(
                 object + sync_stage_code_offset);
             const auto random = *reinterpret_cast<const std::uint8_t*>(
                 object + sync_stage_random_offset);
+            output.native_stage_code = stage;
+            output.native_stage_random = random;
             content.stage_rng_seed = *reinterpret_cast<const std::uint32_t*>(
                 object + sync_stage_seed_offset);
             valid = valid && stage != 0 && stage <= 999 && random <= 1;
+            output.observation_stage =
+                Sc6BattleSyncIdentity::ObservationStage::StageFields;
             if (valid)
             {
                 const int stage_length = std::snprintf(content.stage_code.data(),
@@ -171,12 +183,16 @@ Status Sc6BattleSyncObserver::ObserveDetailed(
                         catalog->package_root.data(), catalog->package_root.size());
                     content.map_name[catalog->package_root.size()] = '\0';
                 }
+                output.observation_stage =
+                    Sc6BattleSyncIdentity::ObservationStage::StageCatalog;
             }
             content.stage_was_random = random != 0;
             if (valid)
             {
                 status = HashOnlineSelectionIdentity(
                     content, content.map_identity);
+                output.observation_stage =
+                    Sc6BattleSyncIdentity::ObservationStage::SelectionIdentity;
             }
             else
             {
@@ -190,8 +206,27 @@ Status Sc6BattleSyncObserver::ObserveDetailed(
         status = Status::failure(FailureCode::ContextUnavailable);
     }
 #endif
-    if (!status.ok() && status.code != FailureCode::ContextUnavailable)
-        output = {};
+    // Keep bounded raw diagnostics on failure. Observe() still exposes an
+    // empty content contract unless the complete validation succeeds.
+    return status;
+}
+
+Status LatchSc6BattleSyncContent(
+    const Sc6BattleSyncObserver& observer,
+    const void* battle_sync_object,
+    OnlineContentContract& latched_content,
+    bool& latched_valid,
+    Sc6BattleSyncIdentity& observation) noexcept
+{
+    observation = {};
+    if (latched_valid) return Status::success();
+    const auto status = observer.ObserveDetailed(
+        battle_sync_object, observation);
+    if (status.ok())
+    {
+        latched_content = observation.content;
+        latched_valid = true;
+    }
     return status;
 }
 
@@ -206,11 +241,22 @@ Status Sc6OnlineSessionObserver::Initialize(std::uintptr_t image_base) noexcept
 Status Sc6OnlineSessionObserver::Observe(
     Sc6OnlineSessionIdentity& output) const noexcept
 {
+    const auto status = ObserveCurrent(output);
+    if (!status.ok()) return status;
+    if (!IsSc6PreownershipSessionState(output.virtual_session_state))
+        return Status::failure(FailureCode::ContextUnavailable);
+    return status;
+}
+
+Status Sc6OnlineSessionObserver::ObserveCurrent(
+    Sc6OnlineSessionIdentity& output) const noexcept
+{
     output = {};
     if (image_base_ == 0)
         return Status::failure(FailureCode::ContextUnavailable);
 
     SharedSession retained{};
+    SharedSession online_interface{};
     Status status = Status::failure(FailureCode::ContextUnavailable);
 #if defined(_MSC_VER)
     __try
@@ -222,11 +268,17 @@ Status Sc6OnlineSessionObserver::Observe(
         if (retained.object != nullptr && retained.controller != nullptr)
         {
             auto* session = static_cast<std::byte*>(retained.object);
+            output.session_interface =
+                reinterpret_cast<std::uintptr_t>(session);
+            output.observation_stage =
+                Sc6OnlineSessionObservationStage::Acquired;
             auto** session_vtable = *reinterpret_cast<void***>(session);
             const auto expected_vtable = reinterpret_cast<void*>(
                 image_base_ + message_router_vtable_rva);
             if (session_vtable == expected_vtable)
             {
+                output.observation_stage =
+                    Sc6OnlineSessionObservationStage::ExpectedVtable;
                 const auto role = reinterpret_cast<GetRoleFn>(
                     session_vtable[0])(session);
                 // The retained pointer is the message-router interface at
@@ -236,47 +288,71 @@ Status Sc6OnlineSessionObserver::Observe(
                 const auto state = reinterpret_cast<GetStateFn>(
                     session_vtable[1])(session);
                 auto* active = session - message_router_subobject_offset;
-                auto* online_session = *reinterpret_cast<void**>(
-                    active + online_session_object_offset);
+                output.active_connect =
+                    reinterpret_cast<std::uintptr_t>(active);
+                output.role = role;
+                output.virtual_session_state = state;
+                if (role == 0 || role == 1)
+                    output.local_player_slot = static_cast<std::uint8_t>(role);
+                output.observation_stage =
+                    Sc6OnlineSessionObservationStage::RoleAndState;
                 const auto session_name = *reinterpret_cast<std::uint64_t*>(
                     active + session_name_offset);
-                if ((role == 0 || role == 1)
-                    && IsSc6PreownershipSessionState(state)
-                    && online_session != nullptr && session_name != 0)
+                output.session_name = session_name;
+                if ((role == 0 || role == 1) && session_name != 0)
                 {
-                    auto** online_vtable = *reinterpret_cast<void***>(
-                        online_session);
-                    const auto get_named = reinterpret_cast<GetNamedSessionFn>(
-                        online_vtable[3]);
-                    auto* named_session = static_cast<std::byte*>(
-                        get_named(online_session, &session_name));
-                    if (named_session != nullptr)
+                    const auto acquire_online = reinterpret_cast<
+                        GetOnlineSessionInterfaceFn>(
+                            image_base_ + get_online_session_interface_rva);
+                    acquire_online(&online_interface, nullptr);
+                    auto* online_session = online_interface.object;
+                    if (online_session != nullptr
+                        && online_interface.controller != nullptr)
                     {
-                        auto* session_info = *reinterpret_cast<std::byte**>(
-                            named_session + named_session_info_offset);
-                        if (session_info != nullptr)
+                        output.observation_stage =
+                            Sc6OnlineSessionObservationStage::OnlineSession;
+                        output.online_session =
+                            reinterpret_cast<std::uintptr_t>(online_session);
+                        auto** online_vtable = *reinterpret_cast<void***>(
+                            online_session);
+                        // Native create/join completion handlers acquire this
+                        // same shared interface and call vtable +0x18 with the
+                        // packed FName by value.
+                        const auto get_named =
+                            reinterpret_cast<GetNamedSessionFn>(
+                                online_vtable[3]);
+                        auto* named_session = static_cast<std::byte*>(
+                            get_named(online_session, session_name));
+                        if (named_session != nullptr)
                         {
-                            output.lobby_id = *reinterpret_cast<std::uint64_t*>(
-                                session_info + steam_lobby_id_offset);
-                            output.session_name = session_name;
-                            output.session_interface =
-                                reinterpret_cast<std::uintptr_t>(session);
-                            output.active_connect =
-                                reinterpret_cast<std::uintptr_t>(active);
-                            output.online_session =
-                                reinterpret_cast<std::uintptr_t>(online_session);
+                            output.observation_stage =
+                                Sc6OnlineSessionObservationStage::NamedSession;
                             output.named_session =
                                 reinterpret_cast<std::uintptr_t>(named_session);
-                            output.session_info =
-                                reinterpret_cast<std::uintptr_t>(session_info);
-                            output.role = role;
-                            output.virtual_session_state = state;
-                            output.local_player_slot =
-                                static_cast<std::uint8_t>(role);
-                            status = output.lobby_id != 0
-                                ? Status::success()
-                                : Status::failure(
-                                    FailureCode::IdentityMismatch);
+                            auto* session_info =
+                                *reinterpret_cast<std::byte**>(
+                                    named_session
+                                    + named_session_info_offset);
+                            if (session_info != nullptr)
+                            {
+                                output.observation_stage =
+                                    Sc6OnlineSessionObservationStage::SessionInfo;
+                                output.session_info =
+                                    reinterpret_cast<std::uintptr_t>(
+                                        session_info);
+                                output.lobby_id =
+                                    *reinterpret_cast<std::uint64_t*>(
+                                        session_info
+                                        + steam_lobby_id_offset);
+                                if (output.lobby_id != 0)
+                                    output.observation_stage =
+                                        Sc6OnlineSessionObservationStage::
+                                            LobbyIdentity;
+                                status = output.lobby_id != 0
+                                    ? Status::success()
+                                    : Status::failure(
+                                        FailureCode::IdentityMismatch);
+                            }
                         }
                     }
                 }
@@ -289,6 +365,7 @@ Status Sc6OnlineSessionObserver::Observe(
         status = Status::failure(FailureCode::ContextUnavailable);
     }
 #endif
+    ReleaseSharedSession(online_interface);
     ReleaseSharedSession(retained);
     return status;
 }
@@ -346,13 +423,17 @@ Status SteamLobbyObserver::Observe(
     std::uint64_t lobby_id, SteamLobbyIdentity& output) noexcept
 {
     output = {};
+    output.observed_member_count = -1;
     if (lobby_id == 0 || !Initialize())
         return Status::failure(FailureCode::ContextUnavailable);
+    output.observation_mask |= 1u << 0;
+    output.local_steam_id = local_steam_id_;
     const int count = get_member_count_(matchmaking_, lobby_id);
+    output.observed_member_count = count;
     if (count != 2)
         return Status::failure(FailureCode::IdentityMismatch);
+    output.observation_mask |= 1u << 1;
     output.member_count = 2;
-    output.local_steam_id = local_steam_id_;
     for (int index = 0; index < count; ++index)
         output.members[static_cast<std::size_t>(index)] =
             get_member_(matchmaking_, lobby_id, index);
@@ -361,36 +442,63 @@ Status SteamLobbyObserver::Observe(
         || (output.members[0] != local_steam_id_
             && output.members[1] != local_steam_id_))
     {
-        output = {};
         return Status::failure(FailureCode::IdentityMismatch);
     }
+    output.observation_mask |= 1u << 2;
 
-    // SC6 publishes EXCUSTOMSEARCHINT5 only for Player Match and publishes
-    // RANKMATCH_NEAR_CLASS only for Ranked Match.  Within Player Match,
-    // ComputePlayerMatchSearchInt4 sets bit 0x40000 for tournament rooms.
-    const char* player_key = get_lobby_data_(
-        matchmaking_, lobby_id, "EXCUSTOMSEARCHINT5");
-    const char* rank_key = get_lobby_data_(
-        matchmaking_, lobby_id, "RANKMATCH_NEAR_CLASS");
-    const char* discriminator_text = get_lobby_data_(
-        matchmaking_, lobby_id, "EXCUSTOMSEARCHINT4");
+    // Steam OSS serializes advertised settings with type suffixes. Decompiled
+    // FindLuxorPlayerSession requires SEARCHKEYWORDS=PlayerMatch; optional
+    // EXCUSTOMSEARCHINT5 may be absent when its setting is zero. Historical
+    // raw Steam capture confirms SEARCHKEYWORDS_s and EXCUSTOMSEARCHINT4_i.
+    // Accept unsuffixed aliases for native-version compatibility, reject every
+    // ranked-key representation, and copy each value immediately because
+    // Steam owns the returned buffer.
+    const auto read_lobby_data = [&](std::span<const char* const> keys) {
+        for (const char* key : keys)
+        {
+            const char* value = get_lobby_data_(matchmaking_, lobby_id, key);
+            if (value != nullptr && value[0] != '\0')
+                return std::string(value);
+        }
+        return std::string{};
+    };
+    constexpr std::array player_keys{
+        "EXCUSTOMSEARCHINT5_s", "EXCUSTOMSEARCHINT5"};
+    constexpr std::array keyword_keys{
+        "SEARCHKEYWORDS_s", "SEARCHKEYWORDS"};
+    constexpr std::array ranked_keys{
+        "RANKMATCH_NEAR_CLASS_i", "RANKMATCH_NEAR_CLASS_s",
+        "RANKMATCH_NEAR_CLASS"};
+    constexpr std::array discriminator_keys{
+        "EXCUSTOMSEARCHINT4_i", "EXCUSTOMSEARCHINT4"};
+    const auto player_key = read_lobby_data(player_keys);
+    const auto search_keyword = read_lobby_data(keyword_keys);
+    const auto rank_key = read_lobby_data(ranked_keys);
+    const auto discriminator_text = read_lobby_data(discriminator_keys);
+    const bool player_match_metadata = !player_key.empty()
+        || search_keyword == "PlayerMatch";
+    if (player_match_metadata) output.observation_mask |= 1u << 3;
+    if (rank_key.empty()) output.observation_mask |= 1u << 4;
     std::uint32_t discriminator{};
-    const char* discriminator_end = discriminator_text != nullptr
-        ? discriminator_text + std::strlen(discriminator_text)
-        : nullptr;
-    const auto parsed = discriminator_text != nullptr
-        ? std::from_chars(discriminator_text, discriminator_end, discriminator)
-        : std::from_chars_result{};
-    const bool discriminator_valid = discriminator_text != nullptr
-        && discriminator_text != discriminator_end
+    const char* discriminator_begin = discriminator_text.data();
+    const char* discriminator_end = discriminator_begin
+        + discriminator_text.size();
+    const auto parsed = std::from_chars(
+        discriminator_begin, discriminator_end, discriminator);
+    const bool discriminator_valid = !discriminator_text.empty()
         && parsed.ec == std::errc{} && parsed.ptr == discriminator_end;
-    output.casual_player_match = player_key != nullptr && player_key[0] != '\0'
-        && (rank_key == nullptr || rank_key[0] == '\0')
+    if (discriminator_valid)
+    {
+        output.observation_mask |= 1u << 5;
+        output.search_discriminator = discriminator;
+        if ((discriminator & tournament_discriminator_bit) == 0)
+            output.observation_mask |= 1u << 6;
+    }
+    output.casual_player_match = player_match_metadata && rank_key.empty()
         && discriminator_valid
         && (discriminator & tournament_discriminator_bit) == 0;
     if (!output.casual_player_match)
     {
-        output = {};
         return Status::failure(FailureCode::IdentityMismatch);
     }
     return Status::success();

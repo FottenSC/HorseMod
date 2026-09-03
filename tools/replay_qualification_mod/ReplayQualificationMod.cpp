@@ -116,7 +116,7 @@ using ArmReplayQualificationGroupFn = bool (*)(
 using GetReplayQualificationGroupRowReportFn = std::uint32_t (*)(
     const char*, std::size_t, std::uint32_t, std::uint64_t*, std::size_t);
 using ArmOnlineQualificationFn = bool (*)(
-    const char*, std::size_t, std::uint32_t);
+    const char*, std::size_t, std::uint32_t, const std::uint8_t*, std::size_t);
 using GetOnlineQualificationStatusFn = std::uint32_t (*)();
 using ArmOnlineObserverProbeFn = bool (*)(
     const Horse::Deterministic::OnlineObserverProbeRequest*);
@@ -354,7 +354,7 @@ bool ResolveHorseModOnlineQualificationApi(
     {
         const auto candidate_arm = reinterpret_cast<ArmOnlineQualificationFn>(
             GetProcAddress(modules[index],
-                "horsemod_arm_online_qualification_v3"));
+                "horsemod_arm_online_qualification_v5"));
         const auto candidate_status = reinterpret_cast<
             GetOnlineQualificationStatusFn>(GetProcAddress(modules[index],
                 "horsemod_get_online_qualification_status"));
@@ -442,8 +442,12 @@ bool ValidRunId(std::string_view value) noexcept
 }
 
 bool ReadOnlineRequest(const std::filesystem::path& path,
-    std::string& run_id, std::uint32_t& fault)
+    std::string& run_id, std::uint32_t& fault,
+    std::array<std::uint8_t, 3>& correction_stimulus_depths,
+    std::size_t& correction_stimulus_count)
 {
+    correction_stimulus_depths = {};
+    correction_stimulus_count = 0;
     std::ifstream stream(path, std::ios::binary);
     if (!stream) return false;
     stream.seekg(0, std::ios::end);
@@ -455,6 +459,7 @@ bool ReadOnlineRequest(const std::filesystem::path& path,
     bool arm{};
     std::uint32_t version{1};
     std::uint64_t not_before_unix_ms{};
+    bool correction_stimulus_present{};
     std::size_t begin{};
     while (begin < text.size())
     {
@@ -468,7 +473,8 @@ bool ReadOnlineRequest(const std::filesystem::path& path,
             const auto key = line.substr(0, equals);
             const auto value = line.substr(equals + 1);
             if (key == "version")
-                version = value == "2" ? 2u : 0u;
+                version = value == "2" ? 2u : value == "3" ? 3u
+                    : value == "4" ? 4u : 0u;
             else if (key == "run_id") run_id.assign(value);
             else if (key == "arm") arm = value == "true";
             else if (key == "not_before_unix_ms")
@@ -486,6 +492,51 @@ bool ReadOnlineRequest(const std::filesystem::path& path,
                     || parsed.ptr != value.data() + value.size()
                     || fault > 6) return false;
             }
+            else if (key == "correction_stimulus_depth")
+            {
+                if (correction_stimulus_present) return false;
+                std::uint32_t depth{};
+                const auto parsed = std::from_chars(value.data(),
+                    value.data() + value.size(), depth);
+                if (parsed.ec != std::errc{}
+                    || parsed.ptr != value.data() + value.size()
+                    || (depth != 0 && depth != 1 && depth != 6
+                        && depth != 11)) return false;
+                correction_stimulus_present = true;
+                if (depth != 0)
+                {
+                    correction_stimulus_depths[0] =
+                        static_cast<std::uint8_t>(depth);
+                    correction_stimulus_count = 1;
+                }
+            }
+            else if (key == "correction_stimulus_depths")
+            {
+                if (correction_stimulus_present) return false;
+                correction_stimulus_present = true;
+                std::size_t value_begin{};
+                while (!value.empty() && value_begin < value.size())
+                {
+                    if (correction_stimulus_count
+                        == correction_stimulus_depths.size()) return false;
+                    const auto comma = value.find(',', value_begin);
+                    const auto token_end = comma == std::string_view::npos
+                        ? value.size() : comma;
+                    std::uint32_t depth{};
+                    const auto parsed = std::from_chars(
+                        value.data() + value_begin, value.data() + token_end,
+                        depth);
+                    if (parsed.ec != std::errc{}
+                        || parsed.ptr != value.data() + token_end
+                        || (depth != 1 && depth != 6 && depth != 11))
+                        return false;
+                    correction_stimulus_depths[correction_stimulus_count++] =
+                        static_cast<std::uint8_t>(depth);
+                    if (comma == std::string_view::npos) break;
+                    value_begin = comma + 1;
+                    if (value_begin == value.size()) return false;
+                }
+            }
             else return false;
         }
         if (end == std::string::npos) break;
@@ -493,7 +544,12 @@ bool ReadOnlineRequest(const std::filesystem::path& path,
         if (begin < text.size() && text[end] == '\r' && text[begin] == '\n')
             ++begin;
     }
-    if (!arm || !ValidRunId(run_id) || version != 2
+    if (!arm || !ValidRunId(run_id)
+        || (version != 2 && version != 3 && version != 4)
+        || (version == 2 && correction_stimulus_count != 0)
+        || (version == 3 && correction_stimulus_count > 1)
+        || (version == 4 && !correction_stimulus_present)
+        || (fault != 0 && correction_stimulus_count != 0)
         || not_before_unix_ms == 0) return false;
     const auto now = static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -628,6 +684,20 @@ bool ReadRoomAutomationRequest(const std::filesystem::path& path,
             || !bounded(request.ui_stage_code, 32)
             || !bounded(request.display_map_name, 96)) return false;
     }
+    else if (request_type->second == "match_teardown")
+    {
+        if (fields.size() != 5) return false;
+        request = {};
+        request.action =
+            Horse::Qualification::OnlineAutomationAction::MatchTeardown;
+        const auto& value = fields["result"];
+        const auto parsed = std::from_chars(
+            value.data(), value.data() + value.size(), request.battle_result);
+        if (parsed.ec != std::errc{}
+            || parsed.ptr != value.data() + value.size()
+            || request.battle_result < 0 || request.battle_result > 2)
+            return false;
+    }
     else return false;
     run_id = fields["run_id"];
     return true;
@@ -649,7 +719,9 @@ void WriteRoomAutomationReport(const std::string& run_id,
         << "  \"schema_version\": 2,\n"
         << "  \"kind\": \""
         << (request.action == Horse::Qualification::OnlineAutomationAction::HostRoomCreate
-                ? "host_room_create" : "online_match_setup") << "\",\n"
+                ? "host_room_create"
+                : request.action == Horse::Qualification::OnlineAutomationAction::MatchSetup
+                    ? "online_match_setup" : "online_match_teardown") << "\",\n"
         << "  \"run_id\": \"" << run_id << "\",\n"
         << "  \"state\": \""
         << (state == Horse::Qualification::OnlineRoomState::Complete
@@ -1327,8 +1399,11 @@ private:
     {
         std::string run_id;
         std::uint32_t fault{};
+        std::array<std::uint8_t, 3> correction_stimulus_depths{};
+        std::size_t correction_stimulus_count{};
         if (!ReadOnlineRequest(
-                QualificationRoot() / L"online_request.txt", run_id, fault))
+                QualificationRoot() / L"online_request.txt", run_id, fault,
+                correction_stimulus_depths, correction_stimulus_count))
             return;
         if (run_id != online_last_run_id_)
         {
@@ -1336,13 +1411,17 @@ private:
                 && !ResolveHorseModOnlineQualificationApi(
                     arm_online_, get_online_status_))
                 return;
-            if (!arm_online_(run_id.data(), run_id.size(), fault)) return;
+            if (!arm_online_(run_id.data(), run_id.size(), fault,
+                    correction_stimulus_depths.data(),
+                    correction_stimulus_count)) return;
             online_last_run_id_ = run_id;
             online_last_status_ = UINT32_MAX;
             Output::send<LogLevel::Default>(STR(
                 "[ReplayQualification] armed online qualification "
-                "run_id={} fault={} without menu navigation\n"),
-                RC::to_generic_string(run_id), fault);
+                "run_id={} fault={} correction_stimulus_count={} "
+                "without menu navigation\n"),
+                RC::to_generic_string(run_id), fault,
+                correction_stimulus_count);
         }
         if (get_online_status_ != nullptr)
         {
@@ -1383,7 +1462,9 @@ private:
                 "run_id={} action={} map={}\n"),
                 RC::to_generic_string(run_id),
                 request.action == Horse::Qualification::OnlineAutomationAction::HostRoomCreate
-                    ? STR("host-room-create") : STR("match-setup"),
+                    ? STR("host-room-create")
+                    : request.action == Horse::Qualification::OnlineAutomationAction::MatchSetup
+                        ? STR("match-setup") : STR("match-teardown"),
                 RC::to_generic_string(request.display_map_name));
         }
         if (online_room_terminal_) return;

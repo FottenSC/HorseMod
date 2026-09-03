@@ -46,6 +46,10 @@ struct LocalReconstructionImage
     std::size_t cursor{};
     std::uint64_t checksum{};
     std::vector<std::byte> bytes;
+
+    friend bool operator==(
+        const LocalReconstructionImage&,
+        const LocalReconstructionImage&) = default;
 };
 
 enum class FailureCode : std::uint16_t
@@ -206,6 +210,11 @@ using CanonicalWindSemanticDiagnostic = std::array<std::uint32_t, 64>;
 // Wind-only mismatch localization: schedule, callback queue, then semantic and
 // derived fingerprints for up to eight bounded nodes.
 using CanonicalWindFingerprint = std::array<std::uint64_t, 20>;
+// Diagnostic-only sub-fingerprints for peer mismatch localization. They are
+// derived from bytes already present in the canonical hash and never alter
+// restore authority or the wire hash.
+using CanonicalAnimationFingerprint = std::array<std::uint64_t, 12>;
+using CanonicalStageEmitterFingerprint = std::array<std::uint64_t, 17>;
 
 // Narrow runtime diagnostic for the first bounded wind node. These values are
 // already part of the canonical semantic image; keeping them alongside the
@@ -237,6 +246,8 @@ struct Snapshot
     CanonicalWindSemanticDiagnostic canonical_wind_semantic{};
     CanonicalWindFingerprint canonical_wind{};
     CanonicalWindNodeDiagnostic canonical_wind_node{};
+    CanonicalAnimationFingerprint canonical_animation{};
+    CanonicalStageEmitterFingerprint canonical_stage_emitters{};
     // Qualification diagnostics for IwWindRoot +0x98..+0xA7 and the
     // currently pending callback span. They do not alter canonical identity.
     std::array<std::uint64_t, 6> canonical_wind_schedule{};
@@ -322,4 +333,22 @@ enum class OnlineState : std::uint8_t
     ReturningToLobby,
     Failed,
 };
+
+constexpr std::string_view online_state_name(OnlineState state) noexcept
+{
+    switch (state)
+    {
+    case OnlineState::Disabled: return "disabled";
+    case OnlineState::ObservingLobby: return "observing_lobby";
+    case OnlineState::Handshaking: return "handshaking";
+    case OnlineState::AwaitingBattle: return "awaiting_battle";
+    case OnlineState::AwaitingBaselineTarget: return "awaiting_baseline_target";
+    case OnlineState::FreezingBaseline: return "freezing_baseline";
+    case OnlineState::Active: return "active";
+    case OnlineState::RoundBarrier: return "round_barrier";
+    case OnlineState::ReturningToLobby: return "returning_to_lobby";
+    case OnlineState::Failed: return "failed";
+    }
+    return "unknown";
+}
 }

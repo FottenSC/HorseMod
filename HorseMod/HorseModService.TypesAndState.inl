@@ -88,6 +88,14 @@
         auto owns_simulation() const noexcept { return active().owns_simulation(); }
         auto active_contract() const noexcept { return active().active_contract(); }
         auto baseline_target() const noexcept { return active().baseline_target(); }
+        auto local_baseline_ready() const noexcept
+        { return active().local_baseline_ready(); }
+        auto remote_baseline_ready() const noexcept
+        { return active().remote_baseline_ready(); }
+        auto failure_context() const noexcept
+        { return active().failure_context(); }
+        auto failure_origin_state() const noexcept
+        { return active().failure_origin_state(); }
         auto Enable() noexcept { return active().Enable(); }
         auto ObserveLobby(const Horse::Deterministic::OnlinePeerContract& value)
             noexcept { return active().ObserveLobby(value); }
@@ -101,14 +109,13 @@
             const Horse::Deterministic::CanonicalHash& hash,
             const Horse::Deterministic::CanonicalHash& loaded_map) noexcept
         { return active().FreezeBaseline(coordinate, hash, loaded_map); }
-        auto BeginOwnedInputApplication() noexcept
-        { return active().BeginOwnedInputApplication(); }
-        auto BeginRoundBarrier(std::uint64_t completed_generation,
+        auto BeginRoundBarrier(
+            Horse::Deterministic::FrameCoordinate completed_coordinate,
             std::uint64_t next_generation,
             const Horse::Deterministic::CanonicalHash& hash) noexcept
         {
             return active().BeginRoundBarrier(
-                completed_generation, next_generation, hash);
+                completed_coordinate, next_generation, hash);
         }
         auto NotifyOwnedTick(Horse::Deterministic::FrameCoordinate coordinate)
             noexcept { return active().NotifyOwnedTick(coordinate); }

@@ -44,6 +44,73 @@ struct CandidateCheckpointCaptureStatus
     CandidateCapturePhase capture_phase{};
 };
 
+enum class CameraTopologyCaptureStage : std::uint8_t
+{
+    None,
+    RootPointer,
+    RootIdentity,
+    RootReadable,
+    DirectorVtables,
+    ActionListOwner,
+    ActionListBacking,
+    ActionListSlots,
+    ActionBackingTail,
+    ActionSlotPointer,
+    ActionVtable,
+    ActionIndex,
+    ActionOwner,
+    ActionList,
+    ActionType,
+    BoundTopology,
+};
+
+[[nodiscard]] constexpr const char* camera_topology_capture_stage_name(
+    CameraTopologyCaptureStage stage) noexcept
+{
+    switch (stage)
+    {
+    case CameraTopologyCaptureStage::None: return "none";
+    case CameraTopologyCaptureStage::RootPointer: return "root_pointer";
+    case CameraTopologyCaptureStage::RootIdentity: return "root_identity";
+    case CameraTopologyCaptureStage::RootReadable: return "root_readable";
+    case CameraTopologyCaptureStage::DirectorVtables: return "director_vtables";
+    case CameraTopologyCaptureStage::ActionListOwner: return "action_list_owner";
+    case CameraTopologyCaptureStage::ActionListBacking: return "action_list_backing";
+    case CameraTopologyCaptureStage::ActionListSlots: return "action_list_slots";
+    case CameraTopologyCaptureStage::ActionBackingTail: return "action_backing_tail";
+    case CameraTopologyCaptureStage::ActionSlotPointer: return "action_slot_pointer";
+    case CameraTopologyCaptureStage::ActionVtable: return "action_vtable";
+    case CameraTopologyCaptureStage::ActionIndex: return "action_index";
+    case CameraTopologyCaptureStage::ActionOwner: return "action_owner";
+    case CameraTopologyCaptureStage::ActionList: return "action_list";
+    case CameraTopologyCaptureStage::ActionType: return "action_type";
+    case CameraTopologyCaptureStage::BoundTopology: return "bound_topology";
+    }
+    return "unknown";
+}
+
+struct CameraTopologyCaptureDiagnostic
+{
+    FailureCode intended_failure{FailureCode::None};
+    CameraTopologyCaptureStage stage{CameraTopologyCaptureStage::None};
+    std::uint32_t index{};
+    std::uint64_t observed{};
+    std::uint64_t expected{};
+};
+
+struct CandidateTransientCaptureDiagnostic
+{
+    FailureCode failure{FailureCode::None};
+    CandidateCapturePhase phase{CandidateCapturePhase::None};
+    NativeCandidateValidationDiagnostic validation{};
+    CharaAnimationTopologyIssue animation_topology_issue{};
+    std::uintptr_t animation_topology_observed{};
+    CameraTopologyCaptureDiagnostic camera{};
+    std::uint32_t identity_issue{};
+    std::uint64_t identity_expected{};
+    std::uint64_t identity_observed{};
+};
+
 class Sc6CandidateCheckpointCapture final
 {
 public:
@@ -64,9 +131,12 @@ public:
         std::uint64_t session_generation,
         std::uint32_t simulation_thread_id) noexcept;
     Status CaptureTransient(
-        FrameCoordinate coordinate, Snapshot& output) noexcept;
+        FrameCoordinate coordinate, Snapshot& output,
+        CandidateTransientCaptureDiagnostic* diagnostic = nullptr) noexcept;
     Status CaptureCanonical(
-        FrameCoordinate coordinate, Snapshot& output) noexcept;
+        FrameCoordinate coordinate, Snapshot& output,
+        CandidateTransientCaptureDiagnostic* diagnostic = nullptr) noexcept;
+    Status StoreSynchronizedBatchEntry(const Snapshot& snapshot) noexcept;
     Status EnsureRestoreOwnership(std::uint32_t simulation_thread_id) noexcept;
     Status RestoreAndVerify(const Snapshot& snapshot) noexcept;
     Status RestoreBattleAudioSelectorForPresentation(
@@ -86,6 +156,7 @@ public:
     void InvalidateHistory() noexcept;
     void ReleaseHistoryStorage() noexcept;
     void ReleaseBinding() noexcept;
+    void ReleaseBindingStorage() noexcept;
     void Reset() noexcept;
 
     [[nodiscard]] CandidateCheckpointCaptureStatus status(
@@ -120,6 +191,9 @@ public:
     [[nodiscard]] NativeMoveVmStateShortImage
     last_captured_movevm_state_shorts() const noexcept;
     [[nodiscard]] NativeRngImage last_captured_rng() const noexcept;
+    [[nodiscard]] Status GetLastCanonicalPeerDiagnostic(
+        FrameCoordinate coordinate,
+        PeerBaselineStateDiagnostic& output) const noexcept;
     [[nodiscard]] CharaAnimationTopologyIssue
     transient_animation_topology_issue() const noexcept;
     [[nodiscard]] std::uintptr_t
@@ -143,7 +217,16 @@ private:
         std::array<std::uintptr_t, 17> action_vtables{};
         std::array<std::uint32_t, 17> action_types{};
 
-        friend bool operator==(const CameraTopology&, const CameraTopology&) = default;
+        friend bool operator==(const CameraTopology& left,
+            const CameraTopology& right) noexcept
+        {
+            // LuxCameraFuncList reconstructs action objects in place. The
+            // backing address is topology; each slot's vtable and cached type
+            // are mutable deterministic state and are validated on every
+            // capture rather than frozen as generation identity.
+            return left.camera_root == right.camera_root
+                && left.action_backing == right.action_backing;
+        }
     };
 
     Status bind(
@@ -155,8 +238,12 @@ private:
         std::uintptr_t battle_manager,
         std::uintptr_t& output) noexcept;
     bool read_fighter_roots(std::array<std::uintptr_t, 2>& output) noexcept;
-    Status capture_camera_topology(CameraTopology& output) noexcept;
+    Status capture_camera_topology(CameraTopology& output,
+        CameraTopologyCaptureDiagnostic* diagnostic = nullptr) noexcept;
     Status capture_callback_topology(CallbackTopology& output) noexcept;
+    Status finish_transient_capture(Status status,
+        const CandidateTransientCaptureDiagnostic& diagnostic,
+        CandidateTransientCaptureDiagnostic* output) noexcept;
 
     static constexpr std::size_t checkpoint_memory_limit =
         Schema::replay_checkpoint_memory_budget / 2;
@@ -239,6 +326,7 @@ private:
     CallbackTopology bound_callback_topology_{};
     CallbackTopology callback_topology_scratch_{};
     std::uint32_t transient_identity_issue_{};
+    CandidateCapturePhase transient_capture_phase_{};
     std::uint8_t restore_failure_phase_{};
     std::uint64_t transient_identity_expected_{};
     std::uint64_t transient_identity_observed_{};
