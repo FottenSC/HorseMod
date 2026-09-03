@@ -544,16 +544,18 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
             # that independent FPS/TPS proof in the report before requesting a
             # seek; resume-rate evidence measures a different boundary.
             normal_render_rate = wait_for_normal_render_rate_evidence(
-                args.log, args.timeout, guard, log_start
+                args.log, args.timeout, guard, log_start,
+                require_active=not bool(args.seek_percentages),
             )
             minimum_rate_milli = round(args.min_resume_tick_rate * 1000)
             if (not normal_render_rate.independent_clocks
                     or normal_render_rate.fps_milli < minimum_rate_milli
                     or normal_render_rate.tick_rate_milli < minimum_rate_milli
-                    or normal_render_rate.active_fps_milli
-                        < minimum_rate_milli
-                    or normal_render_rate.active_tick_rate_milli
-                        < minimum_rate_milli):
+                    or (normal_render_rate.active_window_observed
+                        and (normal_render_rate.active_fps_milli
+                                < minimum_rate_milli
+                             or normal_render_rate.active_tick_rate_milli
+                                < minimum_rate_milli))):
                 raise RuntimeError(
                     "normal-render frame/tick rate was below the required "
                     f"{args.min_resume_tick_rate:.3f} Hz"
@@ -895,19 +897,23 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
                     normal_render_rate.owned_ticks
                 ),
                 "active_battle_frames": (
-                    None if normal_render_rate is None else
+                    None if (normal_render_rate is None
+                             or not normal_render_rate.active_window_observed) else
                     normal_render_rate.active_frames
                 ),
                 "active_battle_elapsed_us": (
-                    None if normal_render_rate is None else
+                    None if (normal_render_rate is None
+                             or not normal_render_rate.active_window_observed) else
                     normal_render_rate.active_elapsed_us
                 ),
                 "active_battle_fps": (
-                    None if normal_render_rate is None else
+                    None if (normal_render_rate is None
+                             or not normal_render_rate.active_window_observed) else
                     normal_render_rate.active_fps_milli / 1000.0
                 ),
                 "active_battle_tick_rate": (
-                    None if normal_render_rate is None else
+                    None if (normal_render_rate is None
+                             or not normal_render_rate.active_window_observed) else
                     normal_render_rate.active_tick_rate_milli / 1000.0
                 ),
             },

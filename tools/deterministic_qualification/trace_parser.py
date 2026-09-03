@@ -254,6 +254,7 @@ class NormalRenderRateEvidence:
     owned_ticks: int = 0
     active_owned_ticks: int = 0
     independent_clocks: bool = False
+    active_window_observed: bool = True
 
 
 @dataclass(frozen=True)
@@ -536,6 +537,7 @@ def parse_normal_render_rate_evidence(
     text: str,
     *,
     source_bound: bool = True,
+    require_active: bool = True,
 ) -> NormalRenderRateEvidence | None:
     source_matches = list(SOURCE_PATTERN.finditer(text))
     if source_bound and not source_matches:
@@ -543,34 +545,40 @@ def parse_normal_render_rate_evidence(
     current_boot = text[source_matches[-1].start():] if source_matches else text
     overall_matches = list(NORMAL_RENDER_RATE_PATTERN.finditer(current_boot))
     active_matches = list(NORMAL_RENDER_ACTIVE_RATE_PATTERN.finditer(current_boot))
-    independent = bool(overall_matches and active_matches)
+    independent = bool(overall_matches and (active_matches or not require_active))
     if not independent:
         overall_matches = list(
             LEGACY_NORMAL_RENDER_RATE_PATTERN.finditer(current_boot))
         active_matches = list(
             LEGACY_NORMAL_RENDER_ACTIVE_RATE_PATTERN.finditer(current_boot))
-    if not overall_matches or not active_matches:
+    if not overall_matches or (require_active and not active_matches):
         return None
     overall = overall_matches[-1]
-    active = active_matches[-1]
+    active = active_matches[-1] if active_matches else None
     return NormalRenderRateEvidence(
         frames=int(overall.group("frames")),
         elapsed_us=int(overall.group("elapsed")),
         tick_rate_milli=int(overall.group("rate")),
-        active_frames=int(active.group("frames")),
-        active_elapsed_us=int(active.group("elapsed")),
-        active_tick_rate_milli=int(active.group("rate")),
+        active_frames=0 if active is None else int(active.group("frames")),
+        active_elapsed_us=(0 if active is None
+                           else int(active.group("elapsed"))),
+        active_tick_rate_milli=(0 if active is None
+                                else int(active.group("rate"))),
         fps_milli=(int(overall.group("fps")) if independent
                    else int(overall.group("rate"))),
-        active_fps_milli=(int(active.group("fps")) if independent
-                          else int(active.group("rate"))),
+        active_fps_milli=(0 if active is None else
+                          int(active.group("fps")) if independent else
+                          int(active.group("rate"))),
         forward_ticks=(int(overall.group("ticks")) if independent
                        else int(overall.group("frames"))),
-        active_forward_ticks=(int(active.group("ticks")) if independent
-                              else int(active.group("frames"))),
+        active_forward_ticks=(0 if active is None else
+                              int(active.group("ticks")) if independent else
+                              int(active.group("frames"))),
         owned_ticks=int(overall.group("owned")) if independent else 0,
-        active_owned_ticks=int(active.group("owned")) if independent else 0,
+        active_owned_ticks=(0 if active is None or not independent
+                            else int(active.group("owned"))),
         independent_clocks=independent,
+        active_window_observed=active is not None,
     )
 
 
@@ -603,6 +611,7 @@ def wait_for_normal_render_rate_evidence(
     start_offset: LogCursor | int = 0,
     *,
     source_bound: bool = True,
+    require_active: bool = True,
 ) -> NormalRenderRateEvidence:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
@@ -612,6 +621,7 @@ def wait_for_normal_render_rate_evidence(
             evidence = parse_normal_render_rate_evidence(
                 _read_since(log_path, start_offset),
                 source_bound=source_bound,
+                require_active=require_active,
             )
         except OSError:
             evidence = None

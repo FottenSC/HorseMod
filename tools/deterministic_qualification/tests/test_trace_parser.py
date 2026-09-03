@@ -253,6 +253,23 @@ def test_normal_render_rate_parser_keeps_viewport_and_forward_tick_clocks_distin
     assert evidence.active_owned_ticks == 45
 
 
+def test_seek_rate_parser_accepts_intentional_overall_only_window() -> None:
+    text = (
+        "[HorseMod] ctor v2.0 source=" + "d" * 40 + "\n"
+        "[ReplayQualification] normal-render battle rate "
+        "viewport_frames=600 native_ticks=600 owned_ticks=0 elapsed_us=10091425 "
+        "fps_milli=59456 tick_rate_milli=59456\n"
+    )
+    assert parse_normal_render_rate_evidence(text) is None
+    evidence = parse_normal_render_rate_evidence(text, require_active=False)
+    assert evidence is not None
+    assert evidence.independent_clocks is True
+    assert evidence.active_window_observed is False
+    assert evidence.frames == 600
+    assert evidence.fps_milli == 59456
+    assert evidence.tick_rate_milli == 59456
+
+
 def test_qualification_stress_rate_parser_preserves_synthetic_load() -> None:
     text = (
         "[HorseMod] ctor v2.0 source=" + "c" * 40 + "\n"
