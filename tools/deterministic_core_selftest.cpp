@@ -1148,10 +1148,22 @@ void test_snapshot_capacity_is_atomic()
     const auto adapter_owned_before = adapter.owned_scratch_bytes();
     expect(adapter.PrepareTransientCaptureStorage(prototype).ok(),
         "adapter prewarms its movable capture exchange");
+    std::vector<LocalReconstructionImage> admitted_adapter_exchange;
+    expect(PrepareLocalReconstructionCopyStorage(
+                admitted_adapter_exchange, prototype.local_images).ok(),
+        "adapter accounting fixture preserves serializer capacities");
+    admitted_adapter_exchange.reserve(maximum_local_reconstruction_images);
     expect(adapter.owned_scratch_bytes()
             == adapter_owned_before
-                + correction_local_capacity(prototype.local_images),
-        "aggregate adapter ownership includes resident movable payloads");
+                + correction_local_capacity(admitted_adapter_exchange),
+        "aggregate adapter ownership includes the admitted movable envelope");
+    const auto adapter_owned_prepared = adapter.owned_scratch_bytes();
+    auto full_envelope_prototype = prototype;
+    full_envelope_prototype.local_images.reserve(
+        maximum_local_reconstruction_images);
+    expect(adapter.PrepareTransientCaptureStorage(full_envelope_prototype).ok()
+            && adapter.owned_scratch_bytes() == adapter_owned_prepared,
+        "later full-envelope prototypes cannot grow prepared adapter storage");
     auto next = prototype;
     next.coordinate = {5, 2};
     expect(prewarmed.SaveCopyPrewarmed(next).ok()

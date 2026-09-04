@@ -17,9 +17,19 @@ Status CandidateGameStateAdapter::PrepareTransientCaptureStorage(
     const Snapshot& prototype) noexcept
 {
     // EncodeCaptured exchanges this vector with its Snapshot output.  Both
-    // sides must own the same serializer capacity before status 4 so a
-    // successful capture cannot move a smaller allocation into correction
-    // scratch and force the next round to grow it again.
+    // sides must own the admitted maximum vector envelope before status 4.
+    // A current prototype can have a smaller vector capacity even though a
+    // later generation's encoded snapshot owns the full envelope; copying
+    // only the current capacity would make the next exchange grow storage.
+    try
+    {
+        capture_scratch_.local_images.reserve(
+            maximum_local_reconstruction_images);
+    }
+    catch (...)
+    {
+        return Status::failure(FailureCode::CapacityExceeded);
+    }
     return PrepareLocalReconstructionCopyStorage(
         capture_scratch_.local_images, prototype.local_images);
 }
