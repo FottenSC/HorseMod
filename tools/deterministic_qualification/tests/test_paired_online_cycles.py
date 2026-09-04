@@ -13,6 +13,7 @@ from tools.deterministic_qualification.paired_online import (
     _atomic_online_request,
     _require_matching_independent_baselines,
     _confirmed_convergence, _development_session_latch,
+    _confirmed_presentation_evidence,
     _development_smoke_complete,
     _development_report_kind,
     _completed_teardown_reports,
@@ -52,6 +53,7 @@ def test_owned_metric_growth_is_immediately_terminal():
         "journal_duplicates": 0, "journal_publish_failures": 0,
     }
     _raise_on_terminal_owned_metrics("host", healthy)
+    _raise_on_terminal_owned_metrics("host", dict(healthy, pending=4))
     growth = dict(healthy, post_status4_growth=1)
     with pytest.raises(RuntimeError, match="host terminal owned metric.*growth=1"):
         _raise_on_terminal_owned_metrics("host", growth)
@@ -548,6 +550,31 @@ def test_changed_presentation_publication_is_a_campaign_level_proof():
     assert not _changed_presentation_publication([cycle(4, 0)])
     assert not _changed_presentation_publication([cycle(4, 3)])
     assert _changed_presentation_publication([cycle(0, 0), cycle(4, 4)])
+
+
+def test_latest_confirmed_presentation_waits_for_exact_bilateral_drain():
+    def row(run, frame=450, committed=4, pending=0):
+        return (
+            f"[HorseMod] online qualification run_id={run} "
+            f"confirmed_presentation generation=2 frame={frame} "
+            f"pending_events={pending} payload_bytes=0 duplicates=0 "
+            f"publish_failures=0 committed={committed} guard_mask=0x0\n")
+
+    run_ids = {"host": "h", "sandbox": "s"}
+    assert _confirmed_presentation_evidence(
+        {"host": row("h", 420), "sandbox": row("s", 420)},
+        run_ids, (2, 450)) is None
+    evidence = _confirmed_presentation_evidence(
+        {"host": row("h"), "sandbox": row("s")}, run_ids, (2, 450))
+    assert evidence is not None and evidence["host"]["committed"] == 4
+    with pytest.raises(RuntimeError, match="totals diverged"):
+        _confirmed_presentation_evidence(
+            {"host": row("h"), "sandbox": row("s", committed=3)},
+            run_ids, (2, 450))
+    with pytest.raises(RuntimeError, match="did not reconcile"):
+        _confirmed_presentation_evidence(
+            {"host": row("h", pending=4), "sandbox": row("s")},
+            run_ids, (2, 450))
 
 
 def test_multiround_corrections_must_arm_and_converge_after_reownership():

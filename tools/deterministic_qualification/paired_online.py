@@ -766,6 +766,15 @@ def _repeated_correction_evidence(
                     "capacity, or presentation gates")
         generation = int(reached["host"].group("generation"))
         frame = int(reached["host"].group("frame"))
+        host_committed = int(
+            presentation_histories["host"][(generation, frame)].group(
+                "committed"))
+        sandbox_committed = int(
+            presentation_histories["sandbox"][(generation, frame)].group(
+                "committed"))
+        if host_committed != sandbox_committed:
+            raise RuntimeError(
+                f"correction {ordinal} presentation commit totals diverged")
         sha256 = reached["host"].group("sha256")
         evidence.append({
             "ordinal": ordinal, "generation": generation, "frame": frame,
@@ -783,12 +792,8 @@ def _repeated_correction_evidence(
                 reached["host"].group("correction_max_ns")),
             "sandbox_correction_max_ns": int(
                 reached["sandbox"].group("correction_max_ns")),
-            "host_journal_committed": int(
-                presentation_histories["host"][(generation, frame)].group(
-                    "committed")),
-            "sandbox_journal_committed": int(
-                presentation_histories["sandbox"][(generation, frame)].group(
-                    "committed")),
+            "host_journal_committed": host_committed,
+            "sandbox_journal_committed": sandbox_committed,
         })
     return evidence
 
@@ -812,6 +817,40 @@ def _changed_presentation_publication(
             if host > 0 and host == sandbox:
                 return True
     return False
+
+
+def _confirmed_presentation_evidence(
+    logs: dict[str, str], online_run_ids: dict[str, str],
+    coordinate: tuple[int, int],
+) -> dict[str, dict[str, int]] | None:
+    evidence: dict[str, dict[str, int]] = {}
+    for label in ("host", "sandbox"):
+        matches = [
+            match for match in CONFIRMED_PRESENTATION.finditer(logs[label])
+            if (match.group("run") == online_run_ids[label]
+                and (int(match.group("generation")), int(match.group("frame")))
+                    == coordinate)
+        ]
+        if not matches:
+            return None
+        match = matches[-1]
+        row = {
+            key: int(value, 16) if key == "guard" else int(value)
+            for key, value in match.groupdict().items()
+            if key not in ("run", "generation", "frame")
+        }
+        if (row["pending"] != 0 or row["payload"] != 0
+                or row["duplicates"] != 0
+                or row["publish_failures"] != 0 or row["guard"] != 0):
+            raise RuntimeError(
+                f"{label} confirmed presentation did not reconcile at "
+                f"{coordinate[0]}:{coordinate[1]}")
+        evidence[label] = row
+    if evidence["host"]["committed"] != evidence["sandbox"]["committed"]:
+        raise RuntimeError(
+            "peer confirmed presentation commit totals diverged at "
+            f"{coordinate[0]}:{coordinate[1]}")
+    return evidence
 
 
 def _correction_stimulus_evidence(
@@ -988,8 +1027,6 @@ def _raise_on_terminal_owned_metrics(label: str, metric: dict[str, Any]) -> None
         failures.append(
             f"aggregate_owned={metric['aggregate_owned']}>"
             f"{metric['aggregate_limit']}")
-    if metric["pending"] != 0:
-        failures.append(f"pending_events={metric['pending']}")
     if metric["correction_p99_ns"] >= 16_670_000:
         failures.append(f"correction_p99_ns={metric['correction_p99_ns']}")
     if metric["correction_max_ns"] >= 33_340_000:
@@ -1124,7 +1161,13 @@ def _wait_online(paths: ObserverPairPaths, run_ids: dict[str, str], case: dict[s
                 and all(metric and metric["checks"] > 0 for metric in metrics)
             )
             convergence = _confirmed_convergence(latest)
-            presentation_complete = all(
+            confirmed_presentation = (
+                None if convergence is None else
+                _confirmed_presentation_evidence(
+                    polled_logs, run_ids,
+                    (convergence["last_generation"],
+                     convergence["last_frame"])))
+            presentation_complete = confirmed_presentation is not None and all(
                 metric
                 and metric["verified_audio_batches"] > 0
                 and metric["audio_sequence_mismatches"] == 0
@@ -1170,6 +1213,7 @@ def _wait_online(paths: ObserverPairPaths, run_ids: dict[str, str], case: dict[s
                 latest["correction_stimulus_sequence"] = stimulus_sequence
                 latest["bilateral_correction_convergence"] = (
                     correction_convergences)
+                latest["confirmed_presentation"] = confirmed_presentation
                 break
             if any(7 in latest[label]["statuses"]
                    for label in ("host", "sandbox")):
