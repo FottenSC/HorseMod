@@ -562,9 +562,9 @@ def _qualification_correction_stimulus_min_round(
         args.development_failure_smoke,
         args.development_reentry_smoke,
     ))
-    # Functional certification must prove correction after the round barrier,
-    # when replacement-round combat events exercise the deferred presentation
-    # journal. Round-one setup corrections cannot satisfy that production gate.
+    # Functional certification must prove correction after the round barrier.
+    # Round-one setup corrections cannot establish replacement-generation
+    # ownership, capture, restore, or presentation reconciliation.
     return 1 if development_smoke else 2
 
 
@@ -749,7 +749,6 @@ def _repeated_correction_evidence(
                     or int(presentation.group("payload")) != 0
                     or int(presentation.group("duplicates")) != 0
                     or int(presentation.group("publish_failures")) != 0
-                    or int(presentation.group("committed")) == 0
                     or int(presentation.group("guard"), 16) != 0)
                     or int(match.group("post_status4_growth")) != 0
                     or int(match.group("capacity_failures")) != 0
@@ -792,6 +791,27 @@ def _repeated_correction_evidence(
                     "committed")),
         })
     return evidence
+
+
+def _changed_presentation_publication(
+    cycles: list[dict[str, Any]],
+) -> bool:
+    """Prove at least one bilateral, cumulative journal commit.
+
+    A confirmed coordinate with no presentation events is still an exact
+    reconciliation.  The journal's ``committed`` statistic is cumulative for
+    the match, so changed-presentation publication is a campaign-level proof,
+    not a requirement that every correction publish an event.
+    """
+    for cycle in cycles:
+        peers = cycle.get("peers", {})
+        corrections = peers.get("bilateral_correction_convergence", [])
+        for correction in corrections:
+            host = correction.get("host_journal_committed", 0)
+            sandbox = correction.get("sandbox_journal_committed", 0)
+            if host > 0 and host == sandbox:
+                return True
+    return False
 
 
 def _correction_stimulus_evidence(
@@ -2130,6 +2150,9 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
                     "multi_round": False if expected_failure else all(
                         metrics[label]["rounds"] >= 2
                         for label in ("host", "sandbox")),
+                    "changed_presentation_publication": (
+                        False if expected_failure else
+                        _changed_presentation_publication(cycle_metrics)),
                     "presentation_reconciliation": (
                         "not_owned" if expected_failure else (
                             "exact" if all(

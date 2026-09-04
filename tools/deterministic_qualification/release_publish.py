@@ -142,7 +142,7 @@ def _paired_gate(reports: list[dict[str, Any]], case: dict[str, Any],
                  expected: dict[str, Any] | None = None) -> str:
     profiles: set[str] = set()
     failures: set[str] = set()
-    cycling = continuous = False
+    cycling = continuous = changed_presentation = False
     fresh = False
     loaded_map = ""
     for report in reports:
@@ -174,6 +174,8 @@ def _paired_gate(reports: list[dict[str, Any]], case: dict[str, Any],
                      and convergence.get("matched_checks", 0) > 0
                      and convergence.get("cadence_frames") == 30,
                      "paired peer hash convergence/cadence proof missing")
+            changed_presentation |= (
+                runtime.get("changed_presentation_publication") is True)
         cycling |= runtime.get("cycling_soak_seconds", 0) >= 3600
         continuous |= runtime.get("continuous_soak_seconds", 0) >= 3600
         fresh |= (runtime.get("fresh_box") is True
@@ -191,6 +193,8 @@ def _paired_gate(reports: list[dict[str, Any]], case: dict[str, Any],
              f"paired failure cases missing: {sorted(REQUIRED_FAILURE_CASES - failures)}")
     _require(cycling, "one-hour same-process cycling soak missing")
     _require(continuous, "one-hour continuous corrected-play soak missing")
+    _require(changed_presentation,
+             "bilateral changed-presentation publication proof missing")
     _require(fresh, "fresh-box release qualification missing")
     clean = [report for report in reports
              if report.get("impairment", {}).get("profile") == "clean"]

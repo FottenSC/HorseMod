@@ -16,6 +16,7 @@ from tools.deterministic_qualification.paired_online import (
     _development_smoke_complete,
     _development_report_kind,
     _completed_teardown_reports,
+    _changed_presentation_publication,
     _cycle_teardown_run_ids,
     _first_correction_evidence,
     _correction_stimulus_sequence_evidence,
@@ -525,14 +526,28 @@ def test_correction_waits_for_post_outer_presentation_commit():
         "host": log("h", True).replace("committed=4", "committed=0"),
         "sandbox": log("s", True).replace("committed=4", "committed=0"),
     }
-    with pytest.raises(RuntimeError, match="outside timing"):
-        _repeated_correction_evidence(
-            no_commit, {"host": "h", "sandbox": "s"}, 1)
+    empty_evidence = _repeated_correction_evidence(
+        no_commit, {"host": "h", "sandbox": "s"}, 1)
+    assert empty_evidence is not None
+    assert empty_evidence[0]["host_journal_committed"] == 0
     with pytest.raises(RuntimeError, match="outside timing"):
         _repeated_correction_evidence({
             "host": log("h", True).replace("guard_mask=0x0", "guard_mask=0x2"),
             "sandbox": log("s", True),
         }, {"host": "h", "sandbox": "s"}, 1)
+
+
+def test_changed_presentation_publication_is_a_campaign_level_proof():
+    def cycle(host, sandbox):
+        return {"peers": {"bilateral_correction_convergence": [{
+            "host_journal_committed": host,
+            "sandbox_journal_committed": sandbox,
+        }]}}
+
+    assert not _changed_presentation_publication([cycle(0, 0)])
+    assert not _changed_presentation_publication([cycle(4, 0)])
+    assert not _changed_presentation_publication([cycle(4, 3)])
+    assert _changed_presentation_publication([cycle(0, 0), cycle(4, 4)])
 
 
 def test_multiround_corrections_must_arm_and_converge_after_reownership():
