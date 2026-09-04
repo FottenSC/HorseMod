@@ -217,17 +217,44 @@ Status Sc6ReplayRuntime::PrepareOnlineOwnedStorage(
         CandidateCheckpointRole::BatchEntry).FindExact(baseline);
     if (prototype == nullptr)
         return Status::failure(FailureCode::MissingSnapshot);
+    const auto capture_storage =
+        checkpoint_capture_.PrepareOnlineOwnedStorage(*prototype);
+    if (!capture_storage.ok()) return capture_storage;
     try
     {
-        correction_undo_scratch_ = *prototype;
-        correction_verified_scratch_ = *prototype;
-        correction_canonical_capture_scratch_ = *prototype;
-        timeline_canonical_capture_scratch_ = *prototype;
-        diagnostic_snapshot_scratch_ = *prototype;
+        const std::array correction_scratch{
+            std::pair{OnlineScratchRole::CorrectionUndo,
+                &correction_undo_scratch_},
+            std::pair{OnlineScratchRole::CorrectionVerified,
+                &correction_verified_scratch_},
+            std::pair{OnlineScratchRole::CorrectionCanonical,
+                &correction_canonical_capture_scratch_},
+            std::pair{OnlineScratchRole::TimelineCanonical,
+                &timeline_canonical_capture_scratch_},
+            std::pair{OnlineScratchRole::Diagnostic,
+                &diagnostic_snapshot_scratch_},
+        };
+        for (const auto& [role, snapshot] : correction_scratch)
+        {
+            if (!OnlineScratchRequiresTransientPayload(
+                    role, forced_depth7_qualification_enabled_))
+                continue;
+            const auto prepared = PrepareSnapshotCopyStorage(
+                *snapshot, *prototype);
+            if (!prepared.ok()) return prepared;
+        }
         for (auto& snapshot : corrected_replay_capture_.replacement_landing)
-            snapshot = *prototype;
+        {
+            const auto prepared = PrepareSnapshotCopyStorage(
+                snapshot, *prototype);
+            if (!prepared.ok()) return prepared;
+        }
         for (auto& snapshot : corrected_replay_capture_.replacement_batch_entry)
-            snapshot = *prototype;
+        {
+            const auto prepared = PrepareSnapshotCopyStorage(
+                snapshot, *prototype);
+            if (!prepared.ok()) return prepared;
+        }
     }
     catch (...)
     {
@@ -241,6 +268,32 @@ Status Sc6ReplayRuntime::PrepareOnlineOwnedStorage(
         *prototype, *diagnostic_image_b_);
     corrected_replay_capture_.Clear();
     return status;
+}
+
+Status Sc6ReplayRuntime::RetireConfirmedOnlineHistory(
+    FrameCoordinate confirmed) noexcept
+{
+    if (!online_predicted_remote_player_.has_value()
+        || confirmed.generation == 0
+        || confirmed.generation
+            != timeline_status_.last_coordinate.generation
+        || confirmed > timeline_status_.last_coordinate)
+        return Status::failure(FailureCode::IllegalTransition);
+
+    // Gekko never revises frames at or below its mutually confirmed prefix.
+    // Keep a wider window than the 29-coordinate native resimulation ceiling
+    // so a retained batch and its nearest checkpoint anchor remain available.
+    constexpr std::uint64_t retained_coordinates =
+        maximum_owned_correction_coordinates;
+    const FrameCoordinate minimum{
+        confirmed.generation,
+        confirmed.frame > retained_coordinates
+            ? confirmed.frame - retained_coordinates : 0};
+    input_timeline_.DiscardBefore(minimum);
+    batch_timeline_.DiscardBefore(minimum);
+    canonical_timeline_.DiscardBefore(minimum);
+    checkpoint_capture_.DiscardHistoryBefore(minimum);
+    return Status::success();
 }
 
 std::size_t Sc6ReplayRuntime::forced_qualification_bytes() const noexcept
@@ -1151,7 +1204,9 @@ void Sc6ReplayRuntime::RebaselineAfterIdentityDrift(
     batch_timeline_.Clear();
     canonical_timeline_.Clear();
     forced_qualification_snapshots_.Clear();
-    if (!online_predicted_remote_player_.has_value())
+    if (ShouldReleaseCorrectionScratchOnRebaseline(
+            preserve_replacement_generation,
+            online_predicted_remote_player_.has_value()))
     {
         correction_undo_scratch_ = {};
         correction_verified_scratch_ = {};

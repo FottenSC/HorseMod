@@ -245,6 +245,12 @@ Sc6CandidateCheckpointCapture::~Sc6CandidateCheckpointCapture() = default;
 
 std::size_t Sc6CandidateCheckpointCapture::owned_scratch_bytes() const noexcept
 {
+    return owned_scratch_status().aggregate();
+}
+
+CandidateCheckpointScratchStatus
+Sc6CandidateCheckpointCapture::owned_scratch_status() const noexcept
+{
     const auto snapshot_capacity = [](const Snapshot& snapshot) noexcept {
         std::size_t bytes = snapshot.bytes.capacity()
             + snapshot.local_images.capacity()
@@ -253,32 +259,41 @@ std::size_t Sc6CandidateCheckpointCapture::owned_scratch_bytes() const noexcept
             bytes += local.bytes.capacity();
         return bytes;
     };
-    std::size_t bytes = 0;
-    if (memory_) bytes += sizeof(ProcessMemory);
-    if (regions_) bytes += sizeof(NativeCandidateRegions);
-    if (battle_audio_selector_) bytes += sizeof(BattleAudioSelectorState);
-    if (motion_banks_) bytes += sizeof(MotionBankSnapshot);
-    if (move_dispatch_) bytes += sizeof(MoveDispatchState);
-    if (secondary_events_) bytes += sizeof(SecondaryEventState);
-    if (chara_animation_) bytes += sizeof(CharaAnimationState);
-    if (callback_probe_) bytes += sizeof(CallbackTopologyProbe);
-    if (wind_probe_) bytes += sizeof(StageWindTopologyProbe);
-    if (wind_allocator_) bytes += sizeof(ProcessStageWindAllocator);
-    if (wind_transaction_) bytes += sizeof(StageWindGraphTransaction);
+    CandidateCheckpointScratchStatus status{};
+    if (memory_) status.fixed_subsystems += sizeof(ProcessMemory);
+    if (regions_) status.fixed_subsystems += sizeof(NativeCandidateRegions);
+    if (battle_audio_selector_)
+        status.fixed_subsystems += sizeof(BattleAudioSelectorState);
+    if (motion_banks_)
+        status.fixed_subsystems += sizeof(MotionBankSnapshot);
+    if (move_dispatch_)
+        status.fixed_subsystems += sizeof(MoveDispatchState);
+    if (secondary_events_)
+        status.fixed_subsystems += sizeof(SecondaryEventState);
+    if (chara_animation_)
+        status.fixed_subsystems += sizeof(CharaAnimationState);
+    if (callback_probe_)
+        status.fixed_subsystems += sizeof(CallbackTopologyProbe);
+    if (wind_probe_)
+        status.fixed_subsystems += sizeof(StageWindTopologyProbe);
+    if (wind_allocator_)
+        status.fixed_subsystems += sizeof(ProcessStageWindAllocator);
+    if (wind_transaction_)
+        status.fixed_subsystems += sizeof(StageWindGraphTransaction);
     if (adapter_)
-        bytes += sizeof(CandidateGameStateAdapter)
+        status.adapter = sizeof(CandidateGameStateAdapter)
             + adapter_->owned_scratch_bytes();
-    bytes += snapshot_capacity(landing_capture_scratch_)
-        + snapshot_capacity(batch_entry_capture_scratch_)
-        + bound_callback_topology_.records.capacity()
+    status.capture_snapshots = snapshot_capacity(landing_capture_scratch_)
+        + snapshot_capacity(batch_entry_capture_scratch_);
+    status.callback_topology = bound_callback_topology_.records.capacity()
             * sizeof(CallbackTopologyRecord)
         + callback_topology_scratch_.records.capacity()
             * sizeof(CallbackTopologyRecord);
     if (auxiliary_decode_scratch_)
-        bytes += sizeof(CandidateCheckpointImage)
+        status.auxiliary_decode = sizeof(CandidateCheckpointImage)
             + CandidateCheckpointDynamicCapacity(
                 *auxiliary_decode_scratch_, true);
-    return bytes;
+    return status;
 }
 
 Status Sc6CandidateCheckpointCapture::Initialize(
@@ -913,6 +928,24 @@ Status Sc6CandidateCheckpointCapture::CaptureTransient(
     return finish_transient_capture(captured, diagnostic, output_diagnostic);
 }
 
+Status Sc6CandidateCheckpointCapture::PrepareOnlineOwnedStorage(
+    const Snapshot& prototype) noexcept
+{
+    if (adapter_ == nullptr || auxiliary_decode_scratch_ == nullptr)
+        return Status::failure(FailureCode::AdapterUnqualified);
+    Status status = adapter_->PrepareTransientCaptureStorage(prototype);
+    if (status.ok())
+        status = PrepareCandidateCheckpointStorage(
+            *auxiliary_decode_scratch_, true);
+    if (status.ok())
+        status = PrepareSnapshotCaptureStorage(
+            landing_capture_scratch_, prototype);
+    if (status.ok())
+        status = PrepareSnapshotCaptureStorage(
+            batch_entry_capture_scratch_, prototype);
+    return status;
+}
+
 Status Sc6CandidateCheckpointCapture::StoreSynchronizedBatchEntry(
     const Snapshot& snapshot) noexcept
 {
@@ -1176,6 +1209,13 @@ void Sc6CandidateCheckpointCapture::InvalidateHistory() noexcept
     batch_entry_capture_timing_ = {};
     landing_store_timing_ = {};
     batch_entry_store_timing_ = {};
+}
+
+void Sc6CandidateCheckpointCapture::DiscardHistoryBefore(
+    FrameCoordinate minimum) noexcept
+{
+    landing_snapshots_.DiscardBeforeRetainingNearest(minimum);
+    batch_entry_snapshots_.DiscardBeforeRetainingNearest(minimum);
 }
 
 void Sc6CandidateCheckpointCapture::ReleaseHistoryStorage() noexcept

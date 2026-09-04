@@ -303,17 +303,8 @@ def _require_matching_independent_baselines(
 def _require_two_owned_generations(
     records: list[dict[str, Any]], confirmed: list[dict[str, Any]], label: str,
 ) -> None:
-    first_owned = [record for record in records
-                   if record["event"] == "first_owned_input"]
-    if len(first_owned) < 2:
-        raise RuntimeError(f"{label} lacked second-generation owned input")
-    generations = [record["generation"] for record in first_owned[:2]]
-    if generations[0] == 0 or generations[1] <= generations[0]:
-        raise RuntimeError(f"{label} ownership generations did not advance")
-    confirmed_generations = {record["generation"] for record in confirmed}
-    if any(generation not in confirmed_generations for generation in generations):
-        raise RuntimeError(
-            f"{label} lacked a confirmed hash in each owned generation")
+    generations = _require_confirmed_owned_generations(
+        records, confirmed, label, 2)
     first_generation_corrections = max(
         record["corrections"] for record in confirmed
         if record["generation"] == generations[0])
@@ -323,6 +314,29 @@ def _require_two_owned_generations(
     if second_generation_corrections <= first_generation_corrections:
         raise RuntimeError(
             f"{label} lacked a real correction in the second owned generation")
+
+
+def _require_confirmed_owned_generations(
+    records: list[dict[str, Any]], confirmed: list[dict[str, Any]],
+    label: str, required: int,
+) -> list[int]:
+    if required < 1:
+        raise ValueError("owned generation count must be positive")
+    first_owned = [record for record in records
+                   if record["event"] == "first_owned_input"]
+    if len(first_owned) < required:
+        raise RuntimeError(
+            f"{label} lacked {required} owned generation(s)")
+    generations = [record["generation"] for record in first_owned[:required]]
+    if (generations[0] == 0
+            or any(current <= prior
+                   for prior, current in zip(generations, generations[1:]))):
+        raise RuntimeError(f"{label} ownership generations did not advance")
+    confirmed_generations = {record["generation"] for record in confirmed}
+    if any(generation not in confirmed_generations for generation in generations):
+        raise RuntimeError(
+            f"{label} lacked a confirmed hash in each owned generation")
+    return generations
 
 
 def _qualification_failure_plan(
@@ -468,6 +482,7 @@ def _development_smoke_complete(args: Any, completed_cycles: int) -> bool:
             or args.development_correction_smoke
             or args.development_depth7_smoke
             or args.development_round_barrier_smoke
+            or args.development_multiround_correction_smoke
             or args.development_reentry_smoke):
         return False
     return (not args.development_reentry_smoke
@@ -481,6 +496,8 @@ def _development_report_kind(args: Any) -> str:
         return "paired_online_development_depth7_smoke"
     if args.development_round_barrier_smoke:
         return "paired_online_development_round_barrier_smoke"
+    if args.development_multiround_correction_smoke:
+        return "paired_online_development_multiround_correction_smoke"
     if args.development_reentry_smoke:
         return "paired_online_development_reentry_smoke"
     return "paired_online_development_setup_smoke"
@@ -489,13 +506,14 @@ def _development_report_kind(args: Any) -> str:
 def _qualification_correction_stimulus_depths(
     args: Any, failure_case: str,
 ) -> tuple[int, ...]:
-    if args.development_correction_smoke:
+    if (args.development_correction_smoke
+            or args.development_multiround_correction_smoke
+            or args.development_reentry_smoke):
         return (11, 1, 6)
     if args.development_depth7_smoke:
         return (7,)
     if (failure_case or args.development_setup_smoke
-            or args.development_round_barrier_smoke
-            or args.development_reentry_smoke):
+            or args.development_round_barrier_smoke):
         return ()
     # Functional certification must create repeatable prediction error even
     # when two local Steam peers exchange ordinary inputs before prediction.
@@ -848,6 +866,33 @@ def _confirmed_convergence(latest: dict[str, dict[str, Any]]) -> dict[str, Any] 
     }
 
 
+def _raise_on_terminal_owned_metrics(label: str, metric: dict[str, Any]) -> None:
+    failures: list[str] = []
+    if metric["post_status4_growth"] != 0:
+        failures.append(f"post_status4_growth={metric['post_status4_growth']}")
+    if metric["capacity_failures"] != 0:
+        failures.append(f"capacity_failures={metric['capacity_failures']}")
+    if metric["aggregate_owned"] > metric["aggregate_limit"]:
+        failures.append(
+            f"aggregate_owned={metric['aggregate_owned']}>"
+            f"{metric['aggregate_limit']}")
+    if metric["pending"] != 0:
+        failures.append(f"pending_events={metric['pending']}")
+    if metric["correction_p99_ns"] >= 16_670_000:
+        failures.append(f"correction_p99_ns={metric['correction_p99_ns']}")
+    if metric["correction_max_ns"] >= 33_340_000:
+        failures.append(f"correction_max_ns={metric['correction_max_ns']}")
+    for field in (
+            "audio_sequence_mismatches", "camera_publication_mismatches",
+            "presentation_failures", "journal_duplicates",
+            "journal_publish_failures"):
+        if metric[field] != 0:
+            failures.append(f"{field}={metric[field]}")
+    if failures:
+        raise RuntimeError(
+            f"{label} terminal owned metric failure: {', '.join(failures)}")
+
+
 def _wait_online(paths: ObserverPairPaths, run_ids: dict[str, str], case: dict[str, Any],
                  offsets: dict[str, LogCursor], timeout: float, phase_timeout: float,
                  expected_steam_ids: dict[str, tuple[int, int]],
@@ -924,6 +969,9 @@ def _wait_online(paths: ObserverPairPaths, run_ids: dict[str, str], case: dict[s
                 "events": events,
                 "event_records": event_records,
             }
+            if latest[label]["confirmed"] is not None:
+                _raise_on_terminal_owned_metrics(
+                    label, latest[label]["confirmed"])
             if authenticated:
                 expected_local, expected_peer = expected_steam_ids[label]
                 proof = authenticated[-1]
@@ -1261,6 +1309,7 @@ def _wait_development_setup_smoke(
         }
         _raise_on_native_terminal(
             logs, online_run_ids, "native first-owned admission")
+        confirmed_latest: dict[str, dict[str, Any]] = {}
         for label in ("host", "sandbox"):
             failures = [match for match in FAILURE.finditer(logs[label])
                         if match.group("run") == online_run_ids[label]]
@@ -1271,10 +1320,25 @@ def _wait_development_setup_smoke(
             statuses = [int(match.group("status"))
                         for match in STATUS.finditer(logs[label])
                         if match.group("run") == online_run_ids[label]]
+            confirmed = [match for match in CONFIRMED.finditer(logs[label])
+                         if match.group("run") == online_run_ids[label]]
+            confirmed_history = [
+                {
+                    key: (value if key == "sha256" else int(value))
+                    for key, value in match.groupdict().items()
+                    if key != "run"
+                }
+                for match in confirmed
+            ]
+            if confirmed:
+                metric = confirmed_history[-1]
+                _raise_on_terminal_owned_metrics(label, metric)
             if 6 in statuses:
                 raise RuntimeError(
                     f"{label} failed before native online admission")
             events = _events_for_run(logs[label], online_run_ids[label])
+            event_records = _event_records_for_run(
+                logs[label], online_run_ids[label])
             _validate_online_status_evidence(statuses, events, label)
             handshakes = [match for match in HANDSHAKE.finditer(logs[label])
                           if match.group("run") == online_run_ids[label]]
@@ -1289,6 +1353,13 @@ def _wait_development_setup_smoke(
                         < required_owned_generations):
                 admitted = False
                 continue
+            try:
+                _require_confirmed_owned_generations(
+                    event_records, confirmed_history, label,
+                    required_owned_generations)
+            except RuntimeError:
+                admitted = False
+                continue
             handshake = handshakes[-1]
             if (handshake.group("map") != case["stage_package_root"]
                     or handshake.group("display") != case["native_display_name"]
@@ -1298,7 +1369,14 @@ def _wait_development_setup_smoke(
                     f"{label} native admission used the wrong exact content")
             setup_metrics[label]["native_handshake"] = handshake.groupdict()
             setup_metrics[label]["native_online_status"] = 5
+            confirmed_latest[label] = {
+                "confirmed_history": confirmed_history,
+            }
         if admitted:
+            convergence = _confirmed_convergence(confirmed_latest)
+            if convergence is None:
+                time.sleep(0.25)
+                continue
             baseline_identities = _require_matching_independent_baselines(
                 logs, online_run_ids,
                 minimum_count=required_owned_generations)
@@ -1308,6 +1386,7 @@ def _wait_development_setup_smoke(
                     label, generations=required_owned_generations)
             setup_metrics["baseline_identities"] = baseline_identities
             setup_metrics["owned_generations"] = required_owned_generations
+            setup_metrics["convergence"] = convergence
             break
         time.sleep(0.25)
     else:
@@ -1404,6 +1483,7 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
         args.development_setup_smoke or args.development_correction_smoke
         or args.development_depth7_smoke
         or args.development_round_barrier_smoke
+        or args.development_multiround_correction_smoke
         or args.development_reentry_smoke)
     correction_stimulus_depths = _qualification_correction_stimulus_depths(
         args, failure_case)
@@ -1411,6 +1491,7 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
             args.development_correction_smoke,
             args.development_depth7_smoke,
             args.development_round_barrier_smoke,
+            args.development_multiround_correction_smoke,
             args.development_reentry_smoke)) > 1:
         raise RuntimeError("select only one paired development smoke")
     if development_smoke and (
@@ -1583,6 +1664,7 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
                 post_start)
         else:
             while True:
+                memory_tracker.begin_cycle()
                 arm_match_setup()
                 print(
                     "Qualification-only stock automation armed for cycle "
@@ -1605,7 +1687,9 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
                         request_lobby_return,
                         correction_depths=correction_stimulus_depths,
                         required_owned_generations=(
-                            2 if args.development_round_barrier_smoke else 1),
+                            2 if (args.development_round_barrier_smoke
+                                  or args.development_multiround_correction_smoke)
+                            else 1),
                     )
                 else:
                     metrics, raw_logs = _wait_online(
@@ -1627,6 +1711,7 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
                         label: cursor.offset
                         for label, cursor in log_offsets.items()
                     },
+                    "process_memory": memory_tracker.end_cycle(),
                     "peers": metrics,
                 })
                 for label, text in raw_logs.items():

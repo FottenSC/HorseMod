@@ -299,6 +299,28 @@ bool NativeBatchTimeline::CanAppendBatch(
         && coordinate_count <= maximum_coordinates_ - coordinates_.size();
 }
 
+void NativeBatchTimeline::DiscardBefore(FrameCoordinate minimum) noexcept
+{
+    const auto first_batch = std::lower_bound(
+        batches_.begin(), batches_.end(), minimum,
+        [](const NativeBatchEnvelope& batch, FrameCoordinate value) {
+            return batch.exit_coordinate < value;
+        });
+    const auto removed = static_cast<std::size_t>(
+        first_batch - batches_.begin());
+    if (removed == 0) return;
+
+    batches_.erase(batches_.begin(), first_batch);
+    const auto first_coordinate = std::lower_bound(
+        coordinates_.begin(), coordinates_.end(), removed,
+        [](const NativeBatchCoordinate& coordinate, std::size_t batch) {
+            return coordinate.batch_index < batch;
+        });
+    coordinates_.erase(coordinates_.begin(), first_coordinate);
+    for (auto& coordinate : coordinates_)
+        coordinate.batch_index -= removed;
+}
+
 void NativeBatchTimeline::Clear() noexcept
 {
     batches_.clear();

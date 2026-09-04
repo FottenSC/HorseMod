@@ -152,6 +152,8 @@ public:
     Status Capture(FrameCoordinate coordinate, Snapshot& output) noexcept override;
     Status CaptureCanonical(
         FrameCoordinate coordinate, Snapshot& output) noexcept;
+    Status PrepareTransientCaptureStorage(
+        const Snapshot& prototype) noexcept;
     [[nodiscard]] Status GetLastCanonicalPeerDiagnostic(
         FrameCoordinate coordinate,
         PeerBaselineStateDiagnostic& output) const noexcept;

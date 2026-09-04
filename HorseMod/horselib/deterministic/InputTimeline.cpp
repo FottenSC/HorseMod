@@ -131,6 +131,15 @@ Status InputTimeline::CompareExchangeRange(
     return Status::success();
 }
 
+void InputTimeline::DiscardBefore(FrameCoordinate minimum) noexcept
+{
+    const auto first = std::lower_bound(entries_.begin(), entries_.end(),
+        minimum, [](const Entry& entry, FrameCoordinate value) {
+            return entry.coordinate < value;
+        });
+    entries_.erase(entries_.begin(), first);
+}
+
 void InputTimeline::InvalidateGeneration(std::uint64_t generation) noexcept
 {
     entries_.erase(std::remove_if(entries_.begin(), entries_.end(),

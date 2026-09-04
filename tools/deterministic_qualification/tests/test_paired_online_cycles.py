@@ -22,8 +22,10 @@ from tools.deterministic_qualification.paired_online import (
     _qualification_failure_plan, _read_since,
     _repeated_correction_evidence,
     _required_correction_stimulus,
+    _require_confirmed_owned_generations,
     _require_ordered_takeover, _require_two_owned_generations,
-    _raise_on_native_terminal, _root_failure_evidence,
+    _raise_on_native_terminal, _raise_on_terminal_owned_metrics,
+    _root_failure_evidence,
     _validate_online_status_evidence,
     _wait_development_setup_smoke,
 )
@@ -33,6 +35,38 @@ from tools.deterministic_qualification.paired_online_evaluation import (
 from tools.deterministic_qualification.trace_parser import capture_log_offset
 
 import pytest
+
+
+def test_owned_metric_growth_is_immediately_terminal():
+    healthy = {
+        "post_status4_growth": 0, "capacity_failures": 0,
+        "aggregate_owned": 100, "aggregate_limit": 200, "pending": 0,
+        "correction_p99_ns": 1, "correction_max_ns": 1,
+        "audio_sequence_mismatches": 0,
+        "camera_publication_mismatches": 0, "presentation_failures": 0,
+        "journal_duplicates": 0, "journal_publish_failures": 0,
+    }
+    _raise_on_terminal_owned_metrics("host", healthy)
+    growth = dict(healthy, post_status4_growth=1)
+    with pytest.raises(RuntimeError, match="host terminal owned metric.*growth=1"):
+        _raise_on_terminal_owned_metrics("host", growth)
+
+
+def test_development_gate_requires_confirmed_hash_after_each_owned_generation():
+    records = [
+        {"event": "first_owned_input", "generation": 1, "frame": 124},
+        {"event": "first_owned_input", "generation": 2, "frame": 391},
+    ]
+    confirmed = [
+        {"generation": 1, "frame": 153, "corrections": 3},
+    ]
+    with pytest.raises(RuntimeError, match="confirmed hash in each"):
+        _require_confirmed_owned_generations(
+            records, confirmed, "host", 2)
+    confirmed.append(
+        {"generation": 2, "frame": 420, "corrections": 3})
+    assert _require_confirmed_owned_generations(
+        records, confirmed, "host", 2) == [1, 2]
 
 
 def test_paired_online_exposes_explicit_same_process_cycle_controls():
@@ -80,6 +114,17 @@ def test_paired_online_exposes_noncertifying_repeated_correction_smoke():
         "--report", "report.json", "--development-correction-smoke",
     ])
     assert arguments.development_correction_smoke is True
+
+
+def test_paired_online_exposes_noncertifying_multiround_correction_smoke():
+    arguments = build_parser().parse_args([
+        "paired-online", "--case-manifest", "cases.json", "--case", "case-a",
+        "--dll", "HorseMod.dll", "--output-dir", "evidence",
+        "--report", "report.json",
+        "--development-multiround-correction-smoke",
+    ])
+    assert arguments.development_multiround_correction_smoke is True
+    assert _qualification_correction_stimulus_depths(arguments, "") == (11, 1, 6)
 
 
 def test_functional_certification_arms_authenticated_11_1_6_corrections():
@@ -130,6 +175,8 @@ def test_paired_online_exposes_two_cycle_same_process_reentry_smoke():
     ])
     assert arguments.development_reentry_smoke is True
     assert arguments.match_cycles == 2
+    assert _qualification_correction_stimulus_depths(
+        arguments, "") == (11, 1, 6)
     assert not _development_smoke_complete(arguments, 1)
     assert _development_smoke_complete(arguments, 2)
     assert (_development_report_kind(arguments)
@@ -416,6 +463,21 @@ def test_setup_smoke_teardown_aborts_immediately_on_native_failure(tmp_path):
         "stage_package_root": "/Game/DLC/07/Stage/STG011_R",
         "native_display_name": "Silver Wolves' Haven",
     }
+    confirmed_rows = "".join(
+        f"[HorseMod] online qualification run_id={{run}} confirmed_hash "
+        f"generation=1 frame={frame} sha256={'42' * 32} checks={index} "
+        "corrections=0 max_depth=0 pending_events=0 presentation_bytes=0 "
+        "checkpoint_bytes=0 batch_entry_bytes=0 timeline_owned_bytes=0 "
+        "forced_snapshot_bytes=0 presentation_owned_bytes=0 "
+        "scratch_metadata_bytes=0 aggregate_owned_bytes=0 aggregate_limit=1 "
+        "post_status4_growth=0 capacity_failures=0 correction_samples=0 "
+        "correction_p50_ns=0 correction_p95_ns=0 correction_p99_ns=0 "
+        "correction_max_ns=0 verified_audio_batches=1 "
+        "audio_sequence_mismatches=0 verified_camera_batches=1 "
+        "camera_publication_mismatches=0 presentation_failures=0 "
+        "journal_duplicates=0 journal_publish_failures=0 journal_committed=0\n"
+        for index, frame in enumerate((153, 183), 1)
+    )
     for label, current_peer in (("host", paths.host), ("sandbox", paths.sandbox)):
         current_peer.qualification_root.mkdir()
         takeover_events = "".join(
@@ -439,7 +501,8 @@ def test_setup_smoke_teardown_aborts_immediately_on_native_failure(tmp_path):
             "0000000000000001/0000000000000002/0000000000000003/"
             "0000000000000004/0000000000000005\n"
             f"[ReplayQualification] online qualification "
-            f"run_id={online_ids[label]} status=5\n",
+            f"run_id={online_ids[label]} status=5\n"
+            f"{confirmed_rows.format(run=online_ids[label])}",
             encoding="utf-8",
         )
         (current_peer.qualification_root / "online_room_report.json").write_text(

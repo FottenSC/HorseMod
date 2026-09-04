@@ -410,7 +410,9 @@
                     "correction_max_ns={} verified_audio_batches={} audio_sequence_mismatches={} "
                     "verified_camera_batches={} camera_publication_mismatches={} "
                     "presentation_failures={} journal_duplicates={} journal_publish_failures={} "
-                    "journal_committed={}\n"),
+                    "journal_committed={} runtime_scratch={} checkpoint_capture_scratch={} "
+                    "correction_scratch={} diagnostic_images={} corrected_replay_scratch={} "
+                    "checkpoint_parts={}/{}/{}/{}/{}\n"),
                     RC::to_generic_string(m_online_run_id),
                     remote->coordinate.generation, remote->coordinate.frame,
                     RC::to_generic_string(hash_hex(local)),
@@ -435,8 +437,21 @@
                     m_online_presentation_failures,
                     presentation_statistics.duplicates,
                     presentation_statistics.publish_failures,
-                    presentation_statistics.committed);
+                    presentation_statistics.committed,
+                    storage.runtime_scratch_bytes,
+                    storage.checkpoint_capture_scratch_bytes,
+                    storage.correction_scratch_bytes,
+                    storage.diagnostic_image_bytes,
+                    storage.corrected_replay_scratch_bytes,
+                    storage.checkpoint_fixed_subsystems_bytes,
+                    storage.checkpoint_adapter_bytes,
+                    storage.checkpoint_capture_snapshot_bytes,
+                    storage.checkpoint_callback_topology_bytes,
+                    storage.checkpoint_auxiliary_decode_bytes);
             }
+            if (status.ok())
+                status = m_replay_native_runtime
+                    .RetireConfirmedOnlineHistory(remote->coordinate);
         }
         m_online_last_observed_coordinate = timeline.last_coordinate;
         if (status.ok() && !m_online_qualification_fault_triggered

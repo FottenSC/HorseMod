@@ -154,6 +154,15 @@ CanonicalHashTimeline::LatestGenerationRange() const noexcept
     return std::pair{first->coordinate, last};
 }
 
+void CanonicalHashTimeline::DiscardBefore(FrameCoordinate minimum) noexcept
+{
+    const auto first = std::lower_bound(entries_.begin(), entries_.end(),
+        minimum, [](const CanonicalHashEntry& entry, FrameCoordinate value) {
+            return entry.coordinate < value;
+        });
+    entries_.erase(entries_.begin(), first);
+}
+
 void CanonicalHashTimeline::Clear() noexcept
 {
     entries_.clear();

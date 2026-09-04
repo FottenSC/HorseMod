@@ -57,6 +57,36 @@ namespace Deterministic
         && at_completed_outer_tick_boundary && round_barrier_acknowledged;
 }
 
+// A mutually acknowledged round replacement retires logical history, but its
+// process-owned scratch capacity remains part of the same online session.  It
+// must survive the brief interval after Gekko prediction is cleared or the
+// next generation will allocate again after status 4.
+[[nodiscard]] inline bool ShouldReleaseCorrectionScratchOnRebaseline(
+    bool preserve_replacement_generation,
+    bool predicted_remote_player_active) noexcept
+{
+    return !preserve_replacement_generation
+        && !predicted_remote_player_active;
+}
+
+enum class OnlineScratchRole : std::uint8_t
+{
+    CorrectionUndo,
+    CorrectionVerified,
+    CorrectionCanonical,
+    TimelineCanonical,
+    Diagnostic,
+};
+
+[[nodiscard]] inline bool OnlineScratchRequiresTransientPayload(
+    OnlineScratchRole role, bool forced_depth7) noexcept
+{
+    return role == OnlineScratchRole::CorrectionUndo
+        || role == OnlineScratchRole::CorrectionVerified
+        || role == OnlineScratchRole::Diagnostic
+        || (role == OnlineScratchRole::TimelineCanonical && forced_depth7);
+}
+
 [[nodiscard]] inline bool IsIdentityReplacementStatus(
     FailureCode code) noexcept
 {
@@ -283,6 +313,16 @@ struct DeterministicOwnedStorageStatus
     std::size_t forced_snapshot_bytes{};
     std::size_t presentation_bytes{};
     std::size_t scratch_metadata_bytes{};
+    std::size_t runtime_scratch_bytes{};
+    std::size_t checkpoint_capture_scratch_bytes{};
+    std::size_t checkpoint_fixed_subsystems_bytes{};
+    std::size_t checkpoint_adapter_bytes{};
+    std::size_t checkpoint_capture_snapshot_bytes{};
+    std::size_t checkpoint_callback_topology_bytes{};
+    std::size_t checkpoint_auxiliary_decode_bytes{};
+    std::size_t correction_scratch_bytes{};
+    std::size_t diagnostic_image_bytes{};
+    std::size_t corrected_replay_scratch_bytes{};
     std::size_t aggregate_bytes{};
     std::size_t aggregate_limit{576ull * 1024ull * 1024ull};
 };
@@ -486,6 +526,7 @@ public:
         std::optional<std::size_t> player_index) noexcept;
     Status RequireOnlineBaselineCheckpoint(FrameCoordinate baseline) noexcept;
     Status PrepareOnlineOwnedStorage(FrameCoordinate baseline) noexcept;
+    Status RetireConfirmedOnlineHistory(FrameCoordinate confirmed) noexcept;
     [[nodiscard]] bool HasOnlineBaselineCheckpoint(
         FrameCoordinate baseline) const noexcept
     {

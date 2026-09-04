@@ -329,6 +329,7 @@ public:
         const NativeBatchEnvelope& replacement) noexcept;
     [[nodiscard]] bool CanAppendBatch(
         std::size_t coordinate_count) const noexcept;
+    void DiscardBefore(FrameCoordinate minimum) noexcept;
     void Clear() noexcept;
 
     [[nodiscard]] std::size_t batch_count() const noexcept;

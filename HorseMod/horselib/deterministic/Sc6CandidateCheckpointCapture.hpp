@@ -44,6 +44,21 @@ struct CandidateCheckpointCaptureStatus
     CandidateCapturePhase capture_phase{};
 };
 
+struct CandidateCheckpointScratchStatus
+{
+    std::size_t fixed_subsystems{};
+    std::size_t adapter{};
+    std::size_t capture_snapshots{};
+    std::size_t callback_topology{};
+    std::size_t auxiliary_decode{};
+
+    [[nodiscard]] std::size_t aggregate() const noexcept
+    {
+        return fixed_subsystems + adapter + capture_snapshots
+            + callback_topology + auxiliary_decode;
+    }
+};
+
 enum class CameraTopologyCaptureStage : std::uint8_t
 {
     None,
@@ -136,6 +151,8 @@ public:
     Status CaptureCanonical(
         FrameCoordinate coordinate, Snapshot& output,
         CandidateTransientCaptureDiagnostic* diagnostic = nullptr) noexcept;
+    Status PrepareOnlineOwnedStorage(
+        const Snapshot& prototype) noexcept;
     Status StoreSynchronizedBatchEntry(const Snapshot& snapshot) noexcept;
     Status EnsureRestoreOwnership(std::uint32_t simulation_thread_id) noexcept;
     Status RestoreAndVerify(const Snapshot& snapshot) noexcept;
@@ -154,6 +171,7 @@ public:
         const CanonicalInputDiagnostic& expected,
         const InputPair& input) noexcept;
     void InvalidateHistory() noexcept;
+    void DiscardHistoryBefore(FrameCoordinate minimum) noexcept;
     void ReleaseHistoryStorage() noexcept;
     void ReleaseBinding() noexcept;
     void ReleaseBindingStorage() noexcept;
@@ -185,6 +203,8 @@ public:
         const noexcept;
     void ResetCapturePerformanceWindow() noexcept;
     [[nodiscard]] std::size_t owned_scratch_bytes() const noexcept;
+    [[nodiscard]] CandidateCheckpointScratchStatus owned_scratch_status()
+        const noexcept;
     [[nodiscard]] CandidateCapturePhase transient_capture_phase() const noexcept;
     [[nodiscard]] std::array<std::uint16_t, 2>
     last_captured_movevm_short25() const noexcept;

@@ -1,5 +1,7 @@
 #include "SnapshotStore.hpp"
 
+#include "CandidateCheckpoint.hpp"
+
 #include <algorithm>
 #include <limits>
 #include <new>
@@ -73,7 +75,7 @@ std::size_t SnapshotStore::snapshot_dynamic_cost(
     return cost;
 }
 
-bool SnapshotStore::can_copy_without_growth(
+bool CanCopySnapshotWithoutGrowth(
     const Snapshot& target, const Snapshot& source) noexcept
 {
     if (source.bytes.size() > target.bytes.capacity()
@@ -88,7 +90,7 @@ bool SnapshotStore::can_copy_without_growth(
     return true;
 }
 
-void SnapshotStore::copy_without_growth(
+void CopySnapshotWithoutGrowth(
     Snapshot& target, const Snapshot& source) noexcept
 {
     target.coordinate = source.coordinate;
@@ -122,6 +124,67 @@ void SnapshotStore::copy_without_growth(
     }
 }
 
+Status PrepareSnapshotCopyStorage(
+    Snapshot& target, const Snapshot& source) noexcept
+{
+    try
+    {
+        target.bytes.reserve(source.bytes.capacity());
+    }
+    catch (...)
+    {
+        return Status::failure(FailureCode::CapacityExceeded);
+    }
+    const auto locals = PrepareLocalReconstructionCopyStorage(
+        target.local_images, source.local_images);
+    if (!locals.ok()) return locals;
+    if (!CanCopySnapshotWithoutGrowth(target, source))
+        return Status::failure(FailureCode::CapacityExceeded);
+    CopySnapshotWithoutGrowth(target, source);
+    return Status::success();
+}
+
+Status PrepareLocalReconstructionCopyStorage(
+    std::vector<LocalReconstructionImage>& target,
+    const std::vector<LocalReconstructionImage>& source) noexcept
+{
+    try
+    {
+        target.reserve(source.capacity());
+        target.resize(source.size());
+        for (std::size_t index = 0; index < source.size(); ++index)
+            target[index].bytes.reserve(source[index].bytes.capacity());
+    }
+    catch (...)
+    {
+        return Status::failure(FailureCode::CapacityExceeded);
+    }
+    return Status::success();
+}
+
+Status PrepareSnapshotCaptureStorage(
+    Snapshot& target, const Snapshot& prototype) noexcept
+{
+    try
+    {
+        target.bytes.reserve(candidate_checkpoint_capture_byte_capacity);
+        // EncodeCaptured exchanges this vector with CandidateCheckpointImage,
+        // whose admitted storage always reserves the maximum local-image
+        // count.  Matching that capacity here makes the exchange ownership-
+        // neutral even when the current prototype only contains two images.
+        target.local_images.reserve(maximum_local_reconstruction_images);
+    }
+    catch (...)
+    {
+        return Status::failure(FailureCode::CapacityExceeded);
+    }
+    const auto locals = PrepareLocalReconstructionCopyStorage(
+        target.local_images, prototype.local_images);
+    if (!locals.ok()) return locals;
+    CopySnapshotWithoutGrowth(target, prototype);
+    return Status::success();
+}
+
 Status SnapshotStore::PrewarmCopySlots(const Snapshot& prototype) noexcept
 {
     if (slot_capacity_ == 0)
@@ -147,13 +210,8 @@ Status SnapshotStore::PrewarmCopySlots(const Snapshot& prototype) noexcept
         for (const auto& entry : entries_)
         {
             auto& target = snapshots_[entry.slot];
-            target.bytes.reserve(prototype.bytes.size());
-            target.local_images.resize((std::max)(
-                target.local_images.size(), prototype.local_images.size()));
-            for (std::size_t index = 0;
-                    index < prototype.local_images.size(); ++index)
-                target.local_images[index].bytes.reserve(
-                    prototype.local_images[index].bytes.size());
+            const auto prepared = PrepareSnapshotCopyStorage(target, prototype);
+            if (!prepared.ok()) return prepared;
             allocated += snapshot_dynamic_cost(target);
         }
         if (allocated > maximum_bytes_)
@@ -162,7 +220,9 @@ Status SnapshotStore::PrewarmCopySlots(const Snapshot& prototype) noexcept
         for (std::size_t slot = 0; slot < slot_capacity_; ++slot)
         {
             if (occupied(slot)) continue;
-            snapshots_[slot] = prototype;
+            const auto prepared = PrepareSnapshotCopyStorage(
+                snapshots_[slot], prototype);
+            if (!prepared.ok()) return prepared;
             const auto cost = snapshot_dynamic_cost(snapshots_[slot]);
             if (cost > maximum_bytes_ - allocated)
             {
@@ -207,36 +267,36 @@ Status SnapshotStore::SaveCopyPrewarmed(const Snapshot& snapshot) noexcept
         && existing->coordinate == snapshot.coordinate)
     {
         auto& target = snapshots_[existing->slot];
-        if (!can_copy_without_growth(target, snapshot))
+        if (!CanCopySnapshotWithoutGrowth(target, snapshot))
         {
             const auto rewarmed = PrewarmCopySlots(snapshot);
             if (!rewarmed.ok()
-                || !can_copy_without_growth(target, snapshot))
+                || !CanCopySnapshotWithoutGrowth(target, snapshot))
                 return Status::failure(FailureCode::CapacityExceeded);
         }
-        copy_without_growth(target, snapshot);
+        CopySnapshotWithoutGrowth(target, snapshot);
         return Status::success();
     }
     if (free_slot_count_ == 0 || entries_.size() >= maximum_entries_)
         return Status::failure(FailureCode::CapacityExceeded);
     const auto slot = free_slots_[--free_slot_count_];
-    if (!can_copy_without_growth(snapshots_[slot], snapshot))
+    if (!CanCopySnapshotWithoutGrowth(snapshots_[slot], snapshot))
     {
         ++free_slot_count_;
         const auto rewarmed = PrewarmCopySlots(snapshot);
         if (!rewarmed.ok() || free_slot_count_ == 0)
             return Status::failure(FailureCode::CapacityExceeded);
         const auto rewarmed_slot = free_slots_[--free_slot_count_];
-        if (!can_copy_without_growth(snapshots_[rewarmed_slot], snapshot))
+        if (!CanCopySnapshotWithoutGrowth(snapshots_[rewarmed_slot], snapshot))
         {
             ++free_slot_count_;
             return Status::failure(FailureCode::CapacityExceeded);
         }
-        copy_without_growth(snapshots_[rewarmed_slot], snapshot);
+        CopySnapshotWithoutGrowth(snapshots_[rewarmed_slot], snapshot);
         entries_.insert(existing, Entry{snapshot.coordinate, rewarmed_slot});
         return Status::success();
     }
-    copy_without_growth(snapshots_[slot], snapshot);
+    CopySnapshotWithoutGrowth(snapshots_[slot], snapshot);
     entries_.insert(existing, Entry{snapshot.coordinate, slot});
     return Status::success();
 }
@@ -404,7 +464,7 @@ Status SnapshotStore::ValidateExactReplacement(
         if (current.canonical_hash != expected_hashes[index])
             return Status::failure(FailureCode::IdentityMismatch);
         if (copy_slots_prewarmed_
-            && !can_copy_without_growth(current, replacement))
+            && !CanCopySnapshotWithoutGrowth(current, replacement))
             return Status::failure(FailureCode::CapacityExceeded);
         const auto old_cost = snapshot_dynamic_cost(current);
         const auto new_cost = snapshot_dynamic_cost(replacement);
@@ -434,7 +494,7 @@ void SnapshotStore::CommitValidatedExactReplacement(
             });
         const auto slot = found->slot;
         if (copy_slots_prewarmed_)
-            copy_without_growth(snapshots_[slot], replacement);
+            CopySnapshotWithoutGrowth(snapshots_[slot], replacement);
         else
         {
             bytes_used_ -= snapshot_dynamic_cost(snapshots_[slot]);
@@ -456,6 +516,20 @@ void SnapshotStore::InvalidateGeneration(std::uint64_t generation) noexcept
         }
         else ++entry;
     }
+}
+
+void SnapshotStore::DiscardBeforeRetainingNearest(
+    FrameCoordinate minimum) noexcept
+{
+    auto first = std::lower_bound(entries_.begin(), entries_.end(),
+        minimum, [](const Entry& entry, FrameCoordinate value) {
+            return entry.coordinate < value;
+        });
+    std::size_t discard = static_cast<std::size_t>(first - entries_.begin());
+    if (discard != 0
+        && (first == entries_.end() || first->coordinate != minimum))
+        --discard;
+    while (discard-- != 0) release_entry(entries_.begin());
 }
 
 std::size_t SnapshotStore::BytesUsed() const noexcept

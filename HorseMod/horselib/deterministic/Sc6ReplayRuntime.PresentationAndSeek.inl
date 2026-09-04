@@ -640,23 +640,40 @@ DeterministicOwnedStorageStatus Sc6ReplayRuntime::owned_storage_status()
         + checkpoint_capture_.status(CandidateCheckpointRole::BatchEntry).bytes_used;
     result.forced_snapshot_bytes = forced_qualification_snapshots_.BytesUsed();
     result.presentation_bytes = presentation_controller_.allocated_bytes();
-    result.scratch_metadata_bytes = sizeof(*this)
-        + checkpoint_capture_.owned_scratch_bytes()
-        + pending_batch_coordinates_.capacity() * sizeof(FrameCoordinate)
-        + SnapshotDynamicCapacity(correction_undo_scratch_)
+    result.runtime_scratch_bytes = sizeof(*this)
+        + pending_batch_coordinates_.capacity() * sizeof(FrameCoordinate);
+    const auto checkpoint_scratch =
+        checkpoint_capture_.owned_scratch_status();
+    result.checkpoint_fixed_subsystems_bytes =
+        checkpoint_scratch.fixed_subsystems;
+    result.checkpoint_adapter_bytes = checkpoint_scratch.adapter;
+    result.checkpoint_capture_snapshot_bytes =
+        checkpoint_scratch.capture_snapshots;
+    result.checkpoint_callback_topology_bytes =
+        checkpoint_scratch.callback_topology;
+    result.checkpoint_auxiliary_decode_bytes =
+        checkpoint_scratch.auxiliary_decode;
+    result.checkpoint_capture_scratch_bytes = checkpoint_scratch.aggregate();
+    result.correction_scratch_bytes =
+        SnapshotDynamicCapacity(correction_undo_scratch_)
         + SnapshotDynamicCapacity(correction_verified_scratch_)
         + SnapshotDynamicCapacity(correction_canonical_capture_scratch_)
         + SnapshotDynamicCapacity(timeline_canonical_capture_scratch_)
-        + SnapshotDynamicCapacity(diagnostic_snapshot_scratch_)
-        + (diagnostic_image_a_ ? sizeof(CandidateCheckpointImage)
+        + SnapshotDynamicCapacity(diagnostic_snapshot_scratch_);
+    result.diagnostic_image_bytes =
+        (diagnostic_image_a_ ? sizeof(CandidateCheckpointImage)
             + CandidateCheckpointDynamicCapacity(*diagnostic_image_a_, true) : 0)
         + (diagnostic_image_b_ ? sizeof(CandidateCheckpointImage)
             + CandidateCheckpointDynamicCapacity(*diagnostic_image_b_, true) : 0);
     for (const auto& snapshot : corrected_replay_capture_.replacement_landing)
-        result.scratch_metadata_bytes += SnapshotDynamicCapacity(snapshot);
+        result.corrected_replay_scratch_bytes += SnapshotDynamicCapacity(snapshot);
     for (const auto& snapshot :
             corrected_replay_capture_.replacement_batch_entry)
-        result.scratch_metadata_bytes += SnapshotDynamicCapacity(snapshot);
+        result.corrected_replay_scratch_bytes += SnapshotDynamicCapacity(snapshot);
+    result.scratch_metadata_bytes = result.runtime_scratch_bytes
+        + result.checkpoint_capture_scratch_bytes
+        + result.correction_scratch_bytes + result.diagnostic_image_bytes
+        + result.corrected_replay_scratch_bytes;
     result.aggregate_bytes = result.timeline_bytes
         + result.forced_snapshot_bytes + result.presentation_bytes
         + result.scratch_metadata_bytes;

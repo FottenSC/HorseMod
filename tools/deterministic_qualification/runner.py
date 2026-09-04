@@ -2003,6 +2003,10 @@ def build_parser() -> argparse.ArgumentParser:
     paired.add_argument("--development-round-barrier-smoke", action="store_true",
         help=("run one non-certifying authenticated round transition through "
               "an independently acknowledged replacement baseline"))
+    paired.add_argument("--development-multiround-correction-smoke",
+        action="store_true",
+        help=("run one non-certifying authenticated 11, 1, 6 correction "
+              "sequence through a replacement generation"))
     paired.add_argument("--development-reentry-smoke", action="store_true",
         help=("allow a dirty, explicitly non-certifying two-match run in one "
               "SC6 process to verify cleanup and qualification re-entry"))

@@ -1,6 +1,7 @@
 #include "CandidateGameStateAdapter.hpp"
 
 #include "FloatingPointEnvironment.hpp"
+#include "SnapshotStore.hpp"
 
 #include <chrono>
 
@@ -10,6 +11,17 @@ CandidateGameStateAdapter::CandidateGameStateAdapter(
     NativeCandidateRegions& regions, HgCpuStreamShim& hgcpu) noexcept
     : regions_(regions), hgcpu_(hgcpu)
 {
+}
+
+Status CandidateGameStateAdapter::PrepareTransientCaptureStorage(
+    const Snapshot& prototype) noexcept
+{
+    // EncodeCaptured exchanges this vector with its Snapshot output.  Both
+    // sides must own the same serializer capacity before status 4 so a
+    // successful capture cannot move a smaller allocation into correction
+    // scratch and force the next round to grow it again.
+    return PrepareLocalReconstructionCopyStorage(
+        capture_scratch_.local_images, prototype.local_images);
 }
 
 bool CandidateGameStateAdapter::context_matches(
@@ -437,7 +449,15 @@ std::size_t CandidateGameStateAdapter::scratch_capacity_bytes() const noexcept
 
 std::size_t CandidateGameStateAdapter::owned_scratch_bytes() const noexcept
 {
+    // capture_scratch_.local_images is exchanged with caller-owned Snapshot
+    // outputs by EncodeCaptured.  It remains process-owned allocation while
+    // resident here, so aggregate ownership must include it even though the
+    // per-owner scratch-growth histogram deliberately ignores transfers.
+    const auto attached_capture_payload =
+        CandidateCheckpointDynamicCapacity(capture_scratch_, true)
+        - CandidateCheckpointDynamicCapacity(capture_scratch_, false);
     return scratch_capacity_bytes()
+        + attached_capture_payload
         + (transaction_target_scratch_ == nullptr
             ? 0 : sizeof(CandidateCheckpointImage))
         + (transaction_scratch_ == nullptr

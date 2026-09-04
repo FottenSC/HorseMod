@@ -1,6 +1,7 @@
 #include "deterministic/CanonicalHashTimeline.hpp"
 #include "deterministic/AudioPresentation.hpp"
 #include "deterministic/AuthoritativeInputGate.hpp"
+#include "deterministic/CandidateGameStateAdapter.hpp"
 #include "deterministic/DeterministicHookSet.hpp"
 #include "deterministic/InputTimeline.hpp"
 #include "deterministic/Config.hpp"
@@ -1062,14 +1063,95 @@ void test_snapshot_capacity_is_atomic()
     Snapshot prototype{};
     prototype.coordinate = {5, 1};
     prototype.bytes.resize(64, std::byte{0x41});
+    prototype.bytes.reserve(256);
     prototype.local_images.resize(1);
     prototype.local_images[0].bytes.resize(32, std::byte{0x42});
+    prototype.local_images[0].bytes.reserve(128);
     expect(prewarmed.PrewarmCopySlots(prototype).ok(),
         "prewarm bounded checkpoint copy slots from native shape");
     const auto prewarmed_bytes = prewarmed.BytesUsed();
     expect(prewarmed.SaveCopyPrewarmed(prototype).ok()
             && prewarmed.BytesUsed() == prewarmed_bytes,
         "prewarmed checkpoint save does not grow allocator-accounted storage");
+    const auto* capacity_copy = prewarmed.FindExact({5, 1});
+    expect(capacity_copy != nullptr
+            && capacity_copy->bytes.capacity() >= prototype.bytes.capacity()
+            && capacity_copy->local_images[0].bytes.capacity()
+                >= prototype.local_images[0].bytes.capacity(),
+        "checkpoint prewarm preserves serializer capacities, not only sizes");
+    Snapshot correction_scratch{};
+    expect(PrepareSnapshotCopyStorage(correction_scratch, prototype).ok()
+            && correction_scratch.bytes.capacity()
+                >= prototype.bytes.capacity()
+            && correction_scratch.local_images[0].bytes.capacity()
+                >= prototype.local_images[0].bytes.capacity(),
+        "owned correction scratch prewarms the complete serializer envelope");
+    std::vector<LocalReconstructionImage> adapter_exchange;
+    expect(PrepareLocalReconstructionCopyStorage(
+                adapter_exchange, prototype.local_images).ok(),
+        "transient adapter exchange prewarms the same serializer envelope");
+    const auto correction_local_capacity = [](
+        const std::vector<LocalReconstructionImage>& locals) {
+        std::size_t bytes = locals.capacity()
+            * sizeof(LocalReconstructionImage);
+        for (const auto& local : locals) bytes += local.bytes.capacity();
+        return bytes;
+    };
+    const auto local_before = correction_local_capacity(
+        correction_scratch.local_images);
+    correction_scratch.local_images.swap(adapter_exchange);
+    expect(correction_local_capacity(correction_scratch.local_images)
+            >= local_before,
+        "transient capture exchange cannot shrink prewarmed correction scratch");
+    Snapshot capture_scratch{};
+    expect(PrepareSnapshotCaptureStorage(capture_scratch, prototype).ok()
+            && capture_scratch.bytes.capacity()
+                >= candidate_checkpoint_capture_byte_capacity
+            && capture_scratch.local_images.capacity()
+                >= maximum_local_reconstruction_images,
+        "reusable checkpoint capture owns the full variable encoded envelope");
+    const auto capture_capacity = capture_scratch.bytes.capacity();
+    capture_scratch.bytes.resize(
+        candidate_checkpoint_capture_byte_capacity, std::byte{0x5a});
+    expect(capture_scratch.bytes.capacity() == capture_capacity,
+        "maximum encoded checkpoint capture cannot grow after ownership");
+    std::vector<LocalReconstructionImage> movable_capture_exchange;
+    expect(PrepareLocalReconstructionCopyStorage(
+                movable_capture_exchange, prototype.local_images).ok(),
+        "movable checkpoint image prewarms local reconstruction payloads");
+    movable_capture_exchange.reserve(maximum_local_reconstruction_images);
+    const auto capture_local_capacity = correction_local_capacity(
+        capture_scratch.local_images);
+    expect(correction_local_capacity(movable_capture_exchange)
+            == capture_local_capacity,
+        "movable image and reusable capture own symmetric exchange capacity");
+    capture_scratch.local_images.swap(movable_capture_exchange);
+    expect(correction_local_capacity(capture_scratch.local_images)
+            == capture_local_capacity,
+        "captured local-image exchange cannot grow owned snapshot storage");
+    class NullNativeMemory final : public INativeMemory
+    {
+    public:
+        bool Read(std::uintptr_t, std::span<std::byte>) noexcept override
+        {
+            return false;
+        }
+        bool Write(std::uintptr_t,
+            std::span<const std::byte>) noexcept override
+        {
+            return false;
+        }
+    } memory;
+    NativeCandidateRegions regions{memory};
+    HgCpuStreamShim hgcpu;
+    CandidateGameStateAdapter adapter{regions, hgcpu};
+    const auto adapter_owned_before = adapter.owned_scratch_bytes();
+    expect(adapter.PrepareTransientCaptureStorage(prototype).ok(),
+        "adapter prewarms its movable capture exchange");
+    expect(adapter.owned_scratch_bytes()
+            == adapter_owned_before
+                + correction_local_capacity(prototype.local_images),
+        "aggregate adapter ownership includes resident movable payloads");
     auto next = prototype;
     next.coordinate = {5, 2};
     expect(prewarmed.SaveCopyPrewarmed(next).ok()
@@ -1179,6 +1261,87 @@ void test_snapshot_capacity_is_atomic()
             && ring.Load({3, 11}).has_value()
             && ring.Load({3, 12}).has_value(),
         "recycled qualification slot re-enters the bounded ring");
+}
+
+void test_confirmed_online_history_retirement_is_bounded()
+{
+    InputTimeline inputs{96};
+    CanonicalHashTimeline canonical{96};
+    NativeBatchTimeline batches{96, 96};
+    SnapshotStore checkpoints{
+        1024 * 1024, 4, CapacityPolicy::RejectNew};
+    Snapshot prototype{};
+    prototype.coordinate = {3, 0};
+    prototype.bytes.resize(64, std::byte{0x41});
+    expect(checkpoints.PrewarmCopySlots(prototype).ok(),
+        "prewarm bounded online checkpoint history");
+
+    for (std::uint64_t frame = 1; frame <= 96; ++frame)
+    {
+        InputPair input{};
+        input.players[0].held = static_cast<std::uint32_t>(frame);
+        expect(inputs.AppendAuthoritative({3, frame}, input).ok(),
+            "append online input before confirmed-prefix retirement");
+        CanonicalHash hash{};
+        hash[0] = std::byte{static_cast<unsigned char>(frame)};
+        expect(canonical.Append({3, frame}, hash, {}, {}, {}, {}, {}, {}, {},
+                {}, {}).ok(),
+            "append online canonical state before confirmed-prefix retirement");
+        NativeBatchEnvelope batch{};
+        batch.batch_id = frame;
+        batch.entry_coordinate = {3, frame - 1};
+        batch.exit_coordinate = {3, frame};
+        batch.coordinate_count = 1;
+        const std::array coordinates{FrameCoordinate{3, frame}};
+        expect(batches.Append(batch, coordinates).ok(),
+            "append online batch before confirmed-prefix retirement");
+        if (frame % 24 == 0)
+        {
+            auto checkpoint = prototype;
+            checkpoint.coordinate = {3, frame};
+            expect(checkpoints.SaveCopyPrewarmed(checkpoint).ok(),
+                "append online checkpoint before confirmed-prefix retirement");
+        }
+    }
+
+    const FrameCoordinate minimum{3, 64};
+    inputs.DiscardBefore(minimum);
+    canonical.DiscardBefore(minimum);
+    batches.DiscardBefore(minimum);
+    checkpoints.DiscardBeforeRetainingNearest(minimum);
+    expect(!inputs.GetExact({3, 63}).has_value()
+            && inputs.GetExact(minimum).has_value()
+            && !canonical.GetExact({3, 63}).has_value()
+            && canonical.GetExact(minimum).has_value(),
+        "confirmed retirement removes only the immutable input/hash prefix");
+    expect(!batches.FindCoordinate({3, 63}).has_value()
+            && batches.FindCoordinate(minimum).has_value()
+            && batches.FindCoordinate({3, 96}).has_value(),
+        "confirmed retirement reindexes retained native batches");
+    expect(checkpoints.FindExact({3, 24}) == nullptr
+            && checkpoints.FindExact({3, 48}) != nullptr
+            && checkpoints.FindExact({3, 72}) != nullptr,
+        "confirmed retirement preserves the nearest checkpoint anchor");
+    ReplayCorrectionPlan correction{};
+    expect(PlanReplayCorrection({3, 90}, {3, 96}, batches, checkpoints,
+            Schema::checkpoint_interval - 1, correction).ok()
+            && correction.resimulation_base == FrameCoordinate{3, 72},
+        "retained confirmed window still plans the exact correction base");
+
+    for (std::uint64_t frame = 97; frame <= 192; ++frame)
+    {
+        if (frame % 24 == 0)
+        {
+            checkpoints.DiscardBeforeRetainingNearest({3, frame - 64});
+            auto checkpoint = prototype;
+            checkpoint.coordinate = {3, frame};
+            expect(checkpoints.SaveCopyPrewarmed(checkpoint).ok(),
+                "confirmed-prefix retirement crosses the old fixed-store boundary");
+        }
+    }
+    expect(checkpoints.BytesUsed() != 0
+            && checkpoints.FindExact({3, 192}) != nullptr,
+        "long online history remains bounded without losing the live suffix");
 }
 
 void test_checkpoint_memory_matches_capture_cadence()
@@ -1296,6 +1459,24 @@ void test_owned_gekko_retention_boundary_fails_before_history_discard()
     expect(CanCommitDeferredOnlineRebaseline(
                 true, false, true, true),
         "frame-360 replacement commits only after the retired generation is sealed");
+    expect(!ShouldReleaseCorrectionScratchOnRebaseline(true, false),
+        "acknowledged round replacement retains prewarmed correction scratch");
+    expect(ShouldReleaseCorrectionScratchOnRebaseline(false, false)
+            && !ShouldReleaseCorrectionScratchOnRebaseline(false, true),
+        "only stock-owned non-preserving rebaseline releases correction scratch");
+    expect(OnlineScratchRequiresTransientPayload(
+                OnlineScratchRole::CorrectionUndo, false)
+            && OnlineScratchRequiresTransientPayload(
+                OnlineScratchRole::CorrectionVerified, false)
+            && OnlineScratchRequiresTransientPayload(
+                OnlineScratchRole::Diagnostic, false)
+            && !OnlineScratchRequiresTransientPayload(
+                OnlineScratchRole::CorrectionCanonical, true)
+            && !OnlineScratchRequiresTransientPayload(
+                OnlineScratchRole::TimelineCanonical, false)
+            && OnlineScratchRequiresTransientPayload(
+                OnlineScratchRole::TimelineCanonical, true),
+        "online prewarm reserves local payloads only for transient scratch roles");
 
     expect(CanReviseObservedRemoteInput(
                true, false, std::optional<std::size_t>{1}, 1)
@@ -2251,6 +2432,7 @@ int main()
     test_input_replacement_and_invalidation();
     test_native_batch_timeline_is_exact_and_bounded();
     test_snapshot_capacity_is_atomic();
+    test_confirmed_online_history_retirement_is_bounded();
     test_checkpoint_memory_matches_capture_cadence();
     test_resimulation_base_planning_respects_batch_width();
     test_owned_gekko_retention_boundary_fails_before_history_discard();

@@ -11,6 +11,15 @@
 
 namespace Horse::Deterministic
 {
+// Capture outputs include bounded canonical native/MoveVM/event/animation
+// streams plus at most 64 admitted wind nodes.  Reserve their full encoded
+// envelope independently from attached local reconstruction payloads so a
+// later frame's variable metadata cannot grow the reusable capture buffer.
+inline constexpr std::size_t candidate_checkpoint_capture_byte_capacity =
+    256ull * 1024ull;
+static_assert(candidate_checkpoint_capture_byte_capacity
+    >= 224 + 0xB000 + 0x10000 + 0x1000 + 0x4000 + 0x1000);
+
 // Inactive, incomplete checkpoint component set. It is intentionally absent from
 // Schema::production_regions until every enclosing native subsystem is admitted.
 struct CandidateCheckpointImage

@@ -25,11 +25,14 @@ class PrivateMemoryTracker:
     baseline: dict[str, int] = field(default_factory=dict)
     maximum_after_warmup: dict[str, int] = field(default_factory=dict)
     latest: dict[str, int] = field(default_factory=dict)
+    cycle_initial: dict[str, int] = field(default_factory=dict)
+    cycle_maximum: dict[str, int] = field(default_factory=dict)
     _last_sample_at: float = 0.0
 
-    def sample(self) -> None:
+    def sample(self, *, force: bool = False) -> None:
         now = time.monotonic()
-        if self._last_sample_at and now - self._last_sample_at < 1.0:
+        if (not force and self._last_sample_at
+                and now - self._last_sample_at < 1.0):
             return
         self._last_sample_at = now
         elapsed = now - self.started_at
@@ -37,10 +40,36 @@ class PrivateMemoryTracker:
             value = private_bytes(pid)
             self.latest[label] = value
             self.initial.setdefault(label, value)
+            if self.cycle_initial:
+                self.cycle_maximum[label] = max(
+                    self.cycle_maximum.get(label, value), value)
             if elapsed >= self.warmup_seconds:
                 self.baseline.setdefault(label, value)
                 self.maximum_after_warmup[label] = max(
                     self.maximum_after_warmup.get(label, value), value)
+
+    def begin_cycle(self) -> None:
+        self.sample(force=True)
+        self.cycle_initial = dict(self.latest)
+        self.cycle_maximum = dict(self.latest)
+
+    def end_cycle(self) -> dict[str, dict[str, int]]:
+        if not self.cycle_initial:
+            raise RuntimeError("private-memory cycle was not started")
+        self.sample(force=True)
+        report = {
+            "initial_private_bytes": dict(self.cycle_initial),
+            "maximum_private_bytes": dict(self.cycle_maximum),
+            "ending_private_bytes": dict(self.latest),
+            "growth_bytes": {
+                label: self.latest[label] - initial
+                for label, initial in self.cycle_initial.items()
+                if label in self.latest
+            },
+        }
+        self.cycle_initial.clear()
+        self.cycle_maximum.clear()
+        return report
 
     def restart_warmup(self) -> None:
         self.started_at = time.monotonic()

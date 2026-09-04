@@ -10,6 +10,18 @@ namespace Horse::Deterministic
 {
 enum class CapacityPolicy : std::uint8_t { RejectNew, EvictOldest };
 
+[[nodiscard]] bool CanCopySnapshotWithoutGrowth(
+    const Snapshot& target, const Snapshot& source) noexcept;
+void CopySnapshotWithoutGrowth(
+    Snapshot& target, const Snapshot& source) noexcept;
+[[nodiscard]] Status PrepareLocalReconstructionCopyStorage(
+    std::vector<LocalReconstructionImage>& target,
+    const std::vector<LocalReconstructionImage>& source) noexcept;
+[[nodiscard]] Status PrepareSnapshotCopyStorage(
+    Snapshot& target, const Snapshot& source) noexcept;
+[[nodiscard]] Status PrepareSnapshotCaptureStorage(
+    Snapshot& target, const Snapshot& prototype) noexcept;
+
 class SnapshotStore final : public ISnapshotStore
 {
 public:
@@ -42,6 +54,9 @@ public:
     void CommitValidatedExactReplacement(
         std::span<Snapshot> replacements) noexcept;
     void InvalidateGeneration(std::uint64_t generation) noexcept override;
+    // Retire a confirmed prefix while retaining the closest prior checkpoint
+    // as a resimulation anchor. No allocation or capacity change is allowed.
+    void DiscardBeforeRetainingNearest(FrameCoordinate minimum) noexcept;
     [[nodiscard]] std::size_t BytesUsed() const noexcept override;
     [[nodiscard]] std::size_t entry_count() const noexcept
     {
@@ -62,10 +77,6 @@ private:
 
     [[nodiscard]] std::size_t snapshot_dynamic_cost(
         const Snapshot& snapshot) const noexcept;
-    [[nodiscard]] static bool can_copy_without_growth(
-        const Snapshot& target, const Snapshot& source) noexcept;
-    static void copy_without_growth(
-        Snapshot& target, const Snapshot& source) noexcept;
     void release_entry(std::vector<Entry>::iterator entry) noexcept;
     void erase_oldest() noexcept;
     void reset_free_slots() noexcept;

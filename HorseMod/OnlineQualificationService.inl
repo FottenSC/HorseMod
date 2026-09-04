@@ -676,6 +676,37 @@
                 m_replay_native_runtime.owned_storage_status();
             m_online_qualification_metrics.BeginStatus4(
                 status4_storage.aggregate_bytes);
+            const auto status4_capture =
+                m_replay_native_runtime.capture_performance();
+            Output::send<LogLevel::Default>(STR(
+                "[HorseMod] online qualification run_id={} status4_storage "
+                "aggregate={} timeline={} forced={} presentation={} scratch={} "
+                "runtime={} checkpoint_capture={} correction={} diagnostics={} "
+                "corrected_replay={} checkpoint_parts={}/{}/{}/{}/{} "
+                "adapter_owners={}/{}/{}/{}/{}/{}/{}\n"),
+                RC::to_generic_string(m_online_run_id),
+                status4_storage.aggregate_bytes,
+                status4_storage.timeline_bytes,
+                status4_storage.forced_snapshot_bytes,
+                status4_storage.presentation_bytes,
+                status4_storage.scratch_metadata_bytes,
+                status4_storage.runtime_scratch_bytes,
+                status4_storage.checkpoint_capture_scratch_bytes,
+                status4_storage.correction_scratch_bytes,
+                status4_storage.diagnostic_image_bytes,
+                status4_storage.corrected_replay_scratch_bytes,
+                status4_storage.checkpoint_fixed_subsystems_bytes,
+                status4_storage.checkpoint_adapter_bytes,
+                status4_storage.checkpoint_capture_snapshot_bytes,
+                status4_storage.checkpoint_callback_topology_bytes,
+                status4_storage.checkpoint_auxiliary_decode_bytes,
+                status4_capture.scratch_capacity_high_water_by_owner[0],
+                status4_capture.scratch_capacity_high_water_by_owner[1],
+                status4_capture.scratch_capacity_high_water_by_owner[2],
+                status4_capture.scratch_capacity_high_water_by_owner[3],
+                status4_capture.scratch_capacity_high_water_by_owner[4],
+                status4_capture.scratch_capacity_high_water_by_owner[5],
+                status4_capture.scratch_capacity_high_water_by_owner[6]);
             const auto& timeline = m_replay_native_runtime.timeline_status_view();
             if (timeline.last_coordinate.generation
                 != m_online_baseline_coordinate.generation)

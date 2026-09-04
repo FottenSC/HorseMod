@@ -49,6 +49,7 @@ public:
     Range() const noexcept;
     [[nodiscard]] std::optional<std::pair<FrameCoordinate, FrameCoordinate>>
     LatestGenerationRange() const noexcept;
+    void DiscardBefore(FrameCoordinate minimum) noexcept;
     void Clear() noexcept;
 
     [[nodiscard]] std::size_t size() const noexcept { return entries_.size(); }

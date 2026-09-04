@@ -29,6 +29,7 @@ public:
         std::span<const FrameCoordinate> coordinates,
         std::span<const InputPair> expected,
         std::span<const InputPair> replacement) noexcept;
+    void DiscardBefore(FrameCoordinate minimum) noexcept;
     void InvalidateGeneration(std::uint64_t generation) noexcept override;
     void Clear() noexcept;
 
