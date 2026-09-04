@@ -547,8 +547,25 @@ def _qualification_correction_stimulus_depths(
     return (11, 1, 6)
 
 
-def _qualification_correction_stimulus_min_round(args: Any) -> int:
-    return 2 if args.development_multiround_correction_smoke else 1
+def _qualification_correction_stimulus_min_round(
+    args: Any, failure_case: str,
+) -> int:
+    if failure_case:
+        return 1
+    if args.development_multiround_correction_smoke:
+        return 2
+    development_smoke = any((
+        args.development_setup_smoke,
+        args.development_correction_smoke,
+        args.development_depth7_smoke,
+        args.development_round_barrier_smoke,
+        args.development_failure_smoke,
+        args.development_reentry_smoke,
+    ))
+    # Functional certification must prove correction after the round barrier,
+    # when replacement-round combat events exercise the deferred presentation
+    # journal. Round-one setup corrections cannot satisfy that production gate.
+    return 1 if development_smoke else 2
 
 
 def _cycle_teardown_run_ids(run_id: str, cycle_ordinal: int) -> dict[str, str]:
@@ -726,14 +743,14 @@ def _repeated_correction_evidence(
             coordinate = (int(match.group("generation")),
                           int(match.group("frame")))
             presentation = presentation_histories[label].get(coordinate)
-            if int(match.group("pending")) != 0 and presentation is None:
+            if presentation is None:
                 return None
-            if ((presentation is not None
-                    and (int(presentation.group("pending")) != 0
-                         or int(presentation.group("payload")) != 0
-                         or int(presentation.group("duplicates")) != 0
-                         or int(presentation.group("publish_failures")) != 0
-                         or int(presentation.group("guard"), 16) != 0))
+            if ((int(presentation.group("pending")) != 0
+                    or int(presentation.group("payload")) != 0
+                    or int(presentation.group("duplicates")) != 0
+                    or int(presentation.group("publish_failures")) != 0
+                    or int(presentation.group("committed")) == 0
+                    or int(presentation.group("guard"), 16) != 0)
                     or int(match.group("post_status4_growth")) != 0
                     or int(match.group("capacity_failures")) != 0
                     or int(match.group("correction_samples"))
@@ -743,10 +760,8 @@ def _repeated_correction_evidence(
                     or int(match.group("audio_sequence_mismatches")) != 0
                     or int(match.group("camera_publication_mismatches")) != 0
                     or int(match.group("presentation_failures")) != 0
-                    or (presentation is None
-                        and int(match.group("journal_duplicates")) != 0)
-                    or (presentation is None
-                        and int(match.group("journal_publish_failures")) != 0)):
+                    or int(match.group("journal_duplicates")) != 0
+                    or int(match.group("journal_publish_failures")) != 0):
                 raise RuntimeError(
                     f"{label} correction {ordinal} converged outside timing, "
                     "capacity, or presentation gates")
@@ -769,6 +784,12 @@ def _repeated_correction_evidence(
                 reached["host"].group("correction_max_ns")),
             "sandbox_correction_max_ns": int(
                 reached["sandbox"].group("correction_max_ns")),
+            "host_journal_committed": int(
+                presentation_histories["host"][(generation, frame)].group(
+                    "committed")),
+            "sandbox_journal_committed": int(
+                presentation_histories["sandbox"][(generation, frame)].group(
+                    "committed")),
         })
     return evidence
 
@@ -1092,7 +1113,6 @@ def _wait_online(paths: ObserverPairPaths, run_ids: dict[str, str], case: dict[s
                 and metric["presentation_failures"] == 0
                 and metric["journal_duplicates"] == 0
                 and metric["journal_publish_failures"] == 0
-                and metric["journal_committed"] > 0
                 for metric in metrics
             )
             ceilings_complete = all(
@@ -1131,6 +1151,21 @@ def _wait_online(paths: ObserverPairPaths, run_ids: dict[str, str], case: dict[s
                 latest["bilateral_correction_convergence"] = (
                     correction_convergences)
                 break
+            if any(7 in latest[label]["statuses"]
+                   for label in ("host", "sandbox")):
+                missing = [name for name, complete in (
+                    ("authentication", authentication_complete),
+                    ("correction", correction_complete),
+                    ("convergence", convergence is not None),
+                    ("presentation", presentation_complete),
+                    ("capacity", ceilings_complete),
+                    ("rounds", rounds_complete),
+                    ("generations", generations_complete),
+                    ("duration", duration_complete),
+                ) if not complete]
+                raise RuntimeError(
+                    "paired online match returned to the lobby before "
+                    "certification gates completed: " + ", ".join(missing))
         time.sleep(0.25)
     else:
         raise TimeoutError("paired online match did not prove multi-round real corrections")
@@ -1566,7 +1601,7 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
     correction_stimulus_depths = _qualification_correction_stimulus_depths(
         args, failure_case)
     correction_stimulus_min_round = (
-        _qualification_correction_stimulus_min_round(args))
+        _qualification_correction_stimulus_min_round(args, failure_case))
     if sum((args.development_setup_smoke,
             args.development_correction_smoke,
             args.development_depth7_smoke,

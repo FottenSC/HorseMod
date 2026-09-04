@@ -130,7 +130,7 @@ def test_paired_online_exposes_noncertifying_multiround_correction_smoke():
     assert arguments.development_multiround_correction_smoke is True
     assert arguments.match_cycles == 2
     assert _qualification_correction_stimulus_depths(arguments, "") == (11, 1, 6)
-    assert _qualification_correction_stimulus_min_round(arguments) == 2
+    assert _qualification_correction_stimulus_min_round(arguments, "") == 2
     assert not _development_smoke_complete(arguments, 1)
     assert _development_smoke_complete(arguments, 2)
 
@@ -143,6 +143,7 @@ def test_functional_certification_arms_authenticated_11_1_6_corrections():
     ])
     assert _qualification_correction_stimulus_depths(arguments, "") == (
         11, 1, 6)
+    assert _qualification_correction_stimulus_min_round(arguments, "") == 2
 
 
 def test_restore_failure_certification_arms_its_required_causal_stimulus():
@@ -153,6 +154,8 @@ def test_restore_failure_certification_arms_its_required_causal_stimulus():
     ])
     assert _qualification_correction_stimulus_depths(
         arguments, "postownership_restore") == (11,)
+    assert _qualification_correction_stimulus_min_round(
+        arguments, "postownership_restore") == 1
 
 
 def test_paired_online_exposes_typed_noncertifying_failure_smoke():
@@ -443,12 +446,18 @@ def test_repeated_correction_smoke_requires_11_1_6_and_three_convergences():
                 "verified_camera_batches=1 camera_publication_mismatches=0 "
                 "presentation_failures=0 journal_duplicates=0 "
                 "journal_publish_failures=0 journal_committed=1\n")
+            presentation = (
+                f"[HorseMod] online qualification run_id={run} "
+                f"confirmed_presentation generation=1 "
+                f"frame={243 + index * 90} pending_events=0 "
+                "payload_bytes=0 duplicates=0 publish_failures=0 "
+                "committed=1 guard_mask=0x0\n")
             if index + 1 < len(stimulus_rows):
                 stimulus = stimulus_rows[index + 1].replace(
                     " transport_delay=",
                     f" corrections_before={corrections} transport_delay=")
                 rows.append(stimulus.format(run=run))
-            rows.append(confirmed)
+            rows.extend((confirmed, presentation))
         return "".join(rows)
     correction_evidence = _repeated_correction_evidence({
         "host": combined("h", (1, 2, 3), host_stimuli),
@@ -510,6 +519,15 @@ def test_correction_waits_for_post_outer_presentation_commit():
     }, {"host": "h", "sandbox": "s"}, 1)
     assert evidence is not None
     assert evidence[0]["generation"] == 2
+    assert evidence[0]["host_journal_committed"] == 4
+    assert evidence[0]["sandbox_journal_committed"] == 4
+    no_commit = {
+        "host": log("h", True).replace("committed=4", "committed=0"),
+        "sandbox": log("s", True).replace("committed=4", "committed=0"),
+    }
+    with pytest.raises(RuntimeError, match="outside timing"):
+        _repeated_correction_evidence(
+            no_commit, {"host": "h", "sandbox": "s"}, 1)
     with pytest.raises(RuntimeError, match="outside timing"):
         _repeated_correction_evidence({
             "host": log("h", True).replace("guard_mask=0x0", "guard_mask=0x2"),
