@@ -695,10 +695,36 @@ extern "C"
                 correction_stimulus_count});
     }
 
+    HORSE_MOD_API bool horsemod_arm_online_qualification_v6(
+        const char* run_id, std::size_t run_id_size, std::uint32_t fault,
+        const std::uint8_t* correction_stimulus_depths,
+        std::size_t correction_stimulus_count,
+        std::uint32_t correction_stimulus_min_round)
+    {
+        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
+        if (mod == nullptr || run_id == nullptr
+            || (correction_stimulus_count != 0
+                && correction_stimulus_depths == nullptr))
+            return false;
+        return mod->ArmOnlineQualification(
+            std::string_view(run_id, run_id_size), fault,
+            std::span<const std::uint8_t>{correction_stimulus_depths,
+                correction_stimulus_count},
+            correction_stimulus_min_round);
+    }
+
     HORSE_MOD_API std::uint32_t horsemod_get_online_qualification_status()
     {
         auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
         return mod != nullptr ? mod->GetOnlineQualificationStatus() : 0;
+    }
+
+    HORSE_MOD_API std::uint32_t
+    horsemod_get_online_qualification_status_history_v1()
+    {
+        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
+        return mod != nullptr
+            ? mod->GetOnlineQualificationStatusHistory() : 0;
     }
 #endif
 }

@@ -610,6 +610,23 @@ int main()
             && MayRearmQualificationCorrectionStimulus(true, true,
                 first_stimulus_trigger + 30, first_stimulus_trigger),
         "stimulus re-arm waits for a later mutually confirmed boundary");
+    expect(!MayArmQualificationCorrectionStimulus(1, 2)
+            && MayArmQualificationCorrectionStimulus(2, 2)
+            && MayArmQualificationCorrectionStimulus(3, 2)
+            && !MayArmQualificationCorrectionStimulus(2, 0),
+        "multi-round correction stimuli remain disarmed until replacement-round ownership");
+    const FrameCoordinate no_pending{};
+    const FrameCoordinate confirmed_a{2, 420};
+    const FrameCoordinate confirmed_b{2, 450};
+    expect(PlanDeferredOnlinePresentationCommit(no_pending, confirmed_a)
+                == std::optional<FrameCoordinate>{confirmed_a}
+            && PlanDeferredOnlinePresentationCommit(confirmed_a, confirmed_b)
+                == std::optional<FrameCoordinate>{confirmed_b}
+            && PlanDeferredOnlinePresentationCommit(confirmed_b, confirmed_a)
+                == std::optional<FrameCoordinate>{confirmed_b}
+            && !PlanDeferredOnlinePresentationCommit(
+                    confirmed_b, FrameCoordinate{3, 1}).has_value(),
+        "confirmed presentation coalesces for post-outer publication and rejects cross-generation mixing");
     expect(QualificationCorrectionStimulusLead(12) == 14
             && 29 + 14 < 59 && 59 + 14 < 89 && 89 + 14 < 235,
         "11-1-6 scheduler fits all three triggers before the observed round boundary");

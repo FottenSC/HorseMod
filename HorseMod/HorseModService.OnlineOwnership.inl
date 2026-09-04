@@ -282,15 +282,60 @@
     }
 
 #if HORSE_ENABLE_GEKKONET
+    static constexpr std::uint64_t pack_online_qualification_status(
+        std::uint32_t status, std::uint32_t history) noexcept
+    {
+        return static_cast<std::uint64_t>(status)
+            | (static_cast<std::uint64_t>(history) << 32);
+    }
+
+    std::uint32_t online_qualification_status() const noexcept
+    {
+        return static_cast<std::uint32_t>(
+            m_online_qualification_status_state.load(
+                std::memory_order_acquire));
+    }
+
+    std::uint32_t online_qualification_status_history() const noexcept
+    {
+        return static_cast<std::uint32_t>(
+            m_online_qualification_status_state.load(
+                std::memory_order_acquire) >> 32);
+    }
+
+    void set_online_qualification_status(std::uint32_t status) noexcept
+    {
+        auto state = m_online_qualification_status_state.load(
+            std::memory_order_acquire);
+        while (true)
+        {
+            const auto history = static_cast<std::uint32_t>(state >> 32)
+                | (std::uint32_t{1} << status);
+            const auto desired = pack_online_qualification_status(
+                status, history);
+            if (m_online_qualification_status_state.compare_exchange_weak(
+                    state, desired, std::memory_order_acq_rel,
+                    std::memory_order_acquire))
+                return;
+        }
+    }
+
     void advance_online_qualification_status(std::uint32_t status) noexcept
     {
-        auto current = m_online_qualification_status.load(
+        auto state = m_online_qualification_status_state.load(
             std::memory_order_acquire);
-        while (current < status && current < 6
-            && !m_online_qualification_status.compare_exchange_weak(
-                current, status, std::memory_order_acq_rel,
-                std::memory_order_acquire))
+        while (true)
         {
+            const auto current = static_cast<std::uint32_t>(state);
+            if (current >= status || current >= 6) return;
+            const auto history = static_cast<std::uint32_t>(state >> 32)
+                | (std::uint32_t{1} << status);
+            const auto desired = pack_online_qualification_status(
+                status, history);
+            if (m_online_qualification_status_state.compare_exchange_weak(
+                    state, desired, std::memory_order_acq_rel,
+                    std::memory_order_acquire))
+                return;
         }
     }
 
@@ -371,7 +416,7 @@
             m_online_gekko.simulation_failure_context();
         m_online_gekko.Stop();
         if (!post_ownership) m_online_takeover_ready = false;
-        m_online_qualification_status.store(6, std::memory_order_release);
+        set_online_qualification_status(6);
         if (first_root)
         {
             const auto& failure_timeline =
@@ -503,7 +548,8 @@
 
     void reset_online_session_measurements(std::string_view run_id,
         OnlineQualificationFault fault = OnlineQualificationFault::None,
-        std::span<const std::uint8_t> correction_stimulus_depths = {}) noexcept
+        std::span<const std::uint8_t> correction_stimulus_depths = {},
+        std::uint32_t correction_stimulus_min_round = 1) noexcept
     {
         m_online_qualification_allowlist.Clear();
         m_online_executable_identity = {};
@@ -525,6 +571,7 @@
         m_online_next_confirmed_hash_frame = 29;
         m_online_last_observed_coordinate = {};
         m_online_round_completed_coordinate = {};
+        m_online_pending_presentation_commit = {};
         m_online_round_transition_pending = false;
         m_online_last_owned_inputs = {};
         m_online_last_owned_inputs_valid = false;
@@ -551,6 +598,8 @@
         m_online_correction_stimulus_next = 0;
         m_online_correction_stimulus_trigger_frame = -1;
         m_online_correction_stimulus_armed = false;
+        m_online_correction_stimulus_min_round =
+            correction_stimulus_min_round;
         m_online_event_mask = 0;
         m_online_root_failure = Horse::Deterministic::FailureCode::None;
         m_online_root_lifecycle_phase =
@@ -571,7 +620,9 @@
         m_online_owned_storage_prepared = false;
         m_online_preownership_failure_cleanup_delay = 0;
         m_online_run_id.assign(run_id.begin(), run_id.end());
-        m_online_qualification_status.store(1, std::memory_order_release);
+        m_online_qualification_status_state.store(
+            pack_online_qualification_status(1, std::uint32_t{1} << 1),
+            std::memory_order_release);
     }
 
     // Per-match transport, baseline, ownership, and round-barrier service.
@@ -592,6 +643,7 @@
         m_online_prefix_catchup = false;
         m_online_current_advance_pending = false;
         m_online_round_transition_pending = false;
+        m_online_pending_presentation_commit = {};
         m_online_last_owned_inputs = {};
         m_online_last_owned_inputs_valid = false;
         m_online_round_hold_inputs = {};
@@ -602,6 +654,7 @@
         m_online_correction_stimulus_next = 0;
         m_online_correction_stimulus_trigger_frame = -1;
         m_online_correction_stimulus_armed = false;
+        m_online_correction_stimulus_min_round = 1;
         m_online_gekko.Stop();
         m_online_coordinator.Disable();
         m_online_qualification_allowlist.Clear();
@@ -680,8 +733,7 @@
             cleanup_storage.scratch_metadata_bytes);
         const bool cleanup_ok = cleared.ok() && storage_returned;
         if (cleanup_ok) log_online_event(1u << 10, "cleanup_completed");
-        m_online_qualification_status.store(cleanup_ok ? 7u : 6u,
-            std::memory_order_release);
+        set_online_qualification_status(cleanup_ok ? 7u : 6u);
         if (cleanup_ok && reenter_production)
             m_online_production_reentry_pending.store(true,
                 std::memory_order_release);
@@ -713,7 +765,7 @@
                 evidence);
         if (!coordinator_status.ok())
         {
-            m_online_qualification_status.store(6, std::memory_order_release);
+            set_online_qualification_status(6);
             m_frame_fencepost_failure.store(coordinator_status.code,
                 std::memory_order_release);
             return;
@@ -723,6 +775,7 @@
         m_online_prefix_catchup = false;
         m_online_current_advance_pending = false;
         m_online_round_transition_pending = false;
+        m_online_pending_presentation_commit = {};
         m_online_last_owned_inputs = {};
         m_online_last_owned_inputs_valid = false;
         m_online_round_hold_inputs = {};
@@ -733,6 +786,7 @@
         m_online_correction_stimulus_next = 0;
         m_online_correction_stimulus_trigger_frame = -1;
         m_online_correction_stimulus_armed = false;
+        m_online_correction_stimulus_min_round = 1;
         m_online_gekko.Stop();
         m_online_coordinator.Disable();
         invalidate_stage_break_presentation_identity();
@@ -823,8 +877,7 @@
             cleanup_storage.scratch_metadata_bytes);
         const bool cleanup_ok = cleared.ok() && storage_returned;
         if (cleanup_ok) log_online_event(1u << 10, "cleanup_completed");
-        m_online_qualification_status.store(cleanup_ok ? 7u : 6u,
-            std::memory_order_release);
+        set_online_qualification_status(cleanup_ok ? 7u : 6u);
         if (cleanup_ok && reenter_production)
             m_online_production_reentry_pending.store(true,
                 std::memory_order_release);

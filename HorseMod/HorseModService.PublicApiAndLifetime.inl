@@ -234,7 +234,8 @@ public:
 #if HORSE_ENABLE_GEKKONET
     bool ArmOnlineQualification(std::string_view run_id = {},
         std::uint32_t fault_value = 0,
-        std::span<const std::uint8_t> correction_stimulus_depths = {}) noexcept
+        std::span<const std::uint8_t> correction_stimulus_depths = {},
+        std::uint32_t correction_stimulus_min_round = 1) noexcept
     {
         if (fault_value > static_cast<std::uint32_t>(
                 OnlineQualificationFault::PostownershipPeer))
@@ -247,8 +248,21 @@ public:
                         IsQualificationCorrectionDepth(depth);
                 }))
             return false;
+        const bool restore_fault_stimulus =
+            fault == OnlineQualificationFault::PostownershipRestore
+            && correction_stimulus_depths.size() == 1
+            && correction_stimulus_depths.front() == 11;
         if (fault != OnlineQualificationFault::None
-            && !correction_stimulus_depths.empty())
+            && !correction_stimulus_depths.empty()
+            && !restore_fault_stimulus)
+            return false;
+        if (fault == OnlineQualificationFault::PostownershipRestore
+            && !restore_fault_stimulus)
+            return false;
+        if (correction_stimulus_min_round == 0
+            || correction_stimulus_min_round > 2
+            || (correction_stimulus_depths.empty()
+                && correction_stimulus_min_round != 1))
             return false;
         if (run_id.size() > 96
             || std::any_of(run_id.begin(), run_id.end(), [](char value) {
@@ -274,7 +288,8 @@ public:
         m_online_coordinator.Select(OnlineRuntimeKind::Qualification);
         if (!m_online_lifecycle.ArmPreOwnership().ok()) return false;
         reset_online_session_measurements(
-            run_id, fault, correction_stimulus_depths);
+            run_id, fault, correction_stimulus_depths,
+            correction_stimulus_min_round);
         m_online_qualification_requested.store(true,
             std::memory_order_release);
         return true;
@@ -282,7 +297,12 @@ public:
 
     std::uint32_t GetOnlineQualificationStatus() const noexcept
     {
-        return m_online_qualification_status.load(std::memory_order_acquire);
+        return online_qualification_status();
+    }
+
+    std::uint32_t GetOnlineQualificationStatusHistory() const noexcept
+    {
+        return online_qualification_status_history();
     }
 #endif
 

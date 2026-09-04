@@ -102,6 +102,14 @@ CONFIRMED = re.compile(
     r"journal_publish_failures=(?P<journal_publish_failures>\d+) "
     r"journal_committed=(?P<journal_committed>\d+)"
 )
+CONFIRMED_PRESENTATION = re.compile(
+    r"\[HorseMod\] online qualification run_id=(?P<run>\S+) "
+    r"confirmed_presentation generation=(?P<generation>\d+) "
+    r"frame=(?P<frame>\d+) pending_events=(?P<pending>\d+) "
+    r"payload_bytes=(?P<payload>\d+) duplicates=(?P<duplicates>\d+) "
+    r"publish_failures=(?P<publish_failures>\d+) "
+    r"committed=(?P<committed>\d+) guard_mask=(?P<guard>0x[0-9a-fA-F]+)"
+)
 ROUND = re.compile(
     r"\[HorseMod\] online qualification run_id=(?P<run>\S+) round_barrier .* rounds=(?P<rounds>\d+) "
     r"corrections=(?P<corrections>\d+)"
@@ -113,7 +121,10 @@ AUTHENTICATED = re.compile(
 )
 CORRECTION_STIMULUS = re.compile(
     r"\[HorseMod\] online qualification run_id=(?P<run>\S+) "
-    r"armed authenticated correction stimulus depth=(?P<depth>\d+) "
+    r"armed authenticated correction stimulus "
+    r"(?:generation=(?P<generation>\d+) "
+    r"owned_round=(?P<owned_round>\d+) )?"
+    r"depth=(?P<depth>\d+) "
     r"trigger_frame=(?P<trigger>\d+) "
     r"after_confirmed_gekko_frame=(?P<confirmed>\d+)"
     r"(?: ordinal=(?P<ordinal>\d+) total=(?P<total>\d+)"
@@ -377,16 +388,19 @@ def _qualification_failure_plan(
 
 def _atomic_online_request(path: Path, run_id: str, not_before_ms: int,
                            qualification_fault: int,
-                           correction_stimulus_depths: tuple[int, ...] = ()) -> Path:
+                           correction_stimulus_depths: tuple[int, ...] = (),
+                           correction_stimulus_min_round: int = 1) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".publish.tmp")
     with temporary.open("w", encoding="utf-8", newline="\n") as stream:
         stream.write(
-            f"version=4\nrun_id={run_id}\n"
+            f"version=5\nrun_id={run_id}\n"
             f"not_before_unix_ms={not_before_ms}\n"
             f"qualification_fault={qualification_fault}\n"
             "correction_stimulus_depths="
             f"{','.join(str(depth) for depth in correction_stimulus_depths)}\n"
+            "correction_stimulus_min_round="
+            f"{correction_stimulus_min_round}\n"
             f"arm=true\n"
         )
         stream.flush()
@@ -396,16 +410,18 @@ def _atomic_online_request(path: Path, run_id: str, not_before_ms: int,
 
 def _publish_pair(paths: ObserverPairPaths, run_ids: dict[str, str],
                   faults: dict[str, int],
-                  correction_stimulus_depths: tuple[int, ...] = ()) -> None:
+                  correction_stimulus_depths: tuple[int, ...] = (),
+                  correction_stimulus_min_round: int = 1) -> None:
     not_before = int(time.time() * 1000) + 3000
     host = paths.host.qualification_root / "online_request.txt"
     sandbox = paths.sandbox.qualification_root / "online_request.txt"
     temporaries = [
         _atomic_online_request(host, run_ids["host"], not_before,
-                               faults["host"], correction_stimulus_depths),
+                               faults["host"], correction_stimulus_depths,
+                               correction_stimulus_min_round),
         _atomic_online_request(
             sandbox, run_ids["sandbox"], not_before, faults["sandbox"],
-            correction_stimulus_depths),
+            correction_stimulus_depths, correction_stimulus_min_round),
     ]
     try:
         os.replace(temporaries[0], host)
@@ -483,9 +499,11 @@ def _development_smoke_complete(args: Any, completed_cycles: int) -> bool:
             or args.development_depth7_smoke
             or args.development_round_barrier_smoke
             or args.development_multiround_correction_smoke
+            or args.development_failure_smoke
             or args.development_reentry_smoke):
         return False
-    return (not args.development_reentry_smoke
+    return (not (args.development_reentry_smoke
+                 or args.development_multiround_correction_smoke)
             or completed_cycles >= args.match_cycles)
 
 
@@ -498,6 +516,8 @@ def _development_report_kind(args: Any) -> str:
         return "paired_online_development_round_barrier_smoke"
     if args.development_multiround_correction_smoke:
         return "paired_online_development_multiround_correction_smoke"
+    if args.development_failure_smoke:
+        return "paired_online_development_failure_smoke"
     if args.development_reentry_smoke:
         return "paired_online_development_reentry_smoke"
     return "paired_online_development_setup_smoke"
@@ -506,6 +526,11 @@ def _development_report_kind(args: Any) -> str:
 def _qualification_correction_stimulus_depths(
     args: Any, failure_case: str,
 ) -> tuple[int, ...]:
+    # RestoreWriteFailed is reachable only while applying a genuinely changed
+    # authenticated remote input during rollback.  One depth-11 stimulus
+    # supplies that causal boundary; every other fault remains stimulus-free.
+    if failure_case == "postownership_restore":
+        return (11,)
     if (args.development_correction_smoke
             or args.development_multiround_correction_smoke
             or args.development_reentry_smoke):
@@ -520,6 +545,10 @@ def _qualification_correction_stimulus_depths(
     # These authenticated delayed payloads exercise the real Gekko
     # restore/resimulation path; they do not transfer canonical state.
     return (11, 1, 6)
+
+
+def _qualification_correction_stimulus_min_round(args: Any) -> int:
+    return 2 if args.development_multiround_correction_smoke else 1
 
 
 def _cycle_teardown_run_ids(run_id: str, cycle_ordinal: int) -> dict[str, str]:
@@ -629,6 +658,13 @@ def _repeated_correction_evidence(
     histories = {label: [match for match in CONFIRMED.finditer(logs[label])
         if match.group("run") == online_run_ids[label]]
         for label in ("host", "sandbox")}
+    presentation_histories = {
+        label: {
+            (int(match.group("generation")), int(match.group("frame"))): match
+            for match in CONFIRMED_PRESENTATION.finditer(logs[label])
+            if match.group("run") == online_run_ids[label]
+        } for label in ("host", "sandbox")
+    }
     stimuli = {label: [match for match in CORRECTION_STIMULUS.finditer(
         logs[label]) if match.group("run") == online_run_ids[label]]
         for label in ("host", "sandbox")}
@@ -687,7 +723,17 @@ def _repeated_correction_evidence(
         if reached is None:
             return None
         for label, match in reached.items():
-            if (int(match.group("pending")) != 0
+            coordinate = (int(match.group("generation")),
+                          int(match.group("frame")))
+            presentation = presentation_histories[label].get(coordinate)
+            if int(match.group("pending")) != 0 and presentation is None:
+                return None
+            if ((presentation is not None
+                    and (int(presentation.group("pending")) != 0
+                         or int(presentation.group("payload")) != 0
+                         or int(presentation.group("duplicates")) != 0
+                         or int(presentation.group("publish_failures")) != 0
+                         or int(presentation.group("guard"), 16) != 0))
                     or int(match.group("post_status4_growth")) != 0
                     or int(match.group("capacity_failures")) != 0
                     or int(match.group("correction_samples"))
@@ -697,8 +743,10 @@ def _repeated_correction_evidence(
                     or int(match.group("audio_sequence_mismatches")) != 0
                     or int(match.group("camera_publication_mismatches")) != 0
                     or int(match.group("presentation_failures")) != 0
-                    or int(match.group("journal_duplicates")) != 0
-                    or int(match.group("journal_publish_failures")) != 0):
+                    or (presentation is None
+                        and int(match.group("journal_duplicates")) != 0)
+                    or (presentation is None
+                        and int(match.group("journal_publish_failures")) != 0)):
                 raise RuntimeError(
                     f"{label} correction {ordinal} converged outside timing, "
                     "capacity, or presentation gates")
@@ -779,6 +827,8 @@ def _correction_stimulus_sequence_evidence(
                     f"sequence at ordinal {index}")
             rows.append({
                 "ordinal": ordinal,
+                "generation": int(match.group("generation") or 0),
+                "owned_round": int(match.group("owned_round") or 0),
                 "depth": int(match.group("depth")),
                 "transport_delay": int(
                     match.group("transport_delay") or match.group("depth")),
@@ -806,6 +856,27 @@ def _correction_stimulus_sequence_evidence(
                 "peers armed correction delays outside the phase-safe "
                 "release-update contract")
     return evidence
+
+
+def _require_corrections_in_owned_generation(
+    stimulus_sequence: dict[str, list[dict[str, int]]],
+    corrections: list[dict[str, Any]], generation: int, owned_round: int,
+) -> None:
+    if generation == 0 or owned_round == 0:
+        raise ValueError("owned correction generation and round must be positive")
+    for label in ("host", "sandbox"):
+        rows = stimulus_sequence[label]
+        if not rows or any(
+                row["generation"] != generation
+                or row["owned_round"] != owned_round for row in rows):
+            raise RuntimeError(
+                f"{label} correction stimuli were not armed after "
+                f"generation-{generation} round-{owned_round} re-ownership")
+    if not corrections or any(
+            row["generation"] != generation for row in corrections):
+        raise RuntimeError(
+            "authenticated corrections did not converge in the required "
+            f"owned generation {generation}")
 
 
 def _required_correction_stimulus(
@@ -1118,7 +1189,6 @@ def _wait_expected_impairment_failure(
     while time.monotonic() < deadline:
         guard()
         polled_logs = _read_pair_logs(paths, offsets)
-        _raise_on_native_terminal(polled_logs, run_ids, "expected failure case")
         for label, peer in (("host", paths.host), ("sandbox", paths.sandbox)):
             text = polled_logs[label]
             statuses = [int(match.group("status")) for match in STATUS.finditer(text)
@@ -1167,7 +1237,10 @@ def _wait_expected_impairment_failure(
     if profile.startswith("postownership_") and not started_post:
         raise RuntimeError(f"{profile} was never activated after ownership")
     expected_codes = {
-        "preownership_mismatch": "identity_mismatch",
+        # The qualification fault mutates the immutable build ID inside the
+        # peer contract.  OnlineCoordinator's authoritative contract compare
+        # classifies that disagreement as ProtocolMismatch before ownership.
+        "preownership_mismatch": "protocol_mismatch",
         "preownership_timeout": "timeout",
         "postownership_auth": "authentication_failed",
         "postownership_hash": "state_hash_mismatch",
@@ -1193,7 +1266,7 @@ def _wait_expected_impairment_failure(
         if events[-2:] != ["cleanup_started", "cleanup_completed"]:
             raise RuntimeError(f"{label} failure cleanup lifecycle was incomplete")
         if 5 in statuses:
-            _require_ordered_takeover(events, label)
+            _require_ordered_takeover(events, label, generations=1)
         handshake = latest[label]["handshake"]
         if (handshake["map"] != case["stage_package_root"]
                 or handshake["display"] != case["native_display_name"]
@@ -1308,7 +1381,7 @@ def _wait_development_setup_smoke(
             "sandbox": _read_since(paths.sandbox.log, offsets["sandbox"]),
         }
         _raise_on_native_terminal(
-            logs, online_run_ids, "native first-owned admission")
+            logs, online_run_ids, "online development cycle")
         confirmed_latest: dict[str, dict[str, Any]] = {}
         for label in ("host", "sandbox"):
             failures = [match for match in FAILURE.finditer(logs[label])
@@ -1416,6 +1489,10 @@ def _wait_development_setup_smoke(
             raise TimeoutError(
                 "repeated authenticated corrections timed out on "
                 f"{case['native_display_name']}")
+        _require_corrections_in_owned_generation(
+            stimulus_sequence, corrections,
+            int(baseline_identities[-1]["generation"]),
+            required_owned_generations)
         for label in ("host", "sandbox"):
             setup_metrics[label]["correction_stimulus_sequence"] = (
                 stimulus_sequence[label])
@@ -1484,20 +1561,27 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
         or args.development_depth7_smoke
         or args.development_round_barrier_smoke
         or args.development_multiround_correction_smoke
+        or args.development_failure_smoke
         or args.development_reentry_smoke)
     correction_stimulus_depths = _qualification_correction_stimulus_depths(
         args, failure_case)
+    correction_stimulus_min_round = (
+        _qualification_correction_stimulus_min_round(args))
     if sum((args.development_setup_smoke,
             args.development_correction_smoke,
             args.development_depth7_smoke,
             args.development_round_barrier_smoke,
             args.development_multiround_correction_smoke,
+            args.development_failure_smoke,
             args.development_reentry_smoke)) > 1:
         raise RuntimeError("select only one paired development smoke")
     if development_smoke and (
-        args.match_cycles != (2 if args.development_reentry_smoke else 1)
+        args.match_cycles != (2 if (
+            args.development_reentry_smoke
+            or args.development_multiround_correction_smoke) else 1)
         or args.cycling_soak_seconds != 0
-        or args.soak_seconds != 0 or args.failure_case
+        or args.soak_seconds != 0
+        or (bool(args.failure_case) != args.development_failure_smoke)
         or args.impairment_profile != "clean" or args.fresh_box
     ):
         raise RuntimeError(
@@ -1588,7 +1672,8 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
         initial_log_offsets = {
             label: cursor.offset for label, cursor in log_offsets.items()
         }
-        _publish_pair(paths, run_ids, faults, correction_stimulus_depths)
+        _publish_pair(paths, run_ids, faults, correction_stimulus_depths,
+                      correction_stimulus_min_round)
         create_host_room_suppression(paths.sandbox, run_ids["host"])
         create_host_room_request(paths.host, run_ids["host"])
         subprocess.Popen(spec.host_command(), close_fds=True)
@@ -1603,8 +1688,9 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
             # publish its authoritative failure immediately before exiting;
             # reporting only the later disconnect would mask the root cause.
             current_logs = _read_pair_logs(paths, log_offsets)
-            _raise_on_native_terminal(
-                current_logs, run_ids, "paired online polling")
+            if not failure_case:
+                _raise_on_native_terminal(
+                    current_logs, run_ids, "paired online polling")
             if {p.pid for p in list_game_processes()} != {
                     pair.host_pid, pair.sandbox_pid}:
                 raise RuntimeError("paired SC6 process identity changed")
@@ -1736,7 +1822,8 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
                     "sandbox": capture_log_offset(paths.sandbox.log),
                 }
                 _publish_pair(paths, run_ids, faults,
-                              correction_stimulus_depths)
+                              correction_stimulus_depths,
+                              correction_stimulus_min_round)
         memory_tracker.sample()
         memory_evidence = memory_tracker.report()
         if args.soak_seconds > 0 or args.cycling_soak_seconds > 0:
@@ -1759,7 +1846,8 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
             try:
                 raw_logs = _read_pair_logs(paths, log_offsets)
                 if cycle_raw_logs:
-                    cycle_number = max(1, len(cycle_metrics))
+                    cycle_number = max(
+                        1, cycle_index + (1 if primary is not None else 0))
                     for label, text in raw_logs.items():
                         key = f"cycle-{cycle_number:03d}-{label}"
                         if len(text) > len(cycle_raw_logs.get(key, "")):
@@ -1773,7 +1861,8 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
                     processes,
                     require_graceful=(
                         primary is None and (not development_smoke
-                                             or args.development_reentry_smoke)),
+                                             or args.development_reentry_smoke
+                                             or args.development_failure_smoke)),
                     graceful_timeout_seconds=(5.0 if primary is not None else 60.0),
                 )
             else:
@@ -1787,7 +1876,8 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:
             try:
                 final_logs = _read_pair_logs(paths, log_offsets)
                 raw_logs = final_logs
-                cycle_number = max(1, len(cycle_metrics))
+                cycle_number = max(
+                    1, cycle_index + (1 if primary is not None else 0))
                 for label, text in final_logs.items():
                     key = f"cycle-{cycle_number:03d}-{label}"
                     if len(text) > len(cycle_raw_logs.get(key, "")):

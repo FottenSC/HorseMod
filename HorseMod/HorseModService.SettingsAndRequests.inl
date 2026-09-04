@@ -766,7 +766,10 @@
     std::atomic<bool> m_online_qualification_requested{};
     std::atomic<bool> m_online_production_requested{};
     std::atomic<bool> m_online_production_reentry_pending{};
-    std::atomic<std::uint32_t> m_online_qualification_status{};
+    // Low dword: current status. High dword: retained per-run status mask.
+    // Keeping both in one atomic prevents bridge polling from observing a
+    // terminal status before its immediately preceding history transition.
+    std::atomic<std::uint64_t> m_online_qualification_status_state{};
     Horse::Deterministic::CanonicalHash m_online_executable_identity{};
     Horse::Deterministic::CanonicalHash m_online_build_identity{};
     Horse::Deterministic::CanonicalHash m_online_loaded_map_identity{};
@@ -781,6 +784,8 @@
     std::int32_t m_online_next_confirmed_hash_frame{29};
     Horse::Deterministic::FrameCoordinate m_online_last_observed_coordinate{};
     Horse::Deterministic::FrameCoordinate m_online_round_completed_coordinate{};
+    Horse::Deterministic::FrameCoordinate
+        m_online_pending_presentation_commit{};
     bool m_online_round_transition_pending{};
     std::array<Horse::Deterministic::PlayerInput, 2>
         m_online_last_owned_inputs{};
@@ -803,6 +808,7 @@
     std::size_t m_online_correction_stimulus_next{};
     std::int32_t m_online_correction_stimulus_trigger_frame{-1};
     bool m_online_correction_stimulus_armed{};
+    std::uint32_t m_online_correction_stimulus_min_round{1};
     OnlineQualificationFault m_online_qualification_fault{
         OnlineQualificationFault::None};
     bool m_online_qualification_fault_triggered{};

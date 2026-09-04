@@ -84,9 +84,16 @@
             }
             if (status.ok()) transition_phase = 3;
             if (status.ok())
-                status = m_replay_native_runtime.CommitPresentationThrough(
-                    final_entry.coordinate,
-                    m_deterministic_hooks);
+            {
+                const auto deferred = PlanDeferredOnlinePresentationCommit(
+                    m_online_pending_presentation_commit,
+                    final_entry.coordinate);
+                if (!deferred.has_value())
+                    status = Status::failure(
+                        FailureCode::GenerationMismatch);
+                else
+                    m_online_pending_presentation_commit = *deferred;
+            }
             if (status.ok()) transition_phase = 4;
             const auto replacement_generation =
                 PlanOwnedRoundReplacementGeneration(
@@ -277,8 +284,16 @@
             if (status.ok() && local != remote->hash)
                 status = Status::failure(FailureCode::StateHashMismatch);
             if (status.ok())
-                status = m_replay_native_runtime.CommitPresentationThrough(
-                    remote->coordinate, m_deterministic_hooks);
+            {
+                const auto deferred = PlanDeferredOnlinePresentationCommit(
+                    m_online_pending_presentation_commit,
+                    remote->coordinate);
+                if (!deferred.has_value())
+                    status = Status::failure(
+                        FailureCode::GenerationMismatch);
+                else
+                    m_online_pending_presentation_commit = *deferred;
+            }
             std::int32_t confirmed_gekko_frame{-1};
             const auto stimulus_lead =
                 QualificationCorrectionStimulusLead(
@@ -311,6 +326,9 @@
                 && m_online_correction_stimulus_next
                     < m_online_correction_stimulus_count
                 && !m_online_correction_stimulus_armed
+                && MayArmQualificationCorrectionStimulus(
+                    m_online_rounds,
+                    m_online_correction_stimulus_min_round)
                 && m_online_lifecycle.phase()
                     == Horse::Deterministic::OnlineLifecyclePhase::Owned)
             {
@@ -366,11 +384,13 @@
                         Output::send<LogLevel::Default>(STR(
                             "[HorseMod] online qualification run_id={} "
                             "armed authenticated correction stimulus "
-                            "depth={} trigger_frame={} "
+                            "generation={} owned_round={} depth={} "
+                            "trigger_frame={} "
                             "after_confirmed_gekko_frame={} ordinal={} "
                             "total={} lead_frames={} "
                             "corrections_before={} transport_delay={}\n"),
                             RC::to_generic_string(m_online_run_id),
+                            remote->coordinate.generation, m_online_rounds,
                             stimulus_depth, *trigger_frame,
                             confirmed_gekko_frame, stimulus_ordinal,
                             m_online_correction_stimulus_count,
@@ -455,7 +475,7 @@
         }
         m_online_last_observed_coordinate = timeline.last_coordinate;
         if (status.ok() && !m_online_qualification_fault_triggered
-            && m_online_qualification_status.load(std::memory_order_acquire) >= 5)
+            && online_qualification_status() >= 5)
         {
             if (m_online_qualification_fault
                 == OnlineQualificationFault::PostownershipAuthentication)
@@ -1015,6 +1035,62 @@
 #endif
             return;
         }
+
+#if HORSE_ENABLE_GEKKONET
+        if (self->m_online_pending_presentation_commit.generation != 0)
+        {
+            const auto confirmed =
+                self->m_online_pending_presentation_commit;
+            const auto committed =
+                self->m_replay_native_runtime.CommitPresentationThrough(
+                    confirmed, self->m_deterministic_hooks);
+            if (!committed.ok())
+            {
+                const auto presentation =
+                    self->m_replay_native_runtime.presentation_statistics();
+                const auto& failed = presentation.first_failed_event;
+                Output::send<LogLevel::Warning>(STR(
+                    "[HorseMod] online qualification run_id={} "
+                    "presentation_commit_failure status={} confirmed={}:{} "
+                    "pending_events={} payload_bytes={} guard_mask=0x{:x} "
+                    "publish_failures={} failed_event={}:{}:{}:{}:0x{:x} "
+                    "payload_size={} payload_head={:02x}/{:02x}/{:02x}/{:02x}\n"),
+                    RC::to_generic_string(self->m_online_run_id),
+                    RC::to_generic_string(std::string(
+                        Horse::Deterministic::failure_code_name(
+                            committed.code))),
+                    confirmed.generation, confirmed.frame,
+                    self->m_replay_native_runtime.pending_presentation_events(),
+                    self->m_replay_native_runtime.presentation_payload_bytes(),
+                    self->m_deterministic_hooks.PresentationCommitGuardMask(),
+                    presentation.publish_failures,
+                    failed.coordinate.generation, failed.coordinate.frame,
+                    failed.source_ordinal, failed.kind, failed.identity,
+                    failed.payload_size,
+                    std::to_integer<unsigned>(failed.payload[0]),
+                    std::to_integer<unsigned>(failed.payload[1]),
+                    std::to_integer<unsigned>(failed.payload[2]),
+                    std::to_integer<unsigned>(failed.payload[3]));
+                self->fail_online_qualification(committed.code);
+                return;
+            }
+            const auto presentation =
+                self->m_replay_native_runtime.presentation_statistics();
+            Output::send<LogLevel::Default>(STR(
+                "[HorseMod] online qualification run_id={} "
+                "confirmed_presentation generation={} frame={} "
+                "pending_events={} payload_bytes={} duplicates={} "
+                "publish_failures={} committed={} guard_mask=0x{:x}\n"),
+                RC::to_generic_string(self->m_online_run_id),
+                confirmed.generation, confirmed.frame,
+                self->m_replay_native_runtime.pending_presentation_events(),
+                self->m_replay_native_runtime.presentation_payload_bytes(),
+                presentation.duplicates, presentation.publish_failures,
+                presentation.committed,
+                self->m_deterministic_hooks.PresentationCommitGuardMask());
+            self->m_online_pending_presentation_commit = {};
+        }
+#endif
 
         const auto& timeline =
             self->m_replay_native_runtime.timeline_status_view();

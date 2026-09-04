@@ -64,6 +64,25 @@ MayRearmQualificationCorrectionStimulus(bool armed, bool payload_released,
         && mutually_confirmed_frame > prior_trigger_frame;
 }
 
+[[nodiscard]] inline constexpr bool MayArmQualificationCorrectionStimulus(
+    std::uint32_t owned_round, std::uint32_t minimum_owned_round) noexcept
+{
+    return minimum_owned_round != 0 && owned_round >= minimum_owned_round;
+}
+
+[[nodiscard]] inline constexpr std::optional<FrameCoordinate>
+PlanDeferredOnlinePresentationCommit(
+    FrameCoordinate pending, FrameCoordinate confirmed) noexcept
+{
+    if (confirmed.generation == 0)
+        return std::nullopt;
+    if (pending.generation == 0)
+        return confirmed;
+    if (pending.generation != confirmed.generation)
+        return std::nullopt;
+    return (std::max)(pending, confirmed);
+}
+
 [[nodiscard]] inline constexpr std::array<PlayerInput, 2>
 BuildQualificationCorrectionStimulusInputs(PlayerInput basis) noexcept
 {

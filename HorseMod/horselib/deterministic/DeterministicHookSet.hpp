@@ -449,6 +449,7 @@ public:
         const AudioBlueprintPresentationValue& value) noexcept;
     Status CommitStagePresentation(
         const StagePresentationValue& value) noexcept;
+    [[nodiscard]] std::uint32_t PresentationCommitGuardMask() const noexcept;
     Status ArmPresentationCaptureForNextOuterTick() noexcept;
 
 private:

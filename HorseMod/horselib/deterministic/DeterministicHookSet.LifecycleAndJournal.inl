@@ -745,6 +745,21 @@ Status DeterministicHookSet::CommitStagePresentation(
     return Status::success();
 }
 
+std::uint32_t DeterministicHookSet::PresentationCommitGuardMask() const noexcept
+{
+    std::uint32_t mask{};
+    if (!installed()) mask |= 1u << 0;
+    if (active_outer_capture_ != nullptr) mask |= 1u << 1;
+    if (active_stage_commit != nullptr) mask |= 1u << 2;
+    if (battle_audio_register_voice_trampoline_ == 0) mask |= 1u << 3;
+    if (battle_audio_append_command_trampoline_ == 0) mask |= 1u << 4;
+    if (battle_audio_stop_all_trampoline_ == 0) mask |= 1u << 5;
+    if (battle_audio_blueprint_publish_trampoline_ == 0) mask |= 1u << 6;
+    if (stage_break_wall_trampoline_ == 0) mask |= 1u << 7;
+    if (stage_break_barrier_trampoline_ == 0) mask |= 1u << 8;
+    return mask;
+}
+
 Status DeterministicHookSet::ArmPresentationCaptureForNextOuterTick() noexcept
 {
     if (!installed() || active_outer_capture_ != nullptr)

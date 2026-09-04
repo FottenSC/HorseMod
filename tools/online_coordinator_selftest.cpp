@@ -485,6 +485,62 @@ void test_round_barrier_requires_the_same_canonical_coordinate()
         "equal round hashes at different coordinates fail closed immediately");
 }
 
+void test_round_replacement_baseline_mismatch_fails_before_reownership()
+{
+    FakeAllowlist allowlist;
+    FakeTransport first_transport;
+    FakeTransport second_transport;
+    OnlineCoordinator first{first_transport, allowlist};
+    OnlineCoordinator second{second_transport, allowlist};
+    begin_pair(first, second);
+    complete_handshake(first, first_transport, second, second_transport);
+    complete_baseline(first, first_transport, second, second_transport, 1);
+    expect(claim_owned(first, {1, 261})
+            && claim_owned(second, {1, 261}),
+        "crossing-prediction fixture reaches first-round ownership");
+    expect(first.BeginRoundBarrier({1, 360}, 2, hash(9)).ok()
+            && second.BeginRoundBarrier({1, 360}, 2, hash(9)).ok(),
+        "both peers provisionally retire the frame-361 crossing boundary");
+    exchange(first_transport, second_transport);
+    expect(first.Pump().ok() && second.Pump().ok()
+            && first.state() == OnlineState::AwaitingBattle
+            && second.state() == OnlineState::AwaitingBattle,
+        "bilateral round fence returns both peers to preownership");
+    expect(first.ReadyBaseline({2, 390}).ok()
+            && second.ReadyBaseline({2, 390}).ok(),
+        "both peers independently propose the replacement coordinate");
+    exchange(first_transport, second_transport);
+    expect(first.Pump().ok() && second.Pump().ok(),
+        "replacement coordinate proposals are exchanged");
+    exchange(first_transport, second_transport);
+    expect(first.Pump().ok() && second.Pump().ok()
+            && first.baseline_target() == FrameCoordinate{2, 390}
+            && second.baseline_target() == FrameCoordinate{2, 390},
+        "both peers commit the same replacement coordinate");
+    expect(first.FreezeBaseline({2, 390}, hash(2), hash(9)).ok()
+            && second.FreezeBaseline({2, 390}, hash(3), hash(9)).ok(),
+        "each peer publishes its independently captured replacement hash");
+    exchange(first_transport, second_transport);
+    const auto first_status = first.Pump();
+    const auto second_status = second.Pump();
+    expect(first_status.code == FailureCode::StateHashMismatch
+            && second_status.code == FailureCode::StateHashMismatch,
+        "unconfirmed crossing prediction fails on replacement disagreement");
+    expect(first.state() == OnlineState::Failed
+            && second.state() == OnlineState::Failed,
+        "replacement disagreement enters terminal failure");
+    expect(!first.NotifyOwnedTick({2, 391}).ok()
+            && !second.NotifyOwnedTick({2, 391}).ok(),
+        "replacement disagreement cannot publish a generation-two owned tick");
+    expect(first.failure_origin_state() == OnlineState::FreezingBaseline
+            && second.failure_origin_state() == OnlineState::FreezingBaseline
+            && first.failure_disposition()
+                == OnlineFailureDisposition::TerminateMatchToLobby
+            && second.failure_disposition()
+                == OnlineFailureDisposition::TerminateMatchToLobby,
+        "replacement mismatch reports its exact preownership phase");
+}
+
 void test_failure_disposition_and_reentry()
 {
     FakeAllowlist allowlist;
@@ -972,6 +1028,7 @@ int main()
     }
     test_bilateral_activation_and_round_reentry();
     test_round_barrier_requires_the_same_canonical_coordinate();
+    test_round_replacement_baseline_mismatch_fails_before_reownership();
     test_failure_disposition_and_reentry();
     test_fail_closed_lobby_contract();
     test_preownership_exit();

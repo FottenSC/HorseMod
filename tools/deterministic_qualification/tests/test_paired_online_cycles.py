@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from tools.deterministic_qualification.observer_pair import (
     ObserverPairPaths, ObserverPeerPaths,
@@ -19,15 +20,18 @@ from tools.deterministic_qualification.paired_online import (
     _first_correction_evidence,
     _correction_stimulus_sequence_evidence,
     _qualification_correction_stimulus_depths,
+    _qualification_correction_stimulus_min_round,
     _qualification_failure_plan, _read_since,
     _repeated_correction_evidence,
     _required_correction_stimulus,
     _require_confirmed_owned_generations,
+    _require_corrections_in_owned_generation,
     _require_ordered_takeover, _require_two_owned_generations,
     _raise_on_native_terminal, _raise_on_terminal_owned_metrics,
     _root_failure_evidence,
     _validate_online_status_evidence,
     _wait_development_setup_smoke,
+    _wait_expected_impairment_failure,
 )
 from tools.deterministic_qualification.paired_online_evaluation import (
     reevaluate_paired_correction_capture,
@@ -121,10 +125,14 @@ def test_paired_online_exposes_noncertifying_multiround_correction_smoke():
         "paired-online", "--case-manifest", "cases.json", "--case", "case-a",
         "--dll", "HorseMod.dll", "--output-dir", "evidence",
         "--report", "report.json",
-        "--development-multiround-correction-smoke",
+        "--development-multiround-correction-smoke", "--match-cycles", "2",
     ])
     assert arguments.development_multiround_correction_smoke is True
+    assert arguments.match_cycles == 2
     assert _qualification_correction_stimulus_depths(arguments, "") == (11, 1, 6)
+    assert _qualification_correction_stimulus_min_round(arguments) == 2
+    assert not _development_smoke_complete(arguments, 1)
+    assert _development_smoke_complete(arguments, 2)
 
 
 def test_functional_certification_arms_authenticated_11_1_6_corrections():
@@ -137,14 +145,143 @@ def test_functional_certification_arms_authenticated_11_1_6_corrections():
         11, 1, 6)
 
 
-def test_typed_failure_certification_does_not_mix_correction_stimuli():
+def test_restore_failure_certification_arms_its_required_causal_stimulus():
     arguments = build_parser().parse_args([
         "paired-online", "--case-manifest", "cases.json", "--case", "case-a",
         "--dll", "HorseMod.dll", "--output-dir", "evidence",
         "--report", "report.json", "--failure-case", "postownership_restore",
     ])
     assert _qualification_correction_stimulus_depths(
-        arguments, "postownership_restore") == ()
+        arguments, "postownership_restore") == (11,)
+
+
+def test_paired_online_exposes_typed_noncertifying_failure_smoke():
+    arguments = build_parser().parse_args([
+        "paired-online", "--case-manifest", "cases.json", "--case", "case-a",
+        "--dll", "HorseMod.dll", "--output-dir", "evidence",
+        "--report", "report.json", "--failure-case", "postownership_restore",
+        "--development-failure-smoke",
+    ])
+    assert arguments.development_failure_smoke is True
+    assert _qualification_correction_stimulus_depths(
+        arguments, "postownership_restore") == (11,)
+    assert (_development_report_kind(arguments)
+            == "paired_online_development_failure_smoke")
+
+
+def test_expected_failure_waiter_does_not_treat_the_expected_terminal_as_fatal(
+    monkeypatch,
+):
+    run_ids = {"host": "host-run", "sandbox": "sandbox-run"}
+    logs = {
+        label: (
+            f"[ReplayQualification] online qualification run_id={run_id} status=1\n"
+            f"[HorseMod] online qualification run_id={run_id} handshake "
+            "map=/Game/DLC/07/Stage/STG011_R display_map=Silver Wolves' Haven "
+            "fighters=012/015 local_slot=0 loaded_map_sha256=" + "42" * 32
+            + " session_state=4\n"
+            f"[HorseMod] online qualification run_id={run_id} failed "
+            "status=protocol_mismatch lifecycle_phase=preownership "
+            "coordinator_phase=handshaking local_slot=0 generation=0 frame=0 "
+            "owns=0 identity_issue=0 identity_expected=0 identity_observed=0 "
+            "checkpoint_failure=none batch_entry_failure=none "
+            "canonical_capture_phase=0 canonical_validation=none "
+            "canonical_validation_index=0 canonical_camera_status=none "
+            "canonical_camera_stage=none canonical_camera_index=0 "
+            "batch_entry_capture_phase=0\n"
+            f"[ReplayQualification] online qualification run_id={run_id} status=6\n"
+            f"[HorseMod] online qualification run_id={run_id} event=cleanup_started "
+            "generation=0 frame=0\n"
+            f"[HorseMod] online qualification run_id={run_id} event=cleanup_completed "
+            "generation=0 frame=0\n"
+            f"[HorseMod] online qualification run_id={run_id} cleanup_storage "
+            "pre_match_owned_bytes=100 ending_owned_bytes=100 returned=1\n"
+            f"[ReplayQualification] online qualification run_id={run_id} status=7\n"
+        )
+        for label, run_id in run_ids.items()
+    }
+    monkeypatch.setattr(
+        "tools.deterministic_qualification.paired_online._read_pair_logs",
+        lambda paths, offsets: logs,
+    )
+    monkeypatch.setattr(
+        "tools.deterministic_qualification.paired_online._read_since",
+        lambda path, offset: logs["host" if "host" in str(path) else "sandbox"],
+    )
+    peers = SimpleNamespace(
+        host=SimpleNamespace(log="host.log"),
+        sandbox=SimpleNamespace(log="sandbox.log"),
+    )
+    metrics, _ = _wait_expected_impairment_failure(
+        peers, run_ids, {"host": 0, "sandbox": 0}, 0.1, lambda: None,
+        "preownership_mismatch", {
+            "stage_package_root": "/Game/DLC/07/Stage/STG011_R",
+            "native_display_name": "Silver Wolves' Haven",
+            "fighter_order": ["012", "015"],
+        }, {"host": (1, 2), "sandbox": (2, 1)},
+    )
+    assert all("protocol_mismatch" in metrics[label]["failures"]
+               for label in ("host", "sandbox"))
+
+
+def test_expected_postownership_failure_requires_only_its_owned_generation(
+    monkeypatch,
+):
+    run_ids = {"host": "host-run", "sandbox": "sandbox-run"}
+    logs = {}
+    for label, run_id in run_ids.items():
+        statuses = "".join(
+            f"[ReplayQualification] online qualification run_id={run_id} "
+            f"status={status}\n" for status in range(1, 8))
+        events = "".join(
+            f"[HorseMod] online qualification run_id={run_id} event={event} "
+            f"generation=1 frame={index}\n"
+            for index, event in enumerate(TAKEOVER_EVENTS, start=1))
+        logs[label] = (
+            statuses
+            + f"[HorseMod] online qualification run_id={run_id} handshake "
+            "map=/Game/DLC/07/Stage/STG011_R display_map=Silver Wolves' Haven "
+            "fighters=012/015 local_slot=0 loaded_map_sha256=" + "42" * 32
+            + " session_state=4\n"
+            + events
+            + f"[HorseMod] online qualification run_id={run_id} failed "
+            "status=authentication_failed lifecycle_phase=owned "
+            "coordinator_phase=active local_slot=0 generation=1 frame=125 "
+            "owns=1 identity_issue=0 identity_expected=0 identity_observed=0 "
+            "checkpoint_failure=none batch_entry_failure=none "
+            "canonical_capture_phase=0 canonical_validation=none "
+            "canonical_validation_index=0 canonical_camera_status=none "
+            "canonical_camera_stage=none canonical_camera_index=0 "
+            "batch_entry_capture_phase=0\n"
+            + f"[HorseMod] online qualification run_id={run_id} "
+            "event=cleanup_started generation=0 frame=0\n"
+            + f"[HorseMod] online qualification run_id={run_id} "
+            "event=cleanup_completed generation=0 frame=0\n"
+            + f"[HorseMod] online qualification run_id={run_id} cleanup_storage "
+            "pre_match_owned_bytes=100 ending_owned_bytes=100 returned=1\n"
+        )
+    monkeypatch.setattr(
+        "tools.deterministic_qualification.paired_online._read_pair_logs",
+        lambda paths, offsets: logs,
+    )
+    monkeypatch.setattr(
+        "tools.deterministic_qualification.paired_online._read_since",
+        lambda path, offset: logs["host" if "host" in str(path) else "sandbox"],
+    )
+    peers = SimpleNamespace(
+        host=SimpleNamespace(log="host.log"),
+        sandbox=SimpleNamespace(log="sandbox.log"),
+    )
+    metrics, _ = _wait_expected_impairment_failure(
+        peers, run_ids, {"host": 0, "sandbox": 0}, 0.1, lambda: None,
+        "postownership_auth", {
+            "stage_package_root": "/Game/DLC/07/Stage/STG011_R",
+            "native_display_name": "Silver Wolves' Haven",
+            "fighter_order": ["012", "015"],
+        }, {"host": (1, 2), "sandbox": (2, 1)},
+    )
+    assert all("authentication_failed" in metrics[label]["failures"]
+               for label in ("host", "sandbox"))
 
 
 def test_paired_online_exposes_noncertifying_depth7_timing_smoke():
@@ -285,7 +422,6 @@ def test_repeated_correction_smoke_requires_11_1_6_and_three_convergences():
     assert [row["depth"] for row in stimulus_evidence["host"]] == [11, 1, 6]
     assert [row["transport_delay"] for row in stimulus_evidence["host"]] == [12, 3, 8]
     assert [row["transport_delay"] for row in stimulus_evidence["sandbox"]] == [12, 3, 8]
-
     def combined(run, correction_counts, stimuli):
         stimulus_rows = stimuli.splitlines(keepends=True)
         rows = [stimulus_rows[0].format(run=run)]
@@ -336,6 +472,74 @@ def test_repeated_correction_smoke_requires_11_1_6_and_three_convergences():
             "host": combined("h", (1, 2, 3), host_stimuli),
             "sandbox": combined("s", (1, 1, 2), sandbox_stimuli),
         }, {"host": "h", "sandbox": "s"}, 3)
+
+
+def test_correction_waits_for_post_outer_presentation_commit():
+    digest = "5a" * 32
+    def log(run, include_presentation):
+        text = (
+            f"[HorseMod] online qualification run_id={run} armed authenticated "
+            "correction stimulus generation=2 owned_round=2 depth=11 "
+            "trigger_frame=43 after_confirmed_gekko_frame=29 ordinal=1 total=1 "
+            "lead_frames=14 corrections_before=0 transport_delay=12\n"
+            f"[HorseMod] online qualification run_id={run} confirmed_hash "
+            f"generation=2 frame=450 sha256={digest} checks=9 corrections=1 "
+            "max_depth=10 pending_events=4 presentation_bytes=100 "
+            "checkpoint_bytes=0 batch_entry_bytes=0 timeline_owned_bytes=0 "
+            "forced_snapshot_bytes=0 presentation_owned_bytes=0 "
+            "scratch_metadata_bytes=0 aggregate_owned_bytes=0 aggregate_limit=1 "
+            "post_status4_growth=0 capacity_failures=0 correction_samples=1 "
+            "correction_p50_ns=1 correction_p95_ns=1 correction_p99_ns=1 "
+            "correction_max_ns=1 verified_audio_batches=18 "
+            "audio_sequence_mismatches=0 verified_camera_batches=18 "
+            "camera_publication_mismatches=0 presentation_failures=0 "
+            "journal_duplicates=0 journal_publish_failures=0 journal_committed=0\n"
+        )
+        if include_presentation:
+            text += (
+                f"[HorseMod] online qualification run_id={run} "
+                "confirmed_presentation generation=2 frame=450 pending_events=0 "
+                "payload_bytes=0 duplicates=0 publish_failures=0 committed=4 "
+                "guard_mask=0x0\n")
+        return text
+    logs = {"host": log("h", False), "sandbox": log("s", False)}
+    assert _repeated_correction_evidence(
+        logs, {"host": "h", "sandbox": "s"}, 1) is None
+    evidence = _repeated_correction_evidence({
+        "host": log("h", True), "sandbox": log("s", True),
+    }, {"host": "h", "sandbox": "s"}, 1)
+    assert evidence is not None
+    assert evidence[0]["generation"] == 2
+    with pytest.raises(RuntimeError, match="outside timing"):
+        _repeated_correction_evidence({
+            "host": log("h", True).replace("guard_mask=0x0", "guard_mask=0x2"),
+            "sandbox": log("s", True),
+        }, {"host": "h", "sandbox": "s"}, 1)
+
+
+def test_multiround_corrections_must_arm_and_converge_after_reownership():
+    stimuli = {
+        label: [
+            {"generation": 2, "owned_round": 2, "depth": depth}
+            for depth in (11, 1, 6)
+        ] for label in ("host", "sandbox")
+    }
+    corrections = [
+        {"generation": 2, "ordinal": ordinal}
+        for ordinal in (1, 2, 3)
+    ]
+    _require_corrections_in_owned_generation(stimuli, corrections, 2, 2)
+    before_barrier = {
+        label: [dict(row, generation=1, owned_round=1)
+                for row in rows]
+        for label, rows in stimuli.items()
+    }
+    with pytest.raises(RuntimeError, match="not armed after"):
+        _require_corrections_in_owned_generation(
+            before_barrier, corrections, 2, 2)
+    with pytest.raises(RuntimeError, match="did not converge"):
+        _require_corrections_in_owned_generation(
+            stimuli, [dict(row, generation=1) for row in corrections], 2, 2)
 
 
 def test_paired_online_exposes_typed_authoritative_failure_case():
@@ -603,16 +807,27 @@ def test_online_request_binds_qualification_fault(tmp_path):
     target = tmp_path / "online_request.txt"
     temporary = _atomic_online_request(target, "run-a", 123456, 5)
     assert temporary.read_text(encoding="utf-8") == (
-        "version=4\nrun_id=run-a\nnot_before_unix_ms=123456\n"
-        "qualification_fault=5\ncorrection_stimulus_depths=\narm=true\n"
+        "version=5\nrun_id=run-a\nnot_before_unix_ms=123456\n"
+        "qualification_fault=5\ncorrection_stimulus_depths=\n"
+        "correction_stimulus_min_round=1\narm=true\n"
     )
+
+
+def test_restore_fault_request_binds_depth_eleven_causal_stimulus(tmp_path):
+    target = tmp_path / "online_request.txt"
+    temporary = _atomic_online_request(
+        target, "run-restore", 123456, 5, (11,))
+    assert ("qualification_fault=5\ncorrection_stimulus_depths=11\n"
+            "correction_stimulus_min_round=1\n") in (
+        temporary.read_text(encoding="utf-8"))
 
 
 def test_online_request_binds_11_1_6_correction_stimulus(tmp_path):
     target = tmp_path / "online_request.txt"
     temporary = _atomic_online_request(
-        target, "run-correction", 123456, 0, (11, 1, 6))
-    assert "qualification_fault=0\ncorrection_stimulus_depths=11,1,6\n" in (
+        target, "run-correction", 123456, 0, (11, 1, 6), 2)
+    assert ("qualification_fault=0\ncorrection_stimulus_depths=11,1,6\n"
+            "correction_stimulus_min_round=2\n") in (
         temporary.read_text(encoding="utf-8"))
 
 

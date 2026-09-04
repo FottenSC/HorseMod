@@ -2005,8 +2005,13 @@ def build_parser() -> argparse.ArgumentParser:
               "an independently acknowledged replacement baseline"))
     paired.add_argument("--development-multiround-correction-smoke",
         action="store_true",
-        help=("run one non-certifying authenticated 11, 1, 6 correction "
-              "sequence through a replacement generation"))
+        help=("run two same-process non-certifying authenticated matches; "
+              "each crosses a replacement generation before its 11, 1, 6 "
+              "correction sequence"))
+    paired.add_argument("--development-failure-smoke", action="store_true",
+        help=("allow one dirty, non-certifying authenticated native fault "
+              "probe; requires exactly one explicit --failure-case on the "
+              "clean profile and graceful cleanup"))
     paired.add_argument("--development-reentry-smoke", action="store_true",
         help=("allow a dirty, explicitly non-certifying two-match run in one "
               "SC6 process to verify cleanup and qualification re-entry"))

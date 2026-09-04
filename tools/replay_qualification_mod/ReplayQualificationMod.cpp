@@ -119,8 +119,10 @@ using ArmReplayQualificationGroupFn = bool (*)(
 using GetReplayQualificationGroupRowReportFn = std::uint32_t (*)(
     const char*, std::size_t, std::uint32_t, std::uint64_t*, std::size_t);
 using ArmOnlineQualificationFn = bool (*)(
-    const char*, std::size_t, std::uint32_t, const std::uint8_t*, std::size_t);
+    const char*, std::size_t, std::uint32_t, const std::uint8_t*, std::size_t,
+    std::uint32_t);
 using GetOnlineQualificationStatusFn = std::uint32_t (*)();
+using GetOnlineQualificationStatusHistoryFn = std::uint32_t (*)();
 using ArmOnlineObserverProbeFn = bool (*)(
     const Horse::Deterministic::OnlineObserverProbeRequest*);
 using GetOnlineObserverProbeReportFn = std::uint32_t (*)(
@@ -344,7 +346,8 @@ bool ResolveHorseModStageTerminalApi(RequestStageTerminalFn& request,
 
 bool ResolveHorseModOnlineQualificationApi(
     ArmOnlineQualificationFn& arm,
-    GetOnlineQualificationStatusFn& status) noexcept
+    GetOnlineQualificationStatusFn& status,
+    GetOnlineQualificationStatusHistoryFn& history) noexcept
 {
     std::array<HMODULE, 512> modules{};
     DWORD required{};
@@ -357,14 +360,20 @@ bool ResolveHorseModOnlineQualificationApi(
     {
         const auto candidate_arm = reinterpret_cast<ArmOnlineQualificationFn>(
             GetProcAddress(modules[index],
-                "horsemod_arm_online_qualification_v5"));
+                "horsemod_arm_online_qualification_v6"));
         const auto candidate_status = reinterpret_cast<
             GetOnlineQualificationStatusFn>(GetProcAddress(modules[index],
                 "horsemod_get_online_qualification_status"));
-        if (candidate_arm != nullptr && candidate_status != nullptr)
+        const auto candidate_history = reinterpret_cast<
+            GetOnlineQualificationStatusHistoryFn>(GetProcAddress(
+                modules[index],
+                "horsemod_get_online_qualification_status_history_v1"));
+        if (candidate_arm != nullptr && candidate_status != nullptr
+            && candidate_history != nullptr)
         {
             arm = candidate_arm;
             status = candidate_status;
+            history = candidate_history;
             return true;
         }
     }
@@ -447,10 +456,12 @@ bool ValidRunId(std::string_view value) noexcept
 bool ReadOnlineRequest(const std::filesystem::path& path,
     std::string& run_id, std::uint32_t& fault,
     std::array<std::uint8_t, 3>& correction_stimulus_depths,
-    std::size_t& correction_stimulus_count)
+    std::size_t& correction_stimulus_count,
+    std::uint32_t& correction_stimulus_min_round)
 {
     correction_stimulus_depths = {};
     correction_stimulus_count = 0;
+    correction_stimulus_min_round = 1;
     std::ifstream stream(path, std::ios::binary);
     if (!stream) return false;
     stream.seekg(0, std::ios::end);
@@ -463,6 +474,7 @@ bool ReadOnlineRequest(const std::filesystem::path& path,
     std::uint32_t version{1};
     std::uint64_t not_before_unix_ms{};
     bool correction_stimulus_present{};
+    bool correction_stimulus_min_round_present{};
     std::size_t begin{};
     while (begin < text.size())
     {
@@ -477,7 +489,7 @@ bool ReadOnlineRequest(const std::filesystem::path& path,
             const auto value = line.substr(equals + 1);
             if (key == "version")
                 version = value == "2" ? 2u : value == "3" ? 3u
-                    : value == "4" ? 4u : 0u;
+                    : value == "4" ? 4u : value == "5" ? 5u : 0u;
             else if (key == "run_id") run_id.assign(value);
             else if (key == "arm") arm = value == "true";
             else if (key == "not_before_unix_ms")
@@ -541,6 +553,18 @@ bool ReadOnlineRequest(const std::filesystem::path& path,
                     if (value_begin == value.size()) return false;
                 }
             }
+            else if (key == "correction_stimulus_min_round")
+            {
+                if (correction_stimulus_min_round_present) return false;
+                correction_stimulus_min_round_present = true;
+                const auto parsed = std::from_chars(value.data(),
+                    value.data() + value.size(),
+                    correction_stimulus_min_round);
+                if (parsed.ec != std::errc{}
+                    || parsed.ptr != value.data() + value.size()
+                    || correction_stimulus_min_round == 0
+                    || correction_stimulus_min_round > 2) return false;
+            }
             else return false;
         }
         if (end == std::string::npos) break;
@@ -549,11 +573,20 @@ bool ReadOnlineRequest(const std::filesystem::path& path,
             ++begin;
     }
     if (!arm || !ValidRunId(run_id)
-        || (version != 2 && version != 3 && version != 4)
+        || (version != 2 && version != 3 && version != 4 && version != 5)
         || (version == 2 && correction_stimulus_count != 0)
         || (version == 3 && correction_stimulus_count > 1)
         || (version == 4 && !correction_stimulus_present)
-        || (fault != 0 && correction_stimulus_count != 0)
+        || (version == 5 && (!correction_stimulus_present
+            || !correction_stimulus_min_round_present))
+        || (version != 5 && correction_stimulus_min_round_present)
+        || (correction_stimulus_count == 0
+            && correction_stimulus_min_round != 1)
+        || (fault != 0 && correction_stimulus_count != 0
+            && !(fault == 5 && correction_stimulus_count == 1
+                && correction_stimulus_depths[0] == 11))
+        || (fault == 5 && !(correction_stimulus_count == 1
+            && correction_stimulus_depths[0] == 11))
         || not_before_unix_ms == 0) return false;
     const auto now = static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -1406,39 +1439,54 @@ private:
         std::uint32_t fault{};
         std::array<std::uint8_t, 3> correction_stimulus_depths{};
         std::size_t correction_stimulus_count{};
+        std::uint32_t correction_stimulus_min_round{1};
         if (!ReadOnlineRequest(
                 QualificationRoot() / L"online_request.txt", run_id, fault,
-                correction_stimulus_depths, correction_stimulus_count))
+                correction_stimulus_depths, correction_stimulus_count,
+                correction_stimulus_min_round))
             return;
         if (run_id != online_last_run_id_)
         {
-            if ((arm_online_ == nullptr || get_online_status_ == nullptr)
+            if ((arm_online_ == nullptr || get_online_status_ == nullptr
+                    || get_online_status_history_ == nullptr)
                 && !ResolveHorseModOnlineQualificationApi(
-                    arm_online_, get_online_status_))
+                    arm_online_, get_online_status_,
+                    get_online_status_history_))
                 return;
             if (!arm_online_(run_id.data(), run_id.size(), fault,
                     correction_stimulus_depths.data(),
-                    correction_stimulus_count)) return;
+                    correction_stimulus_count,
+                    correction_stimulus_min_round)) return;
             online_last_run_id_ = run_id;
             online_last_status_ = UINT32_MAX;
+            online_logged_status_mask_ = 0;
             Output::send<LogLevel::Default>(STR(
                 "[ReplayQualification] armed online qualification "
                 "run_id={} fault={} correction_stimulus_count={} "
+                "correction_stimulus_min_round={} "
                 "without menu navigation\n"),
                 RC::to_generic_string(run_id), fault,
-                correction_stimulus_count);
+                correction_stimulus_count,
+                correction_stimulus_min_round);
         }
-        if (get_online_status_ != nullptr)
+        if (get_online_status_ != nullptr
+            && get_online_status_history_ != nullptr)
         {
             const auto status = get_online_status_();
-            if (status != online_last_status_)
+            const auto history = get_online_status_history_();
+            for (std::uint32_t transition = 1; transition <= 7; ++transition)
             {
-                online_last_status_ = status;
+                const auto bit = std::uint32_t{1} << transition;
+                if ((history & bit) == 0
+                    || (online_logged_status_mask_ & bit) != 0)
+                    continue;
+                online_logged_status_mask_ |= bit;
                 Output::send<LogLevel::Default>(STR(
                     "[ReplayQualification] online qualification "
                     "run_id={} status={}\n"),
-                    RC::to_generic_string(online_last_run_id_), status);
+                    RC::to_generic_string(online_last_run_id_), transition);
             }
+            online_last_status_ = status;
         }
     }
 
@@ -3095,7 +3143,9 @@ private:
     std::string qualification_group_run_id_{};
     ArmOnlineQualificationFn arm_online_{};
     GetOnlineQualificationStatusFn get_online_status_{};
+    GetOnlineQualificationStatusHistoryFn get_online_status_history_{};
     std::uint32_t online_last_status_{UINT32_MAX};
+    std::uint32_t online_logged_status_mask_{};
     ArmOnlineObserverProbeFn arm_online_observer_{};
     GetOnlineObserverProbeReportFn get_online_observer_report_{};
     DisarmOnlineObserverProbeFn disarm_online_observer_{};
