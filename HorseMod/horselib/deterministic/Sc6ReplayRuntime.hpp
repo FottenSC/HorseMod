@@ -277,6 +277,11 @@ struct ReplayTimelineStatus
     FrameCoordinate resume_target{};
     FrameCoordinate resume_source_end{};
     FrameCoordinate resume_failure_coordinate{};
+    std::uint32_t seek_plan_failure_stage{};
+    std::size_t seek_plan_failure_batch_index{};
+    FrameCoordinate seek_plan_failure_base{};
+    FrameCoordinate seek_plan_failure_entry{};
+    FrameCoordinate seek_plan_failure_exit{};
     CanonicalHash resume_expected_hash{};
     CanonicalHash resume_observed_hash{};
     std::uint32_t resume_component_difference_mask{};

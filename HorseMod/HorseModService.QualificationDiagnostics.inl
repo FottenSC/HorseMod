@@ -109,7 +109,9 @@
                 "move_dispatch={:016x}/{:016x}->{:016x}/{:016x} "
                 "vfx_edges_p1={}/{}/{}/{}->{}/{}/{}/{} "
                 "vfx_edges_p2={}/{}/{}/{}->{}/{}/{}/{} "
-                "wind_mask=0x{:x} identity_issue={} identity={}/{}\n"),
+                "wind_mask=0x{:x} identity_issue={} identity={}/{} "
+                "plan_stage={} plan_batch={} plan_base={}:{} "
+                "plan_entry={}:{} plan_exit={}:{}\n"),
                 target.frame, timeline.last_coordinate.frame,
                 RC::to_generic_string(std::string(
                     Horse::Deterministic::failure_code_name(status.code))),
@@ -195,7 +197,23 @@
                     resume_wind_difference_mask,
                 m_replay_native_runtime.timeline_status().identity_issue,
                 m_replay_native_runtime.timeline_status().identity_expected,
-                m_replay_native_runtime.timeline_status().identity_observed);
+                m_replay_native_runtime.timeline_status().identity_observed,
+                m_replay_native_runtime.timeline_status().
+                    seek_plan_failure_stage,
+                m_replay_native_runtime.timeline_status().
+                    seek_plan_failure_batch_index,
+                m_replay_native_runtime.timeline_status().
+                    seek_plan_failure_base.generation,
+                m_replay_native_runtime.timeline_status().
+                    seek_plan_failure_base.frame,
+                m_replay_native_runtime.timeline_status().
+                    seek_plan_failure_entry.generation,
+                m_replay_native_runtime.timeline_status().
+                    seek_plan_failure_entry.frame,
+                m_replay_native_runtime.timeline_status().
+                    seek_plan_failure_exit.generation,
+                m_replay_native_runtime.timeline_status().
+                    seek_plan_failure_exit.frame);
             return true;
         }
         m_seek_handled_sequence = sequence;

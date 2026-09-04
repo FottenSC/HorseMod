@@ -32,12 +32,17 @@ Status PlanReplaySeek(
 
     const auto membership = batches.FindCoordinate(target);
     if (!membership.has_value())
+    {
+        output.failure_stage = 1;
         return Status::failure(FailureCode::ContextUnavailable);
+    }
     const NativeBatchEnvelope* landing_batch =
         batches.GetBatch(membership->batch_index);
     if (landing_batch == nullptr
         || landing_batch->coordinate_count <= membership->offset_in_batch)
     {
+        output.failure_stage = 2;
+        output.failure_batch_index = membership->batch_index;
         return Status::failure(FailureCode::IdentityMismatch);
     }
 
@@ -50,23 +55,41 @@ Status PlanReplaySeek(
     // landing.  Re-enter the batch that produced the target and capture its
     // fencepost instead.
     if (target.frame == 0)
+    {
+        output.failure_stage = 3;
         return Status::failure(FailureCode::MissingSnapshot);
+    }
     const auto base_limit = FrameCoordinate{
         target.generation, target.frame - 1};
     const Snapshot* base = batch_entry_snapshots.FindNearestAtOrBefore(
         base_limit < landing_batch->entry_coordinate
             ? base_limit : landing_batch->entry_coordinate);
     if (base == nullptr)
+    {
+        output.failure_stage = 4;
+        output.failure_batch_index = membership->batch_index;
+        output.failure_entry = landing_batch->entry_coordinate;
+        output.failure_exit = landing_batch->exit_coordinate;
         return Status::failure(FailureCode::MissingSnapshot);
+    }
+    output.failure_base = base->coordinate;
     if (base->coordinate.generation != target.generation
         || base->coordinate.frame > target.frame)
     {
+        output.failure_stage = 5;
+        output.failure_batch_index = membership->batch_index;
+        output.failure_entry = landing_batch->entry_coordinate;
+        output.failure_exit = landing_batch->exit_coordinate;
         return Status::failure(FailureCode::GenerationMismatch);
     }
 
     const std::uint64_t distance = target.frame - base->coordinate.frame;
     if (distance > maximum_resimulation_distance)
+    {
+        output.failure_stage = 6;
+        output.failure_batch_index = membership->batch_index;
         return Status::failure(FailureCode::AdapterUnqualified);
+    }
 
     std::size_t first_batch_index = membership->batch_index + 1;
     const bool requires_replay = base->coordinate != target;
@@ -75,7 +98,11 @@ Status PlanReplaySeek(
         const auto first = find_batch_starting_at(
             batches, base->coordinate, membership->batch_index);
         if (!first.has_value())
+        {
+            output.failure_stage = 7;
+            output.failure_batch_index = membership->batch_index;
             return Status::failure(FailureCode::MissingSnapshot);
+        }
         first_batch_index = *first;
         for (std::size_t index = first_batch_index;
              index <= membership->batch_index; ++index)
@@ -85,6 +112,13 @@ Status PlanReplaySeek(
                 || batch->entry_coordinate.generation != target.generation
                 || batch->exit_coordinate.generation != target.generation)
             {
+                output.failure_stage = 8;
+                output.failure_batch_index = index;
+                if (batch != nullptr)
+                {
+                    output.failure_entry = batch->entry_coordinate;
+                    output.failure_exit = batch->exit_coordinate;
+                }
                 return Status::failure(FailureCode::GenerationMismatch);
             }
         }

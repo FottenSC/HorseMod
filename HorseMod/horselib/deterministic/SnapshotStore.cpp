@@ -10,6 +10,37 @@
 
 namespace Horse::Deterministic
 {
+namespace
+{
+Status PrepareOccupiedSnapshotCopyStorage(
+    Snapshot& target, const Snapshot& prototype) noexcept
+{
+    // An occupied slot's Entry coordinate indexes this exact payload. Growing
+    // its reusable buffers must not replace that payload with the newest
+    // prototype: doing so leaves the sorted index and snapshot identity out
+    // of sync. The local-image topology is binding-owned and must remain
+    // stable while a checkpoint is retained.
+    if (prototype.local_images.size() > target.local_images.size())
+        return Status::failure(FailureCode::CapacityExceeded);
+    try
+    {
+        target.bytes.reserve(prototype.bytes.capacity());
+        target.local_images.reserve(prototype.local_images.capacity());
+        for (std::size_t index = 0;
+             index < prototype.local_images.size(); ++index)
+        {
+            target.local_images[index].bytes.reserve(
+                prototype.local_images[index].bytes.capacity());
+        }
+    }
+    catch (...)
+    {
+        return Status::failure(FailureCode::CapacityExceeded);
+    }
+    return Status::success();
+}
+}
+
 SnapshotStore::SnapshotStore(
     std::size_t maximum_bytes,
     std::size_t maximum_entries,
@@ -210,7 +241,8 @@ Status SnapshotStore::PrewarmCopySlots(const Snapshot& prototype) noexcept
         for (const auto& entry : entries_)
         {
             auto& target = snapshots_[entry.slot];
-            const auto prepared = PrepareSnapshotCopyStorage(target, prototype);
+            const auto prepared = PrepareOccupiedSnapshotCopyStorage(
+                target, prototype);
             if (!prepared.ok()) return prepared;
             allocated += snapshot_dynamic_cost(target);
         }

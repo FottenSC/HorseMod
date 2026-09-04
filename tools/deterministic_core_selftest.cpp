@@ -1162,8 +1162,15 @@ void test_snapshot_capacity_is_atomic()
     oversized.bytes.resize(1024);
     expect(prewarmed.SaveCopyPrewarmed(oversized).ok()
             && prewarmed.BytesUsed() >= prewarmed_bytes
-            && prewarmed.FindExact({5, 3}) != nullptr,
-        "checkpoint shape may rewarm the bounded pool before ownership");
+            && prewarmed.FindExact({5, 3}) != nullptr
+            && prewarmed.FindExact({5, 1}) != nullptr
+            && prewarmed.FindExact({5, 1})->coordinate
+                == FrameCoordinate{5, 1}
+            && prewarmed.FindNearestAtOrBefore({5, 2}) != nullptr
+            && prewarmed.FindNearestAtOrBefore({5, 2})->coordinate
+                == FrameCoordinate{5, 2},
+        "checkpoint shape may rewarm the bounded pool without replacing "
+        "retained payload identities");
     const auto grown_bytes = prewarmed.BytesUsed();
     oversized.bytes[0] = std::byte{0x55};
     expect(prewarmed.SaveCopyPrewarmed(oversized).ok()
@@ -1558,6 +1565,50 @@ void test_batch_aware_replay_seek_planning()
     expect(PlanReplaySeek({1, 2}, batches, entries, 1, plan).code
             == FailureCode::AdapterUnqualified,
         "seek planning fails closed beyond the reconstruction bound");
+
+    NativeBatchTimeline generation_transition_batches{4, 8};
+    NativeBatchEnvelope generation_transition{};
+    generation_transition.batch_id = 1;
+    generation_transition.entry_coordinate = {1, 3};
+    generation_transition.exit_coordinate = {2, 1};
+    generation_transition.coordinate_count = 1;
+    generation_transition.input_generation_changed = true;
+    const std::array generation_transition_coordinates{
+        FrameCoordinate{2, 1}};
+    expect(generation_transition_batches.Append(generation_transition,
+               generation_transition_coordinates).ok(),
+        "retain a generation-transition batch as diagnostic history");
+    SnapshotStore transition_entries{
+        1024 * 1024, 8, CapacityPolicy::RejectNew};
+    expect(transition_entries.Save({{1, 3}, 1, {}, {}}).ok(),
+        "save the retired-generation transition entry");
+    expect(PlanReplaySeek({2, 1}, generation_transition_batches,
+               transition_entries, 29, plan).code
+            == FailureCode::GenerationMismatch
+            && plan.failure_stage == 5
+            && plan.failure_base == FrameCoordinate{1, 3}
+            && plan.failure_entry == FrameCoordinate{1, 3}
+            && plan.failure_exit == FrameCoordinate{2, 1},
+        "seek planning identifies a retired-generation checkpoint before "
+        "attempting reconstruction");
+
+    NativeBatchEnvelope current_generation{};
+    current_generation.batch_id = 2;
+    current_generation.entry_coordinate = {2, 1};
+    current_generation.exit_coordinate = {2, 2};
+    current_generation.coordinate_count = 1;
+    const std::array current_generation_coordinates{FrameCoordinate{2, 2}};
+    expect(generation_transition_batches.Append(current_generation,
+               current_generation_coordinates).ok(),
+        "append the first replayable batch in the replacement generation");
+    expect(transition_entries.Save({{2, 1}, 1, {}, {}}).ok(),
+        "save a replacement-generation entry after the transition");
+    expect(PlanReplaySeek({2, 2}, generation_transition_batches,
+               transition_entries, 29, plan).ok()
+            && plan.resimulation_base == FrameCoordinate{2, 1}
+            && plan.first_batch_index == 1,
+        "seek planning starts after the generation transition when a valid "
+        "replacement-generation entry exists");
 
     ReplayCorrectionPlan correction{};
     expect(PlanReplayCorrection(

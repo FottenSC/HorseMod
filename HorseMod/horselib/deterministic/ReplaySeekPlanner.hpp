@@ -15,6 +15,15 @@ struct ReplaySeekPlan
     std::uint32_t coordinates_after_landing{};
     std::uint64_t resimulation_coordinates{};
     bool landing_requires_batch_replay{};
+    // Populated on failure so qualification can distinguish an indexed
+    // checkpoint whose payload identity drifted from a cross-generation
+    // native batch.  These fields are diagnostic only and never authorize a
+    // restore.
+    std::uint32_t failure_stage{};
+    std::size_t failure_batch_index{};
+    FrameCoordinate failure_base{};
+    FrameCoordinate failure_entry{};
+    FrameCoordinate failure_exit{};
 };
 
 struct ReplayCorrectionPlan

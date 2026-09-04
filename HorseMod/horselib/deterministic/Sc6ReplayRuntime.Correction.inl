@@ -108,6 +108,12 @@ Status Sc6ReplayRuntime::ExecuteOwnedStateSeek(
         timeline_status_.identity_expected = target.frame;
         timeline_status_.identity_observed =
             static_cast<std::uint64_t>(status.code);
+        timeline_status_.seek_plan_failure_stage = plan.failure_stage;
+        timeline_status_.seek_plan_failure_batch_index =
+            plan.failure_batch_index;
+        timeline_status_.seek_plan_failure_base = plan.failure_base;
+        timeline_status_.seek_plan_failure_entry = plan.failure_entry;
+        timeline_status_.seek_plan_failure_exit = plan.failure_exit;
         return status;
     }
     if (!hooks.installed() || timeline_thread_id_ == 0
