@@ -1,0 +1,420 @@
+{
+  "program": "SoulcaliburVI.exe",
+  "date": "2026-09-23",
+  "scope": "Concrete Engine.LineBatchComponent native family after observed stock task-entry census",
+  "live_input": {
+    "run": "replay-b6c4de00591e48168c24e8cabb0d4a7e",
+    "raw_sha256": "80c5348ce2f661c8cf18bc610c5656a27e6eabc45e0828ec00c8a4ae4bc46e7a",
+    "provenance": "Parent reported actual stock205..224 census. Observation run failed presentation minimum113<120, clean termination; partial census is not qualification."
+  },
+  "map": {
+    "vtable": "1438774C8",
+    "constructor": "141D6C670 installs primary table and secondary tables143877CC0 at+28/143877CF0 at+3E0",
+    "deleting_destructor": "141D6E9F0 void*(void* owner,uint64 flags), calls141D6D520 then frees owner if flags&1",
+    "nondeleting_destructor": "141D6D520 void(void* owner): earliest concrete body, first accesses mesh header+830 then frees nested mesh buffers+0/+10, outer mesh+830, points+818, lines+808; calls primitive destructor1403AF330",
+    "known_dtor_entry_routes": "141D6D520 has only direct caller141D6E9F0; wrapper referenced at primary vtable1438774C8, adjustors141D6E1C8 subtract28/141D6E1D4 subtract3E0 then jump wrapper",
+    "tick": "141D88EC0 void(void*,float): line stride34 life+2C, point stride28 life+20, mesh stride30 life+28; decrements positive lifetimes; swap-remove/shrink and nested mesh frees on expiry; render-state dirty if removal",
+    "query350": "1402D9BF0 pure constant-zero",
+    "flush": "141D774C0 void(void*): zero/shrink all three arrays and MarkRenderStateDirty; direct callers1417E2360,141E4A300,UWorld_Exec_DebugConsoleCommands1421B9ED0"
+  },
+  "findings": [
+    "Untouched task retention is different from C-drain/B-undo: no tick mutations have happened at pre-entry hold, but executing later mutates dynamic line/point/mesh data and render publication. Exact B undo needs these values/lifetimes/ownership captured or a separately enforced empty-state contract.",
+    "Physical retirement monitor141D6D520 can stop verified concrete destructor before any array free. It does not exclude concurrent Flush, append, lifetime compaction, prerequisite mutation, logical destruction, or world invalidation.",
+    "HorseMod LineBatcherBackend.hpp directly reallocates/appends/compacts BatchedLines and calls MarkRenderStateDirty. PresenceAndOverlay.inl calls advanceLifetime at266/267 and endFrame468..471. These are relevant declared-mod writers and must be excluded by actual strict-hold callback routing, not native destructor hooks.",
+    "LineBatcherBackend comments claiming no native lifetime sweep contradict verified141D88EC0. This investigation does not establish whether each persistent batcher instance is configured to run its tick; do not infer double lifetime advancement merely from native code presence.",
+    "Line tick body has no base ReceiveTick or world access. Its generic graph wrapper still reads world timing and possible prerequisite chain; component dispatch may read owner actor for levelTick1. GC lease alone does not exclude replacement/logical world retirement.",
+    "TArray helper cross-references are linker-shared across unrelated types; their xrefs are not a complete LineBatch writer census."
+  ],
+  "recommendation": "Use exact UClass and primary vtable, slot0/300/350, embedded tick+110, original indexed generation and preexisting checkpoint lease for supported family. Physical monitor at141D6D520 plus world1421B4E60 is concrete defense, but unchanged resume additionally requires exclusion/revalidation of all declared callbacks that can mutate arrays/topology and safe prerequisite/owner lifetimes. Prefer bounded zero prerequisite admission where supported; do not suppress required callbacks. No complete strict-hold or full C-drain/B recovery proof follows from this native map alone.",
+  "raw": [
+    {
+      "key": "line_component",
+      "results": [
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "\r\nvoid * FUN_141d6e9f0(void *param_1,ulonglong param_2)\r\n\r\n{\r\n  FUN_141d6d520();\r\n  if ((param_2 & 1) != 0) {\r\n    UE_FMemory_Free(param_1);\r\n  }\r\n  return param_1;\r\n}\r\n\r\n"
+              }
+            ],
+            "structuredContent": {
+              "result": "\r\nvoid * FUN_141d6e9f0(void *param_1,ulonglong param_2)\r\n\r\n{\r\n  FUN_141d6d520();\r\n  if ((param_2 & 1) != 0) {\r\n    UE_FMemory_Free(param_1);\r\n  }\r\n  return param_1;\r\n}\r\n\r\n"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "\r\nvoid FUN_141d88ec0(void *param_1,float param_2)\r\n\r\n{\r\n  longlong *plVar1;\r\n  longlong lVar2;\r\n  void *pvVar3;\r\n  bool bVar4;\r\n  int iVar5;\r\n  ulonglong uVar6;\r\n  ulonglong uVar7;\r\n  int iVar8;\r\n  ulonglong uVar9;\r\n  int iVar10;\r\n  longlong lVar11;\r\n  float fVar12;\r\n  \r\n  uVar6 = 0;\r\n  bVar4 = false;\r\n  iVar10 = 1;\r\n  if (0 < *(int *)((longlong)param_1 + 0x810)) {\r\n    plVar1 = (longlong *)((longlong)param_1 + 0x808);\r\n    uVar7 = uVar6;\r\n    uVar9 = uVar6;\r\n    do {\r\n      iVar8 = (int)uVar9;\r\n      fVar12 = *(float *)(uVar7 + 0x2c + *plVar1);\r\n      if ((0.0 < fVar12) &&\r\n         (fVar12 = fVar12 - param_2, *(float *)(uVar7 + 0x2c + *plVar1) = fVar12, fVar12 <= 0.0)) {\r\n        iVar5 = (*(int *)((longlong)param_1 + 0x810) - iVar8) + -1;\r\n        if (0 < iVar5) {\r\n          iVar5 = iVar10;\r\n        }\r\n        if (iVar5 != 0) {\r\n          memcpy((void *)((longlong)iVar8 * 0x34 + *plVar1),\r\n                 (void *)((longlong)(*(int *)((longlong)param_1 + 0x810) - iVar5) * 0x34 + *plVar1),\r\n                 (longlong)iVar5 * 0x34);\r\n        }\r\n        *(int *)((longlong)param_1 + 0x810) = *(int *)((longlong)param_1 + 0x810) + -1;\r\n        FUN_14047c230(plVar1);\r\n        iVar8 = iVar8 + -1;\r\n        bVar4 = true;\r\n        uVar7 = uVar7 - 0x34;\r\n      }\r\n      uVar9 = (ulonglong)(iVar8 + 1U);\r\n      uVar7 = uVar7 + 0x34;\r\n    } while ((int)(iVar8 + 1U) < *(int *)((longlong)param_1 + 0x810));\r\n  }\r\n  if (0 < *(int *)((longlong)param_1 + 0x820)) {\r\n    plVar1 = (longlong *)((longlong)param_1 + 0x818);\r\n    uVar7 = uVar6;\r\n    uVar9 = uVar6;\r\n    do {\r\n      iVar8 = (int)uVar9;\r\n      fVar12 = *(float *)(uVar7 + 0x20 + *plVar1);\r\n      if ((0.0 < fVar12) &&\r\n         (fVar12 = fVar12 - param_2, *(float *)(uVar7 + 0x20 + *plVar1) = fVar12, fVar12 <= 0.0)) {\r\n        iVar5 = (*(int *)((longlong)param_1 + 0x820) - iVar8) + -1;\r\n        if (0 < iVar5) {\r\n          iVar5 = iVar10;\r\n        }\r\n        if (iVar5 != 0) {\r\n          memcpy((void *)(*plVar1 + (longlong)iVar8 * 0x28),\r\n                 (void *)(*plVar1 + (longlong)(*(int *)((longlong)param_1 + 0x820) - iVar5) * 0x28),\r\n                 (longlong)iVar5 * 0x28);\r\n        }\r\n        *(int *)((longlong)param_1 + 0x820) = *(int *)((longlong)param_1 + 0x820) + -1;\r\n        FUN_142088a90(plVar1);\r\n        iVar8 = iVar8 + -1;\r\n        bVar4 = true;\r\n        uVar7 = uVar7 - 0x28;\r\n      }\r\n      uVar9 = (ulonglong)(iVar8 + 1U);\r\n      uVar7 = uVar7 + 0x28;\r\n    } while ((int)(iVar8 + 1U) < *(int *)((longlong)param_1 + 0x820));\r\n  }\r\n  if (0 < *(int *)((longlong)param_1 + 0x838)) {\r\n    plVar1 = (longlong *)((longlong)param_1 + 0x830);\r\n    uVar7 = uVar6;\r\n    do {\r\n      iVar8 = (int)uVar6;\r\n      fVar12 = *(float *)(uVar7 + 0x28 + *plVar1);\r\n      if ((0.0 < fVar12) &&\r\n         (fVar12 = fVar12 - param_2, *(float *)(uVar7 + 0x28 + *plVar1) = fVar12, fVar12 <= 0.0)) {\r\n        lVar2 = *plVar1;\r\n        lVar11 = (longlong)iVar8 * 0x30;\r\n        pvVar3 = *(void **)(lVar11 + 0x10 + lVar2);\r\n        if (pvVar3 != (void *)0x0) {\r\n          FMemory_Free(pvVar3);\r\n        }\r\n        pvVar3 = *(void **)(lVar11 + lVar2);\r\n        if (pvVar3 != (void *)0x0) {\r\n          FMemory_Free(pvVar3);\r\n        }\r\n        iVar5 = (*(int *)((longlong)param_1 + 0x838) - iVar8) + -1;\r\n        if (0 < iVar5) {\r\n          iVar5 = iVar10;\r\n        }\r\n        if (iVar5 != 0) {\r\n          memcpy((void *)(*plVar1 + lVar11),\r\n                 (void *)((longlong)(*(int *)((longlong)param_1 + 0x838) - iVar5) * 0x30 + *plVar1),\r\n                 (longlong)iVar5 * 0x30);\r\n        }\r\n        *(int *)((longlong)param_1 + 0x838) = *(int *)((longlong)param_1 + 0x838) + -1;\r\n        FUN_1429d74d0(plVar1);\r\n        iVar8 = iVar8 + -1;\r\n        bVar4 = true;\r\n        uVar7 = uVar7 - 0x30;\r\n      }\r\n      uVar6 = (ulonglong)(iVar8 + 1U);\r\n      uVar7 = uVar7 + 0x30;\r\n    } while ((int)(iVar8 + 1U) < *(int *)((longlong)param_1 + 0x838));\r\n  }\r\n  if (!bVar4) {\r\n    return;\r\n  }\r\n  UActorComponent_MarkRenderStateDirty(param_1);\r\n  return;\r\n}\r\n\r\n"
+              }
+            ],
+            "structuredContent": {
+              "result": "\r\nvoid FUN_141d88ec0(void *param_1,float param_2)\r\n\r\n{\r\n  longlong *plVar1;\r\n  longlong lVar2;\r\n  void *pvVar3;\r\n  bool bVar4;\r\n  int iVar5;\r\n  ulonglong uVar6;\r\n  ulonglong uVar7;\r\n  int iVar8;\r\n  ulonglong uVar9;\r\n  int iVar10;\r\n  longlong lVar11;\r\n  float fVar12;\r\n  \r\n  uVar6 = 0;\r\n  bVar4 = false;\r\n  iVar10 = 1;\r\n  if (0 < *(int *)((longlong)param_1 + 0x810)) {\r\n    plVar1 = (longlong *)((longlong)param_1 + 0x808);\r\n    uVar7 = uVar6;\r\n    uVar9 = uVar6;\r\n    do {\r\n      iVar8 = (int)uVar9;\r\n      fVar12 = *(float *)(uVar7 + 0x2c + *plVar1);\r\n      if ((0.0 < fVar12) &&\r\n         (fVar12 = fVar12 - param_2, *(float *)(uVar7 + 0x2c + *plVar1) = fVar12, fVar12 <= 0.0)) {\r\n        iVar5 = (*(int *)((longlong)param_1 + 0x810) - iVar8) + -1;\r\n        if (0 < iVar5) {\r\n          iVar5 = iVar10;\r\n        }\r\n        if (iVar5 != 0) {\r\n          memcpy((void *)((longlong)iVar8 * 0x34 + *plVar1),\r\n                 (void *)((longlong)(*(int *)((longlong)param_1 + 0x810) - iVar5) * 0x34 + *plVar1),\r\n                 (longlong)iVar5 * 0x34);\r\n        }\r\n        *(int *)((longlong)param_1 + 0x810) = *(int *)((longlong)param_1 + 0x810) + -1;\r\n        FUN_14047c230(plVar1);\r\n        iVar8 = iVar8 + -1;\r\n        bVar4 = true;\r\n        uVar7 = uVar7 - 0x34;\r\n      }\r\n      uVar9 = (ulonglong)(iVar8 + 1U);\r\n      uVar7 = uVar7 + 0x34;\r\n    } while ((int)(iVar8 + 1U) < *(int *)((longlong)param_1 + 0x810));\r\n  }\r\n  if (0 < *(int *)((longlong)param_1 + 0x820)) {\r\n    plVar1 = (longlong *)((longlong)param_1 + 0x818);\r\n    uVar7 = uVar6;\r\n    uVar9 = uVar6;\r\n    do {\r\n      iVar8 = (int)uVar9;\r\n      fVar12 = *(float *)(uVar7 + 0x20 + *plVar1);\r\n      if ((0.0 < fVar12) &&\r\n         (fVar12 = fVar12 - param_2, *(float *)(uVar7 + 0x20 + *plVar1) = fVar12, fVar12 <= 0.0)) {\r\n        iVar5 = (*(int *)((longlong)param_1 + 0x820) - iVar8) + -1;\r\n        if (0 < iVar5) {\r\n          iVar5 = iVar10;\r\n        }\r\n        if (iVar5 != 0) {\r\n          memcpy((void *)(*plVar1 + (longlong)iVar8 * 0x28),\r\n                 (void *)(*plVar1 + (longlong)(*(int *)((longlong)param_1 + 0x820) - iVar5) * 0x28),\r\n                 (longlong)iVar5 * 0x28);\r\n        }\r\n        *(int *)((longlong)param_1 + 0x820) = *(int *)((longlong)param_1 + 0x820) + -1;\r\n        FUN_142088a90(plVar1);\r\n        iVar8 = iVar8 + -1;\r\n        bVar4 = true;\r\n        uVar7 = uVar7 - 0x28;\r\n      }\r\n      uVar9 = (ulonglong)(iVar8 + 1U);\r\n      uVar7 = uVar7 + 0x28;\r\n    } while ((int)(iVar8 + 1U) < *(int *)((longlong)param_1 + 0x820));\r\n  }\r\n  if (0 < *(int *)((longlong)param_1 + 0x838)) {\r\n    plVar1 = (longlong *)((longlong)param_1 + 0x830);\r\n    uVar7 = uVar6;\r\n    do {\r\n      iVar8 = (int)uVar6;\r\n      fVar12 = *(float *)(uVar7 + 0x28 + *plVar1);\r\n      if ((0.0 < fVar12) &&\r\n         (fVar12 = fVar12 - param_2, *(float *)(uVar7 + 0x28 + *plVar1) = fVar12, fVar12 <= 0.0)) {\r\n        lVar2 = *plVar1;\r\n        lVar11 = (longlong)iVar8 * 0x30;\r\n        pvVar3 = *(void **)(lVar11 + 0x10 + lVar2);\r\n        if (pvVar3 != (void *)0x0) {\r\n          FMemory_Free(pvVar3);\r\n        }\r\n        pvVar3 = *(void **)(lVar11 + lVar2);\r\n        if (pvVar3 != (void *)0x0) {\r\n          FMemory_Free(pvVar3);\r\n        }\r\n        iVar5 = (*(int *)((longlong)param_1 + 0x838) - iVar8) + -1;\r\n        if (0 < iVar5) {\r\n          iVar5 = iVar10;\r\n        }\r\n        if (iVar5 != 0) {\r\n          memcpy((void *)(*plVar1 + lVar11),\r\n                 (void *)((longlong)(*(int *)((longlong)param_1 + 0x838) - iVar5) * 0x30 + *plVar1),\r\n                 (longlong)iVar5 * 0x30);\r\n        }\r\n        *(int *)((longlong)param_1 + 0x838) = *(int *)((longlong)param_1 + 0x838) + -1;\r\n        FUN_1429d74d0(plVar1);\r\n        iVar8 = iVar8 + -1;\r\n        bVar4 = true;\r\n        uVar7 = uVar7 - 0x30;\r\n      }\r\n      uVar6 = (ulonglong)(iVar8 + 1U);\r\n      uVar7 = uVar7 + 0x30;\r\n    } while ((int)(iVar8 + 1U) < *(int *)((longlong)param_1 + 0x838));\r\n  }\r\n  if (!bVar4) {\r\n    return;\r\n  }\r\n  UActorComponent_MarkRenderStateDirty(param_1);\r\n  return;\r\n}\r\n\r\n"
+            },
+            "isError": false
+          }
+        }
+      ]
+    },
+    {
+      "key": "line_dtor_refs",
+      "results": [
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "\r\nvoid FUN_141d6d520(longlong param_1)\r\n\r\n{\r\n  undefined8 *puVar1;\r\n  int iVar2;\r\n  \r\n  puVar1 = *(undefined8 **)(param_1 + 0x830);\r\n  for (iVar2 = *(int *)(param_1 + 0x838); iVar2 != 0; iVar2 = iVar2 + -1) {\r\n    if ((void *)puVar1[2] != (void *)0x0) {\r\n      FMemory_Free((void *)puVar1[2]);\r\n    }\r\n    if ((void *)*puVar1 != (void *)0x0) {\r\n      FMemory_Free((void *)*puVar1);\r\n    }\r\n    puVar1 = puVar1 + 6;\r\n  }\r\n  if (*(void **)(param_1 + 0x830) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x830));\r\n  }\r\n  if (*(void **)(param_1 + 0x818) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x818));\r\n  }\r\n  if (*(void **)(param_1 + 0x808) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x808));\r\n  }\r\n  FUN_1403af330(param_1);\r\n  return;\r\n}\r\n\r\n"
+              }
+            ],
+            "structuredContent": {
+              "result": "\r\nvoid FUN_141d6d520(longlong param_1)\r\n\r\n{\r\n  undefined8 *puVar1;\r\n  int iVar2;\r\n  \r\n  puVar1 = *(undefined8 **)(param_1 + 0x830);\r\n  for (iVar2 = *(int *)(param_1 + 0x838); iVar2 != 0; iVar2 = iVar2 + -1) {\r\n    if ((void *)puVar1[2] != (void *)0x0) {\r\n      FMemory_Free((void *)puVar1[2]);\r\n    }\r\n    if ((void *)*puVar1 != (void *)0x0) {\r\n      FMemory_Free((void *)*puVar1);\r\n    }\r\n    puVar1 = puVar1 + 6;\r\n  }\r\n  if (*(void **)(param_1 + 0x830) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x830));\r\n  }\r\n  if (*(void **)(param_1 + 0x818) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x818));\r\n  }\r\n  if (*(void **)(param_1 + 0x808) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x808));\r\n  }\r\n  FUN_1403af330(param_1);\r\n  return;\r\n}\r\n\r\n"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "From 1449bc270 [DATA]\nFrom 141d6e9ff in FUN_141d6e9f0 [UNCONDITIONAL_CALL]"
+              }
+            ],
+            "structuredContent": {
+              "result": "From 1449bc270 [DATA]\nFrom 141d6e9ff in FUN_141d6e9f0 [UNCONDITIONAL_CALL]"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "From 1449bc4a4 [DATA]\nFrom 1438774c8 [DATA]\nFrom 141d6e1cc [UNCONDITIONAL_CALL]\nFrom 141d6e1db [UNCONDITIONAL_CALL]"
+              }
+            ],
+            "structuredContent": {
+              "result": "From 1449bc4a4 [DATA]\nFrom 1438774c8 [DATA]\nFrom 141d6e1cc [UNCONDITIONAL_CALL]\nFrom 141d6e1db [UNCONDITIONAL_CALL]"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "DeferRegister_ULineBatchComponent @ 14028c4d0\nRegisterDynamicPkg_ULineBatchComponent @ 14028d550\nULineBatchComponent_Flush @ 141d774c0\nZ_Construct_UClass_ULineBatchComponent @ 1425c9590\nZ_Construct_UClass_ULineBatchComponent @ 1425cb690\nZ_Construct_UClass_ULineBatchComponent_NoRegister @ 1425d0ec0"
+              }
+            ],
+            "structuredContent": {
+              "result": "DeferRegister_ULineBatchComponent @ 14028c4d0\nRegisterDynamicPkg_ULineBatchComponent @ 14028d550\nULineBatchComponent_Flush @ 141d774c0\nZ_Construct_UClass_ULineBatchComponent @ 1425c9590\nZ_Construct_UClass_ULineBatchComponent @ 1425cb690\nZ_Construct_UClass_ULineBatchComponent_NoRegister @ 1425d0ec0"
+            },
+            "isError": false
+          }
+        }
+      ]
+    },
+    {
+      "key": "line_flush_ctor",
+      "results": [
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "From 141d6c67e in FUN_141d6c670 [DATA]\nFrom 141d6c688 in FUN_141d6c670 [DATA]"
+              }
+            ],
+            "structuredContent": {
+              "result": "From 141d6c67e in FUN_141d6c670 [DATA]\nFrom 141d6c688 in FUN_141d6c670 [DATA]"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "\r\n/* ULineBatchComponent::Flush / FlushPersistentDebugLines (LIVE IN SHIPPING)\r\n   \r\n   Called via UWorld::Exec(\"FLUSHPERSISTENTDEBUGLINES\") (0x1421b9ed0 path)\r\n   which passes the world's PersistentLineBatcher (UWorld_Partial.+0x48)\r\n   as `this`. Also called directly by ULineBatchComponent::TickComponent\r\n   once its lifetime-sweep removes the last expiring entry.\r\n   \r\n   Behaviour\r\n   ---------\r\n   If any of the three batched arrays is non-empty:\r\n     1. Zero BatchedLines.Num, call TArrayFBatchedLine_SetNumUninitialized(0)\r\n        if its allocator was already grown.\r\n     2. Same for BatchedPoints.\r\n     3. Call TArrayFBatchedMesh_EmptyAndShrink on BatchedMeshes (shrinks the\r\n        allocation to zero as well, since meshes are heavier).\r\n     4. UActorComponent_MarkRenderStateDirty(this) @ 0x141d4e910 — which\r\n        flips the render-state-dirty bit and queues an end-of-frame proxy\r\n        rebuild. This is the piece that makes the change visible to the\r\n        scene proxy next frame.\r\n   \r\n   Component member layout confirmed by this function\r\n   --------------------------------------------------\r\n     +0x808 TArray<FBatchedLine>   BatchedLines    Data@+0x808 Num@+0x810 Max@+0x814\r\n     +0x818 TArray<FBatchedPoint>  BatchedPoints   Data@+0x818 Num@+0x820 Max@+0x824\r\n     +0x830 TArray<FBatchedMesh>   BatchedMeshes   Data@+0x830 Num@+0x838 Max@+0x83C\r\n   Total class size 0x850 (from Z_Construct_UClass_ULineBatchComponent).\r\n   \r\n   MOD USAGE\r\n   ---------\r\n   This is the key handle for a \"draw debug line\" primitive: append an\r\n   FBatchedLine to the TArray at +0x808 and — if the proxy has already\r\n   been built for this frame — call UActorComponent_MarkRenderStateDirty\r\n   to force a rebuild. If the proxy hasn't built yet, appending alone is\r\n   enough.  Used by HorseMod (UE4SS C++ mod) for the hitbox overlay.\r\n   \r\n   Parameters\r\n   ----------\r\n     this : ULineBatchComponent_Partial*  (UWorld+0x40 / +0x48 / +0x50)\r\n   \r\n   Returns\r\n   -------\r\n     void */\r\n\r\nvoid ULineBatchComponent_Flush(ULineBatchComponent_Partial *this)\r\n\r\n{\r\n  if ((((this->BatchedLines).nNum < 1) && ((this->BatchedPoints).nNum < 1)) &&\r\n     ((this->BatchedMeshes).nNum < 1)) {\r\n    return;\r\n  }\r\n  (this->BatchedLines).nNum = 0;\r\n  if ((this->BatchedLines).nMax != 0) {\r\n    TArrayFBatchedLine_SetNumUninitialized(&this->BatchedLines,0);\r\n  }\r\n  (this->BatchedPoints).nNum = 0;\r\n  if ((this->BatchedPoints).nMax != 0) {\r\n    TArrayFBatchedPoint_SetNumUninitialized(&this->BatchedPoints,0);\r\n  }\r\n  TArrayFBatchedMesh_EmptyAndShrink(&this->BatchedMeshes,0);\r\n  UActorComponent_MarkRenderStateDirty(this);\r\n  return;\r\n}\r\n\r\n"
+              }
+            ],
+            "structuredContent": {
+              "result": "\r\n/* ULineBatchComponent::Flush / FlushPersistentDebugLines (LIVE IN SHIPPING)\r\n   \r\n   Called via UWorld::Exec(\"FLUSHPERSISTENTDEBUGLINES\") (0x1421b9ed0 path)\r\n   which passes the world's PersistentLineBatcher (UWorld_Partial.+0x48)\r\n   as `this`. Also called directly by ULineBatchComponent::TickComponent\r\n   once its lifetime-sweep removes the last expiring entry.\r\n   \r\n   Behaviour\r\n   ---------\r\n   If any of the three batched arrays is non-empty:\r\n     1. Zero BatchedLines.Num, call TArrayFBatchedLine_SetNumUninitialized(0)\r\n        if its allocator was already grown.\r\n     2. Same for BatchedPoints.\r\n     3. Call TArrayFBatchedMesh_EmptyAndShrink on BatchedMeshes (shrinks the\r\n        allocation to zero as well, since meshes are heavier).\r\n     4. UActorComponent_MarkRenderStateDirty(this) @ 0x141d4e910 — which\r\n        flips the render-state-dirty bit and queues an end-of-frame proxy\r\n        rebuild. This is the piece that makes the change visible to the\r\n        scene proxy next frame.\r\n   \r\n   Component member layout confirmed by this function\r\n   --------------------------------------------------\r\n     +0x808 TArray<FBatchedLine>   BatchedLines    Data@+0x808 Num@+0x810 Max@+0x814\r\n     +0x818 TArray<FBatchedPoint>  BatchedPoints   Data@+0x818 Num@+0x820 Max@+0x824\r\n     +0x830 TArray<FBatchedMesh>   BatchedMeshes   Data@+0x830 Num@+0x838 Max@+0x83C\r\n   Total class size 0x850 (from Z_Construct_UClass_ULineBatchComponent).\r\n   \r\n   MOD USAGE\r\n   ---------\r\n   This is the key handle for a \"draw debug line\" primitive: append an\r\n   FBatchedLine to the TArray at +0x808 and — if the proxy has already\r\n   been built for this frame — call UActorComponent_MarkRenderStateDirty\r\n   to force a rebuild. If the proxy hasn't built yet, appending alone is\r\n   enough.  Used by HorseMod (UE4SS C++ mod) for the hitbox overlay.\r\n   \r\n   Parameters\r\n   ----------\r\n     this : ULineBatchComponent_Partial*  (UWorld+0x40 / +0x48 / +0x50)\r\n   \r\n   Returns\r\n   -------\r\n     void */\r\n\r\nvoid ULineBatchComponent_Flush(ULineBatchComponent_Partial *this)\r\n\r\n{\r\n  if ((((this->BatchedLines).nNum < 1) && ((this->BatchedPoints).nNum < 1)) &&\r\n     ((this->BatchedMeshes).nNum < 1)) {\r\n    return;\r\n  }\r\n  (this->BatchedLines).nNum = 0;\r\n  if ((this->BatchedLines).nMax != 0) {\r\n    TArrayFBatchedLine_SetNumUninitialized(&this->BatchedLines,0);\r\n  }\r\n  (this->BatchedPoints).nNum = 0;\r\n  if ((this->BatchedPoints).nMax != 0) {\r\n    TArrayFBatchedPoint_SetNumUninitialized(&this->BatchedPoints,0);\r\n  }\r\n  TArrayFBatchedMesh_EmptyAndShrink(&this->BatchedMeshes,0);\r\n  UActorComponent_MarkRenderStateDirty(this);\r\n  return;\r\n}\r\n\r\n"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "From 1449bced0 [DATA]\nFrom 1417e24b9 in FUN_1417e2360 [UNCONDITIONAL_CALL]\nFrom 1417e24d9 in FUN_1417e2360 [UNCONDITIONAL_CALL]\nFrom 1421b9f7b in UWorld_Exec_DebugConsoleCommands [UNCONDITIONAL_CALL]\nFrom 141e4b14b in FUN_141e4a300 [UNCONDITIONAL_CALL]\nFrom 141e4b159 in FUN_141e4a300 [UNCONDITIONAL_CALL]"
+              }
+            ],
+            "structuredContent": {
+              "result": "From 1449bced0 [DATA]\nFrom 1417e24b9 in FUN_1417e2360 [UNCONDITIONAL_CALL]\nFrom 1417e24d9 in FUN_1417e2360 [UNCONDITIONAL_CALL]\nFrom 1421b9f7b in UWorld_Exec_DebugConsoleCommands [UNCONDITIONAL_CALL]\nFrom 141e4b14b in FUN_141e4a300 [UNCONDITIONAL_CALL]\nFrom 141e4b159 in FUN_141e4a300 [UNCONDITIONAL_CALL]"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"141D6E1CC\":{\"address\":\"141D6E1CC\",\"instruction\":\"JMP 0x141d6e9f0\",\"context_before\":[\"141d6e1c8: SUB RCX,0x28\",\"141d6e1c0: JMP 0x141d6e9b0\",\"141d6e1bc: SUB RCX,0x28\",\"141d6e1b4: JMP 0x141d6e970\"],\"context_after\":[\"141d6e1d4: SUB RCX,0x3e0\",\"141d6e1db: JMP 0x141d6e9f0\",\"141d6e1e0: SUB RCX,0x28\",\"141d6e1e4: JMP 0x141d6ea30\"],\"mnemonic\":\"JMP\",\"patterns_detected\":[\"control_flow\"]},\"141D6E1DB\":{\"address\":\"141D6E1DB\",\"instruction\":\"JMP 0x141d6e9f0\",\"context_before\":[\"141d6e1d4: SUB RCX,0x3e0\",\"141d6e1cc: JMP 0x141d6e9f0\",\"141d6e1c8: SUB RCX,0x28\",\"141d6e1c0: JMP 0x141d6e9b0\"],\"context_after\":[\"141d6e1e0: SUB RCX,0x28\",\"141d6e1e4: JMP 0x141d6ea30\",\"141d6e1ec: SUB RCX,0x3e0\",\"141d6e1f3: JMP 0x141d6ea30\"],\"mnemonic\":\"JMP\",\"patterns_detected\":[\"control_flow\"]}}"
+              }
+            ],
+            "structuredContent": {
+              "result": "{\"141D6E1CC\":{\"address\":\"141D6E1CC\",\"instruction\":\"JMP 0x141d6e9f0\",\"context_before\":[\"141d6e1c8: SUB RCX,0x28\",\"141d6e1c0: JMP 0x141d6e9b0\",\"141d6e1bc: SUB RCX,0x28\",\"141d6e1b4: JMP 0x141d6e970\"],\"context_after\":[\"141d6e1d4: SUB RCX,0x3e0\",\"141d6e1db: JMP 0x141d6e9f0\",\"141d6e1e0: SUB RCX,0x28\",\"141d6e1e4: JMP 0x141d6ea30\"],\"mnemonic\":\"JMP\",\"patterns_detected\":[\"control_flow\"]},\"141D6E1DB\":{\"address\":\"141D6E1DB\",\"instruction\":\"JMP 0x141d6e9f0\",\"context_before\":[\"141d6e1d4: SUB RCX,0x3e0\",\"141d6e1cc: JMP 0x141d6e9f0\",\"141d6e1c8: SUB RCX,0x28\",\"141d6e1c0: JMP 0x141d6e9b0\"],\"context_after\":[\"141d6e1e0: SUB RCX,0x28\",\"141d6e1e4: JMP 0x141d6ea30\",\"141d6e1ec: SUB RCX,0x3e0\",\"141d6e1f3: JMP 0x141d6ea30\"],\"mnemonic\":\"JMP\",\"patterns_detected\":[\"control_flow\"]}}"
+            },
+            "isError": false
+          }
+        }
+      ]
+    },
+    {
+      "key": "line_constructor_helpers",
+      "results": [
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "\r\nundefined8 * FUN_141d6c670(undefined8 *param_1)\r\n\r\n{\r\n  FUN_141d8df80();\r\n  *param_1 = &PTR_FUN_1438774c8;\r\n  param_1[5] = &PTR_LAB_143877cc0;\r\n  param_1[0x7c] = &PTR_LAB_143877cf0;\r\n  param_1[0x101] = 0;\r\n  param_1[0x102] = 0;\r\n  param_1[0x103] = 0;\r\n  param_1[0x104] = 0;\r\n  param_1[0x106] = 0;\r\n  param_1[0x107] = 0;\r\n  *(uint *)(param_1 + 0x31) = *(uint *)(param_1 + 0x31) | 0x20800;\r\n  *(byte *)((longlong)param_1 + 0x11c) = *(byte *)((longlong)param_1 + 0x11c) | 2;\r\n  FUN_142052ee0(param_1,DAT_144391f78);\r\n  *(uint *)((longlong)param_1 + 0x40c) = *(uint *)((longlong)param_1 + 0x40c) | 0x20;\r\n  *(uint *)(param_1 + 0x7f) = *(uint *)(param_1 + 0x7f) & 0xffffffef;\r\n  *(uint *)(param_1 + 0x108) = *(uint *)(param_1 + 0x108) | 1;\r\n  return param_1;\r\n}\r\n\r\n"
+              }
+            ],
+            "structuredContent": {
+              "result": "\r\nundefined8 * FUN_141d6c670(undefined8 *param_1)\r\n\r\n{\r\n  FUN_141d8df80();\r\n  *param_1 = &PTR_FUN_1438774c8;\r\n  param_1[5] = &PTR_LAB_143877cc0;\r\n  param_1[0x7c] = &PTR_LAB_143877cf0;\r\n  param_1[0x101] = 0;\r\n  param_1[0x102] = 0;\r\n  param_1[0x103] = 0;\r\n  param_1[0x104] = 0;\r\n  param_1[0x106] = 0;\r\n  param_1[0x107] = 0;\r\n  *(uint *)(param_1 + 0x31) = *(uint *)(param_1 + 0x31) | 0x20800;\r\n  *(byte *)((longlong)param_1 + 0x11c) = *(byte *)((longlong)param_1 + 0x11c) | 2;\r\n  FUN_142052ee0(param_1,DAT_144391f78);\r\n  *(uint *)((longlong)param_1 + 0x40c) = *(uint *)((longlong)param_1 + 0x40c) | 0x20;\r\n  *(uint *)(param_1 + 0x7f) = *(uint *)(param_1 + 0x7f) & 0xffffffef;\r\n  *(uint *)(param_1 + 0x108) = *(uint *)(param_1 + 0x108) | 1;\r\n  return param_1;\r\n}\r\n\r\n"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "GetPrivateStaticClassBody_ULuxCreationBatchedCommentSetWindowConfig @ 140175bf0\nLuxParallel_ForEach_GridBatched_WithCount @ 140429e30\nLuxParallel_ForEach_GridBatched_WithTLSPool @ 140429570\nTArrayFBatchedLine_SetNumUninitialized @ 141c58060\nTArrayFBatchedMesh_EmptyAndShrink @ 141d76210\nTArrayFBatchedPoint_SetNumUninitialized @ 142150800\nZ_Construct_UScriptStruct_FBatchedLine @ 1425cfcd0"
+              }
+            ],
+            "structuredContent": {
+              "result": "GetPrivateStaticClassBody_ULuxCreationBatchedCommentSetWindowConfig @ 140175bf0\nLuxParallel_ForEach_GridBatched_WithCount @ 140429e30\nLuxParallel_ForEach_GridBatched_WithTLSPool @ 140429570\nTArrayFBatchedLine_SetNumUninitialized @ 141c58060\nTArrayFBatchedMesh_EmptyAndShrink @ 141d76210\nTArrayFBatchedPoint_SetNumUninitialized @ 142150800\nZ_Construct_UScriptStruct_FBatchedLine @ 1425cfcd0"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Z_Construct_UFunction_DrawDebugBox @ 142552640\nZ_Construct_UFunction_UKismetSystemLibrary_DrawDebugLine @ 142558090"
+              }
+            ],
+            "structuredContent": {
+              "result": "Z_Construct_UFunction_DrawDebugBox @ 142552640\nZ_Construct_UFunction_UKismetSystemLibrary_DrawDebugLine @ 142558090"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "From 1449be3a0 [DATA]\nFrom 143f9af0c [DATA]\nFrom 143f9af40 [DATA]\nFrom 1438777c8 [DATA]"
+              }
+            ],
+            "structuredContent": {
+              "result": "From 1449be3a0 [DATA]\nFrom 143f9af0c [DATA]\nFrom 143f9af40 [DATA]\nFrom 1438777c8 [DATA]"
+            },
+            "isError": false
+          }
+        }
+      ]
+    },
+    {
+      "key": "line_writer_refs",
+      "results": [
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "From 1449ab2c0 [DATA]\nFrom 140478dd1 in ResetBattleColorFadePlayerState [UNCONDITIONAL_CALL]\nFrom 140478e40 in ResetBattleColorFadePlayerState [UNCONDITIONAL_CALL]\nFrom 143110142 in FUN_1431100d0 [UNCONDITIONAL_CALL]\nFrom 143113798 in FUN_143113780 [UNCONDITIONAL_CALL]\nFrom 14044f525 in InitializeLuxBattleColorFadeManagerBeginPlay [UNCONDITIONAL_CALL]\nFrom 14045080e in LuxBattleSubSys_ResetPlayerSlotAtIndex_AndReinit [UNCONDITIONAL_CALL]\nFrom 140456c55 in FUN_140456ad0 [UNCONDITIONAL_CALL]\nFrom 141d774fa in ULineBatchComponent_Flush [UNCONDITIONAL_CALL]\nFrom 141c35721 in FUN_141c355c0 [UNCONDITIONAL_CALL]\nFrom 141c436b4 in FUN_141c43670 [UNCONDITIONAL_CALL]\nFrom 14209f85f in FUN_14209f7c0 [UNCONDITIONAL_CALL]\nFrom 1420a3416 in FUN_1420a3300 [UNCONDITIONAL_CALL]\nFrom 1420a5612 [UNCONDITIONAL_CALL]"
+              }
+            ],
+            "structuredContent": {
+              "result": "From 1449ab2c0 [DATA]\nFrom 140478dd1 in ResetBattleColorFadePlayerState [UNCONDITIONAL_CALL]\nFrom 140478e40 in ResetBattleColorFadePlayerState [UNCONDITIONAL_CALL]\nFrom 143110142 in FUN_1431100d0 [UNCONDITIONAL_CALL]\nFrom 143113798 in FUN_143113780 [UNCONDITIONAL_CALL]\nFrom 14044f525 in InitializeLuxBattleColorFadeManagerBeginPlay [UNCONDITIONAL_CALL]\nFrom 14045080e in LuxBattleSubSys_ResetPlayerSlotAtIndex_AndReinit [UNCONDITIONAL_CALL]\nFrom 140456c55 in FUN_140456ad0 [UNCONDITIONAL_CALL]\nFrom 141d774fa in ULineBatchComponent_Flush [UNCONDITIONAL_CALL]\nFrom 141c35721 in FUN_141c355c0 [UNCONDITIONAL_CALL]\nFrom 141c436b4 in FUN_141c43670 [UNCONDITIONAL_CALL]\nFrom 14209f85f in FUN_14209f7c0 [UNCONDITIONAL_CALL]\nFrom 1420a3416 in FUN_1420a3300 [UNCONDITIONAL_CALL]\nFrom 1420a5612 [UNCONDITIONAL_CALL]"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "From 1449fa55c [DATA]\nFrom 1405aab03 in FUN_1405aaa70 [UNCONDITIONAL_CALL]\nFrom 140d76682 in FUN_140d76590 [UNCONDITIONAL_CALL]\nFrom 140d433cb in FUN_140d43350 [UNCONDITIONAL_CALL]\nFrom 140d7654d in FUN_140d764c0 [UNCONDITIONAL_CALL]\nFrom 14064e796 in FUN_14064e700 [UNCONDITIONAL_CALL]\nFrom 1406357c0 in FUN_1406356e0 [UNCONDITIONAL_CALL]\nFrom 140e3e8bd in FUN_140e3e890 [UNCONDITIONAL_CALL]\nFrom 140e57fd9 in FUN_140e57a40 [UNCONDITIONAL_CALL]\nFrom 140d432ff in FUN_140d43220 [UNCONDITIONAL_CALL]\nFrom 140de5c7e in FUN_140de5c60 [UNCONDITIONAL_CALL]\nFrom 140f49a6d in FUN_140f49690 [UNCONDITIONAL_CALL]\nFrom 140de14b3 in FUN_140de1400 [UNCONDITIONAL_CALL]\nFrom 140de5c3e in FUN_140de5bf0 [UNCONDITIONAL_CALL]\nFrom 1410a8696 in FUN_1410a85b0 [UNCONDITIONAL_CALL]\nFrom 141048d82 in FUN_141048ca0 [UNCONDITIONAL_CALL]\nFrom 1411bf12d in FUN_1411bf080 [UNCONDITIONAL_CALL]\nFrom 1414ac933 in FUN_1414ac8b0 [UNCONDITIONAL_CALL]\nFrom 141e06ea4 in FUN_141e06de0 [UNCONDITIONAL_CALL]\nFrom 1403bb16f in TSet_ClearAndResize_Stride28 [UNCONDITIONAL_CALL]\nFrom 141e623f3 in FUN_141e62020 [UNCONDITIONAL_CALL]\nFrom 14219cecd in FUN_14219ce20 [UNCONDITIONAL_CALL]\nFrom 1404b9bef in ResetInlineSharedRefSparseArray [UNCONDITIONAL_CALL]\nFrom 1416694cb in FUN_141669450 [UNCONDITIONAL_CALL]\nFrom 14167fe0a in FUN_14167fd80 [UNCONDITIONAL_CALL]\nFrom 14054ac98 in ApplyLuxStageBreakableBarrierPresentationState [UNCONDITIONAL_CALL]\nFrom 14054acd8 in ApplyLuxStageBreakableBarrierPresentationState [UNCONDITIONAL_CALL]\nFrom 14055e017 in ApplyLuxStageBarrierMaterialParams [UNCONDITIONAL_CALL]\nFrom 142946d1f in FUN_142946c80 [UNCONDITIONAL_CALL]\nFrom 14174c3ac in FUN_14174c350 [UNCONDITIONAL_CALL]\nFrom 1405054e5 in FUN_140505450 [UNCONDITIONAL_CALL]\nFrom 14051e3c7 in FUN_14051e340 [UNCONDITIONAL_CALL]\nFrom 14054396f in FUN_1405438d0 [UNCONDITIONAL_CALL]\nFrom 1405eaad2 in FUN_1405eaa30 [UNCONDITIONAL_CALL]\nFrom 1405aaa1f in FUN_1405aa9a0 [UNCONDITIONAL_CALL]\nFrom 14064e47b in FUN_14064e3b0 [UNCONDITIONAL_CALL]\nFrom 140898ba1 in DestroyGroundDebrisRing [UNCONDITIONAL_CALL]\nFrom 1408da058 in ULuxTraceComponent_TickActiveTraceLifetimes [UNCONDITIONAL_CALL]\nFrom 140a95ebf in FUN_140a95e20 [UNCONDITIONAL_CALL]\nFrom 140c890c4 in FUN_140c89000 [UNCONDITIONAL_CALL]"
+              }
+            ],
+            "structuredContent": {
+              "result": "From 1449fa55c [DATA]\nFrom 1405aab03 in FUN_1405aaa70 [UNCONDITIONAL_CALL]\nFrom 140d76682 in FUN_140d76590 [UNCONDITIONAL_CALL]\nFrom 140d433cb in FUN_140d43350 [UNCONDITIONAL_CALL]\nFrom 140d7654d in FUN_140d764c0 [UNCONDITIONAL_CALL]\nFrom 14064e796 in FUN_14064e700 [UNCONDITIONAL_CALL]\nFrom 1406357c0 in FUN_1406356e0 [UNCONDITIONAL_CALL]\nFrom 140e3e8bd in FUN_140e3e890 [UNCONDITIONAL_CALL]\nFrom 140e57fd9 in FUN_140e57a40 [UNCONDITIONAL_CALL]\nFrom 140d432ff in FUN_140d43220 [UNCONDITIONAL_CALL]\nFrom 140de5c7e in FUN_140de5c60 [UNCONDITIONAL_CALL]\nFrom 140f49a6d in FUN_140f49690 [UNCONDITIONAL_CALL]\nFrom 140de14b3 in FUN_140de1400 [UNCONDITIONAL_CALL]\nFrom 140de5c3e in FUN_140de5bf0 [UNCONDITIONAL_CALL]\nFrom 1410a8696 in FUN_1410a85b0 [UNCONDITIONAL_CALL]\nFrom 141048d82 in FUN_141048ca0 [UNCONDITIONAL_CALL]\nFrom 1411bf12d in FUN_1411bf080 [UNCONDITIONAL_CALL]\nFrom 1414ac933 in FUN_1414ac8b0 [UNCONDITIONAL_CALL]\nFrom 141e06ea4 in FUN_141e06de0 [UNCONDITIONAL_CALL]\nFrom 1403bb16f in TSet_ClearAndResize_Stride28 [UNCONDITIONAL_CALL]\nFrom 141e623f3 in FUN_141e62020 [UNCONDITIONAL_CALL]\nFrom 14219cecd in FUN_14219ce20 [UNCONDITIONAL_CALL]\nFrom 1404b9bef in ResetInlineSharedRefSparseArray [UNCONDITIONAL_CALL]\nFrom 1416694cb in FUN_141669450 [UNCONDITIONAL_CALL]\nFrom 14167fe0a in FUN_14167fd80 [UNCONDITIONAL_CALL]\nFrom 14054ac98 in ApplyLuxStageBreakableBarrierPresentationState [UNCONDITIONAL_CALL]\nFrom 14054acd8 in ApplyLuxStageBreakableBarrierPresentationState [UNCONDITIONAL_CALL]\nFrom 14055e017 in ApplyLuxStageBarrierMaterialParams [UNCONDITIONAL_CALL]\nFrom 142946d1f in FUN_142946c80 [UNCONDITIONAL_CALL]\nFrom 14174c3ac in FUN_14174c350 [UNCONDITIONAL_CALL]\nFrom 1405054e5 in FUN_140505450 [UNCONDITIONAL_CALL]\nFrom 14051e3c7 in FUN_14051e340 [UNCONDITIONAL_CALL]\nFrom 14054396f in FUN_1405438d0 [UNCONDITIONAL_CALL]\nFrom 1405eaad2 in FUN_1405eaa30 [UNCONDITIONAL_CALL]\nFrom 1405aaa1f in FUN_1405aa9a0 [UNCONDITIONAL_CALL]\nFrom 14064e47b in FUN_14064e3b0 [UNCONDITIONAL_CALL]\nFrom 140898ba1 in DestroyGroundDebrisRing [UNCONDITIONAL_CALL]\nFrom 1408da058 in ULuxTraceComponent_TickActiveTraceLifetimes [UNCONDITIONAL_CALL]\nFrom 140a95ebf in FUN_140a95e20 [UNCONDITIONAL_CALL]\nFrom 140c890c4 in FUN_140c89000 [UNCONDITIONAL_CALL]"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "From 1449bcd80 [DATA]\nFrom 141d77523 in ULineBatchComponent_Flush [UNCONDITIONAL_CALL]"
+              }
+            ],
+            "structuredContent": {
+              "result": "From 1449bcd80 [DATA]\nFrom 141d77523 in ULineBatchComponent_Flush [UNCONDITIONAL_CALL]"
+            },
+            "isError": false
+          }
+        }
+      ]
+    },
+    {
+      "key": "line_flush_callers",
+      "results": [
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "\r\n/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */\r\n\r\nvoid FUN_1417e2360(longlong *param_1,longlong param_2,longlong param_3)\r\n\r\n{\r\n  longlong lVar1;\r\n  undefined8 uVar2;\r\n  ULineBatchComponent_Partial *pUVar3;\r\n  UWorld_Partial *pUVar4;\r\n  undefined8 uVar5;\r\n  longlong lVar6;\r\n  longlong *plVar7;\r\n  double dVar8;\r\n  float fVar9;\r\n  undefined1 local_128 [56];\r\n  longlong local_f0;\r\n  undefined1 local_78 [96];\r\n  \r\n  lVar1 = param_1[0xb9];\r\n  lVar6 = lVar1;\r\n  if (param_2 != 0) {\r\n    lVar6 = param_2;\r\n  }\r\n  param_1[0xb9] = lVar6;\r\n  pUVar4 = g_pGWorld;\r\n  dVar8 = DAT_14418a9d8 - _DAT_144197518;\r\n  uVar2 = *(undefined8 *)(param_3 + 0x58);\r\n  fVar9 = (float)DAT_144070ba0;\r\n  uVar5 = (**(code **)(*param_1 + 0x1c0))();\r\n  lVar6 = FUN_14148def0(local_78,uVar2,uVar5,param_1 + 0xbf);\r\n  *(uint *)(lVar6 + 0x3c) = *(uint *)(lVar6 + 0x3c) | 9;\r\n  *(float *)(lVar6 + 0x28) = (float)dVar8;\r\n  *(float *)(lVar6 + 0x2c) = fVar9;\r\n  *(float *)(lVar6 + 0x30) = (float)dVar8;\r\n  FUN_14205d4c0(local_128,lVar6);\r\n  local_f0 = param_1[0xbf];\r\n  lVar6 = (**(code **)(*param_1 + 0x1b8))(param_1,local_128);\r\n  *(undefined4 *)(lVar6 + 0xb00) = *(undefined4 *)(lVar6 + 0x80);\r\n  *(undefined4 *)(lVar6 + 0xb04) = *(undefined4 *)(lVar6 + 0x84);\r\n  *(undefined4 *)(lVar6 + 0xb08) = *(undefined4 *)(lVar6 + 0x88);\r\n  *(undefined4 *)(lVar6 + 0xb0c) = *(undefined4 *)(lVar6 + 0x8c);\r\n  if ((*(byte *)((longlong)param_1 + 0x4c) & 1) != 0) {\r\n    FUN_1421944a0(param_3,&DAT_144070630);\r\n  }\r\n  FUN_1421944a0(param_3,param_1 + 0xae);\r\n  DAT_1440713c8 = DAT_1440713c8 + -1;\r\n  plVar7 = (longlong *)FUN_141e30610();\r\n  (**(code **)(*plVar7 + 0x40))(plVar7,param_3,local_128);\r\n  pUVar3 = (ULineBatchComponent_Partial *)pUVar4->LineBatcher;\r\n  if ((pUVar3 != (ULineBatchComponent_Partial *)0x0) &&\r\n     (((pUVar3->BatchedLines).nNum != 0 || ((pUVar3->BatchedPoints).nNum != 0)))) {\r\n    ULineBatchComponent_Flush(pUVar3);\r\n  }\r\n  pUVar3 = (ULineBatchComponent_Partial *)pUVar4->ForegroundLineBatcher;\r\n  if ((pUVar3 != (ULineBatchComponent_Partial *)0x0) &&\r\n     (((pUVar3->BatchedLines).nNum != 0 || ((pUVar3->BatchedPoints).nNum != 0)))) {\r\n    ULineBatchComponent_Flush(pUVar3);\r\n  }\r\n  param_1[0xb9] = lVar1;\r\n  FUN_14205f560(local_128);\r\n  return;\r\n}\r\n\r\n"
+              }
+            ],
+            "structuredContent": {
+              "result": "\r\n/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */\r\n\r\nvoid FUN_1417e2360(longlong *param_1,longlong param_2,longlong param_3)\r\n\r\n{\r\n  longlong lVar1;\r\n  undefined8 uVar2;\r\n  ULineBatchComponent_Partial *pUVar3;\r\n  UWorld_Partial *pUVar4;\r\n  undefined8 uVar5;\r\n  longlong lVar6;\r\n  longlong *plVar7;\r\n  double dVar8;\r\n  float fVar9;\r\n  undefined1 local_128 [56];\r\n  longlong local_f0;\r\n  undefined1 local_78 [96];\r\n  \r\n  lVar1 = param_1[0xb9];\r\n  lVar6 = lVar1;\r\n  if (param_2 != 0) {\r\n    lVar6 = param_2;\r\n  }\r\n  param_1[0xb9] = lVar6;\r\n  pUVar4 = g_pGWorld;\r\n  dVar8 = DAT_14418a9d8 - _DAT_144197518;\r\n  uVar2 = *(undefined8 *)(param_3 + 0x58);\r\n  fVar9 = (float)DAT_144070ba0;\r\n  uVar5 = (**(code **)(*param_1 + 0x1c0))();\r\n  lVar6 = FUN_14148def0(local_78,uVar2,uVar5,param_1 + 0xbf);\r\n  *(uint *)(lVar6 + 0x3c) = *(uint *)(lVar6 + 0x3c) | 9;\r\n  *(float *)(lVar6 + 0x28) = (float)dVar8;\r\n  *(float *)(lVar6 + 0x2c) = fVar9;\r\n  *(float *)(lVar6 + 0x30) = (float)dVar8;\r\n  FUN_14205d4c0(local_128,lVar6);\r\n  local_f0 = param_1[0xbf];\r\n  lVar6 = (**(code **)(*param_1 + 0x1b8))(param_1,local_128);\r\n  *(undefined4 *)(lVar6 + 0xb00) = *(undefined4 *)(lVar6 + 0x80);\r\n  *(undefined4 *)(lVar6 + 0xb04) = *(undefined4 *)(lVar6 + 0x84);\r\n  *(undefined4 *)(lVar6 + 0xb08) = *(undefined4 *)(lVar6 + 0x88);\r\n  *(undefined4 *)(lVar6 + 0xb0c) = *(undefined4 *)(lVar6 + 0x8c);\r\n  if ((*(byte *)((longlong)param_1 + 0x4c) & 1) != 0) {\r\n    FUN_1421944a0(param_3,&DAT_144070630);\r\n  }\r\n  FUN_1421944a0(param_3,param_1 + 0xae);\r\n  DAT_1440713c8 = DAT_1440713c8 + -1;\r\n  plVar7 = (longlong *)FUN_141e30610();\r\n  (**(code **)(*plVar7 + 0x40))(plVar7,param_3,local_128);\r\n  pUVar3 = (ULineBatchComponent_Partial *)pUVar4->LineBatcher;\r\n  if ((pUVar3 != (ULineBatchComponent_Partial *)0x0) &&\r\n     (((pUVar3->BatchedLines).nNum != 0 || ((pUVar3->BatchedPoints).nNum != 0)))) {\r\n    ULineBatchComponent_Flush(pUVar3);\r\n  }\r\n  pUVar3 = (ULineBatchComponent_Partial *)pUVar4->ForegroundLineBatcher;\r\n  if ((pUVar3 != (ULineBatchComponent_Partial *)0x0) &&\r\n     (((pUVar3->BatchedLines).nNum != 0 || ((pUVar3->BatchedPoints).nNum != 0)))) {\r\n    ULineBatchComponent_Flush(pUVar3);\r\n  }\r\n  param_1[0xb9] = lVar1;\r\n  FUN_14205f560(local_128);\r\n  return;\r\n}\r\n\r\n"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n\r\nvoid FUN_141c43670(longlong *param_1)\r\n\r\n{\r\n  longlong *plVar1;\r\n  int iVar2;\r\n  UObject_Partial *pUVar3;\r\n  undefined8 uVar4;\r\n  UObject_Partial *pUVar5;\r\n  undefined4 *puVar6;\r\n  longlong lVar7;\r\n  UObject_Partial *pUVar8;\r\n  ulonglong uVar9;\r\n  ulonglong uVar10;\r\n  UObject_Partial *pUVar11;\r\n  UObject_Partial *pUVar12;\r\n  undefined1 auStack_f8 [32];\r\n  undefined1 local_d8 [8];\r\n  int local_d0;\r\n  undefined4 local_cc;\r\n  undefined4 uStack_c8;\r\n  undefined4 uStack_c4;\r\n  undefined4 uStack_c0;\r\n  undefined8 local_bc;\r\n  undefined4 local_b4;\r\n  undefined4 local_b0;\r\n  FWeakObjectPtr_Partial local_ac;\r\n  undefined1 local_a0 [32];\r\n  undefined8 local_80;\r\n  void *local_78;\r\n  char local_64;\r\n  longlong *local_58;\r\n  void *local_50;\r\n  undefined8 local_38;\r\n  char local_30;\r\n  ulonglong local_28;\r\n  \r\n  local_28 = g_qwSecurityCookie ^ (ulonglong)auStack_f8;\r\n  pUVar12 = (UObject_Partial *)0x0;\r\n  *(undefined4 *)(param_1 + 0x33) = 0;\r\n  if (*(int *)((longlong)param_1 + 0x19c) != 0) {\r\n    TArrayFBatchedLine_SetNumUninitialized((TArrayHeader *)(param_1 + 0x32),0);\r\n  }\r\n  *(undefined4 *)(param_1 + 0x38) = 0xffffffff;\r\n  *(undefined4 *)((longlong)param_1 + 0x1c4) = 0;\r\n  *(undefined4 *)(param_1 + 0x37) = 0;\r\n  if (*(int *)((longlong)param_1 + 0x1bc) != 0) {\r\n    *(undefined4 *)((longlong)param_1 + 0x1bc) = 0;\r\n    TBitArray_Reserve(param_1 + 0x34,0);\r\n  }\r\n  if (0 < (int)*(uint *)(param_1 + 0x3b)) {\r\n    uVar10 = (ulonglong)*(uint *)(param_1 + 0x3b);\r\n    pUVar11 = pUVar12;\r\n    do {\r\n      uVar9 = (longlong)((int)param_1[0x3b] + -1) & (ulonglong)pUVar11;\r\n      pUVar11 = (UObject_Partial *)((longlong)&pUVar11->pVirtualTable + 1);\r\n      *(undefined4 *)\r\n       (((longlong)(int)-(uint)(param_1[0x3a] == 0) & (ulonglong)(param_1 + 0x39) | param_1[0x3a]) +\r\n       uVar9 * 4) = 0xffffffff;\r\n      uVar10 = uVar10 - 1;\r\n    } while (uVar10 != 0);\r\n  }\r\n  pUVar3 = (UObject_Partial *)FUN_142662840();\r\n  uVar4 = (**(code **)(*param_1 + 0x138))(param_1);\r\n  pUVar11 = pUVar12;\r\n  if (pUVar3 != (UObject_Partial *)0x0) {\r\n    pUVar5 = (UObject_Partial *)FUN_142662840();\r\n    pUVar8 = pUVar3;\r\n    do {\r\n      pUVar11 = pUVar3;\r\n      if (pUVar8 == pUVar5) break;\r\n      pUVar8 = *(UObject_Partial **)&pUVar8[1].dwObjectFlags;\r\n      pUVar11 = pUVar12;\r\n    } while (pUVar8 != (UObject_Partial *)0x0);\r\n  }\r\n  local_30 = 0;\r\n  FUN_1403ac200(&local_80,uVar4,pUVar11);\r\n  local_30 = '\\x01';\r\n  FUN_141c35a00(&local_80);\r\n  iVar2 = local_d0;\r\n  plVar1 = local_58;\r\n  do {\r\n    if (local_64 != '\\0') {\r\n      if (local_30 != '\\0') {\r\n        local_30 = 0;\r\n        local_d0 = iVar2;\r\n        FUN_1421c29c0(local_80,local_38);\r\n        if (local_50 != (void *)0x0) {\r\n          FMemory_Free(local_50);\r\n        }\r\n        if (local_78 != (void *)0x0) {\r\n          FMemory_Free(local_78);\r\n        }\r\n      }\r\n      return;\r\n    }\r\n    local_58 = plVar1;\r\n    if (plVar1 != (longlong *)0x0) {\r\n      local_d0 = *(int *)((longlong)plVar1 + 0xc);\r\n      pUVar11 = pUVar12;\r\n      if (local_d0 < g_nGUObjectArrayItemCount) {\r\n        pUVar11 = (UObject_Partial *)(g_pGUObjectArrayItems + local_d0);\r\n      }\r\n      if ((pUVar11->dwObjectFlags >> 0x1d & 1) == 0) {\r\n        local_b0 = 0x7fffffff;\r\n        local_ac.nObjectIndex = -1;\r\n        local_ac.nSerialNumber = 0;\r\n        puVar6 = (undefined4 *)\r\n                 (**(code **)(*plVar1 + 0x518))\r\n                           (plVar1,local_a0,CONCAT71((int7)((ulonglong)pUVar11 >> 8),1));\r\n        pUVar11 = (UObject_Partial *)plVar1[4];\r\n        local_cc = *puVar6;\r\n        uStack_c8 = puVar6[1];\r\n        uStack_c4 = puVar6[2];\r\n        uStack_c0 = puVar6[3];\r\n        local_bc = *(undefined8 *)(puVar6 + 4);\r\n        local_b4 = puVar6[6];\r\n        if (pUVar11 == (UObject_Partial *)0x0) {\r\nLAB_141c43833:\r\n          pUVar11 = pUVar12;\r\n        }\r\n        else {\r\n          lVar7 = ULevel_StaticClass();\r\n          if ((pUVar11->pClassPrivate->nStructBaseChainCount < *(int *)(lVar7 + 0x90)) ||\r\n             (pUVar11->pClassPrivate->pStructBaseChainArray[*(int *)(lVar7 + 0x90)] !=\r\n              (void *)(lVar7 + 0x88))) goto LAB_141c43833;\r\n        }\r\n        FWeakObjectPtr_FromUObject(&local_ac,pUVar11);\r\n        local_b0 = (undefined4)plVar1[0x78];\r\n        FUN_141c30470((TArrayHeader *)(param_1 + 0x32),local_d8,&local_d0,0);\r\n        iVar2 = local_d0;\r\n      }\r\n    }\r\n    local_d0 = iVar2;\r\n    FUN_141c35a00(&local_80);\r\n    iVar2 = local_d0;\r\n    plVar1 = local_58;\r\n  } while( true );\r\n}\r\n\r\n"
+              }
+            ],
+            "structuredContent": {
+              "result": "\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n\r\nvoid FUN_141c43670(longlong *param_1)\r\n\r\n{\r\n  longlong *plVar1;\r\n  int iVar2;\r\n  UObject_Partial *pUVar3;\r\n  undefined8 uVar4;\r\n  UObject_Partial *pUVar5;\r\n  undefined4 *puVar6;\r\n  longlong lVar7;\r\n  UObject_Partial *pUVar8;\r\n  ulonglong uVar9;\r\n  ulonglong uVar10;\r\n  UObject_Partial *pUVar11;\r\n  UObject_Partial *pUVar12;\r\n  undefined1 auStack_f8 [32];\r\n  undefined1 local_d8 [8];\r\n  int local_d0;\r\n  undefined4 local_cc;\r\n  undefined4 uStack_c8;\r\n  undefined4 uStack_c4;\r\n  undefined4 uStack_c0;\r\n  undefined8 local_bc;\r\n  undefined4 local_b4;\r\n  undefined4 local_b0;\r\n  FWeakObjectPtr_Partial local_ac;\r\n  undefined1 local_a0 [32];\r\n  undefined8 local_80;\r\n  void *local_78;\r\n  char local_64;\r\n  longlong *local_58;\r\n  void *local_50;\r\n  undefined8 local_38;\r\n  char local_30;\r\n  ulonglong local_28;\r\n  \r\n  local_28 = g_qwSecurityCookie ^ (ulonglong)auStack_f8;\r\n  pUVar12 = (UObject_Partial *)0x0;\r\n  *(undefined4 *)(param_1 + 0x33) = 0;\r\n  if (*(int *)((longlong)param_1 + 0x19c) != 0) {\r\n    TArrayFBatchedLine_SetNumUninitialized((TArrayHeader *)(param_1 + 0x32),0);\r\n  }\r\n  *(undefined4 *)(param_1 + 0x38) = 0xffffffff;\r\n  *(undefined4 *)((longlong)param_1 + 0x1c4) = 0;\r\n  *(undefined4 *)(param_1 + 0x37) = 0;\r\n  if (*(int *)((longlong)param_1 + 0x1bc) != 0) {\r\n    *(undefined4 *)((longlong)param_1 + 0x1bc) = 0;\r\n    TBitArray_Reserve(param_1 + 0x34,0);\r\n  }\r\n  if (0 < (int)*(uint *)(param_1 + 0x3b)) {\r\n    uVar10 = (ulonglong)*(uint *)(param_1 + 0x3b);\r\n    pUVar11 = pUVar12;\r\n    do {\r\n      uVar9 = (longlong)((int)param_1[0x3b] + -1) & (ulonglong)pUVar11;\r\n      pUVar11 = (UObject_Partial *)((longlong)&pUVar11->pVirtualTable + 1);\r\n      *(undefined4 *)\r\n       (((longlong)(int)-(uint)(param_1[0x3a] == 0) & (ulonglong)(param_1 + 0x39) | param_1[0x3a]) +\r\n       uVar9 * 4) = 0xffffffff;\r\n      uVar10 = uVar10 - 1;\r\n    } while (uVar10 != 0);\r\n  }\r\n  pUVar3 = (UObject_Partial *)FUN_142662840();\r\n  uVar4 = (**(code **)(*param_1 + 0x138))(param_1);\r\n  pUVar11 = pUVar12;\r\n  if (pUVar3 != (UObject_Partial *)0x0) {\r\n    pUVar5 = (UObject_Partial *)FUN_142662840();\r\n    pUVar8 = pUVar3;\r\n    do {\r\n      pUVar11 = pUVar3;\r\n      if (pUVar8 == pUVar5) break;\r\n      pUVar8 = *(UObject_Partial **)&pUVar8[1].dwObjectFlags;\r\n      pUVar11 = pUVar12;\r\n    } while (pUVar8 != (UObject_Partial *)0x0);\r\n  }\r\n  local_30 = 0;\r\n  FUN_1403ac200(&local_80,uVar4,pUVar11);\r\n  local_30 = '\\x01';\r\n  FUN_141c35a00(&local_80);\r\n  iVar2 = local_d0;\r\n  plVar1 = local_58;\r\n  do {\r\n    if (local_64 != '\\0') {\r\n      if (local_30 != '\\0') {\r\n        local_30 = 0;\r\n        local_d0 = iVar2;\r\n        FUN_1421c29c0(local_80,local_38);\r\n        if (local_50 != (void *)0x0) {\r\n          FMemory_Free(local_50);\r\n        }\r\n        if (local_78 != (void *)0x0) {\r\n          FMemory_Free(local_78);\r\n        }\r\n      }\r\n      return;\r\n    }\r\n    local_58 = plVar1;\r\n    if (plVar1 != (longlong *)0x0) {\r\n      local_d0 = *(int *)((longlong)plVar1 + 0xc);\r\n      pUVar11 = pUVar12;\r\n      if (local_d0 < g_nGUObjectArrayItemCount) {\r\n        pUVar11 = (UObject_Partial *)(g_pGUObjectArrayItems + local_d0);\r\n      }\r\n      if ((pUVar11->dwObjectFlags >> 0x1d & 1) == 0) {\r\n        local_b0 = 0x7fffffff;\r\n        local_ac.nObjectIndex = -1;\r\n        local_ac.nSerialNumber = 0;\r\n        puVar6 = (undefined4 *)\r\n                 (**(code **)(*plVar1 + 0x518))\r\n                           (plVar1,local_a0,CONCAT71((int7)((ulonglong)pUVar11 >> 8),1));\r\n        pUVar11 = (UObject_Partial *)plVar1[4];\r\n        local_cc = *puVar6;\r\n        uStack_c8 = puVar6[1];\r\n        uStack_c4 = puVar6[2];\r\n        uStack_c0 = puVar6[3];\r\n        local_bc = *(undefined8 *)(puVar6 + 4);\r\n        local_b4 = puVar6[6];\r\n        if (pUVar11 == (UObject_Partial *)0x0) {\r\nLAB_141c43833:\r\n          pUVar11 = pUVar12;\r\n        }\r\n        else {\r\n          lVar7 = ULevel_StaticClass();\r\n          if ((pUVar11->pClassPrivate->nStructBaseChainCount < *(int *)(lVar7 + 0x90)) ||\r\n             (pUVar11->pClassPrivate->pStructBaseChainArray[*(int *)(lVar7 + 0x90)] !=\r\n              (void *)(lVar7 + 0x88))) goto LAB_141c43833;\r\n        }\r\n        FWeakObjectPtr_FromUObject(&local_ac,pUVar11);\r\n        local_b0 = (undefined4)plVar1[0x78];\r\n        FUN_141c30470((TArrayHeader *)(param_1 + 0x32),local_d8,&local_d0,0);\r\n        iVar2 = local_d0;\r\n      }\r\n    }\r\n    local_d0 = iVar2;\r\n    FUN_141c35a00(&local_80);\r\n    iVar2 = local_d0;\r\n    plVar1 = local_58;\r\n  } while( true );\r\n}\r\n\r\n"
+            },
+            "isError": false
+          }
+        }
+      ]
+    },
+    {
+      "key": "line_signatures",
+      "results": {
+        "addresses": [
+          "141D6E9F0",
+          "141D6D520",
+          "141D88EC0",
+          "141D774C0"
+        ],
+        "results": [
+          {
+            "status": "fulfilled",
+            "value": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "{\"address\":\"141d6e9f0\",\"length\":24,\"data\":[72,137,92,36,8,87,72,131,236,32,139,218,72,139,249,232,28,235,255,255,246,195,1,116],\"hex\":\"48895c2408574883ec208bda488bf9e81cebfffff6c30174\"}"
+                }
+              ],
+              "structuredContent": {
+                "result": "{\"address\":\"141d6e9f0\",\"length\":24,\"data\":[72,137,92,36,8,87,72,131,236,32,139,218,72,139,249,232,28,235,255,255,246,195,1,116],\"hex\":\"48895c2408574883ec208bda488bf9e81cebfffff6c30174\"}"
+              },
+              "isError": false
+            }
+          },
+          {
+            "status": "fulfilled",
+            "value": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "{\"address\":\"141d6d520\",\"length\":24,\"data\":[72,137,92,36,8,72,137,116,36,16,87,72,131,236,32,139,185,56,8,0,0,72,139,241],\"hex\":\"48895c24084889742410574883ec208bb938080000488bf1\"}"
+                }
+              ],
+              "structuredContent": {
+                "result": "{\"address\":\"141d6d520\",\"length\":24,\"data\":[72,137,92,36,8,72,137,116,36,16,87,72,131,236,32,139,185,56,8,0,0,72,139,241],\"hex\":\"48895c24084889742410574883ec208bb938080000488bf1\"}"
+              },
+              "isError": false
+            }
+          },
+          {
+            "status": "fulfilled",
+            "value": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "{\"address\":\"141d88ec0\",\"length\":24,\"data\":[72,139,196,85,72,131,236,80,72,137,88,8,72,139,233,72,137,112,16,51,219,72,137,120],\"hex\":\"488bc4554883ec5048895808488be94889701033db488978\"}"
+                }
+              ],
+              "structuredContent": {
+                "result": "{\"address\":\"141d88ec0\",\"length\":24,\"data\":[72,139,196,85,72,131,236,80,72,137,88,8,72,139,233,72,137,112,16,51,219,72,137,120],\"hex\":\"488bc4554883ec5048895808488be94889701033db488978\"}"
+              },
+              "isError": false
+            }
+          },
+          {
+            "status": "fulfilled",
+            "value": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "{\"address\":\"141d774c0\",\"length\":24,\"data\":[64,83,72,131,236,32,131,185,16,8,0,0,0,72,139,217,127,18,131,185,32,8,0,0],\"hex\":\"40534883ec2083b91008000000488bd97f1283b920080000\"}"
+                }
+              ],
+              "structuredContent": {
+                "result": "{\"address\":\"141d774c0\",\"length\":24,\"data\":[64,83,72,131,236,32,131,185,16,8,0,0,0,72,139,217,127,18,131,185,32,8,0,0],\"hex\":\"40534883ec2083b91008000000488bd97f1283b920080000\"}"
+              },
+              "isError": false
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "limitations": "Read-only native/source investigation. No source or Ghidra edits, no game or tests launched. Concurrent LineBatch writer closure and complete render ownership were not established."
+}

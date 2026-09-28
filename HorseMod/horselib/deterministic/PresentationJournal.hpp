@@ -11,6 +11,22 @@ namespace Horse::Deterministic
 class PresentationJournal final : public IPresentationJournal
 {
 public:
+    struct CorrectionObservation
+    {
+        std::uint64_t id{};
+        FrameCoordinate first{};
+        std::uint64_t replacement_events{};
+        std::uint64_t reused_events{};
+        std::uint64_t published_events{};
+        std::uint64_t changed_published_events{};
+        std::uint64_t discarded_events{};
+        std::uint64_t payload_identity{1469598103934665603ull};
+        std::size_t pending{};
+        bool final_drain{};
+        bool reported{};
+    };
+    [[nodiscard]] std::uint64_t correction_id() const noexcept { return correction_id_; }
+    [[nodiscard]] std::optional<CorrectionObservation> TakeDrainedCorrection() noexcept;
     struct Statistics
     {
         std::uint64_t attempted{};
@@ -22,6 +38,7 @@ public:
         std::uint64_t speculative_presented{};
         std::uint64_t speculative_reused{};
         std::uint64_t publish_failures{};
+        std::uint64_t correction_observation_losses{};
         FailureCode first_publish_failure{FailureCode::None};
         PresentationEvent first_failed_event{};
         FailureCode last_publish_failure{FailureCode::None};
@@ -53,7 +70,8 @@ public:
     [[nodiscard]] std::size_t allocated_bytes() const noexcept
     {
         return maximum_events_
-            * (sizeof(Slot) + sizeof(Watermark) + sizeof(bool));
+            * (sizeof(Slot) + sizeof(Watermark) + 2 * sizeof(bool))
+            + sizeof(corrections_);
     }
     [[nodiscard]] Statistics statistics() const noexcept;
     [[nodiscard]] Status ResetStatistics() noexcept;
@@ -73,6 +91,8 @@ private:
     {
         bool occupied{};
         bool presented{};
+        std::uint64_t correction_id{};
+        bool correction_changed{};
         PresentationEvent event{};
     };
 
@@ -96,7 +116,7 @@ private:
     // the final occupied slot into the hole. Event ordering is derived from
     // EventKey, never physical slot order, so this preserves semantics while
     // keeping the hot-path work proportional to pending events.
-    void ClearSlot(std::size_t index) noexcept;
+    void ClearSlot(std::size_t index, bool committed = false) noexcept;
 
     std::size_t maximum_events_{};
     std::size_t maximum_payload_bytes_{};
@@ -106,6 +126,9 @@ private:
     std::unique_ptr<Slot[]> slots_;
     std::unique_ptr<Watermark[]> watermarks_;
     std::unique_ptr<bool[]> replacement_presented_;
+    std::unique_ptr<bool[]> replacement_changed_;
     Statistics statistics_{};
+    std::uint64_t correction_id_{};
+    std::array<CorrectionObservation, 32> corrections_{};
 };
 }

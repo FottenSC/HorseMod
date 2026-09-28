@@ -55,6 +55,20 @@ def test_uasset_parses_mitsurugi():
     assert len(pkg.exports) == 1
 
 
+def test_common_asset_paths_preserve_motion_enum_selectors():
+    from uassetparse import parse_uasset, parse_uexp_property
+
+    root = Path(r"E:\myMods\dump\Battle\AssetPaths\CP_Common")
+    pkg = parse_uasset(str(root.with_suffix(".uasset")))
+    raw_assets = parse_uexp_property(
+        str(root.with_suffix(".uexp")), pkg, "RawAssets"
+    )
+    by_type = {entry["Type"]: entry["Path"] for entry in raw_assets}
+
+    assert by_type["ELuxCommonAssetType::ECM_CommonMotion"] == "Battle/mot/chr000.mot"
+    assert by_type["ELuxCommonAssetType::ECM_FingerMotion"] == "Battle/mot/chr0ff.mot"
+
+
 @pytest.mark.parametrize("cid", _all_chars())
 def test_all_24_chars_parse(cid):
     """The hard regression: every shipping character's MovePlayData

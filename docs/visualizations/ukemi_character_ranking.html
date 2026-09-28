@@ -1,0 +1,874 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Soulcalibur VI — Static Movement Workbench</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #f7f1e3;
+      --muted: #b8af9e;
+      --panel: rgba(20, 22, 31, .92);
+      --line: rgba(231, 198, 120, .20);
+      --gold: #e7c678;
+      --gold-light: #ffe5a6;
+      --red: #a92e38;
+      --shadow: 0 18px 55px rgba(0, 0, 0, .35);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 12% 0%, rgba(169, 46, 56, .32), transparent 34rem),
+        radial-gradient(circle at 90% 16%, rgba(231, 198, 120, .10), transparent 28rem),
+        linear-gradient(145deg, #090b12 0%, #11141d 50%, #080a0f 100%);
+    }
+
+    main { width: min(1180px, calc(100% - 24px)); margin: 0 auto; padding: 18px 0 36px; }
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: 18px 22px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: linear-gradient(115deg, rgba(35, 22, 27, .96), rgba(18, 21, 30, .88));
+      box-shadow: var(--shadow);
+    }
+    .hero::after {
+      content: "MOVEMENT";
+      position: absolute;
+      right: -12px;
+      bottom: -25px;
+      color: rgba(231, 198, 120, .045);
+      font-size: clamp(62px, 10vw, 112px);
+      font-weight: 900;
+      letter-spacing: -.08em;
+      pointer-events: none;
+    }
+    .eyebrow { color: var(--gold); font-size: 11px; font-weight: 800; letter-spacing: .18em; text-transform: uppercase; }
+    h1 { margin: 4px 0 5px; font: 700 clamp(29px, 4vw, 44px)/1 Georgia, serif; letter-spacing: -.04em; }
+    .lede { max-width: 940px; margin: 0; color: #d2c9b9; font-size: 13px; line-height: 1.4; }
+    .warning {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      margin-top: 9px;
+      padding: 5px 9px;
+      border: 1px solid rgba(227, 76, 88, .34);
+      border-radius: 999px;
+      color: #ffd8db;
+      background: rgba(169, 46, 56, .14);
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .warning.static-status { border-radius: 8px; }
+    .view-button:disabled { cursor: not-allowed; opacity: .42; }
+    .section-head { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin: 14px 0 7px; }
+    h2 { margin: 0; font: 700 clamp(21px, 3vw, 28px)/1.05 Georgia, serif; letter-spacing: -.025em; }
+    .section-head p { max-width: 620px; margin: 0; color: var(--muted); font-size: 12px; text-align: right; }
+    .view-controls {
+      display: flex;
+      gap: 6px;
+      position: sticky;
+      top: 6px;
+      z-index: 10;
+      margin-bottom: 9px;
+      padding: 4px;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: rgba(20, 22, 31, .84);
+    }
+    .view-button {
+      flex: 0 0 auto;
+      padding: 7px 11px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      color: var(--muted);
+      background: transparent;
+      font: 800 11px/1.2 inherit;
+      letter-spacing: .04em;
+      cursor: pointer;
+    }
+    .view-button:hover { color: var(--ink); background: rgba(255,255,255,.045); }
+    .view-button[aria-pressed="true"] { color: #1a1610; border-color: var(--gold-light); background: linear-gradient(135deg, var(--gold-light), var(--gold)); }
+    .view-button span { margin-left: 3px; opacity: .7; font-size: 9px; }
+    .view-button[hidden] { display: none; }
+    .sub-button { color: #d2c9b9; background: rgba(255,255,255,.035); }
+    .sub-button::before { content: "↳"; margin-right: 5px; color: var(--gold); opacity: .7; }
+    .movement-analysis {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+      align-items: center;
+      margin: -2px 0 9px;
+      padding: 6px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      background: rgba(20, 22, 31, .74);
+    }
+    .movement-analysis[hidden] { display: none; }
+    .backstep-modes { display: flex; gap: 4px; }
+    .movement-tool-row { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+    .movement-field { display: grid; gap: 3px; min-width: 130px; color: var(--muted); font-size: 9px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; }
+    .movement-field select, .movement-field input {
+      width: 100%;
+      min-height: 29px;
+      border: 1px solid rgba(231,198,120,.22);
+      border-radius: 7px;
+      color: var(--ink);
+      background: #171923;
+      accent-color: var(--gold);
+    }
+    .movement-field select { padding: 4px 7px; }
+    .movement-field.frame-field { min-width: 190px; flex: 1 1 230px; }
+    .movement-tool-row [hidden], .backstep-modes[hidden] { display: none !important; }
+    .movement-chart-wrap { position: relative; padding: 8px; border: 1px solid rgba(255,255,255,.075); border-radius: 9px; background: rgba(7,9,14,.52); }
+    .movement-chart { display: block; width: 100%; height: auto; min-height: 230px; overflow: visible; }
+    .chart-grid { stroke: rgba(255,255,255,.08); stroke-width: 1; }
+    .chart-axis { stroke: rgba(231,198,120,.42); stroke-width: 1; }
+    .chart-label { fill: var(--muted); font: 10px Inter, sans-serif; }
+    .chart-line { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+    .chart-line-all { fill: none; stroke-width: 1.35; stroke-linecap: round; stroke-linejoin: round; opacity: .62; transition: opacity .12s ease, stroke-width .12s ease; }
+    .chart-line.is-hovered, .chart-line-all.is-hovered { stroke-width: 4; opacity: 1; }
+    .chart-hit-line { fill: none; stroke: transparent; stroke-width: 14; stroke-linecap: round; stroke-linejoin: round; pointer-events: stroke; }
+    .chart-tap { stroke: rgba(255,255,255,.20); stroke-width: 1; stroke-dasharray: 3 4; }
+    .chart-handoff { stroke: rgba(255,213,125,.58); stroke-width: 1.25; stroke-dasharray: 5 4; }
+    .chart-cursor { stroke: var(--gold-light); stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .chart-hover-cursor { stroke: rgba(255,255,255,.42); stroke-width: 1; stroke-dasharray: 2 3; pointer-events: none; }
+    .chart-hover-point { fill: var(--gold-light); stroke: #11131a; stroke-width: 2; pointer-events: none; }
+    .chart-axis-title { fill: var(--ink); font: 11px Inter, sans-serif; font-weight: 700; letter-spacing: .02em; }
+    .chart-annotation { fill: var(--gold-light); font: 9px Inter, sans-serif; font-weight: 700; }
+    .chart-tooltip {
+      position: absolute;
+      z-index: 2;
+      top: 14px;
+      right: 14px;
+      max-width: 260px;
+      padding: 7px 9px;
+      border: 1px solid rgba(231,198,120,.32);
+      border-radius: 7px;
+      color: var(--ink);
+      background: rgba(17,19,26,.96);
+      box-shadow: 0 8px 24px rgba(0,0,0,.28);
+      pointer-events: none;
+      font-size: 10px;
+    }
+    .chart-tooltip[hidden] { display: none; }
+    .chart-tooltip strong, .chart-tooltip span, .chart-tooltip small { display: block; }
+    .chart-tooltip strong { color: var(--gold-light); font-size: 11px; }
+    .chart-tooltip small { margin-top: 2px; color: var(--muted); font-size: 9px; }
+    .chart-legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 5px 2px 0; color: var(--muted); font-size: 10px; }
+    .chart-legend strong { color: var(--ink); }
+    .legend-swatch { display: inline-block; width: 16px; height: 3px; margin-right: 5px; vertical-align: middle; border-radius: 99px; }
+    .backstep-facts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; color: var(--muted); font-size: 10px; }
+    .backstep-fact { padding: 4px 7px; border: 1px solid rgba(255,255,255,.07); border-radius: 999px; background: rgba(255,255,255,.025); }
+    .backstep-fact strong { color: var(--gold-light); font-weight: 800; }
+    .ranking { display: grid; gap: 3px; }
+    .multiplier-tier {
+      display: grid;
+      grid-template-columns: 178px minmax(0, 1fr);
+      gap: 7px;
+      padding: 5px 0;
+      border-top: 1px solid rgba(231, 198, 120, .12);
+    }
+    .tier-heading {
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      flex-direction: column;
+      gap: 1px;
+      padding: 5px 9px;
+      border-left: 2px solid rgba(231,198,120,.35);
+    }
+    .tier-heading-left { display: grid; gap: 1px; }
+    .tier-number { color: var(--gold); font-size: 11px; font-weight: 850; letter-spacing: .13em; text-transform: uppercase; }
+    .tier-value { color: var(--gold-light); font: 700 16px/1.1 Georgia, serif; }
+    .tier-count { color: var(--muted); font-size: 9px; }
+    .tier-entries { display: grid; grid-template-columns: repeat(auto-fit, minmax(275px, 1fr)); gap: 5px; }
+    .fighter {
+      display: grid;
+      grid-template-columns: 45px minmax(120px, 1fr);
+      min-height: 54px;
+      align-items: center;
+      gap: 7px;
+      padding-right: 9px;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,.075);
+      border-radius: 9px;
+      background: linear-gradient(90deg, rgba(32,34,44,.94), rgba(20,22,31,.92));
+    }
+    .fighter:hover { border-color: rgba(231,198,120,.32); }
+    .portrait { width: 45px; height: 52px; align-self: end; object-fit: contain; object-position: center bottom; filter: drop-shadow(0 5px 5px rgba(0,0,0,.42)); }
+    .identity { min-width: 0; }
+    .name { overflow: hidden; text-overflow: ellipsis; font: 700 16px/1.1 Georgia, serif; white-space: nowrap; }
+    .detail { margin-top: 2px; color: var(--muted); font-size: 9px; line-height: 1.25; }
+    .method { margin-top: 12px; padding: 9px 13px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); }
+    .method summary { color: var(--gold-light); cursor: pointer; font-size: 11px; font-weight: 750; }
+    .method p { margin: 7px 0 0; color: #beb5a5; font-size: 10px; line-height: 1.5; }
+    code { padding: 1px 4px; border: 1px solid rgba(255,255,255,.08); border-radius: 4px; color: #ffe8b4; background: rgba(255,255,255,.04); }
+    footer { margin-top: 10px; color: #777267; text-align: center; font-size: 9px; }
+    @media (max-width: 850px) {
+      .multiplier-tier { grid-template-columns: 145px minmax(0, 1fr); }
+      .tier-entries { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 620px) {
+      main { width: min(100% - 12px, 1180px); padding-top: 6px; }
+      .hero { padding: 14px; border-radius: 12px; }
+      .section-head { display: block; }
+      .section-head p { margin-top: 5px; text-align: left; }
+      .multiplier-tier { grid-template-columns: 1fr; gap: 3px; }
+      .tier-heading { flex-direction: row; align-items: baseline; justify-content: space-between; padding: 3px 7px; }
+      .tier-heading-left { display: flex; align-items: baseline; gap: 7px; }
+      .movement-analysis { grid-template-columns: 1fr; }
+      .backstep-modes { overflow-x: auto; }
+      .backstep-facts { justify-content: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="hero">
+      <div class="eyebrow">Soulcalibur VI • reverse-engineered movement data</div>
+      <h1>Movement Characterization</h1>
+      <p class="lede">Open-plane movement extracted from authored battle data and the currently resolved native writers. This page is a characterization tool while the complete input, pose, collision, and scheduler model is being recovered; it is not yet an exact evasion simulator.</p>
+      <div class="warning static-status"><span aria-hidden="true">◆</span><span id="qualification-note"></span></div>
+      <div class="warning"><span aria-hidden="true">◆</span><span id="key-note"></span></div>
+    </header>
+
+    <div class="section-head">
+      <div><div class="eyebrow">Native route ranking</div><h2 id="view-title"></h2></div>
+      <p id="view-description"></p>
+    </div>
+    <nav class="view-controls" aria-label="Choose movement category and direction">
+      <button class="view-button" type="button" data-main-category="ukemi" aria-pressed="true">Ukemi</button>
+      <button class="view-button" type="button" data-main-category="roll" aria-pressed="false">Ground Roll</button>
+      <button class="view-button" type="button" data-main-category="step" aria-pressed="false">Step</button>
+      <button class="view-button sub-button step-button" type="button" data-step-category="sidestep" aria-pressed="true" hidden>Side Step</button>
+      <button class="view-button sub-button step-button" type="button" data-step-category="backstep" aria-pressed="false" hidden>Backward</button>
+      <button class="view-button sub-button step-button" type="button" data-step-category="forward-run" aria-pressed="false" hidden>Forward Run</button>
+      <button class="view-button sub-button direction-button" type="button" data-direction="forward" aria-pressed="true">Forward <span>6</span></button>
+      <button class="view-button sub-button direction-button" type="button" data-direction="backward" aria-pressed="false">Backward <span>4</span></button>
+      <button class="view-button sub-button direction-button" type="button" data-direction="right" aria-pressed="false">Right <span>2</span></button>
+      <button class="view-button sub-button direction-button" type="button" data-direction="left" aria-pressed="false">Left <span>8</span></button>
+    </nav>
+    <section id="movement-analysis" class="movement-analysis" aria-label="Explore movement over time">
+      <div class="movement-tool-row">
+        <div id="backstep-modes" class="backstep-modes" hidden>
+          <button class="view-button backstep-mode-button" type="button" data-backstep-mode="single" aria-pressed="true">One backstep</button>
+          <button class="view-button backstep-mode-button" type="button" disabled title="Unavailable until the native raw-input-to-current-snapshot path is fully modeled.">Repeated taps — unresolved</button>
+          <button class="view-button backstep-mode-button" type="button" data-backstep-mode="backwalk" aria-pressed="false">Hold back / backwalk</button>
+        </div>
+        <div id="variant-controls" class="backstep-modes" aria-label="Choose movement variant" hidden></div>
+        <label class="movement-field">Display<select id="chart-display-mode"><option value="compare">Compare two</option><option value="all">All characters</option></select></label>
+        <label id="chart-fighter-a-field" class="movement-field">Character A<select id="chart-fighter-a"></select></label>
+        <label id="chart-fighter-b-field" class="movement-field">Character B<select id="chart-fighter-b"></select></label>
+        <label class="movement-field frame-field"><span id="analysis-frame-label">Compare at frame 31</span><input id="analysis-frame" type="range" min="1" max="32" value="31"></label>
+      </div>
+      <div class="backstep-facts">
+        <span id="movement-fact-a" class="backstep-fact"></span>
+        <span id="movement-fact-b" class="backstep-fact"></span>
+        <span id="movement-fact-c" class="backstep-fact"></span>
+      </div>
+      <div class="movement-chart-wrap">
+        <svg id="movement-chart" class="movement-chart" viewBox="0 0 960 300" role="img" aria-label="Backward movement distance over time"></svg>
+        <div id="movement-chart-tooltip" class="chart-tooltip" role="status" aria-live="polite" hidden></div>
+        <div id="movement-chart-legend" class="chart-legend"></div>
+      </div>
+    </section>
+    <section id="ranking" class="ranking" aria-label="Character movement ranking"></section>
+
+    <details class="method">
+      <summary>Method and limits</summary>
+      <p>Distance combines the currently resolved authored root displacement and native horizontal-velocity writers, using native route coordinates and character scaling. Any unresolved writer is shown as an incomplete route, never filled with a guessed character constant. Repeated-input results are withheld until the raw input-to-current-snapshot path is resolved. Pose-dependent hurtboxes, attack collision, walls, hit stop and opponent push are not included. Inferno is excluded.</p>
+    </details>
+    <footer>HorseMod research • values extracted from KHD/MOT battle data and RegularProfile assets • Haohmaru is internally identified as RAKSHA</footer>
+  </main>
+
+  <script src="ukemi_locomotion_data.js"></script>
+  <script>
+    const portraitRoot = "file:///E:/DevShitPosts/ClaudeShit/FrameData/public/Games/SoulCalibur6/Images/";
+    const fighters = [
+      { name: "Astaroth", image: "Astaroth.webp", body: 1.13, lower: 1.00, layout: "A" },
+      { name: "Voldo", image: "Voldo.webp", body: 1.05, lower: 1.00, layout: "V" },
+      { name: "Zasalamel", image: "Zasalamel.webp", body: 1.05, lower: 1.00, layout: "B" },
+      { name: "Azwel", image: "Azwel.webp", body: 1.04, lower: 1.00, layout: "B" },
+      { name: "Nightmare", image: "Nightmare.webp", body: 1.04, lower: 1.00, layout: "A" },
+      { name: "Cervantes", image: "Cervantes.webp", body: 1.03, lower: 1.00, layout: "A" },
+      { name: "Ivy", image: "Ivy.webp", body: 1.03, lower: 1.00, layout: "B" },
+      { name: "Geralt", image: "Geralt.webp", body: 1.02, lower: 1.00, layout: "B" },
+      { name: "Maxi", image: "Maxi.webp", body: 1.02, lower: 1.00, layout: "A" },
+      { name: "2B", image: "2b.webp", body: 1.01, lower: 1.00, layout: "B" },
+      { name: "Hwang", image: "Hwang.webp", body: 1.01, lower: 1.00, layout: "B" },
+      { name: "Raphael", image: "Raphael.webp", body: 1.01, lower: 1.00, layout: "B" },
+      { name: "Grøh", image: "Groh.webp", body: 1.00, lower: 1.00, layout: "B" },
+      { name: "Haohmaru", image: "Haohmaru.webp", body: 1.00, lower: 1.00, layout: "B" },
+      { name: "Kilik", image: "Kilik.webp", body: 1.00, lower: 1.00, layout: "B" },
+      { name: "Mitsurugi", image: "Mitsurugi.webp", body: 1.00, lower: 1.00, layout: "A" },
+      { name: "Siegfried", image: "Siegfried.webp", body: 1.00, lower: 1.00, layout: "A" },
+      { name: "Taki", image: "Taki.webp", body: 1.00, lower: 1.00, layout: "B" },
+      { name: "Yoshimitsu", image: "Yoshimitsu.webp", body: 1.00, lower: 1.00, layout: "A" },
+      { name: "Setsuka", image: "Setsuka.webp", body: 0.98, lower: 1.00, layout: "A" },
+      { name: "Seong Mi-na", image: "Seong-mi-na.webp", body: 0.97, lower: 1.00, layout: "B" },
+      { name: "Hilde", image: "Hilde.webp", body: 0.96, lower: 1.00, layout: "A" },
+      { name: "Sophitia", image: "Sophitia.webp", body: 0.96, lower: 1.00, layout: "B" },
+      { name: "Tira", image: "Tira.webp", body: 0.96, lower: 1.00, layout: "B" },
+      { name: "Cassandra", image: "Cassandra.webp", body: 0.95, lower: 1.00, layout: "B" },
+      { name: "Xianghua", image: "Xianghua.webp", body: 0.94, lower: 0.99, layout: "B" },
+      { name: "Talim", image: "Talim.webp", body: 0.94, lower: 0.98, layout: "A" },
+      { name: "Amy", image: "Amy.webp", body: 0.915, lower: 0.98, layout: "B" }
+    ];
+
+    // back = [one-tap peak, one-tap endpoint, frame 4, frame 8, frame 12]
+    const locomotion = {
+      "Mitsurugi":   { side: [0.486000, 0.595000], back: [0.750000, 0.630000, 0.341000, 0.622000, 0.750000], run: 7.275319 },
+      "Seong Mi-na": { side: [0.471420, 0.566480], back: [0.727500, 0.611100, 0.330770, 0.603340, 0.727500], run: 7.058298 },
+      "Taki":        { side: [0.400000, 0.595000], back: [0.540000, 0.459000, 0.288000, 0.467000, 0.540000], run: 7.275319 },
+      "Maxi":        { side: [0.411060, 0.527340], back: [0.704820, 0.591600, 0.213180, 0.434520, 0.620160], run: 7.448171 },
+      "Voldo":       { side: [0.714000, 0.725550], back: [0.912450, 0.628950, 0.371700, 0.678300, 0.882000], run: 7.865617 },
+      "Sophitia":    { side: [0.466560, 0.571200], back: [0.518400, 0.441600, 0.276480, 0.448320, 0.518400], run: 6.744102 },
+      "Siegfried":   { side: [0.517000, 0.565000], back: [0.685000, 0.580000, 0.209000, 0.426000, 0.608000], run: 7.276596 },
+      "Hwang":       { side: [0.490860, 0.589840], back: [0.757500, 0.635290, 0.344410, 0.628220, 0.757500], run: 7.371281 },
+      "Ivy":         { side: [0.484100, 0.612850], back: [0.350200, 0.319300, 0.228660, 0.322390, 0.350200], run: 7.494894 },
+      "Kilik":       { side: [0.486000, 0.584000], back: [0.750000, 0.630000, 0.341000, 0.622000, 0.750000], run: 7.276596 },
+      "Xianghua":    { side: [0.452272, 0.553707], back: [0.502524, 0.428076, 0.268013, 0.434590, 0.502524], run: 6.686064 },
+      "Yoshimitsu":  { side: [0.486000, 0.595000], back: [0.750000, 0.630000, 0.341000, 0.622000, 0.750000], run: 7.275319 },
+      "Nightmare":   { side: [0.434721, 0.436801], back: [0.721189, 0.654160, 0.294438, 0.501711, 0.635167], run: 7.304783 },
+      "Astaroth":    { side: [0.815860, 0.911910], back: [0.739020, 0.739020, 0.134470, 0.345780, 0.527710], run: 8.257175 },
+      "Cervantes":   { side: [0.532510, 0.581950], back: [0.705550, 0.694220, 0.217330, 0.439810, 0.627270], run: 7.538285 },
+      "Raphael":     { side: [0.523180, 0.533280], back: [0.733747, 0.635290, 0.320578, 0.580210, 0.708586], run: 7.349362 },
+      "Talim":       { side: [0.469812, 0.470733], back: [0.669235, 0.579435, 0.293312, 0.529197, 0.646287], run: 6.470352 },
+      "Cassandra":   { side: [0.461700, 0.565250], back: [0.513000, 0.437000, 0.273600, 0.443650, 0.513000], run: 6.673851 },
+      "Setsuka":     { side: [0.502740, 0.517440], back: [0.711952, 0.616421, 0.311008, 0.562907, 0.687539], run: 6.883354 },
+      "Tira":        { side: [0.466560, 0.571200], back: [0.518400, 0.440640, 0.272640, 0.446400, 0.518400], run: 6.740426 },
+      "Zasalamel":   { side: [0.543900, 0.554400], back: [0.814257, 0.660450, 0.287142, 0.555022, 0.766992], run: 7.639085 },
+      "Hilde":       { side: [0.408000, 0.488640], back: [0.671315, 0.603840, 0.271789, 0.463118, 0.586308], run: 6.742877 },
+      "Amy":         { side: [0.442970, 0.473458], back: [0.651511, 0.564082, 0.284616, 0.515123, 0.629098], run: 6.524924 },
+      "2B":          { side: [0.399960, 0.457111], back: [0.690840, 0.636300, 0.161600, 0.368650, 0.564590], run: 8.393746 },
+      "Haohmaru":    { side: [0.517000, 0.568000], back: [0.684000, 0.674000, 0.210000, 0.426000, 0.608000], run: 7.280426 },
+      "Grøh":        { side: [0.518078, 0.547179], back: [0.787485, 0.632000, 0.313847, 0.577557, 0.752056], run: 7.254901 },
+      "Azwel":       { side: [0.496080, 0.531440], back: [0.692840, 0.654160, 0.312443, 0.536258, 0.656094], run: 7.157413 },
+      "Geralt":      { side: [0.505929, 0.594660], back: [0.736440, 0.642600, 0.122913, 0.323398, 0.549780], run: 7.298430 }
+    };
+
+    if (SC6LocomotionData.schema !== "sc6-locomotion-static-v11") {
+      throw new Error(`Unsupported locomotion data schema: ${SC6LocomotionData.schema}`);
+    }
+    if (SC6LocomotionData.qualification !== "static-incomplete") {
+      throw new Error(`Unexpected qualification state: ${SC6LocomotionData.qualification}`);
+    }
+    document.getElementById("qualification-note").textContent =
+      `STATIC-INCOMPLETE • executable ${SC6LocomotionData.executable.sha256.slice(0, 12)}… • exact repeated input and collision withheld`;
+    const staticLocomotion = new Map(SC6LocomotionData.characters.map(row => [row.character, row]));
+    for (const [name, row] of staticLocomotion) {
+      const oneTapBackstepCurve = row.backstep_one_tap_curve_metres;
+      const oneTapBackstepPeak = Math.max(...oneTapBackstepCurve);
+      locomotion[name] = {
+        side: [row.sidestep_negative.effective_endpoint_metres, row.sidestep_positive.effective_endpoint_metres],
+        back: [
+          oneTapBackstepPeak,
+          row.backstep_one_tap_endpoint_metres,
+          oneTapBackstepCurve[Math.min(4, oneTapBackstepCurve.length - 1)],
+          oneTapBackstepCurve[Math.min(8, oneTapBackstepCurve.length - 1)],
+          oneTapBackstepCurve[Math.min(12, oneTapBackstepCurve.length - 1)]
+        ],
+        run: row.forward_run_metres_per_second,
+        backCurve: oneTapBackstepCurve,
+        backAuthoredCurve: row.backstep.curve_metres,
+        backLastRootFrame: row.backstep_one_tap_last_root_frame,
+        backwalkStartCurve: row.backwalk_start_combined_curve_metres,
+        backwalkHeldCurve: row.backwalk_held_curve_metres,
+        backwalkRootOnlyStartCurve: row.backwalk_start.curve_metres,
+        backwalkEffectSpeedWord: row.backwalk_start_effect_speed_word,
+        backwalkEffectFirstFrame: row.backwalk_start_effect_first_frame,
+        backwalkInitialSpeed: row.backwalk_initial_metres_per_second,
+        backwalkLoopCurve: row.backwalk_loop.curve_metres,
+        backwalkLoopFrames: row.backwalk_loop.motion_route_frames,
+        backwalkLoopDistance: row.backwalk_loop.route_distance_metres,
+        backwalkSpeed: row.backwalk_metres_per_second,
+        backwalkEntryFrames: row.backwalk_entry_route_frames,
+        bodySphereCount: row.body_collision.sphere_count,
+        meanBaseBodySphereRadius: row.body_collision.mean_base_radius,
+        maxBaseBodySphereRadius: row.body_collision.max_base_radius,
+        forwardRunStartCurve: row.forward_run_start.curve_metres,
+        forwardRunCurve: row.forward_run_curve_metres,
+        forwardRunLoopCurve: row.forward_run.curve_metres,
+        forwardRunLoopFrames: row.forward_run.motion_route_frames,
+        forwardRunLoopDistance: row.forward_run.route_distance_metres,
+        forwardRunEntryFrames: row.forward_run_entry_route_frames,
+        forwardRunRootCurveComplete: row.forward_run_root_curve_complete,
+        forwardRunHasConditionalEffectVelocity: row.forward_run_has_conditional_effect_velocity,
+        forwardRunHorizontalVelocityCommands: row.forward_run_horizontal_velocity_commands,
+        ukemiCurves: Object.fromEntries(Object.entries(row.ukemi).map(([direction, variants]) => [direction, variants.map(variant => variant.effective_curve_metres)])),
+        ukemiConditionalCurves: Object.fromEntries(Object.entries(row.ukemi).map(([direction, variants]) => [direction, variants.map(variant => variant.conditional_effect_curve_metres)])),
+        ukemiRootComplete: Object.fromEntries(Object.entries(row.ukemi).map(([direction, variants]) => [direction, variants.map(variant => variant.root_curve_complete)])),
+        ukemiScalars: Object.fromEntries(Object.entries(row.ukemi).map(([direction, variants]) => [direction, variants.map(variant => variant.runtime_root_scalar)])),
+        rollCurves: Object.fromEntries(Object.entries(row.ground_roll).map(([direction, variants]) => [direction, variants.map(variant => variant.effective_curve_metres)])),
+        rollConditionalCurves: Object.fromEntries(Object.entries(row.ground_roll).map(([direction, variants]) => [direction, variants.map(variant => variant.conditional_effect_curve_metres)])),
+        rollRootComplete: Object.fromEntries(Object.entries(row.ground_roll).map(([direction, variants]) => [direction, variants.map(variant => variant.root_curve_complete)])),
+        rollScalars: Object.fromEntries(Object.entries(row.ground_roll).map(([direction, variants]) => [direction, variants.map(variant => variant.runtime_root_scalar)])),
+        sidestepCurves: [row.sidestep_negative.effective_curve_metres, row.sidestep_positive.effective_curve_metres]
+      };
+    }
+
+    const competitionRank = (value, select) => 1 + Object.values(locomotion)
+      .filter(candidate => select(candidate) > value + 0.0000005).length;
+
+    const sampleCurve = (curve, frame) => curve[Math.min(Math.max(0, frame), curve.length - 1)];
+    const singleBackstepDistance = (data, frame) => sampleCurve(data.backCurve, frame);
+    const backwalkDistance = (data, frame) => sampleCurve(data.backwalkHeldCurve, frame);
+    const forwardRunDistance = (data, frame) => sampleCurve(data.forwardRunCurve, frame);
+    const backwardDistance = (data, frame) => {
+      if (backstepMode === "backwalk") return backwalkDistance(data, frame);
+      return singleBackstepDistance(data, frame);
+    };
+    const selectedVariants = variants => activeVariant === "all"
+      ? variants
+      : [variants[Math.min(Number(activeVariant), variants.length - 1)]];
+    const movementRootComplete = (data, category, direction) => {
+      if (category === "forward-run") return data.forwardRunRootCurveComplete;
+      if (category === "ukemi") return selectedVariants(data.ukemiRootComplete[direction]).every(Boolean);
+      if (category === "roll") return selectedVariants(data.rollRootComplete[direction]).every(Boolean);
+      return true;
+    };
+    const movementValues = (data, category, direction, frame) => {
+      if (category === "ukemi" || category === "roll") {
+        const base = category === "ukemi" ? data.ukemiCurves[direction] : data.rollCurves[direction];
+        const conditional = category === "ukemi" ? data.ukemiConditionalCurves[direction] : data.rollConditionalCurves[direction];
+        const indices = activeVariant === "all" ? base.map((_, index) => index) : [Math.min(Number(activeVariant), base.length - 1)];
+        return indices.flatMap(index => [base[index], conditional[index]].filter(Boolean).map(curve => sampleCurve(curve, frame)));
+      }
+      if (category === "sidestep") return selectedVariants(data.sidestepCurves).map(curve => sampleCurve(curve, frame));
+      if (category === "backstep") return [backwardDistance(data, frame)];
+      return [forwardRunDistance(data, frame)];
+    };
+
+    const groundedRoute = (fighter, category, direction) => {
+      const values = movementValues(locomotion[fighter.name], category, direction, analysisFrame);
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      const input = direction === "forward" ? "6" : direction === "backward" ? "4" : direction === "right" ? "2" : "8";
+      const suffix = category === "ukemi" ? "G" : "";
+      const allScalars = category === "ukemi"
+        ? locomotion[fighter.name].ukemiScalars[direction]
+        : locomotion[fighter.name].rollScalars[direction];
+      const scalars = selectedVariants(allScalars);
+      const scaled = [...new Set(scalars.filter(value => Math.abs(value - 1) > .000001))];
+      const scalarNote = scaled.length
+        ? ` · includes native ×${scaled.map(value => value.toFixed(3)).join("/")} root scalar`
+        : "";
+      const conditionalGroups = category === "ukemi"
+        ? locomotion[fighter.name].ukemiConditionalCurves
+        : locomotion[fighter.name].rollConditionalCurves;
+      const conditionalNote = conditionalGroups[direction].some(Boolean)
+        ? " · range includes the close-opponent grounded assist"
+        : "";
+      return {
+        min, max, rank: values.reduce((sum, value) => sum + value, 0) / values.length, unit: `m at F${analysisFrame}`,
+        detail: activeVariant === "all" && Math.abs(max - min) > 0.000001
+          ? `${input}${suffix} · native orientation/context range: ${min.toFixed(3)}–${max.toFixed(3)} m${scalarNote}${conditionalNote}`
+          : `${input}${suffix} · ${activeVariant === "0" ? "head nearer opponent" : activeVariant === "1" ? "feet nearer opponent" : "only native route"} · ${min.toFixed(3)}–${max.toFixed(3)} m${scalarNote}${conditionalNote}`
+      };
+    };
+
+    const routeFor = (fighter, category, direction) => {
+      if (category === "ukemi" || category === "roll") return groundedRoute(fighter, category, direction);
+      const data = locomotion[fighter.name];
+      if (category === "sidestep") {
+        const values = movementValues(data, category, direction, analysisFrame);
+        const min = Math.min(...values), max = Math.max(...values);
+        return {
+          min, max, rank: values.reduce((sum, value) => sum + value, 0) / values.length, unit: `m at F${analysisFrame}`,
+          detail: activeVariant === "all"
+            ? `both sides: ${values[0].toFixed(3)} m / ${values[1].toFixed(3)} m`
+            : `${activeVariant === "0" ? "side route A" : "side route B"} · ${values[0].toFixed(3)} m`
+        };
+      }
+      if (category === "backstep") {
+        const distance = backwardDistance(data, analysisFrame);
+        if (backstepMode === "backwalk") return {
+          min: distance, max: distance, rank: distance, unit: `m by F${analysisFrame}`,
+          detail: `held back · ${data.backwalkInitialSpeed.toFixed(3)} m/s initial retreat · ${data.backwalkSpeed.toFixed(3)} m/s steady (MOT root + persistent MoveVM velocity)`
+        };
+        return {
+          min: distance, max: distance, rank: distance, unit: `m at F${analysisFrame}`,
+          detail: `one-tap handoff leaves ${data.back[1].toFixed(3)} m (#${competitionRank(data.back[1], candidate => candidate.back[1])})`
+        };
+      }
+      const distance = forwardRunDistance(data, analysisFrame);
+      return {
+        min: distance, max: distance, rank: distance, unit: `m by F${analysisFrame}`,
+        detail: `native start/continue/loop route · ${data.run.toFixed(3)} m/s final 60-frame pace`
+      };
+    };
+
+    const categoryText = {
+      ukemi: {
+        titles: { forward: "Forward Ukemi (6G)", backward: "Backward Ukemi (4G)", right: "Right Ukemi (2G)", left: "Left Ukemi (8G)" },
+        description: "Root travel for the exact leaves selected by the chosen native input dispatcher, stopped at each leaf's MoveVM handoff.",
+        note: "Voldo’s back Ukemi is shorter with his head toward the opponent and longer with his feet toward the opponent."
+      },
+      roll: {
+        titles: { forward: "Forward Ground Roll (6)", backward: "Backward Ground Roll (4)", right: "Right Ground Roll (2)", left: "Left Ground Roll (8)" },
+        description: "Root travel for the exact leaves selected by the chosen native ground-roll dispatcher, stopped at each leaf's MoveVM handoff.",
+        note: "Voldo keeps the longer back-roll route in both landing positions; most fighters do not."
+      },
+      sidestep: {
+        title: "Side Step Characterization — Both Directions",
+        description: "Both one-shot lateral routes are graphed only while their root clip still owns movement; unused recovery tails are excluded.",
+        note: "This is not an evasion ranking. The live bone pose and character-specific hurtboxes can make a shorter-travel step evade better."
+      },
+      backstep: {
+        single: {
+          title: "Backstep Characterization — One Tap",
+          description: "Backstep root travel from one tap. The line stops when MoveVM hands control to the release/neutral route.",
+          note: "Unused recovery frames in the backstep clip are excluded. Small cyclic neutral-animation sway and animated hurtbox movement are separate from backstep travel."
+        },
+        backwalk: {
+          title: "Backwalk — Hold Back",
+          description: "Follows the complete start/continue/loop route and keeps the facing-relative MoveVM velocity that the native integrator carries across those transitions.",
+          note: "The ordinary stat-table profile is shown. Temporary key-0x40 movement modifiers are separate match-state variants."
+        }
+      },
+      "forward-run": {
+        title: "Forward Run — Complete Native Route",
+        description: "Distance over time through start, continuation and loop, including helper velocity, direct character overrides and loop-end clears.",
+        note: "The ordinary stat-table profile is shown; collision, terrain and temporary movement modifiers remain runtime conditions."
+      }
+    };
+
+    let activeMainCategory = "ukemi";
+    let activeStepCategory = "sidestep";
+    let activeCategory = "ukemi";
+    let activeDirection = "forward";
+    let activeVariant = "all";
+    let backstepMode = "single";
+    let chartDisplayMode = "compare";
+    let analysisFrame = 31;
+    const variantChoices = () => {
+      if (activeCategory === "ukemi" || activeCategory === "roll") {
+        const data = locomotion[fighters[0].name];
+        const count = (activeCategory === "ukemi" ? data.ukemiCurves : data.rollCurves)[activeDirection].length;
+        if (count < 2) return [];
+        return [
+          { value: "all", label: "Both orientations", title: "Show both native routes and shade the distance between them." },
+          { value: "0", label: "Head nearer opponent", title: "Use the route selected when the opponent is closer to the grounded fighter's head." },
+          { value: "1", label: "Feet nearer opponent", title: "Use the route selected when the opponent is closer to the grounded fighter's feet." }
+        ];
+      }
+      if (activeCategory === "sidestep") return [
+        { value: "all", label: "Both sides", title: "Show both lateral step routes and shade the distance between them." },
+        { value: "0", label: "Side route A", title: "Show only native lateral route 0x2B (direction selector 1). Its foreground/background player label is not yet proven." },
+        { value: "1", label: "Side route B", title: "Show only native lateral route 0x3D (direction selector 7). Its foreground/background player label is not yet proven." }
+      ];
+      return [];
+    };
+    const renderVariantControls = () => {
+      const controls = document.getElementById("variant-controls");
+      const choices = variantChoices();
+      if (!choices.some(choice => choice.value === activeVariant)) activeVariant = "all";
+      controls.hidden = choices.length === 0;
+      controls.innerHTML = choices.map(choice =>
+        `<button class="view-button variant-button" type="button" data-variant="${choice.value}" aria-pressed="${choice.value === activeVariant}" title="${choice.title}">${choice.label}</button>`
+      ).join("");
+      for (const button of controls.querySelectorAll("[data-variant]")) {
+        button.addEventListener("click", () => {
+          activeVariant = button.dataset.variant;
+          render();
+        });
+      }
+    };
+    const categoryFrameLimit = () => {
+      if (activeCategory === "backstep") return backstepMode === "single"
+        ? Math.max(...Object.values(locomotion).map(data => data.backCurve.length - 1))
+        : 180;
+      if (activeCategory === "forward-run") return 180;
+      const lengths = Object.values(locomotion).flatMap(data => {
+        if (activeCategory === "ukemi") return data.ukemiCurves[activeDirection].map(curve => curve.length - 1);
+        if (activeCategory === "roll") return data.rollCurves[activeDirection].map(curve => curve.length - 1);
+        return data.sidestepCurves.map(curve => curve.length - 1);
+      });
+      return Math.max(...lengths);
+    };
+    const configureAnalysisFrame = reset => {
+      const limit = categoryFrameLimit();
+      analysisFrame = reset ? (activeCategory === "forward-run" || (activeCategory === "backstep" && backstepMode !== "single") ? 120 : limit) : Math.min(analysisFrame, limit);
+      const input = document.getElementById("analysis-frame");
+      input.max = limit;
+      input.value = analysisFrame;
+    };
+    const valueLabel = route => {
+      const value = Math.abs(route.max - route.min) < 0.000001
+        ? route.max.toFixed(3)
+        : `${route.min.toFixed(3)}–${route.max.toFixed(3)}`;
+      return `${value} ${route.unit}`;
+    };
+
+    const chartColors = ["#ffe5a6", "#e34c58"];
+    const allCharacterColor = index => `hsl(${Math.round(index * 360 / fighters.length)} 68% 67%)`;
+    const chartSeriesFor = name => {
+      const data = locomotion[name];
+      return Array.from({ length: analysisFrame + 1 }, (_, frame) => {
+        const values = movementValues(data, activeCategory, activeDirection, frame);
+        return {
+          min: Math.min(...values),
+          max: Math.max(...values),
+          mean: values.reduce((sum, value) => sum + value, 0) / values.length
+        };
+      });
+    };
+    const renderMovementChart = () => {
+      const svg = document.getElementById("movement-chart");
+      const showAll = chartDisplayMode === "all";
+      const names = showAll
+        ? fighters.map(fighter => fighter.name)
+        : [document.getElementById("chart-fighter-a").value, document.getElementById("chart-fighter-b").value].filter(Boolean);
+      const series = names.map((name, index) => ({
+        name,
+        color: showAll ? allCharacterColor(index) : chartColors[index],
+        rootOnly: !movementRootComplete(locomotion[name], activeCategory, activeDirection),
+        values: chartSeriesFor(name)
+      }));
+      const width = 960, height = 300, left = 72, right = 18, top = 22, bottom = 52;
+      const plotWidth = width - left - right, plotHeight = height - top - bottom;
+      const rawMax = Math.max(.1, ...series.flatMap(row => row.values.map(value => value.max)));
+      const yStep = rawMax <= 1 ? .2 : rawMax <= 3 ? .5 : rawMax <= 8 ? 1 : 2;
+      const yMax = Math.ceil(rawMax / yStep) * yStep;
+      const x = frame => left + frame / analysisFrame * plotWidth;
+      const y = value => top + (1 - value / yMax) * plotHeight;
+      const pieces = [];
+      for (let value = 0; value <= yMax + 0.0001; value += yStep) {
+        pieces.push(`<line class="chart-grid" x1="${left}" y1="${y(value)}" x2="${width-right}" y2="${y(value)}"/>`);
+        pieces.push(`<text class="chart-label" x="${left-8}" y="${y(value)+3}" text-anchor="end">${value.toFixed(value < 1 ? 1 : 0)}m</text>`);
+      }
+      const xStep = analysisFrame <= 40 ? 5 : analysisFrame <= 90 ? 15 : 30;
+      for (let frame = 0; frame <= analysisFrame; frame += xStep) {
+        pieces.push(`<line class="chart-grid" x1="${x(frame)}" y1="${top}" x2="${x(frame)}" y2="${height-bottom}"/>`);
+        pieces.push(`<text class="chart-label" x="${x(frame)}" y="${height-bottom+16}" text-anchor="middle">F${frame}</text>`);
+      }
+      if (activeCategory === "backstep" && backstepMode === "single") {
+        const handoffFrame = SC6LocomotionData.routes.backstep_transition_open_frame;
+        if (handoffFrame <= analysisFrame) {
+          pieces.push(`<line class="chart-handoff" x1="${x(handoffFrame)}" y1="${top}" x2="${x(handoffFrame)}" y2="${height-bottom}"/>`);
+          pieces.push(`<text class="chart-annotation" x="${x(handoffFrame)+5}" y="${top+10}">release route</text>`);
+        }
+      }
+      pieces.push(`<line class="chart-axis" x1="${left}" y1="${top}" x2="${left}" y2="${height-bottom}"/>`);
+      pieces.push(`<line class="chart-axis" x1="${left}" y1="${height-bottom}" x2="${width-right}" y2="${height-bottom}"/>`);
+      pieces.push(`<line class="chart-cursor" x1="${x(analysisFrame)}" y1="${top}" x2="${x(analysisFrame)}" y2="${height-bottom}"/>`);
+      pieces.push(`<text class="chart-axis-title" x="${left + plotWidth / 2}" y="${height-7}" text-anchor="middle">Frames after movement starts</text>`);
+      pieces.push(`<text class="chart-axis-title" x="17" y="${top + plotHeight / 2}" text-anchor="middle" transform="rotate(-90 17 ${top + plotHeight / 2})">Distance from start (m)</text>`);
+      pieces.push(`<text class="chart-annotation" x="${x(analysisFrame)-5}" y="${top+10}" text-anchor="end">ranking frame</text>`);
+      series.forEach((row, rowIndex) => {
+        const upper = row.values.map((value, frame) => `${x(frame).toFixed(2)},${y(value.max).toFixed(2)}`);
+        const lower = row.values.map((value, frame) => `${x(frame).toFixed(2)},${y(value.min).toFixed(2)}`).reverse();
+        if (!showAll && row.values.some(value => Math.abs(value.max - value.min) > .000001)) {
+          pieces.push(`<polygon points="${[...upper, ...lower].join(" ")}" fill="${row.color}" opacity=".13"/>`);
+        }
+        const points = row.values.map((value, frame) => `${x(frame).toFixed(2)},${y(value.mean).toFixed(2)}`).join(" ");
+        const distance = row.values[row.values.length - 1];
+        const hoverValue = Math.abs(distance.max - distance.min) < .000001
+          ? `${distance.max.toFixed(3)} m`
+          : `${distance.min.toFixed(3)}-${distance.max.toFixed(3)} m`;
+        const incompleteStyle = row.rootOnly ? ` stroke-dasharray="7 5"` : "";
+        const incompleteTitle = row.rootOnly ? " (incomplete route: an additional native movement writer remains unresolved)" : "";
+        pieces.push(`<polyline class="${showAll ? "chart-line-all" : "chart-line"}" data-series-index="${rowIndex}" stroke="${row.color}"${incompleteStyle} points="${points}"><title>${row.name}: ${hoverValue} at F${analysisFrame}${incompleteTitle}</title></polyline>`);
+        pieces.push(`<polyline class="chart-hit-line" data-series-index="${rowIndex}" points="${points}" aria-label="Inspect ${row.name}'s movement curve"/>`);
+      });
+      pieces.push(`<line id="chart-hover-cursor" class="chart-hover-cursor" x1="0" y1="${top}" x2="0" y2="${height-bottom}" visibility="hidden"/>`);
+      pieces.push(`<circle id="chart-hover-point" class="chart-hover-point" cx="0" cy="0" r="4" visibility="hidden"/>`);
+      svg.innerHTML = pieces.join("");
+      const viewText = activeCategory === "backstep" ? categoryText.backstep[backstepMode] : categoryText[activeCategory];
+      const viewTitle = viewText.titles ? viewText.titles[activeDirection] : viewText.title;
+      svg.setAttribute("aria-label", showAll
+        ? `${viewTitle}: all ${fighters.length} characters, frames 0 to ${analysisFrame}`
+        : `${viewTitle}: ${names.join(" compared with ")}, frames 0 to ${analysisFrame}`);
+      document.getElementById("movement-chart-legend").innerHTML = showAll
+        ? `<span><strong>All ${fighters.length} characters</strong> · hover a line for its name and F${analysisFrame} value · dashed lines omit conditional native effect velocity</span>`
+        : series.map(row => {
+        const distance = row.values[row.values.length - 1];
+        const speed = activeCategory === "backstep" && backstepMode === "backwalk"
+          ? ` · ${locomotion[row.name].backwalkInitialSpeed.toFixed(3)} m/s initial · ${locomotion[row.name].backwalkSpeed.toFixed(3)} m/s steady`
+          : "";
+        const oneTapHandoff = activeCategory === "backstep" && backstepMode === "single"
+          ? ` · one tap leaves ${locomotion[row.name].back[1].toFixed(3)} m (#${competitionRank(locomotion[row.name].back[1], candidate => candidate.back[1])})`
+          : "";
+        const incomplete = row.rootOnly ? " · dashed: unresolved native movement writer" : "";
+        const value = Math.abs(distance.max - distance.min) < .000001
+          ? `${distance.max.toFixed(3)} m`
+          : `${distance.min.toFixed(3)}–${distance.max.toFixed(3)} m range`;
+        return `<span><i class="legend-swatch" style="background:${row.color}"></i><strong>${row.name}</strong> ${value} at F${analysisFrame}${oneTapHandoff}${speed}${incomplete}</span>`;
+      }).join("");
+
+      const tooltip = document.getElementById("movement-chart-tooltip");
+      const hoverCursor = document.getElementById("chart-hover-cursor");
+      const hoverPoint = document.getElementById("chart-hover-point");
+      const clearHover = () => {
+        tooltip.hidden = true;
+        hoverCursor.setAttribute("visibility", "hidden");
+        hoverPoint.setAttribute("visibility", "hidden");
+        for (const line of svg.querySelectorAll(".is-hovered")) line.classList.remove("is-hovered");
+      };
+      clearHover();
+      for (const hitLine of svg.querySelectorAll(".chart-hit-line")) {
+        hitLine.addEventListener("pointermove", event => {
+          const rowIndex = Number(hitLine.dataset.seriesIndex);
+          const row = series[rowIndex];
+          const bounds = svg.getBoundingClientRect();
+          const svgX = (event.clientX - bounds.left) * width / bounds.width;
+          const frame = Math.max(0, Math.min(analysisFrame, Math.round((svgX - left) / plotWidth * analysisFrame)));
+          const value = row.values[frame];
+          const previous = row.values[Math.max(0, frame - 1)];
+          const delta = value.mean - previous.mean;
+          const range = Math.abs(value.max - value.min) < .000001
+            ? "One authored value"
+            : `Authored variants: ${value.min.toFixed(3)}–${value.max.toFixed(3)} m`;
+          const collisionLimit = activeCategory === "backstep" && backstepMode === "single"
+            ? ` · one tap leaves ${locomotion[row.name].back[1].toFixed(3)} m (#${competitionRank(locomotion[row.name].back[1], candidate => candidate.back[1])}) · ${locomotion[row.name].bodySphereCount} animated body spheres not plotted`
+            : "";
+          const incomplete = row.rootOnly ? " · native effect velocity omitted" : "";
+          tooltip.innerHTML = `<strong>${row.name}</strong><span>Frame ${frame}: ${value.mean.toFixed(3)} m from start</span><small>${range} · ${delta >= 0 ? "+" : ""}${delta.toFixed(3)} m this frame${collisionLimit}${incomplete}</small>`;
+          tooltip.hidden = false;
+          hoverCursor.setAttribute("x1", x(frame));
+          hoverCursor.setAttribute("x2", x(frame));
+          hoverCursor.setAttribute("visibility", "visible");
+          hoverPoint.setAttribute("cx", x(frame));
+          hoverPoint.setAttribute("cy", y(value.mean));
+          hoverPoint.setAttribute("visibility", "visible");
+          for (const line of svg.querySelectorAll(".is-hovered")) line.classList.remove("is-hovered");
+          svg.querySelector(`[data-series-index="${rowIndex}"].${showAll ? "chart-line-all" : "chart-line"}`).classList.add("is-hovered");
+        });
+      }
+      svg.onpointerleave = clearHover;
+    };
+
+    const render = () => {
+      renderVariantControls();
+      const showingVariantBand = activeVariant === "all" && variantChoices().length > 0;
+      const rows = fighters
+        .map(fighter => ({ fighter, route: routeFor(fighter, activeCategory, activeDirection) }))
+        .sort((a, b) => b.route.rank - a.route.rank || b.route.max - a.route.max || a.fighter.name.localeCompare(b.fighter.name));
+
+      const tiers = [];
+      for (const row of rows) {
+        const key = `${row.route.min.toFixed(6)}:${row.route.max.toFixed(6)}:${row.route.unit}`;
+        const tier = tiers.find(candidate => candidate.key === key);
+        if (tier) tier.rows.push(row);
+        else tiers.push({ key, route: row.route, rows: [row] });
+      }
+      let position = 1;
+      for (const tier of tiers) {
+        tier.rank = position;
+        position += tier.rows.length;
+      }
+
+      document.getElementById("ranking").innerHTML = tiers.map((tier, index) => `
+        <section class="multiplier-tier" aria-label="Tier ${index + 1}, ${valueLabel(tier.route)}">
+          <header class="tier-heading">
+            <div class="tier-heading-left"><span class="tier-number">Tier ${index + 1}</span><strong class="tier-value">${valueLabel(tier.route)}</strong></div>
+            <span class="tier-count">rank ${tier.rank} · ${tier.rows.length} ${tier.rows.length === 1 ? "fighter" : "fighters"}</span>
+          </header>
+          <div class="tier-entries">${tier.rows.map(({ fighter, route }) => `
+            <article class="fighter">
+              <img class="portrait" src="${portraitRoot}${fighter.image}" alt="" loading="lazy">
+              <div class="identity">
+                <div class="name">${fighter.name}</div>
+                <div class="detail">${(fighter.body * fighter.lower).toFixed(4)}× scale · ${route.detail}</div>
+              </div>
+            </article>`).join("")}
+          </div>
+        </section>`).join("");
+
+      const text = activeCategory === "backstep"
+        ? categoryText.backstep[backstepMode]
+        : categoryText[activeCategory];
+      document.getElementById("view-title").textContent = text.titles ? text.titles[activeDirection] : text.title;
+      document.getElementById("view-description").textContent = text.description;
+      document.getElementById("key-note").textContent = text.note;
+      document.getElementById("ranking").setAttribute("aria-label", `${document.getElementById("view-title").textContent} character ranking`);
+      const grounded = activeMainCategory === "ukemi" || activeMainCategory === "roll";
+      const stepMode = activeMainCategory === "step";
+      for (const button of document.querySelectorAll(".direction-button")) button.hidden = !grounded;
+      for (const button of document.querySelectorAll(".step-button")) button.hidden = !stepMode;
+      document.getElementById("backstep-modes").hidden = activeCategory !== "backstep";
+      document.getElementById("chart-fighter-a-field").hidden = chartDisplayMode === "all";
+      document.getElementById("chart-fighter-b-field").hidden = chartDisplayMode === "all";
+      document.getElementById("analysis-frame-label").textContent = `Compare at frame ${analysisFrame}`;
+      const facts = activeCategory === "ukemi"
+        ? [showingVariantBand ? "<strong>Curve</strong> both grounded orientations" : activeVariant === "all" ? "<strong>Curve</strong> one native route" : `<strong>Curve</strong> ${activeVariant === "0" ? "head" : "feet"} nearer opponent`, "<strong>Input</strong> direction + G on impact", showingVariantBand ? "<strong>Band</strong> distance between orientations" : "<strong>Band</strong> hidden for one route"]
+        : activeCategory === "roll"
+          ? [showingVariantBand ? "<strong>Curve</strong> both grounded orientations" : activeVariant === "all" ? "<strong>Curve</strong> one native route" : `<strong>Curve</strong> ${activeVariant === "0" ? "head" : "feet"} nearer opponent`, "<strong>Input</strong> direction while grounded", showingVariantBand ? "<strong>Band</strong> distance between orientations" : "<strong>Band</strong> hidden for one route"]
+          : activeCategory === "sidestep"
+            ? [activeVariant === "all" ? "<strong>Curve</strong> both lateral routes" : `<strong>Curve</strong> side route ${activeVariant === "0" ? "A" : "B"}`, "<strong>Distance</strong> resolved movement channels", activeVariant === "all" ? "<strong>Band</strong> distance between sides" : "<strong>Not shown</strong> hurtbox evasion"]
+            : activeCategory === "backstep"
+              ? backstepMode === "backwalk"
+                  ? ["<strong>Initial retreat</strong> MOT root + native velocity", "<strong>Steady movement</strong> loop + carried velocity", "<strong>Profile</strong> ordinary stat-table state"]
+                  : [`<strong>MoveVM handoff</strong> frame ${SC6LocomotionData.routes.backstep_transition_open_frame}`, "<strong>After handoff</strong> backstep clip no longer contributes", "<strong>Not plotted</strong> neutral sway / animated hurtboxes"]
+              : ["<strong>Route</strong> native start → continue → loop", "<strong>Included</strong> helper and direct X/Z velocity", "<strong>Speed</strong> final 60-frame pace"];
+      ["movement-fact-a", "movement-fact-b", "movement-fact-c"].forEach((id, index) => document.getElementById(id).innerHTML = facts[index]);
+      renderMovementChart();
+    };
+
+    const fighterOptions = fighters.map(fighter => `<option value="${fighter.name}">${fighter.name}</option>`).join("");
+    document.getElementById("chart-fighter-a").innerHTML = fighterOptions;
+    document.getElementById("chart-fighter-b").innerHTML = `<option value="">No comparison</option>${fighterOptions}`;
+    document.getElementById("chart-fighter-a").value = "Haohmaru";
+    document.getElementById("chart-fighter-b").value = "Nightmare";
+
+    for (const button of document.querySelectorAll("[data-main-category]")) {
+      button.addEventListener("click", () => {
+        activeMainCategory = button.dataset.mainCategory;
+        activeCategory = activeMainCategory === "step" ? activeStepCategory : activeMainCategory;
+        activeVariant = "all";
+        configureAnalysisFrame(true);
+        for (const candidate of document.querySelectorAll("[data-main-category]")) candidate.setAttribute("aria-pressed", String(candidate === button));
+        render();
+      });
+    }
+    for (const button of document.querySelectorAll("[data-step-category]")) {
+      button.addEventListener("click", () => {
+        activeStepCategory = button.dataset.stepCategory;
+        activeCategory = activeStepCategory;
+        activeVariant = "all";
+        configureAnalysisFrame(true);
+        for (const candidate of document.querySelectorAll("[data-step-category]")) candidate.setAttribute("aria-pressed", String(candidate === button));
+        render();
+      });
+    }
+    for (const button of document.querySelectorAll("[data-direction]")) {
+      button.addEventListener("click", () => {
+        activeDirection = button.dataset.direction;
+        activeVariant = "all";
+        configureAnalysisFrame(false);
+        for (const candidate of document.querySelectorAll("[data-direction]")) candidate.setAttribute("aria-pressed", String(candidate === button));
+        render();
+      });
+    }
+    for (const button of document.querySelectorAll("[data-backstep-mode]")) {
+      button.addEventListener("click", () => {
+        backstepMode = button.dataset.backstepMode;
+        configureAnalysisFrame(true);
+        for (const candidate of document.querySelectorAll("[data-backstep-mode]")) candidate.setAttribute("aria-pressed", String(candidate === button));
+        render();
+      });
+    }
+    document.getElementById("analysis-frame").addEventListener("input", event => {
+      analysisFrame = Number(event.target.value);
+      render();
+    });
+    document.getElementById("chart-display-mode").addEventListener("change", event => {
+      chartDisplayMode = event.target.value;
+      render();
+    });
+    document.getElementById("chart-fighter-a").addEventListener("change", render);
+    document.getElementById("chart-fighter-b").addEventListener("change", render);
+    configureAnalysisFrame(true);
+    render();
+  </script>
+</body>
+</html>

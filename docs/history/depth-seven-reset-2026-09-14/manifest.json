@@ -1,0 +1,8 @@
+{
+  "scope": "Byte-for-byte archive before depth-seven documentation reset; historical evidence, not active instructions",
+  "sha256": {
+    "AGENTS.md": "9d628cc652514387ff408ca13157e17785b00a64234d5d6a50269700c22a090c",
+    "replay-acceptance.md": "ce03555ee8429ea417c94fa0c272c19ba5ff5913c4d2d4e1f8883a855523ef0c",
+    "replay-acceptance-matrix.md": "41a68f5292f84aee2a592511d2139c57548ba7614583a36df0f58530c5677a46"
+  }
+}

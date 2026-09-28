@@ -1,0 +1,15 @@
+{
+  "created_utc": "2026-09-24T05:53:36.262717+00:00",
+  "stage": "RED",
+  "focused_command": "PYTHONPATH=tools python -m pytest -q -x tools/deterministic_qualification/tests/test_consumer_host.py::test_vfx_finish_dispatch_revalidates_live_completion_rows",
+  "exit_code": 1,
+  "observed_failure": "receiver child exit=125; same-count live completion receiver replacement reached native snapshot after admission; unchanged and empty forwarded; test stopped at first negative failure",
+  "source_archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a74ad1c89db8be9edfcdde8b4c6b9da39516628ebc7646d55c5057156c4959cf.zip",
+  "source_sha256": "a74ad1c89db8be9edfcdde8b4c6b9da39516628ebc7646d55c5057156c4959cf",
+  "raw_log": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a7f0de5e08257b6fe5a6980aa2e14c8086ecadb786045a1ffef9a77f460355bc.log",
+  "raw_log_sha256": "a7f0de5e08257b6fe5a6980aa2e14c8086ecadb786045a1ffef9a77f460355bc",
+  "source_files": {
+    "tools\\deterministic_qualification\\tests\\test_consumer_host.py": "875f7244e45bae6ffd325d2c71b076b9d8983c9cd1c4d3aa4f0fcfb19b7f055c",
+    "tools\\replay_vfx_finish_dispatch_selftest.cpp": "8ebe565f6c4e687c8c527d7140c30c460df1749d80e99de53b74a5eb9f2f4509"
+  }
+}

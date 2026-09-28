@@ -1,0 +1,148 @@
+{
+  "scope": "Historical initial body and shape state, typed filter identities, native independent continuation. No A scene/render publication or overall local acceptance claimed.",
+  "initial_body_live_manifest": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\4eb04156b3c066c28c7c4e6e04877915bded12086dbe3570793a4d4ca5ed984e.json",
+  "shape_red_manifest": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\af064e6e050af4f98351e0b275ad7f4281d14d95e1258adacbe997dcf178b45f.json",
+  "shape_red_native_log": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\local-regressions-8dff2aa8f5253180e6326a510735593fed36e504d6c5baf9f4eacfcff86197c5.log",
+  "native_checks": {
+    "result": "pass",
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\local-regressions-55b87d9fdae69a7469c57e52b645ca9b74806c5fbe4ed9bf414fe0c5366dfc8c.log",
+    "sha256": "55b87d9fdae69a7469c57e52b645ca9b74806c5fbe4ed9bf414fe0c5366dfc8c",
+    "binaries": {
+      "runtime": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\HorseMod.dll",
+        "sha256": "b1e2d4eac5810ec4f0070af951d893fe86eb616529787556e5af35c7e1bcb11f"
+      },
+      "observer": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\ReplayQualificationMod.dll",
+        "sha256": "65037f92c47d410d29a047c7401bc2550aa68ef5044ebfaae32aac78ee5076e9"
+      },
+      "framework": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\LessEqual421__Shipping__Win64\\bin\\UE4SS.dll",
+        "sha256": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6"
+      },
+      "core_test": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\DeterministicCoreSelfTest.exe",
+        "sha256": "467069bc103cae4249f7732d59474c1033cc0d99fa22896df67529b1b827fec5"
+      },
+      "native_test": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\NativeCandidateRegionsSelfTest.exe",
+        "sha256": "8dce3c84f202198cab9d444905b383e2df0c4ec2779987041e7c8fc40f706477"
+      }
+    },
+    "source_retention": {
+      "manifest_sha256": "3f6bf14cc79d0fdcdfe8bc74b1cedd26babb984cad212204eed73cd151bfe17a",
+      "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-3f6bf14cc79d0fdcdfe8bc74b1cedd26babb984cad212204eed73cd151bfe17a.zip",
+      "archive_sha256": "d4fe191299139af0c109ac236d2c3d2367f3be1f9096aab3e9ffed08b8f87549",
+      "files": 17271,
+      "uncompressed_bytes": 126704215,
+      "reconstructible": true
+    },
+    "native_fixture_inputs": {
+      "physics": "c3c7bd6e13260ee5f850552b6e9a15f69e58e0b41cd4f4bcb48e1b419719b5a2",
+      "game": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553"
+    },
+    "game_launched": false
+  },
+  "build_provenance": {
+    "schema": 1,
+    "source_retention": {
+      "manifest_sha256": "3f6bf14cc79d0fdcdfe8bc74b1cedd26babb984cad212204eed73cd151bfe17a",
+      "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-3f6bf14cc79d0fdcdfe8bc74b1cedd26babb984cad212204eed73cd151bfe17a.zip",
+      "archive_sha256": "d4fe191299139af0c109ac236d2c3d2367f3be1f9096aab3e9ffed08b8f87549",
+      "files": 17271,
+      "uncompressed_bytes": 126704215,
+      "reconstructible": true
+    },
+    "workspace_fingerprint": "b91cb645820fd594b1dbd908f02fbc26fc1d47ea49bb59dc3647ef25a8fe959e",
+    "binaries": {
+      "runtime": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\HorseMod.dll",
+        "sha256": "b1e2d4eac5810ec4f0070af951d893fe86eb616529787556e5af35c7e1bcb11f"
+      },
+      "observer": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\ReplayQualificationMod.dll",
+        "sha256": "65037f92c47d410d29a047c7401bc2550aa68ef5044ebfaae32aac78ee5076e9"
+      },
+      "framework": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\LessEqual421__Shipping__Win64\\bin\\UE4SS.dll",
+        "sha256": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6"
+      },
+      "core_test": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\DeterministicCoreSelfTest.exe",
+        "sha256": "467069bc103cae4249f7732d59474c1033cc0d99fa22896df67529b1b827fec5"
+      },
+      "native_test": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\NativeCandidateRegionsSelfTest.exe",
+        "sha256": "8dce3c84f202198cab9d444905b383e2df0c4ec2779987041e7c8fc40f706477"
+      }
+    },
+    "build_log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\build-3f6bf14cc79d0fdcdfe8bc74b1cedd26babb984cad212204eed73cd151bfe17a.log",
+      "sha256": "51a544d4d138d0d701f8793cfebc38c406e54800db1c7995d74dbd5f45664c86"
+    }
+  },
+  "sources": {
+    "HorseMod/horselib/deterministic/ReplayGroundShapeState.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e9793ea86f5634bc655d80fb6a68728fd7fc732153e6f1d8a66a3666a63099c9.hpp",
+      "sha256": "e9793ea86f5634bc655d80fb6a68728fd7fc732153e6f1d8a66a3666a63099c9",
+      "bytes": 8106
+    },
+    "HorseMod/horselib/deterministic/ReplayGroundInitialBodyState.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\343618b97c808de3a6745622fe32ef3e923935f5284ce7f047d5d3a02fb3881e.hpp",
+      "sha256": "343618b97c808de3a6745622fe32ef3e923935f5284ce7f047d5d3a02fb3881e",
+      "bytes": 7350
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayHost.GroundDebris.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8a703b4e67dbf79d765cbec8520cf9983c0087d540bcfc2437571b03123ced93.inl",
+      "sha256": "8a703b4e67dbf79d765cbec8520cf9983c0087d540bcfc2437571b03123ced93",
+      "bytes": 75718
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayGroundColdPhysics.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\fb6768f395c83641563e8121a488c330734f8242d31334ecaedfc5d27b9cdec1.inl",
+      "sha256": "fb6768f395c83641563e8121a488c330734f8242d31334ecaedfc5d27b9cdec1",
+      "bytes": 12366
+    },
+    "tools/replay_ground_initial_kinematic_selftest.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\ed0d8231dc96117504a66710ba4a0b9509bcfe3b87a63e084e3ebc8d8b4b5639.inl",
+      "sha256": "ed0d8231dc96117504a66710ba4a0b9509bcfe3b87a63e084e3ebc8d8b4b5639",
+      "bytes": 21509
+    },
+    "tools/replay_ground_capture_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\312c5d2327acb972b46fe4a20cdc5ee1b179d92b67c093b17444f20c7a111932.cpp",
+      "sha256": "312c5d2327acb972b46fe4a20cdc5ee1b179d92b67c093b17444f20c7a111932",
+      "bytes": 9068
+    }
+  },
+  "logs": {
+    "ground-reconstructed-continuation-build-20260922.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\5736c833ae429ecf8dfd9cf449e98b297e8645cc24ed51f7fbd1fdef07fd7d5d.log",
+      "sha256": "5736c833ae429ecf8dfd9cf449e98b297e8645cc24ed51f7fbd1fdef07fd7d5d",
+      "bytes": 334
+    },
+    "ground-body-continuation-live-20260922.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7a813a016bc7154abb5420045dc7dca0369dfe17a8384af9e77af03d01aff335.log",
+      "sha256": "7a813a016bc7154abb5420045dc7dca0369dfe17a8384af9e77af03d01aff335",
+      "bytes": 1275
+    },
+    "ground-shape-state-red-20260922.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\197297d15c794cd4e8a27a9518ed5e35bf69cf90088d4cd136400d9566eebffc.log",
+      "sha256": "197297d15c794cd4e8a27a9518ed5e35bf69cf90088d4cd136400d9566eebffc",
+      "bytes": 869
+    },
+    "ground-shape-state-green-20260922.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\006ddd6736dba047f3f5cba8b78f510da3c779da8b54508c3556ac0728948b30.log",
+      "sha256": "006ddd6736dba047f3f5cba8b78f510da3c779da8b54508c3556ac0728948b30",
+      "bytes": 336
+    },
+    "ground-shape-bindings-build-20260922.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f6bcec0569225821699f71597c016f0d849d2974bef42a5874ffa0401e6ab386.log",
+      "sha256": "f6bcec0569225821699f71597c016f0d849d2974bef42a5874ffa0401e6ab386",
+      "bytes": 335
+    },
+    "ground-shape-focused-20260922.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8aae38e83ed9be8bbbc6c78c13945dd9a33ce01b800a77516d352891e7cdd872.log",
+      "sha256": "8aae38e83ed9be8bbbc6c78c13945dd9a33ce01b800a77516d352891e7cdd872",
+      "bytes": 117
+    }
+  }
+}

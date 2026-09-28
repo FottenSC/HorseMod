@@ -14,6 +14,10 @@
 #include <Unreal/CoreUObject/UObject/UnrealType.hpp>
 #include <Unreal/UObject.hpp>
 #include <Unreal/UObjectGlobals.hpp>
+#include <Unreal/UFunctionStructs.hpp>
+#include <Unreal/Hooks/Hooks.hpp>
+#include <DynamicOutput/DynamicOutput.hpp>
+#include <atomic>
 
 #include <array>
 #include <cstddef>
@@ -263,6 +267,47 @@ bool RequestReplayList(RC::Unreal::UObject* scene) noexcept
 }
 }
 
+namespace {
+constexpr auto startup_path=L"/Game/UI/GameFlow/GameScenes/Title/state/TitleStartUpState.TitleStartUpState_C:ExecuteUbergraph_TitleStartUpState";
+std::atomic<unsigned> startup_events{};
+}
+ReplaySceneNavigator::~ReplaySceneNavigator() {try {TraceStartup(false);} catch(...) {}}
+bool ReplaySceneNavigator::RequestReplayExit()
+{
+    auto* scene=CurrentScene(FindManager());
+    return scene && scene->GetFullName().find(L"ReplayBattleScene")!=std::wstring::npos
+        && RequestReplayList(scene);
+}
+void ReplaySceneNavigator::TraceStartup(bool active)
+{
+    using namespace RC::Unreal;
+    if(!active) {
+        if(startup_hook_ && Hook::UnregisterCallback(startup_hook_)) {
+            startup_hook_=0;
+            RC::Output::send<RC::LogLevel::Default>(STR("[ReplayQualification] startup callback trace detached events={}\n"),startup_events.load());
+        }
+        return;
+    }
+    if(startup_hook_) return;
+    auto* function=UObjectGlobals::StaticFindObject<UFunction*>(nullptr,nullptr,startup_path);
+    if(!Param(function,L"EntryPoint")) return;
+    // Retain only the interned name value, never a collectible UFunction or
+    // FProperty pointer. The global callback ID retires independently of GC.
+    const auto name=function->GetFName();
+    startup_events.store(0);
+    startup_hook_=Hook::RegisterProcessInternalPreCallback(
+        [name](auto&,UObject*,FFrame& stack,void*) {
+            auto* node=stack.Node();
+            if(!node || node->GetFName()!=name || !stack.Locals()) return;
+            auto* entry=Param(node,L"EntryPoint");
+            if(!entry || entry->GetSize()!=4) return;
+            const auto event=startup_events.fetch_add(1);
+            if(event>=128) return;
+            const auto value=*entry->ContainerPtrToValuePtr<int>(stack.Locals());
+            RC::Output::send<RC::LogLevel::Default>(STR("[ReplayQualification] startup callback event={} entry={}\n"),event,value);
+        },{false,true,STR("ReplayQualificationMod.Startup"),STR("CallbackTrace")});
+}
+
 bool ReplaySceneNavigator::Bind(std::uintptr_t image_base) noexcept
 {
     constexpr std::array<std::byte, 8> kInit{
@@ -297,6 +342,7 @@ NavigationState ReplaySceneNavigator::Tick(
         return NavigationState::Waiting;
     }
     const std::string scene_name = RC::to_string(scene->GetClassPrivate()->GetName());
+    TraceStartup(scene_name.find("TitleScene")!=std::string::npos);
     if (scene_name.find("ReplayBattleScene") != std::string::npos
         && !require_replay_list)
     {

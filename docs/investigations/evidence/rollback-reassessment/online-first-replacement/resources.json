@@ -1,0 +1,97 @@
+{
+  "directories": [],
+  "files": [
+    {
+      "allowed_after": [
+        "a8b4689573dff29d067e2ed39d564958b0a17be6efa131c35a24044ec78ea63c"
+      ],
+      "backup": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\online-first-replacement\\resource-backups\\b583b65388616e4fc6bbac841a1de6bc7d87467e67132a0983c69eb5d0c40c2b",
+      "before": "b583b65388616e4fc6bbac841a1de6bc7d87467e67132a0983c69eb5d0c40c2b",
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll"
+    },
+    {
+      "allowed_after": [
+        null,
+        "3ebc71e6252bfffcf4d6a7dcce220981ec1c78f9c46a4115c1c2f4ac3a367c1f"
+      ],
+      "backup": null,
+      "before": null,
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\dlls\\main.dll"
+    },
+    {
+      "allowed_after": [
+        null,
+        "8d47455212fb8cc7e976816020d059521fb084c677a0d690dd8937a16b608d86"
+      ],
+      "backup": null,
+      "before": null,
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\enabled.txt"
+    },
+    {
+      "allowed_after": [
+        "22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514",
+        "8dc51120f7871e02848ff86e1e2fffc7a778cdee4366275c53a24fa83ce32579"
+      ],
+      "backup": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\online-first-replacement\\resource-backups\\22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514",
+      "before": "22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514",
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\rollback.ini"
+    },
+    {
+      "allowed_after": [
+        "a8b4689573dff29d067e2ed39d564958b0a17be6efa131c35a24044ec78ea63c"
+      ],
+      "backup": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\online-first-replacement\\resource-backups\\b583b65388616e4fc6bbac841a1de6bc7d87467e67132a0983c69eb5d0c40c2b",
+      "before": "b583b65388616e4fc6bbac841a1de6bc7d87467e67132a0983c69eb5d0c40c2b",
+      "path": "C:\\Sandbox\\prest\\sc67\\drive\\E\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll"
+    },
+    {
+      "allowed_after": [
+        null,
+        "3ebc71e6252bfffcf4d6a7dcce220981ec1c78f9c46a4115c1c2f4ac3a367c1f"
+      ],
+      "backup": null,
+      "before": null,
+      "path": "C:\\Sandbox\\prest\\sc67\\drive\\E\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\dlls\\main.dll"
+    },
+    {
+      "allowed_after": [
+        null,
+        "8d47455212fb8cc7e976816020d059521fb084c677a0d690dd8937a16b608d86"
+      ],
+      "backup": null,
+      "before": null,
+      "path": "C:\\Sandbox\\prest\\sc67\\drive\\E\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\enabled.txt"
+    },
+    {
+      "allowed_after": [
+        "22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514",
+        "8dc51120f7871e02848ff86e1e2fffc7a778cdee4366275c53a24fa83ce32579"
+      ],
+      "backup": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\online-first-replacement\\resource-backups\\22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514",
+      "before": "22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514",
+      "path": "C:\\Sandbox\\prest\\sc67\\drive\\E\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\rollback.ini"
+    }
+  ],
+  "launches": [],
+  "processes": [
+    {
+      "created": 1788616294.5734599,
+      "exe": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\SoulcaliburVI.exe",
+      "kind": "game",
+      "pid": 29688
+    },
+    {
+      "created": 1788616296.2965405,
+      "exe": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\SoulcaliburVI.exe",
+      "kind": "game",
+      "pid": 87160
+    }
+  ],
+  "requests": [
+    "C:\\Users\\prest\\AppData\\Local\\HorseMod\\Qualification",
+    "C:\\Sandbox\\prest\\sc67\\user\\current\\AppData\\Local\\HorseMod\\Qualification"
+  ],
+  "run_id": "paired-6fd83136024440e8969d3853f47568dc",
+  "schema_version": 1,
+  "state": "clean"
+}

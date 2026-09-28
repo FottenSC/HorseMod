@@ -1,0 +1,17 @@
+{
+  "command": [
+    "ctest",
+    "--test-dir",
+    "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64",
+    "--output-on-failure",
+    "-R",
+    "^(DeterministicCoreSelfTest|NativeCandidateRegionsSelfTest)$"
+  ],
+  "exit_code": 0,
+  "game_launched": false,
+  "raw_log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\bf50855def37b9f933848e71505fd39c417ce9680408362f6b5b4742ff0a6fe3.log",
+    "sha256": "bf50855def37b9f933848e71505fd39c417ce9680408362f6b5b4742ff0a6fe3",
+    "bytes": 478
+  }
+}

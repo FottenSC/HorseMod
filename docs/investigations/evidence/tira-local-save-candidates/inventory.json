@@ -1,0 +1,268 @@
+{
+  "kind": "noncertifying_local_save_tira_candidate_inventory",
+  "created_utc": "2026-09-01T10:08:19.508850+00:00",
+  "candidate_count": 29,
+  "candidates": [
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog00.sav",
+      "container_sha256": "c7cd45a7fea8ac0581eb1038e76b2bef20415a00b6f086a07a26e7eae431cec4",
+      "index": 1,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog00-01-930fcdf51668.bin",
+      "payload_sha256": "930fcdf51668f9f8a04e4c7d63ca92498c8d9c91d892a5f1aef84cf7c9cdb44e",
+      "payload_bytes": 3269,
+      "decoded_bytes": 91542
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog00.sav",
+      "container_sha256": "c7cd45a7fea8ac0581eb1038e76b2bef20415a00b6f086a07a26e7eae431cec4",
+      "index": 2,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog00-02-4d628658d317.bin",
+      "payload_sha256": "4d628658d317fb6174730da070a9d50dece302e2843523ef414f2f8625bd02f3",
+      "payload_bytes": 3822,
+      "decoded_bytes": 105302
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog00.sav",
+      "container_sha256": "c7cd45a7fea8ac0581eb1038e76b2bef20415a00b6f086a07a26e7eae431cec4",
+      "index": 32,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog00-32-e2e158373113.bin",
+      "payload_sha256": "e2e158373113f90c72ccba6433031b70bbdeac37bbf057288989c2b03b014d27",
+      "payload_bytes": 4541,
+      "decoded_bytes": 115971
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog00.sav",
+      "container_sha256": "c7cd45a7fea8ac0581eb1038e76b2bef20415a00b6f086a07a26e7eae431cec4",
+      "index": 33,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog00-33-7a314d290644.bin",
+      "payload_sha256": "7a314d290644518c60dad00fc16b3934b81548fad2444207e5f0c6681e84d5f1",
+      "payload_bytes": 4512,
+      "decoded_bytes": 116346
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog00.sav",
+      "container_sha256": "c7cd45a7fea8ac0581eb1038e76b2bef20415a00b6f086a07a26e7eae431cec4",
+      "index": 34,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog00-34-ad9918d7d4d4.bin",
+      "payload_sha256": "ad9918d7d4d4108f00c1b4dd3a4a58c8d3fb557ea0efdd9f6c2b0e28518f2cbc",
+      "payload_bytes": 5198,
+      "decoded_bytes": 130795
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog00.sav",
+      "container_sha256": "c7cd45a7fea8ac0581eb1038e76b2bef20415a00b6f086a07a26e7eae431cec4",
+      "index": 35,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog00-35-26f8707d9526.bin",
+      "payload_sha256": "26f8707d9526060a97805ade84946b0747a715bc45299175bb3b4e279dd75420",
+      "payload_bytes": 4998,
+      "decoded_bytes": 123731
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog00.sav",
+      "container_sha256": "c7cd45a7fea8ac0581eb1038e76b2bef20415a00b6f086a07a26e7eae431cec4",
+      "index": 36,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog00-36-23abd7baa549.bin",
+      "payload_sha256": "23abd7baa549f50c1275201f3c01ddf5a42f2a5578c64dc2f226165cf737da72",
+      "payload_bytes": 3804,
+      "decoded_bytes": 93730
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog00.sav",
+      "container_sha256": "c7cd45a7fea8ac0581eb1038e76b2bef20415a00b6f086a07a26e7eae431cec4",
+      "index": 37,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog00-37-17a32a48af78.bin",
+      "payload_sha256": "17a32a48af78b3dcf80ea9b52256a05758aa187ca740a866cf7aa0515a9a86c1",
+      "payload_bytes": 5575,
+      "decoded_bytes": 139668
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog00.sav",
+      "container_sha256": "c7cd45a7fea8ac0581eb1038e76b2bef20415a00b6f086a07a26e7eae431cec4",
+      "index": 38,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog00-38-9d1ec5add940.bin",
+      "payload_sha256": "9d1ec5add9400b3ef8338ba92e4955db5d5b0c4b903c2526eeb808c8c66027c8",
+      "payload_bytes": 4087,
+      "decoded_bytes": 99914
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog00.sav",
+      "container_sha256": "c7cd45a7fea8ac0581eb1038e76b2bef20415a00b6f086a07a26e7eae431cec4",
+      "index": 39,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog00-39-1877d086181b.bin",
+      "payload_sha256": "1877d086181bef2ae18cd9e9429af29a2a8e70aeee4cf4b43a2a0fdb26e45e34",
+      "payload_bytes": 4713,
+      "decoded_bytes": 115554
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog00.sav",
+      "container_sha256": "c7cd45a7fea8ac0581eb1038e76b2bef20415a00b6f086a07a26e7eae431cec4",
+      "index": 40,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog00-40-5d53e0f91eeb.bin",
+      "payload_sha256": "5d53e0f91eebed906dc544ea481c77d9647cf84e7ca7e079e5382cdbf38567df",
+      "payload_bytes": 5242,
+      "decoded_bytes": 131108
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog00.sav",
+      "container_sha256": "c7cd45a7fea8ac0581eb1038e76b2bef20415a00b6f086a07a26e7eae431cec4",
+      "index": 41,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog00-41-2d12d3b9c148.bin",
+      "payload_sha256": "2d12d3b9c14802dbe93a62409fb1890d7c3c72c65e582f8399b6fa475eadf127",
+      "payload_bytes": 4932,
+      "decoded_bytes": 121755
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog00.sav",
+      "container_sha256": "c7cd45a7fea8ac0581eb1038e76b2bef20415a00b6f086a07a26e7eae431cec4",
+      "index": 42,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog00-42-0cdcfba34c58.bin",
+      "payload_sha256": "0cdcfba34c58a1316c69622f51c667aa13cf858fc532c758cae10990fd82f037",
+      "payload_bytes": 4351,
+      "decoded_bytes": 109002
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog00.sav",
+      "container_sha256": "c7cd45a7fea8ac0581eb1038e76b2bef20415a00b6f086a07a26e7eae431cec4",
+      "index": 43,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog00-43-38a406a3f0d9.bin",
+      "payload_sha256": "38a406a3f0d940c133f425da9a1286eae5a35f921c1a8aac314ca54989b8f901",
+      "payload_bytes": 5937,
+      "decoded_bytes": 147028
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog00.sav",
+      "container_sha256": "c7cd45a7fea8ac0581eb1038e76b2bef20415a00b6f086a07a26e7eae431cec4",
+      "index": 44,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog00-44-d2a7b4f2d1e3.bin",
+      "payload_sha256": "d2a7b4f2d1e33a7ef0a695512d2f879c49611019f5959235cad91766100e07fc",
+      "payload_bytes": 5212,
+      "decoded_bytes": 134196
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog00.sav",
+      "container_sha256": "c7cd45a7fea8ac0581eb1038e76b2bef20415a00b6f086a07a26e7eae431cec4",
+      "index": 45,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog00-45-68e7ab587420.bin",
+      "payload_sha256": "68e7ab587420a79b1fab4113b2fcd26afdaf1c06ae9d8e19b4d7f54349e81278",
+      "payload_bytes": 4674,
+      "decoded_bytes": 118300
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog00.sav",
+      "container_sha256": "c7cd45a7fea8ac0581eb1038e76b2bef20415a00b6f086a07a26e7eae431cec4",
+      "index": 46,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog00-46-7b67c8bf3b00.bin",
+      "payload_sha256": "7b67c8bf3b006248e06987a5e74f9cd5723bfd29c92524d413ef4334a0512b23",
+      "payload_bytes": 5729,
+      "decoded_bytes": 142532
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog00.sav",
+      "container_sha256": "c7cd45a7fea8ac0581eb1038e76b2bef20415a00b6f086a07a26e7eae431cec4",
+      "index": 47,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog00-47-cdf40e442fed.bin",
+      "payload_sha256": "cdf40e442fed39d668e92a45caf011568e811bc7cfd7acd0611393860ed6c341",
+      "payload_bytes": 4292,
+      "decoded_bytes": 104618
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog00.sav",
+      "container_sha256": "c7cd45a7fea8ac0581eb1038e76b2bef20415a00b6f086a07a26e7eae431cec4",
+      "index": 48,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog00-48-170abed80910.bin",
+      "payload_sha256": "170abed809101121fa891b4f6f2a1901feb4f6729c4166a379c067cb6667df42",
+      "payload_bytes": 4911,
+      "decoded_bytes": 119499
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog00.sav",
+      "container_sha256": "c7cd45a7fea8ac0581eb1038e76b2bef20415a00b6f086a07a26e7eae431cec4",
+      "index": 49,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog00-49-093a1779cd00.bin",
+      "payload_sha256": "093a1779cd00e6e403d66945b4e273fd6cfa60f91c75a672c8718c0a92219c2b",
+      "payload_bytes": 5695,
+      "decoded_bytes": 142036
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog01.sav",
+      "container_sha256": "98757db70fc46794db0541fa0fc8141921f0e82d04cba9d61a94972471f8b538",
+      "index": 0,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog01-00-2ce201e2dfa6.bin",
+      "payload_sha256": "2ce201e2dfa64b6f1a5d2c2b7a9eeede15813873a9f17f4674025b75ebfbde29",
+      "payload_bytes": 5180,
+      "decoded_bytes": 128091
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog01.sav",
+      "container_sha256": "98757db70fc46794db0541fa0fc8141921f0e82d04cba9d61a94972471f8b538",
+      "index": 1,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog01-01-215ea3b64faa.bin",
+      "payload_sha256": "215ea3b64faa4394a9bfbe3cb958658166355af901ff3b9ed6bfe9894776069f",
+      "payload_bytes": 4723,
+      "decoded_bytes": 121194
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog01.sav",
+      "container_sha256": "98757db70fc46794db0541fa0fc8141921f0e82d04cba9d61a94972471f8b538",
+      "index": 2,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog01-02-085f9e6a3803.bin",
+      "payload_sha256": "085f9e6a3803d48589147f148f47ec717407b3a2dbd138e3c4de5b9e14edc12b",
+      "payload_bytes": 5466,
+      "decoded_bytes": 139195
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog01.sav",
+      "container_sha256": "98757db70fc46794db0541fa0fc8141921f0e82d04cba9d61a94972471f8b538",
+      "index": 3,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog01-03-704e1413c496.bin",
+      "payload_sha256": "704e1413c496f3d1d559d1b573e1e414d2ebda28444307aa86e70816893a23ee",
+      "payload_bytes": 4893,
+      "decoded_bytes": 122227
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog01.sav",
+      "container_sha256": "98757db70fc46794db0541fa0fc8141921f0e82d04cba9d61a94972471f8b538",
+      "index": 4,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog01-04-6be94a060fb4.bin",
+      "payload_sha256": "6be94a060fb4d9dc854226257ecd6fa143b4dcdeac533db518bdc1bc20895fa0",
+      "payload_bytes": 5793,
+      "decoded_bytes": 142556
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog01.sav",
+      "container_sha256": "98757db70fc46794db0541fa0fc8141921f0e82d04cba9d61a94972471f8b538",
+      "index": 5,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog01-05-741eab902832.bin",
+      "payload_sha256": "741eab902832f1d054088fd91df67b68e00d1b108be123639aa6d4193452b9f6",
+      "payload_bytes": 5417,
+      "decoded_bytes": 135572
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog01.sav",
+      "container_sha256": "98757db70fc46794db0541fa0fc8141921f0e82d04cba9d61a94972471f8b538",
+      "index": 6,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog01-06-0fd6d4425740.bin",
+      "payload_sha256": "0fd6d442574041b95ce21c5566b64e8c5d335b3595b28fd3f33d232bf4c03caa",
+      "payload_bytes": 4373,
+      "decoded_bytes": 102930
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog01.sav",
+      "container_sha256": "98757db70fc46794db0541fa0fc8141921f0e82d04cba9d61a94972471f8b538",
+      "index": 7,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog01-07-3904fb51dd63.bin",
+      "payload_sha256": "3904fb51dd63d57bc876fcc596e365dda5e39a9039d5e08404b52ef73467494d",
+      "payload_bytes": 4503,
+      "decoded_bytes": 112650
+    },
+    {
+      "container": "C:\\Users\\prest\\AppData\\Local\\SoulcaliburVI\\Saved\\SaveGames\\76561198070521860\\fluffy\\76561198070521860\\decrypted\\GAME\\REPLAY-BattleLog01.sav",
+      "container_sha256": "98757db70fc46794db0541fa0fc8141921f0e82d04cba9d61a94972471f8b538",
+      "index": 8,
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog01-08-eebdb8cac5c2.bin",
+      "payload_sha256": "eebdb8cac5c21cdc59b3996bdb1f675a6625813b1b3c2d1a6524103de5ec0aff",
+      "payload_bytes": 5721,
+      "decoded_bytes": 144780
+    }
+  ]
+}

@@ -14,6 +14,10 @@ from lux_reference_engine import StaticResolutionError, u16
 from lux_scheduled_effects import LuxScheduledEffectTable
 
 
+NO_TRANSITION_TARGET = 0xFFFF
+MOVE_END_TRANSITION_TARGET = 0xFFFD
+
+
 @dataclass
 class MoveVMLaneSchedulerState:
     """Typed transition/timing subset of the native 0x468-byte lane."""
@@ -35,7 +39,7 @@ class MoveVMLaneSchedulerState:
     motion_playback_frame_24: float | None = None
 
     transition_source_lane_index: int = 0
-    queued_target_move_id: int = 0xFFFF
+    queued_target_move_id: int = NO_TRANSITION_TARGET
     override_target_on_flag_16fe: int = 0xFFFF
     override_target_on_flag_16eb: int = 0xFFFF
     override_target_on_opponent_move_class: int = 0xFFFF
@@ -305,7 +309,13 @@ def decode_variadic_transition_arguments(
     destination_lane_index: int,
     arguments: tuple[int, ...],
 ) -> int:
-    """Publish the immediate/deferred package from ``0x1402FC930``."""
+    """Publish the count-delimited package from ``0x1402FC930``.
+
+    The decoder deliberately preserves ``MOVE_END_TRANSITION_TARGET``. Native
+    ``LuxMoveVM_CheckMoveTransitionTiming @ 0x1402FDD70`` interprets it only
+    after the authored threshold is reached and commits lane/move end. It is
+    neither a packed slot nor a terminator consumed by this decoder.
+    """
 
     destination = state.lane(destination_lane_index)
     active = state.active_lane

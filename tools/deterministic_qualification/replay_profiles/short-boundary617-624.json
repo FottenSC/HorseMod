@@ -1,0 +1,103 @@
+{
+  "schema": 1,
+  "name": "short-boundary617-624",
+  "purpose": "diagnostic",
+  "arguments": [
+    "combat-restore",
+    "--combat-case",
+    "commit",
+    "--host-seek",
+    "--combat-exact-advance",
+    "--combat-anchor-tick",
+    "617",
+    "--combat-advanced-tick",
+    "624",
+    "--host-seek-target",
+    "624",
+    "--replay-budget-gib",
+    "1",
+    "--timeout",
+    "180",
+    "--diagnostic-mask",
+    "0",
+    "--diagnostic-stack-depth",
+    "0",
+    "--diagnostic-first-tick",
+    "0",
+    "--diagnostic-last-tick",
+    "36000",
+    "--diagnostic-byte-limit",
+    "1048576",
+    "--flush-startup-loading",
+    "--no-async-loading-thread",
+    "--authored-prefix",
+    "217:0:0:172:2:0:0;218:1:0:170:2:0:0;219:2:0:168:2:0:0"
+  ],
+  "continuation_ticks": 120,
+  "setup": {
+    "skip_intros": true,
+    "include_setup": true,
+    "native_fixed_seed": true,
+    "serial_particles": true,
+    "flush_startup_loading": true,
+    "no_async_loading_thread": true
+  },
+  "comparison": "Independent native unchanged history through B217 and120 continuation ticks after cancellation. Expected observations are comparison only.",
+  "observation": {
+    "normal_renderer": true,
+    "pixel_diagnostics": false,
+    "coherence_images": false
+  },
+  "scope": "Single transaction after native forward execution on an independently authored final prefix; preceding rolling transactions omitted. Input revision is the authored baseline, not rolling revision3. Matching gameplay does not prove ownership-history equivalence.",
+  "admission": "Production1GiB; existing complete-B/native/GPU completion guards; fail at first rejection.",
+  "contract": {
+    "version": 1,
+    "hypothesis": "The A617/C624 boundary reproduces the long-run rejection without earlier rolling ownership history.",
+    "decision": "If absent, retain negative result and continue using the 408-cycle regression.",
+    "required_event": "A617 publication and C624 settlement",
+    "phase": "single_transaction",
+    "window": [
+      617,
+      744
+    ],
+    "setup": {
+      "skip_intros": true,
+      "include_setup": true,
+      "native_fixed_seed": true,
+      "serial_particles": true,
+      "flush_startup_loading": true,
+      "no_async_loading_thread": true
+    },
+    "identities": [
+      "game",
+      "runtime",
+      "framework",
+      "observer",
+      "replay",
+      "state_policy",
+      "source"
+    ],
+    "success": "Complete requested coverage and independent comparisons pass.",
+    "falsification": "Unexpected rejection, missing traversal or independent mismatch.",
+    "expected_injections": [],
+    "stop_conditions": [
+      "first unexpected failure",
+      "timeout retains ownership for cleanup"
+    ],
+    "permitted_claims": [
+      "single transaction reproduction or negative result; no accumulated-history coverage"
+    ],
+    "validator": "single_transaction",
+    "coverage": {
+      "continuation_ticks": 120
+    }
+  },
+  "preceding_rolling_transactions": "omitted",
+  "prerequisites": [
+    "current build/native/integration pass",
+    "G1 boundary ownership sufficient for this transaction"
+  ],
+  "required_gates": [
+    "G1"
+  ]
+}

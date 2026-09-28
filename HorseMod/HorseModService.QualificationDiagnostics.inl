@@ -1,3 +1,80 @@
+    // Read the stock replay producer independently of the cache that seek
+    // validation overwrites. Native 140428040 registers actor+390 in the
+    // InputLog current-input dispatch collection; 140428D70 advances +3A0.
+    void log_replay_source_boundary(
+        const Horse::Deterministic::OuterTickObservation& observation,
+        bool force = false) noexcept
+    {
+        if (!m_deterministic_config.trace) return;
+        const auto& timeline = m_replay_native_runtime.timeline_status_view();
+        const bool historical = timeline.resume_validation_active;
+        const Horse::Obj manager = m_lux.battleManager();
+        if (!manager || reinterpret_cast<std::uintptr_t>(manager.raw())
+                != observation.battle_manager) return;
+        const Horse::Obj player = manager.getObj(L"BattleReplayPlayer");
+        if (!player || !RC::Unreal::UObject::IsReal(player.raw())) return;
+        const auto* bytes = reinterpret_cast<const std::byte*>(player.raw());
+        std::uintptr_t tracker_vtable{};
+        std::uint8_t active{};
+        std::int32_t source_round{}, source_cursor{};
+        std::array<std::uint32_t, 2> producer_inputs{};
+        if (!Horse::SafeReadBytes(bytes + 0x390, &tracker_vtable,
+                sizeof(tracker_vtable))
+            || tracker_vtable != Horse::NativeBinding::imageBase() + 0x3290d20
+            || !Horse::SafeReadUInt8(bytes + 0x398, &active)
+            || !Horse::SafeReadInt32(bytes + 0x39c, &source_round)
+            || !Horse::SafeReadInt32(bytes + 0x3a0, &source_cursor)
+            || observation.before.input_log == 0
+            || !Horse::SafeReadBytes(reinterpret_cast<const void*>(
+                    observation.before.input_log + 0x3b8),
+                producer_inputs.data(), sizeof(producer_inputs))) return;
+        if (!force && source_cursor % 60 != 0
+            && historical == m_replay_source_trace_historical) return;
+        m_replay_source_trace_historical = historical;
+        // Native 140301E60 establishes simulation +A0, root-step +C0 and
+        // smoothed-render +2090 triples on the exact native fighter owners.
+        std::array<std::array<std::uint32_t, 9>, 2> positions{};
+        bool positions_valid = true;
+        for (std::uint32_t slot = 0; slot < 2; ++slot)
+        {
+            const auto* fighter = static_cast<const std::byte*>(
+                Horse::KHitWalker::charaSlotFromGlobal(slot));
+            if (fighter == nullptr)
+            {
+                positions_valid = false;
+                continue;
+            }
+            for (std::size_t family = 0; family < 3; ++family)
+            {
+                constexpr std::array<std::uintptr_t, 3> offsets{0xa0, 0xc0, 0x2090};
+                positions_valid = Horse::SafeReadBytes(fighter + offsets[family],
+                    positions[slot].data() + family * 3, 3 * sizeof(std::uint32_t))
+                    && positions_valid;
+            }
+        }
+        Output::send<LogLevel::Default>(STR(
+            "[HorseMod] replay source boundary batch={} native_frame={} "
+            "input_round={} input_time={} source_owner=0x{:x} source_active={} "
+            "source_round={} source_cursor={} historical={} target={} "
+            "source_end={} producer_inputs=0x{:x}/0x{:x} forced={} resolved_hit_calls={} "
+            "positions_valid={} p0_sim={:08x},{:08x},{:08x} "
+            "p0_step={:08x},{:08x},{:08x} p0_render={:08x},{:08x},{:08x} "
+            "p1_sim={:08x},{:08x},{:08x} p1_step={:08x},{:08x},{:08x} "
+            "p1_render={:08x},{:08x},{:08x}\n"),
+            observation.batch_id, observation.before.frame_counter,
+            observation.before.input_game_round, observation.before.input_game_time,
+            reinterpret_cast<std::uintptr_t>(player.raw()), active,
+            source_round, source_cursor, historical, timeline.resume_target.frame,
+            timeline.resume_source_end.frame, producer_inputs[0], producer_inputs[1],
+            force, timeline.observed_resolved_hit_calls, positions_valid,
+            positions[0][0], positions[0][1], positions[0][2],
+            positions[0][3], positions[0][4], positions[0][5],
+            positions[0][6], positions[0][7], positions[0][8],
+            positions[1][0], positions[1][1], positions[1][2],
+            positions[1][3], positions[1][4], positions[1][5],
+            positions[1][6], positions[1][7], positions[1][8]);
+    }
+
     bool service_owned_seek_request() noexcept
     {
         const auto& timeline = m_replay_native_runtime.timeline_status_view();
@@ -79,6 +156,21 @@
 
         const Horse::Deterministic::FrameCoordinate target{
             timeline.last_coordinate.generation, requested_frame};
+        const auto source_end_before_seek = timeline.last_coordinate;
+        Horse::Deterministic::OuterTickObservation source_boundary{};
+        source_boundary.battle_manager = reinterpret_cast<std::uintptr_t>(
+            m_lux.battleManager().raw());
+        source_boundary.before.frame_counter = static_cast<std::uint32_t>(
+            source_end_before_seek.frame);
+        source_boundary.before.input_game_round = timeline.native_round;
+        source_boundary.before.input_game_time = timeline.native_time;
+        if (source_boundary.battle_manager != 0)
+            Horse::SafeReadBytes(reinterpret_cast<const void*>(
+                    source_boundary.battle_manager
+                        + Horse::Deterministic::Schema::Sc6FrameLayout::manager_input_log),
+                &source_boundary.before.input_log,
+                sizeof(source_boundary.before.input_log));
+        log_replay_source_boundary(source_boundary, true);
         const auto status = m_replay_native_runtime.ExecuteOwnedStateSeek(
             target, m_deterministic_hooks);
         if (!status.ok())
@@ -101,7 +193,7 @@
             m_frame_fencepost_failure.store(status.code, std::memory_order_release);
             Output::send<LogLevel::Warning>(STR(
                 "[HorseMod] owned replay seek request failed target={} "
-                "source_end={} status={} component_mask=0x{:x} "
+                "source_end={} status={} failure_frame={} component_mask=0x{:x} "
                 "native_mask=0x{:x} input_scalar_mask=0x{:x} "
                 "input_cache_chunk={} game_time={}/{} update_time={}/{} "
                 "recorder_time={}/{} cache_row={} "
@@ -115,6 +207,8 @@
                 target.frame, timeline.last_coordinate.frame,
                 RC::to_generic_string(std::string(
                     Horse::Deterministic::failure_code_name(status.code))),
+                m_replay_native_runtime.timeline_status().
+                    resume_failure_coordinate.frame,
                 m_replay_native_runtime.timeline_status().
                     resume_component_difference_mask,
                 m_replay_native_runtime.timeline_status().
@@ -218,7 +312,7 @@
         }
         m_seek_handled_sequence = sequence;
         m_seek_defer_count = 0;
-        m_seek_request_active = target != timeline.last_coordinate;
+        m_seek_request_active = target != source_end_before_seek;
         // The independent hook-health cursor observes the same rewritten
         // native counter. Rebase it atomically so the first resumed frame is
         // still required to be exactly target+1 rather than misreported as a
@@ -229,7 +323,7 @@
         Output::send<LogLevel::Default>(STR(
             "[HorseMod] owned replay seek restored target={} source_end={} "
             "resume_validation={}\n"),
-            target.frame, timeline.last_coordinate.frame,
+            target.frame, source_end_before_seek.frame,
             m_seek_request_active);
         return true;
     }

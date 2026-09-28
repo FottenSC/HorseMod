@@ -1,0 +1,65 @@
+{
+  "scope": "startup failure diagnosis, before retainedconsumer task",
+  "run_id": "replay-ef90de323d9b452f9b1dbbe6ae39834d",
+  "failure": "owned control process exited (0x00000003)",
+  "native_failure": {
+    "error": "Fatal error!\r\n\r\n",
+    "error_at_capacity": false,
+    "error_source": "native_history_may_be_stale",
+    "fatal_flag": true,
+    "framework_base": "0x00007ff9dd9c0000",
+    "game_base": "0x00007ff706bd0000",
+    "observer_base": "0x00007ffb6a8c0000",
+    "raw": {
+      "bytes": 575,
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\38b6664d1b438261432a6b615ff5e93dbcfdd70921948285786f161c6e95cfd6.json",
+      "sha256": "38b6664d1b438261432a6b615ff5e93dbcfdd70921948285786f161c6e95cfd6"
+    },
+    "run_id": "replay-ef90de323d9b452f9b1dbbe6ae39834d",
+    "site": "140E0E590",
+    "stack": [
+      "0x00007ffb6a96429a",
+      "0x00007ffb6a926c4d",
+      "0x00007ff706f72566",
+      "0x00007ff709cea907",
+      "0x00007ffc4db4ccb7",
+      "0x00007ffc4e8aad6c"
+    ],
+    "thread": "0x00000000000161b4",
+    "ucrt_base": "0x00007ffc4bc20000"
+  },
+  "preferred_game_stack": [
+    "1403A2566",
+    "14311A907"
+  ],
+  "cleanup": {
+    "complete": true,
+    "games_remaining": 0
+  },
+  "report": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e90f49b15c55ad817c0b00351400af736d5dba0acd14bb5622946bb6a1783bb9.json",
+    "sha256": "e90f49b15c55ad817c0b00351400af736d5dba0acd14bb5622946bb6a1783bb9",
+    "bytes": 10496
+  },
+  "raw_log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\2d9fab7236a6e8dc7ac7e51e34e54096620f32b5cfa85d27ec9bc5e0803c42fd.log",
+    "sha256": "2d9fab7236a6e8dc7ac7e51e34e54096620f32b5cfa85d27ec9bc5e0803c42fd",
+    "bytes": 67955
+  },
+  "stage": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\db658a7ff5ebf76898ca99992854e4079b611538fbec5f5dafe50a0f6a4d6b03.json",
+    "sha256": "db658a7ff5ebf76898ca99992854e4079b611538fbec5f5dafe50a0f6a4d6b03",
+    "bytes": 11597
+  },
+  "journal": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\08fb032f59fe7c111b7bfa1a2140c0adc92feabc34ea4e92f976308135d37c07.json",
+    "sha256": "08fb032f59fe7c111b7bfa1a2140c0adc92feabc34ea4e92f976308135d37c07",
+    "bytes": 5491
+  },
+  "next_step": "Native exception context at top-level handler; forced exit is after unwind and does not identify original fault.",
+  "immutable": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\3cb257baaaf395d53ea054760f48e156e6606f633bc26604b2a438cef7acac3e.json",
+    "sha256": "3cb257baaaf395d53ea054760f48e156e6606f633bc26604b2a438cef7acac3e",
+    "bytes": 2561
+  }
+}

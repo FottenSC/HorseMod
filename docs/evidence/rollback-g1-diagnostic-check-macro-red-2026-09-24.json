@@ -1,0 +1,17 @@
+{
+  "HorseMod/horselib/deterministic/NativeReplayPrerequisiteGuard.hpp": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\5be8e957b284e366edde26e6cca17281c214d3d49fc839e8a4101082193f8e7d.json",
+    "sha256": "5be8e957b284e366edde26e6cca17281c214d3d49fc839e8a4101082193f8e7d",
+    "bytes": 18805
+  },
+  "tools/replay_prerequisite_guard_selftest.cpp": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7459ca011941a8150736f60552e958c14d18b4d0a7fa5f84958652485347bb56.json",
+    "sha256": "7459ca011941a8150736f60552e958c14d18b4d0a7fa5f84958652485347bb56",
+    "bytes": 7209
+  },
+  "build_cmake_LessEqual421__Shipping__Win64/replay-tests/g1-diagnostic-check-macro-red.log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f5c025fa0b1068e8e127436acb3d19be27e22fe2ffa9b1e69fb41d5e3aaafc7f.json",
+    "sha256": "f5c025fa0b1068e8e127436acb3d19be27e22fe2ffa9b1e69fb41d5e3aaafc7f",
+    "bytes": 14283
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "result": "PASS 2 focused production-boundary tests",
+  "scope": "Native guard Observe/ReadTask/Admit accepts exact native GT priority token; protocol BeforeRemove/AfterRemove/BeforeDispatch covers all four source/mesh priority combinations and rejects wrong high bits, desired/payload mismatch, flag mismatch, encoded current-thread, 0x102 and all-bits tokens. Existing lifecycle, identity, generation and event guards preserved. No native ownership or live recovery claim.",
+  "native_evidence": "docs/evidence/rollback-g1-tick211-prerequisite-thread-token-2026-09-24.json",
+  "formula": "gt_token=2 | ((flags & 0x10) << 5); native_thread remains exactly 2; desired_thread and payload_thread each equal gt_token",
+  "log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6eab9b1f59f419b4d84b26f27fbc1f684180d5f9b051e5ac7c8fcc38491bda8d.json",
+    "sha256": "6eab9b1f59f419b4d84b26f27fbc1f684180d5f9b051e5ac7c8fcc38491bda8d",
+    "bytes": 101
+  },
+  "source_retention": {
+    "manifest_sha256": "76794d769393e982466dfc608a59a84399b2cae19ba196acf9e1a24e34878f6f",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-76794d769393e982466dfc608a59a84399b2cae19ba196acf9e1a24e34878f6f.zip",
+    "archive_sha256": "c64d297362b54d6fe31d5983c981a7751b5d9a0e0951adf27e39572137d835c2",
+    "files": 16601,
+    "uncompressed_bytes": 92773675,
+    "reconstructible": true
+  }
+}

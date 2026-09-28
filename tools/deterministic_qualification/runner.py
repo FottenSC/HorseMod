@@ -6,7 +6,6 @@ import datetime as dt
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import uuid
@@ -29,25 +28,7 @@ from .process_control import (
     require_game_process,
     wait_for_game,
 )
-from .observer_pair import (
-    ObserverPairPaths,
-    ObserverPeerPaths,
-    cleanup_observer_pair,
-    create_host_room_request,
-    create_host_room_suppression,
-    create_probe_request,
-    deploy_observer_pair,
-    stop_observer_processes,
-    validate_host_room_suppression,
-    validate_observer_reports,
-    wait_for_observer_reports,
-    wait_for_host_room,
-    wait_for_pair_processes,
-)
 from .offline_campaign import run_offline_campaign
-from .paired_online import run_paired_online
-from .paired_online_evaluation import run_paired_correction_evaluation
-from .release_publish import publish_release
 from .replay_entry import (
     TemporaryReplayMod,
     create_request,
@@ -56,7 +37,9 @@ from .replay_entry import (
     wait_for_replay_entry,
 )
 from .report import write_report
-from .sandboxie_pair import SandboxiePairSpec
+from .replay_reporting import reported_cli
+from .replay_run import ReplayRun
+from .replay_fidelity import run_trajectory_comparison
 from .trace_parser import (
     LogCursor,
     capture_log_offset,
@@ -87,8 +70,6 @@ DEFAULT_SCHEMA = ROOT / "build_cmake_LessEqual421__Shipping__Win64" / "HorseMod"
 DEFAULT_REPORT = ROOT / "tools" / "deterministic_qualification" / "output" / "boot-report.json"
 DEFAULT_REPLAY_MOD = ROOT / "build_cmake_LessEqual421__Shipping__Win64" / "HorseMod" / "ReplayQualificationMod.dll"
 DEFAULT_REPLAY_REPORT = ROOT / "tools" / "deterministic_qualification" / "output" / "replay-entry-report.json"
-DEFAULT_OBSERVER_REPORT = ROOT / "tools" / "deterministic_qualification" / "output" / "online-observer-report.json"
-DEFAULT_SANDBOX_ROOT = Path(r"C:\Sandbox\prest\sc67")
 REPLAY_PROBE_TIMEOUT_SECONDS = 120.0
 REPLAY_AUTHORED_OUTCOME_TIMEOUT_SECONDS = 300.0
 
@@ -144,41 +125,8 @@ def _temporarily_armed_smoke_config(config: Path):
         os.replace(temporary, config)
 
 
-def _observer_paths(sandbox_root: Path) -> ObserverPairPaths:
-    host_mods = GAME_ROOT / "ue4ss" / "Mods"
-    sandbox_game_root = (
-        sandbox_root / "drive" / "E" / "SteamLibrary" / "steamapps" / "common"
-        / "SoulcaliburVI" / "SoulcaliburVI" / "Binaries" / "Win64"
-    )
-    return ObserverPairPaths(
-        host=ObserverPeerPaths(
-            mods_root=host_mods,
-            horsemod_dll=host_mods / "HorseMod" / "dlls" / "main.dll",
-            config=host_mods / "HorseMod" / "dlls" / "rollback.ini",
-            qualification_root=Path.home() / "AppData" / "Local" / "HorseMod" / "Qualification",
-            log=GAME_ROOT / "ue4ss" / "UE4SS.log",
-        ),
-        sandbox=ObserverPeerPaths(
-            mods_root=sandbox_game_root / "ue4ss" / "Mods",
-            horsemod_dll=sandbox_game_root / "ue4ss" / "Mods" / "HorseMod" / "dlls" / "main.dll",
-            config=sandbox_game_root / "ue4ss" / "Mods" / "HorseMod" / "dlls" / "rollback.ini",
-            qualification_root=(
-                sandbox_root / "user" / "current" / "AppData" / "Local"
-                / "HorseMod" / "Qualification"
-            ),
-            log=sandbox_game_root / "ue4ss" / "UE4SS.log",
-        ),
-    )
 
 
-def _paired_observer_paths(args: argparse.Namespace) -> ObserverPairPaths:
-    root = args.sandbox_root.resolve()
-    if root == DEFAULT_SANDBOX_ROOT.resolve() and args.sandbox_box != "sc67":
-        root = root.parent / args.sandbox_box
-    if root.name.casefold() != args.sandbox_box.casefold():
-        raise RuntimeError(
-            "sandbox root leaf must match --sandbox-box for isolated writable roots")
-    return _observer_paths(root)
 
 
 def required_file(path: Path, label: str) -> Path:
@@ -240,6 +188,24 @@ def load_outcome_control(
         raise RuntimeError("stock outcome control has invalid round winners")
     if winner not in (0, 1) or outcome.get("rounds") != len(winners):
         raise RuntimeError("stock outcome control has invalid match outcome")
+    loaded = artifacts.get("loaded_horsemod", {})
+    if (loaded.get("verification") != "owned_process_mapped_file_and_sha256"
+            or loaded.get("sha256") != artifacts.get("horsemod_dll", {}).get("sha256")
+            or data.get("cleanup", {}).get("deployment_restored") is not True
+            or data.get("cleanup", {}).get("game_processes_remaining") != 0):
+        raise RuntimeError("stock outcome control lacks loaded-runtime or cleanup proof")
+    logs = artifacts.get("raw_logs", {})
+    if len(logs) != 1:
+        raise RuntimeError("stock outcome control requires one sealed run log")
+    raw = next(iter(logs.values()))
+    raw_path = Path(raw["path"])
+    if sha256_file(raw_path) != raw.get("sha256"):
+        raise RuntimeError("stock outcome control raw log is stale")
+    from .replay_fidelity import validate_payload_handoff, validate_recorded_outcome
+    raw_text = raw_path.read_text(encoding="utf-8", errors="replace")
+    run_id = data.get("runtime", {}).get("run_id")
+    handoff = validate_payload_handoff(raw_text, run_id)
+    recorded = validate_recorded_outcome(raw_text, run_id, winner)
     identity: dict[str, object] = {
         "path": str(control_path), "sha256": sha256_file(control_path)
     }
@@ -250,6 +216,8 @@ def load_outcome_control(
         "rounds": len(winners),
         "match_winner": winner,
         "round_winners": list(winners),
+        "payload_handoff": handoff,
+        **recorded,
     }
     return winners, winner, identity, summary
 
@@ -277,135 +245,6 @@ def _outcome_proof_report_fields(
     return summary, required
 
 
-def run_online_observer(args: argparse.Namespace) -> int:
-    horsemod = required_file(args.dll, "HorseMod observer DLL")
-    observer_bridge = required_file(args.replay_mod, "observer bridge DLL")
-    executable = required_file(args.game_executable, "SoulcaliburVI executable")
-    paths = _observer_paths(args.sandbox_root.resolve())
-    spec = SandboxiePairSpec(
-        box_name=args.sandbox_box,
-        sandboxie_start=args.sandboxie_start,
-        steam_executable=args.steam_executable,
-        game_executable=executable,
-        sandbox_query_port=args.sandbox_query_port,
-    )
-    spec.validate()
-    required_file(spec.sandboxie_start, "Sandboxie Start.exe")
-    required_file(spec.steam_executable, "Steam executable")
-    if shutil.disk_usage(ROOT).free < 5 * 1024**3:
-        raise RuntimeError("less than 5 GiB free; refusing paired artifact deployment")
-    existing_processes = list_game_processes()
-    if existing_processes:
-        raise RuntimeError(
-            "SC6 is already running; refusing ambiguous observer deployment: "
-            + ", ".join(str(process.pid) for process in existing_processes)
-        )
-
-    run_id = "observer-" + uuid.uuid4().hex
-    pair = None
-    process_rows = None
-    reports = None
-    artifact_hashes: dict[str, str] = {}
-    primary_error: BaseException | None = None
-    try:
-        artifact_hashes = deploy_observer_pair(paths, horsemod, observer_bridge)
-        native_timeout = max(1, min(900, int(args.timeout) - 10))
-        create_probe_request(paths.host, run_id, native_timeout)
-        create_probe_request(paths.sandbox, run_id, native_timeout)
-        create_host_room_suppression(paths.sandbox, run_id)
-        create_host_room_request(paths.host, run_id)
-        subprocess.Popen(spec.host_command(), close_fds=True)
-        subprocess.Popen(spec.sandbox_command(), close_fds=True)
-        print("Observer-only pair launched; creating Fotten's Player Match room through "
-              "SC6's stock UI state machine.", flush=True)
-        pair, process_rows = wait_for_pair_processes(spec, args.launch_timeout)
-
-        def guard() -> None:
-            current = list_game_processes()
-            if {process.pid for process in current} != {pair.host_pid, pair.sandbox_pid}:
-                raise RuntimeError("paired SC6 process identity changed during observer probe")
-
-        wait_for_host_room(paths.host, run_id, args.launch_timeout, guard)
-        validate_host_room_suppression(paths.sandbox, run_id)
-        print(
-            "Fotten's Player Match room is created. In the Sandboxie game, join it as "
-            "ulvunge1; then use normal visible character select on both games and choose "
-            f"{args.stage_display_name}. No character-select automation is running.",
-            flush=True,
-        )
-
-        host_report, sandbox_report = wait_for_observer_reports(
-            paths, run_id, args.timeout, guard
-        )
-        reports = validate_observer_reports(
-            host_report,
-            sandbox_report,
-            args.host_steamid64,
-            args.client_steamid64,
-            args.stage_package,
-            args.stage_display_name,
-        )
-    except BaseException as error:
-        primary_error = error
-    finally:
-        cleanup_errors: list[str] = []
-        try:
-            current_processes = list_game_processes()
-            if current_processes:
-                stop_observer_processes(current_processes)
-        except (RuntimeError, TimeoutError) as error:
-            cleanup_errors.append(str(error))
-        try:
-            cleanup_observer_pair(paths, run_id)
-        except RuntimeError as error:
-            cleanup_errors.append(str(error))
-        if cleanup_errors:
-            cleanup_error = RuntimeError("; ".join(cleanup_errors))
-            if primary_error is None:
-                primary_error = cleanup_error
-            else:
-                primary_error = RuntimeError(f"{primary_error}; cleanup: {cleanup_error}")
-    if primary_error is not None:
-        raise primary_error
-    assert pair is not None and process_rows is not None and reports is not None
-    report_data: dict[str, object] = {
-        "report_schema": 1,
-        "kind": "online_observer_only_pair",
-        "certifying": False,
-        "result": "pass",
-        "reason": "read-only native online accessor/lobby/content observation only",
-        "created_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
-        "run_id": run_id,
-        "artifacts": {
-            "horsemod_dll": {"path": str(horsemod), "sha256": artifact_hashes["horsemod"]},
-            "observer_bridge": {"path": str(observer_bridge), "sha256": artifact_hashes["observer_bridge"]},
-            "game_executable": {"path": str(executable), "sha256": sha256_file(executable)},
-        },
-        "processes": {
-            "host_pid": pair.host_pid,
-            "sandbox_pid": pair.sandbox_pid,
-            "host_command_line": process_rows[pair.host_pid].command_line,
-            "sandbox_command_line": process_rows[pair.sandbox_pid].command_line,
-            "sandbox_box": args.sandbox_box,
-            "sandbox_query_port": args.sandbox_query_port,
-        },
-        "observer_contract": reports,
-        "room_automation": {
-            "host_created_room": True,
-            "sandbox_shadow_arm": False,
-            "sandbox_room_automation_executed": False,
-        },
-        "cleanup": {
-            "requests_disarmed": True,
-            "diagnostic_flags_false": True,
-            "qualification_bridge_removed": True,
-            "game_processes_remaining": 0,
-        },
-    }
-    write_report(args.report, report_data)
-    print(json.dumps(report_data, indent=2, sort_keys=True))
-    print(f"report: {args.report.resolve()}")
-    return 0
 
 
 def run_boot(args: argparse.Namespace) -> int:
@@ -465,6 +304,28 @@ def run_boot(args: argparse.Namespace) -> int:
 
 
 def _run_replay_entry_once(args: argparse.Namespace) -> int:
+    # A source artifact hash is not proof of the module loaded by UE4SS.
+    # Keep deployment ownership around each fresh process, including the
+    # preliminary smoke, and restore it only after process cleanup.
+    with ReplayRun(Path(args.dll), DEFAULT_DLL, Path(args.report)) as run:
+        args._replay_run = run
+        try:
+            result = _capture_replay_entry_once(args)
+        finally:
+            args._failure_runtime_evidence = run.loaded_module
+            args._failure_resource_journal = str(run.journal_path)
+            del args._replay_run
+    report = json.loads(Path(args.report).read_text(encoding="utf-8"))
+    report["cleanup"] = {
+        **report.get("cleanup", {}),
+        "deployment_restored": run.resources.document["state"] == "clean",
+        "game_processes_remaining": len(list_game_processes()),
+    }
+    write_report(Path(args.report), report)
+    return result
+
+
+def _capture_replay_entry_once(args: argparse.Namespace) -> int:
     dll = required_file(args.dll, "HorseMod DLL")
     replay_mod = required_file(args.replay_mod, "replay qualification mod")
     replay = required_file(args.replay, "replay payload")
@@ -563,16 +424,17 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
             )
             log_start = capture_log_offset(args.log)
             args._failure_log_start = log_start
-            launch_game()
-            pid = wait_for_game(args.timeout)
+            pid = args._replay_run.launch(executable)
+            args._replay_run.wait_for_loaded_module(pid, args.timeout)
             def guard() -> None:
-                require_game_process(pid)
+                args._replay_run.require_process(pid)
                 require_replay_request_healthy(run_id)
             if not stock_round_outcome_control:
                 boot = wait_for_boot_evidence(
                     args.log, args.timeout, guard, log_start
                 )
             entry = wait_for_replay_entry(run_id, args.timeout, guard)
+            args._replay_run.verify_loaded_module(pid)
             # Strict seeks still begin with a normal-render active window. Keep
             # that independent FPS/TPS proof in the report before requesting a
             # seek; resume-rate evidence measures a different boundary.
@@ -729,6 +591,7 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
                             "forced correction native/presentation coverage "
                             "is incomplete"
                         )
+            args._replay_run.verify_loaded_module(pid)
             if boot is not None and boot.source_commit != identity["commit"]:
                 raise RuntimeError(
                     f"deployed HorseMod source {boot.source_commit} does not match HEAD {identity['commit']}"
@@ -749,7 +612,7 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
         finally:
             if pid is not None and find_game_pid() is not None:
                 try:
-                    close_game(pid)
+                    close_game(pid, timeout_seconds=30)
                     graceful_exit_observed = True
                     process_absent_after_exit = find_game_pid() is None
                 except (RuntimeError, TimeoutError):
@@ -761,11 +624,25 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
             if run_id:
                 remove_request_files(run_id)
     temporary_mod_removed = not (mods_root / "ReplayQualificationMod").exists()
+    raw_path = Path(args.report).with_suffix(".UE4SS.log")
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    # The process has exited. Preserve the actual run bytes before another
+    # launch truncates UE4SS.log. A truncated log cannot support re-evaluation.
+    raw = _read_bounded_log_since(Path(args.log), log_start, 64 * 1024 * 1024)
+    if len(raw) >= 64 * 1024 * 1024:
+        raise RuntimeError("replay raw log exceeds the capture bound")
+    raw_path.write_bytes(raw)
 
     outcome_summary, outcome_proof_required = _outcome_proof_report_fields(
         stock_round_outcome, bound_control_outcome,
         require_authored_outcomes, require_outcome_control_artifact,
     )
+    if stock_round_outcome is not None:
+        from .replay_fidelity import validate_payload_handoff, validate_recorded_outcome
+        raw_text = raw.decode("utf-8", errors="replace")
+        outcome_summary["payload_handoff"] = validate_payload_handoff(raw_text, run_id)
+        outcome_summary.update(validate_recorded_outcome(
+            raw_text, run_id, stock_round_outcome.match_winner))
     report_data: dict[str, object] = {
         "report_schema": 2,
         "kind": ("replay_development_tira_transition_smoke"
@@ -790,6 +667,9 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
         "display_map_name": args.display_map_name,
         "stage_package_root": args.stage_package_root,
         "artifacts": {
+            "loaded_horsemod": args._replay_run.loaded_module,
+            "raw_logs": {"game": {"path": str(raw_path.resolve()),
+                "sha256": sha256_file(raw_path), "size": len(raw)}},
             "horsemod_dll": {"path": str(dll), "sha256": sha256_file(dll)},
             "replay_qualification_mod": {
                 "path": str(replay_mod), "sha256": sha256_file(replay_mod)
@@ -1123,7 +1003,6 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:
         },
     }
     write_report(args.report, report_data)
-    _restore_replay_diagnostic_flags(config)
     print(json.dumps(report_data, indent=2, sort_keys=True))
     print(f"report: {args.report.resolve()}")
     return 0
@@ -1178,15 +1057,30 @@ def _run_independent_seek_entries(
         child_reports.append((percentage, child_args.report.resolve(), data))
 
     aggregate = copy.deepcopy(child_reports[0][2])
-    first_artifacts = aggregate.get("artifacts")
+    def capture_identity(document):
+        artifacts = document.get("artifacts", {})
+        loaded = artifacts.get("loaded_horsemod", {})
+        if (loaded.get("sha256") != artifacts.get("horsemod_dll", {}).get("sha256")
+                or loaded.get("verification") != "owned_process_mapped_file_and_sha256"):
+            raise RuntimeError("independent seek lacks verified loaded-runtime identity")
+        return {key: value for key, value in artifacts.items()
+                if key not in ("raw_logs", "loaded_horsemod")}
+    first_artifacts = capture_identity(aggregate)
     first_metadata = aggregate.get("runtime", {}).get("replay_metadata")
     first_outcome = aggregate.get("runtime", {}).get("stock_round_outcome")
     for percentage, _, data in child_reports[1:]:
-        if (data.get("artifacts") != first_artifacts
+        if (capture_identity(data) != first_artifacts
                 or data.get("runtime", {}).get("replay_metadata") != first_metadata
                 or data.get("runtime", {}).get("stock_round_outcome") != first_outcome):
             raise RuntimeError(
                 f"independent strict seek {percentage}% identity drifted")
+    aggregate["artifacts"]["raw_logs"] = {
+        f"seek-{percentage}-{label}": artifact
+        for percentage, _, document in child_reports
+        for label, artifact in document["artifacts"]["raw_logs"].items()}
+    aggregate["artifacts"]["loaded_runtimes"] = [
+        document["artifacts"]["loaded_horsemod"]
+        for _, _, document in child_reports]
 
     runtime = aggregate["runtime"]
     runtime["run_id"] = None
@@ -1717,30 +1611,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Fail-closed HorseMod deterministic qualification runner"
     )
+    parser.add_argument("--output", choices=("compact", "json", "full"), default="compact")
     subcommands = parser.add_subparsers(dest="command", required=True)
-    observer = subcommands.add_parser(
-        "observer-online",
-        help="run the structurally read-only paired Steam/Sandboxie accessor probe",
-    )
-    observer.add_argument(
-        "--dll", type=Path,
-        default=ROOT / "build_cmake_LessEqual421__Shipping__Win64" / "HorseMod" / "HorseMod.dll",
-    )
-    observer.add_argument("--replay-mod", type=Path, default=DEFAULT_REPLAY_MOD)
-    observer.add_argument("--game-executable", type=Path, default=GAME_ROOT / "SoulcaliburVI.exe")
-    observer.add_argument("--steam-executable", type=Path, default=Path(r"C:\Program Files (x86)\Steam\steam.exe"))
-    observer.add_argument("--sandboxie-start", type=Path, default=Path(r"C:\Program Files\Sandboxie-Plus\Start.exe"))
-    observer.add_argument("--sandbox-root", type=Path, default=DEFAULT_SANDBOX_ROOT)
-    observer.add_argument("--sandbox-box", default="sc67")
-    observer.add_argument("--sandbox-query-port", type=int, default=27012)
-    observer.add_argument("--host-steamid64", type=int, default=76561198070521860)
-    observer.add_argument("--client-steamid64", type=int, default=76561198201141039)
-    observer.add_argument("--stage-package", default="/Game/Stage/STG009")
-    observer.add_argument("--stage-display-name", default="Snow-Capped Showdown")
-    observer.add_argument("--launch-timeout", type=float, default=120.0)
-    observer.add_argument("--timeout", type=float, default=600.0)
-    observer.add_argument("--report", type=Path, default=DEFAULT_OBSERVER_REPORT)
-    observer.set_defaults(handler=run_online_observer)
     boot = subcommands.add_parser(
         "boot", help="collect non-certifying DLL provenance and hook-install evidence"
     )
@@ -1953,100 +1825,28 @@ def build_parser() -> argparse.ArgumentParser:
     tira.add_argument("--report", type=Path, required=True)
     tira.add_argument("--timeout", type=float, default=1800.0)
     tira.set_defaults(handler=lambda args: run_tira_campaign(args, ROOT))
-    paired = subcommands.add_parser(
-        "paired-online", help="run authenticated Steam/Sandboxie rollback qualification")
-    paired.add_argument("--case-manifest", type=Path, required=True)
-    paired.add_argument("--case", required=True)
-    paired.add_argument("--dll", type=Path, required=True)
-    paired.add_argument("--replay-mod", type=Path, default=DEFAULT_REPLAY_MOD)
-    paired.add_argument("--schema", type=Path, default=DEFAULT_SCHEMA)
-    paired.add_argument("--game-executable", type=Path,
-        default=GAME_ROOT / "SoulcaliburVI.exe")
-    paired.add_argument("--steam-executable", type=Path,
-        default=Path(r"C:\Program Files (x86)\Steam\steam.exe"))
-    paired.add_argument("--sandboxie-start", type=Path,
-        default=Path(r"C:\Program Files\Sandboxie-Plus\Start.exe"))
-    paired.add_argument("--sandbox-root", type=Path, default=DEFAULT_SANDBOX_ROOT)
-    paired.add_argument("--sandbox-box", default="sc67")
-    paired.add_argument("--sandbox-query-port", type=int, default=27012)
-    paired.add_argument("--host-steamid64", type=int, default=76561198070521860)
-    paired.add_argument("--client-steamid64", type=int, default=76561198201141039)
-    paired.add_argument("--impairment-profile", default="clean",
-        choices=("clean", "latency", "jitter", "loss", "burst_loss", "reorder",
-                 "duplicate", "corruption", "disconnect_pre", "disconnect_post"))
-    paired.add_argument("--impairment-tool", type=Path)
-    paired.add_argument("--impairment-seed", type=int, default=1396913718)
-    paired.add_argument("--failure-case", default="", choices=(
-        "", "preownership_mismatch", "preownership_timeout",
-        "preownership_disconnect", "postownership_auth", "postownership_hash",
-        "postownership_restore", "postownership_peer",
-        "postownership_disconnect"),
-        help="qualification-only authoritative boundary fault to verify fail-closed cleanup")
-    paired.add_argument("--soak-seconds", type=float, default=0.0)
-    paired.add_argument("--match-cycles", type=int, default=1,
-        help="minimum same-process lobby/match cycles before cleanup")
-    paired.add_argument("--cycling-soak-seconds", type=float, default=0.0,
-        help="minimum elapsed time spent repeating same-process lobby/match cycles")
-    paired.add_argument("--fresh-box", action="store_true",
-        help="require a non-sc67 box whose UE4SS and qualification roots are initially absent")
-    paired.add_argument("--development-setup-smoke", action="store_true",
-        help=("allow a dirty, explicitly non-certifying run that stops after "
-              "automated exact-content entry, bilateral baseline, and first "
-              "owned input"))
-    paired.add_argument("--development-correction-smoke", action="store_true",
-        help=("allow a dirty, explicitly non-certifying run that stops after "
-              "both authenticated peers independently converge corrections "
-              "at depths 11, 1, and 6 in one match"))
-    paired.add_argument("--development-depth7-smoke", action="store_true",
-        help=("run one non-certifying authenticated depth-7 correction and "
-              "enforce the production timing and cleanup ceilings"))
-    paired.add_argument("--development-round-barrier-smoke", action="store_true",
-        help=("run one non-certifying authenticated round transition through "
-              "an independently acknowledged replacement baseline"))
-    paired.add_argument("--development-multiround-correction-smoke",
-        action="store_true",
-        help=("run two same-process non-certifying authenticated matches; "
-              "each crosses a replacement generation before its 11, 1, 6 "
-              "correction sequence"))
-    paired.add_argument("--development-failure-smoke", action="store_true",
-        help=("allow one dirty, non-certifying authenticated native fault "
-              "probe; requires exactly one explicit --failure-case on the "
-              "clean profile and graceful cleanup"))
-    paired.add_argument("--development-reentry-smoke", action="store_true",
-        help=("allow a dirty, explicitly non-certifying two-match run in one "
-              "SC6 process to verify cleanup and qualification re-entry"))
-    paired.add_argument("--memory-warmup-seconds", type=float, default=600.0)
-    paired.add_argument("--launch-timeout", type=float, default=180.0)
-    paired.add_argument("--phase-timeout", type=float, default=10.0)
-    paired.add_argument("--match-timeout", type=float, default=1800.0)
-    paired.add_argument("--output-dir", type=Path, required=True)
-    paired.add_argument("--report", type=Path, required=True)
-    paired.set_defaults(handler=lambda args: run_paired_online(
-        args, ROOT, _paired_observer_paths(args)))
-    paired_evaluate = subcommands.add_parser(
-        "paired-online-evaluate",
-        help=("re-evaluate one hash-bound non-certifying paired correction "
-              "capture without launching SC6"))
-    paired_evaluate.add_argument("--input-report", type=Path, required=True)
-    paired_evaluate.add_argument("--report", type=Path, required=True)
-    paired_evaluate.set_defaults(
-        handler=lambda args: run_paired_correction_evaluation(args, ROOT))
-    publish = subcommands.add_parser(
-        "release-publish",
-        help="verify every frozen release gate and atomically publish the allowlist",
-    )
-    publish.add_argument("--release-index", type=Path, required=True)
-    publish.add_argument("--case-manifest", type=Path, required=True)
-    publish.add_argument("--region-manifest", type=Path, required=True)
-    publish.add_argument("--tira-manifest", type=Path, required=True)
-    publish.add_argument("--dll", type=Path, required=True)
-    publish.add_argument("--replay-mod", type=Path, default=DEFAULT_REPLAY_MOD)
-    publish.add_argument("--schema", type=Path, default=DEFAULT_SCHEMA)
-    publish.add_argument("--game-executable", type=Path,
-        default=GAME_ROOT / "SoulcaliburVI.exe")
-    publish.add_argument("--output-dir", type=Path, required=True)
-    publish.add_argument("--allowlist", type=Path, required=True)
-    publish.set_defaults(handler=lambda args: publish_release(args, ROOT))
+    trajectory = subcommands.add_parser("replay-compare-trajectory")
+    trajectory.add_argument("--reference", type=Path, required=True)
+    trajectory.add_argument("--candidate", type=Path, required=True)
+    trajectory.add_argument("--report", type=Path, required=True)
+    trajectory.set_defaults(handler=run_trajectory_comparison)
+    control = subcommands.add_parser("replay-trajectory-control")
+    control.add_argument("--mode", choices=("stock", "runtime"), required=True)
+    control.add_argument("--dll", type=Path, required=True)
+    control.add_argument("--deployed-dll", type=Path, default=DEFAULT_DLL)
+    control.add_argument("--replay-mod", type=Path, default=DEFAULT_REPLAY_MOD)
+    control.add_argument("--replay", type=Path, required=True)
+    control.add_argument("--game-executable", type=Path, default=GAME_ROOT / "SoulcaliburVI.exe")
+    control.add_argument("--log", type=Path, default=DEFAULT_LOG)
+    control.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    control.add_argument("--watch-frames", type=int, default=1200)
+    control.add_argument("--timeout", type=float, default=300)
+    control.add_argument("--report", type=Path, required=True)
+    from .replay_control import run_replay_control
+    control.set_defaults(handler=run_replay_control)
+    for child in subcommands.choices.values():
+        child.add_argument("--output", choices=("compact", "json", "full"), default=argparse.SUPPRESS)
+
     return parser
 
 
@@ -2100,26 +1900,19 @@ def _read_bounded_log_since(
         return stream.read(maximum_bytes)
 
 
-def _restore_replay_diagnostic_flags(config: Path) -> dict[str, bool]:
-    """Fail closed without changing the production enabled/allowlist state."""
+def _read_replay_diagnostic_cleanup(config: Path) -> dict[str, bool]:
+    """Report cleanup state; resource owners perform mutations before reporting."""
     restored = {name: False for name in (
         "trace", "correction_probe", "forced_depth7_qualification")}
     try:
         lines = config.read_text(encoding="utf-8").splitlines()
     except OSError:
         return restored
-    output: list[str] = []
     for line in lines:
-        key, separator, _value = line.partition("=")
+        key, separator, value = line.partition("=")
         normalized = key.strip().casefold()
         if separator and normalized in restored:
-            output.append(f"{key}=false")
-            restored[normalized] = True
-        else:
-            output.append(line)
-    temporary = config.with_suffix(config.suffix + ".qualification.tmp")
-    temporary.write_text("\n".join(output) + "\n", encoding="utf-8")
-    os.replace(temporary, config)
+            restored[normalized] = value.strip().casefold() == "false"
     return restored
 
 
@@ -2128,13 +1921,9 @@ def _write_compact_replay_failure(args: argparse.Namespace, error: BaseException
             "replay-entry", "replay-development-campaign",
             "replay-qualification-campaign"):
         return
-    running_pid = find_game_pid()
-    if running_pid is not None:
-        try:
-            force_stop_game_for_cleanup(running_pid)
-        except (RuntimeError, TimeoutError):
-            pass
-    restored = _restore_replay_diagnostic_flags(Path(args.config))
+    # This reporter also handles preflight failures before a run acquired any
+    # resources. Never stop a process or modify config merely because it exists.
+    restored = _read_replay_diagnostic_cleanup(Path(args.config))
     log = Path(args.log)
     bounded_lines: list[str] = []
     try:
@@ -2170,12 +1959,13 @@ def _write_compact_replay_failure(args: argparse.Namespace, error: BaseException
         "failure": {
             "first_failure_line": first_failure,
             "fields": diagnostic_fields,
-            "first_failing_frame": diagnostic_fields.get(
-                "frame", diagnostic_fields.get(
-                    "frames", diagnostic_fields.get(
-                        "target", diagnostic_fields.get(
-                            "coordinate", diagnostic_fields.get(
-                                "last_coordinate"))))),
+            # Requested target and source frontier are not the observed
+            # failing boundary. Older captures may legitimately lack it.
+            "first_failing_frame": (
+                diagnostic_fields.get("failure_frame")
+                if diagnostic_fields.get("failure_frame") not in (None, "0")
+                else diagnostic_fields.get("frame", diagnostic_fields.get("coordinate"))),
+            "requested_target": diagnostic_fields.get("target"),
             "field_or_mask": diagnostic_fields.get(
                 "field", diagnostic_fields.get(
                     "mask", diagnostic_fields.get(
@@ -2201,9 +1991,26 @@ def _write_compact_replay_failure(args: argparse.Namespace, error: BaseException
             "diagnostic_flags_restored_false": restored,
         },
     }
+    try:
+        raw = _read_bounded_log_since(log,
+            getattr(args, "_failure_log_start", 0), 64 * 1024 * 1024)
+        raw_path = Path(args.report).with_suffix(".UE4SS.log")
+        raw_path.write_bytes(raw)
+        report["artifacts"] = {
+            "loaded_horsemod": getattr(args, "_failure_runtime_evidence", None),
+            "raw_log": {"path": str(raw_path.resolve()), "sha256": sha256_file(raw_path),
+                        "complete_within_bound": len(raw) < 64 * 1024 * 1024},
+        }
+        journal_path = getattr(args, "_failure_resource_journal", None)
+        if journal_path:
+            journal = json.loads(Path(journal_path).read_text(encoding="utf-8"))
+            report["cleanup"]["deployment_restored"] = journal["state"] == "clean"
+    except OSError as seal_error:
+        report["artifact_failure"] = str(seal_error)
     write_report(Path(args.report), report)
 
 
+@reported_cli
 def main() -> int:
     args: argparse.Namespace | None = None
     try:

@@ -1,0 +1,28 @@
+{
+  "failure_manifest": "47caf8595faddc8c7728a7df11fb9fbd8a2a97ce872e6592a939048cd9083e73",
+  "capture_pass_manifest": "ddeccf015aec82b9551ee9a5b7fcf09201a0e5c4910088e730330db54f423fa3",
+  "boundary": {
+    "A": 610,
+    "B": 617,
+    "cycles_committed": 400,
+    "predicate": "body_flags",
+    "actor_index": 48,
+    "mesh_index": 0,
+    "mesh_count": 5,
+    "body_flags": 3,
+    "actor_flags": 1,
+    "before_removal": true
+  },
+  "physics_sha256": "c3c7bd6e13260ee5f850552b6e9a15f69e58e0b41cd4f4bcb48e1b419719b5a2",
+  "native": {
+    "metadata_7810": "RigidDynamic public values delegates to74D0; body flags copied via virtual178 into+9C. Does not capture kinematic target.",
+    "get_target_39ed0": "Checks buffered flags at NpActor+17C, then core E0180 on actor+80. Core reads+B0 pointer (actor+130), tag+1F==1, target-valid+1C; copies28 target bytes only if valid.",
+    "set_target_39bd0": "NpRigidDynamic vtable19B7C0+1B0. Actual authored target setter exercised in native fixture.",
+    "removal": "Existing production ReplayPhysicsRemovalOperation with native408C0 removal/407B0 re-add and owned task completion; no simulation step to finish retirement."
+  },
+  "red_manifest": "c996b0b23563ae13b63848ce2dba3b4ab30e4014ef7eca5d4c48aad25d69a209",
+  "green_manifest": "e85f7e73395b060e3e15dc3e518573cc0ffff4fcd07cd0ea68532ae8f4f206c6",
+  "implementation": "ReplayGroundBodyAdmission preserves existing flags2 path; flags3 requires no sleep notifications, zero buffered writes, retained exact kinematic state tag1, and no target. Never clears state to obtain admission.",
+  "native_fixture": "Actual shipped constructors, simulation/disabled shapes, production removal/recovery, full public-value equality, no callbacks, 120 independent ticks with two future authored targets and transition to dynamics; rejects actual pending target. All native allocations released, no errors/invalid frees.",
+  "limits": "Not live qualification of removal atT617, active-A ground checkpoint/restoration, material realization, broader lifecycle/recovery/epoch/presentation/full accounting/performance."
+}

@@ -1,0 +1,107 @@
+{
+  "date": "2026-09-22",
+  "scope": "Scene identity and private native body guard; no full A publication or local-readiness gate claimed",
+  "red_manifest": "build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\a3edd7d814c368f5b46535104070eb5d92b31b7a35fc3dedfb834fda4ed4a533.json",
+  "green": {
+    "result": "pass",
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\local-regressions-a1c6fa37064ce5ae0e3efde28833f324f23838a04a3375d0ef211faf9f4a3fb5.log",
+    "sha256": "a1c6fa37064ce5ae0e3efde28833f324f23838a04a3375d0ef211faf9f4a3fb5",
+    "binaries": {
+      "runtime": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\HorseMod.dll",
+        "sha256": "fc525ef6b8dfe10942aac0e1b185b380bee6e43ace02d4a6a079c9bf6ce961fd"
+      },
+      "observer": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\ReplayQualificationMod.dll",
+        "sha256": "65037f92c47d410d29a047c7401bc2550aa68ef5044ebfaae32aac78ee5076e9"
+      },
+      "framework": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\LessEqual421__Shipping__Win64\\bin\\UE4SS.dll",
+        "sha256": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6"
+      },
+      "core_test": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\DeterministicCoreSelfTest.exe",
+        "sha256": "467069bc103cae4249f7732d59474c1033cc0d99fa22896df67529b1b827fec5"
+      },
+      "native_test": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\NativeCandidateRegionsSelfTest.exe",
+        "sha256": "5443c867b5b1a0fe1ce7987aff12a707e1d7593abd2ea69f2fd12d5ab1b89a3f"
+      }
+    },
+    "source_retention": {
+      "manifest_sha256": "1ccedd6e330ace516601a2dac9973aa8dbb1164906c0b428d4f7324801bcf5dd",
+      "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-1ccedd6e330ace516601a2dac9973aa8dbb1164906c0b428d4f7324801bcf5dd.zip",
+      "archive_sha256": "51b235e8328be826f02fd3f130e95443050c81a9859a6e360e01ec57f8cb3235",
+      "files": 17271,
+      "uncompressed_bytes": 126717328,
+      "reconstructible": true
+    },
+    "native_fixture_inputs": {
+      "physics": "c3c7bd6e13260ee5f850552b6e9a15f69e58e0b41cd4f4bcb48e1b419719b5a2",
+      "game": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553"
+    },
+    "game_launched": false
+  },
+  "build": {
+    "schema": 1,
+    "source_retention": {
+      "manifest_sha256": "1ccedd6e330ace516601a2dac9973aa8dbb1164906c0b428d4f7324801bcf5dd",
+      "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-1ccedd6e330ace516601a2dac9973aa8dbb1164906c0b428d4f7324801bcf5dd.zip",
+      "archive_sha256": "51b235e8328be826f02fd3f130e95443050c81a9859a6e360e01ec57f8cb3235",
+      "files": 17271,
+      "uncompressed_bytes": 126717328,
+      "reconstructible": true
+    },
+    "workspace_fingerprint": "87aef7993764bc5b3513dd250868c58c8dde66cd1f3677cec612b2d854d8c834",
+    "binaries": {
+      "runtime": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\HorseMod.dll",
+        "sha256": "fc525ef6b8dfe10942aac0e1b185b380bee6e43ace02d4a6a079c9bf6ce961fd"
+      },
+      "observer": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\ReplayQualificationMod.dll",
+        "sha256": "65037f92c47d410d29a047c7401bc2550aa68ef5044ebfaae32aac78ee5076e9"
+      },
+      "framework": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\LessEqual421__Shipping__Win64\\bin\\UE4SS.dll",
+        "sha256": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6"
+      },
+      "core_test": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\DeterministicCoreSelfTest.exe",
+        "sha256": "467069bc103cae4249f7732d59474c1033cc0d99fa22896df67529b1b827fec5"
+      },
+      "native_test": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\NativeCandidateRegionsSelfTest.exe",
+        "sha256": "5443c867b5b1a0fe1ce7987aff12a707e1d7593abd2ea69f2fd12d5ab1b89a3f"
+      }
+    },
+    "build_log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\build-1ccedd6e330ace516601a2dac9973aa8dbb1164906c0b428d4f7324801bcf5dd.log",
+      "sha256": "ca266e940a9f4714c665c067f502bde6a6fa683bf21e5bb64d727f4371a38ac3"
+    }
+  },
+  "deployment": {
+    "state": "clean",
+    "run_id": "replay-0bc49b48f8954ebe8910c876c44ba27f",
+    "owned_game_pids": [],
+    "existing_unowned_game": {
+      "pid": 52716,
+      "parent_pid": 20552,
+      "parent": "StreamDeck.exe",
+      "created": "2026-09-22T14:22:56.443593+02:00"
+    },
+    "files_changed": false
+  },
+  "state_policy": "Unchanged strict state; debris feedback exclusion unproven",
+  "qualification": {
+    "observer_validity": "open",
+    "simulation": "open",
+    "lifecycle": "private scene identity locally passing; assembled publication open",
+    "recovery": "guard containment locally passing; live recovery matrix open",
+    "epoch_reset": "open",
+    "presentation": "open",
+    "ownership": "existing one GiB admission retained; full accounting open",
+    "performance": "unqualified"
+  },
+  "native_evidence": "rollback-ground-scene-binding-native-2026-09-22.json"
+}

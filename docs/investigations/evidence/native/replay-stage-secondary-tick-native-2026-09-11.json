@@ -1,0 +1,29 @@
+{
+  "program": "SoulcaliburVI.exe",
+  "candidate": "replay-d65fb606ef494e5181d48c32ee8d6582",
+  "finding": "Actual rejected component uses registration handler141DA9000; primary flags6. Secondary tick is component+7B0, owner at+800. Registration calls base then secondary setup and adds primary/world+7E0 prerequisites. Not dormant; no admission relaxation justified.",
+  "decompilation": {
+    "content": [
+      {
+        "type": "text",
+        "text": "\r\nvoid FUN_141da9000(UActorComponent_Partial *param_1,char param_2)\r\n\r\n{\r\n  byte bVar1;\r\n  char cVar2;\r\n  UWorld_Partial *pPrerequisiteOwner;\r\n  \r\n  FUN_141d58ac0();\r\n  if (param_2 == '\\0') {\r\n    if ((param_1[4].field_0x15c & 0x40) != 0) {\r\n      FUN_142168580(&param_1[4].field_0x150);\r\n    }\r\n  }\r\n  else {\r\n    cVar2 = FUN_141d5fb60(param_1,&param_1[4].field_0x150);\r\n    if (cVar2 != '\\0') {\r\n      bVar1 = param_1->field_0x11c;\r\n      *(UActorComponent_Partial **)&param_1[5].objectBase.dwObjectFlags = param_1;\r\n      if ((bVar1 & 2) != 0) {\r\n        AddTickFunctionPrerequisite\r\n                  (&param_1[4].field_0x150,&param_1->objectBase,&param_1->field_0x110);\r\n      }\r\n      pPrerequisiteOwner = *(UWorld_Partial **)&param_1[1].field_0x30;\r\n      if ((pPrerequisiteOwner == (UWorld_Partial *)0x0) &&\r\n         (pPrerequisiteOwner = ResolveActorComponentWorld(param_1),\r\n         pPrerequisiteOwner == (UWorld_Partial *)0x0)) {\r\n        return;\r\n      }\r\n      AddTickFunctionPrerequisite\r\n                (&param_1[4].field_0x150,&pPrerequisiteOwner->objectBase,\r\n                 &pPrerequisiteOwner->field_0x7e0);\r\n      return;\r\n    }\r\n  }\r\n  return;\r\n}\r\n\r\n"
+      }
+    ],
+    "structuredContent": {
+      "result": "\r\nvoid FUN_141da9000(UActorComponent_Partial *param_1,char param_2)\r\n\r\n{\r\n  byte bVar1;\r\n  char cVar2;\r\n  UWorld_Partial *pPrerequisiteOwner;\r\n  \r\n  FUN_141d58ac0();\r\n  if (param_2 == '\\0') {\r\n    if ((param_1[4].field_0x15c & 0x40) != 0) {\r\n      FUN_142168580(&param_1[4].field_0x150);\r\n    }\r\n  }\r\n  else {\r\n    cVar2 = FUN_141d5fb60(param_1,&param_1[4].field_0x150);\r\n    if (cVar2 != '\\0') {\r\n      bVar1 = param_1->field_0x11c;\r\n      *(UActorComponent_Partial **)&param_1[5].objectBase.dwObjectFlags = param_1;\r\n      if ((bVar1 & 2) != 0) {\r\n        AddTickFunctionPrerequisite\r\n                  (&param_1[4].field_0x150,&param_1->objectBase,&param_1->field_0x110);\r\n      }\r\n      pPrerequisiteOwner = *(UWorld_Partial **)&param_1[1].field_0x30;\r\n      if ((pPrerequisiteOwner == (UWorld_Partial *)0x0) &&\r\n         (pPrerequisiteOwner = ResolveActorComponentWorld(param_1),\r\n         pPrerequisiteOwner == (UWorld_Partial *)0x0)) {\r\n        return;\r\n      }\r\n      AddTickFunctionPrerequisite\r\n                (&param_1[4].field_0x150,&pPrerequisiteOwner->objectBase,\r\n                 &pPrerequisiteOwner->field_0x7e0);\r\n      return;\r\n    }\r\n  }\r\n  return;\r\n}\r\n\r\n"
+    },
+    "isError": false
+  },
+  "disassembly": {
+    "content": [
+      {
+        "type": "text",
+        "text": "141da9000: MOV qword ptr [RSP + 0x8],RBX \n141da9005: PUSH RDI \n141da9006: SUB RSP,0x20 \n141da900a: MOVZX EBX,DL \n141da900d: MOV RDI,RCX \n141da9010: CALL 0x141d58ac0 \n141da9015: TEST BL,BL \n141da9017: JZ 0x141da908b \n141da9019: LEA RDX,[RDI + 0x7b0] \n141da9020: MOV RCX,RDI \n141da9023: CALL 0x141d5fb60 \n141da9028: TEST AL,AL \n141da902a: JZ 0x141da90a0 \n141da902c: TEST byte ptr [RDI + 0x11c],0x2 \n141da9033: MOV qword ptr [RDI + 0x800],RDI \n141da903a: JZ 0x141da9052 \n141da903c: LEA R8,[RDI + 0x110] \n141da9043: MOV RDX,RDI \n141da9046: LEA RCX,[RDI + 0x7b0] \n141da904d: CALL 0x142159b90 \n141da9052: MOV RAX,qword ptr [RDI + 0x1c8] \n141da9059: TEST RAX,RAX \n141da905c: JNZ 0x141da906b \n141da905e: MOV RCX,RDI \n141da9061: CALL 0x141d4ad20 \n141da9066: TEST RAX,RAX \n141da9069: JZ 0x141da90a0 \n141da906b: LEA R8,[RAX + 0x7e0] \n141da9072: MOV RDX,RAX \n141da9075: LEA RCX,[RDI + 0x7b0] \n141da907c: MOV RBX,qword ptr [RSP + 0x30] \n141da9081: ADD RSP,0x20 \n141da9085: POP RDI \n141da9086: JMP 0x142159b90 \n141da908b: TEST byte ptr [RDI + 0x7bc],0x40 \n141da9092: JZ 0x141da90a0 \n141da9094: LEA RCX,[RDI + 0x7b0] \n141da909b: CALL 0x142168580 \n141da90a0: MOV RBX,qword ptr [RSP + 0x30] \n141da90a5: ADD RSP,0x20 \n141da90a9: POP RDI \n141da90aa: RET \n"
+      }
+    ],
+    "structuredContent": {
+      "result": "141da9000: MOV qword ptr [RSP + 0x8],RBX \n141da9005: PUSH RDI \n141da9006: SUB RSP,0x20 \n141da900a: MOVZX EBX,DL \n141da900d: MOV RDI,RCX \n141da9010: CALL 0x141d58ac0 \n141da9015: TEST BL,BL \n141da9017: JZ 0x141da908b \n141da9019: LEA RDX,[RDI + 0x7b0] \n141da9020: MOV RCX,RDI \n141da9023: CALL 0x141d5fb60 \n141da9028: TEST AL,AL \n141da902a: JZ 0x141da90a0 \n141da902c: TEST byte ptr [RDI + 0x11c],0x2 \n141da9033: MOV qword ptr [RDI + 0x800],RDI \n141da903a: JZ 0x141da9052 \n141da903c: LEA R8,[RDI + 0x110] \n141da9043: MOV RDX,RDI \n141da9046: LEA RCX,[RDI + 0x7b0] \n141da904d: CALL 0x142159b90 \n141da9052: MOV RAX,qword ptr [RDI + 0x1c8] \n141da9059: TEST RAX,RAX \n141da905c: JNZ 0x141da906b \n141da905e: MOV RCX,RDI \n141da9061: CALL 0x141d4ad20 \n141da9066: TEST RAX,RAX \n141da9069: JZ 0x141da90a0 \n141da906b: LEA R8,[RAX + 0x7e0] \n141da9072: MOV RDX,RAX \n141da9075: LEA RCX,[RDI + 0x7b0] \n141da907c: MOV RBX,qword ptr [RSP + 0x30] \n141da9081: ADD RSP,0x20 \n141da9085: POP RDI \n141da9086: JMP 0x142159b90 \n141da908b: TEST byte ptr [RDI + 0x7bc],0x40 \n141da9092: JZ 0x141da90a0 \n141da9094: LEA RCX,[RDI + 0x7b0] \n141da909b: CALL 0x142168580 \n141da90a0: MOV RBX,qword ptr [RSP + 0x30] \n141da90a5: ADD RSP,0x20 \n141da90a9: POP RDI \n141da90aa: RET \n"
+    },
+    "isError": false
+  }
+}

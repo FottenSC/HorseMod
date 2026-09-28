@@ -1,0 +1,71 @@
+{
+  "run_id": "replay-13fc48e95ea0465a9e1a99b14943fdf0",
+  "result": "FAIL",
+  "failure": "owned process fastfail 0xc0000409 during first corrected application, native tick211",
+  "observed": [
+    "A210 published with B217 retained",
+    "ExecutionActive entered",
+    "consumer mutation observer armed",
+    "corrected input and callback boundaries reached211"
+  ],
+  "not_observed": [
+    "mutation-injected marker",
+    "precise failing guard predicate",
+    "complete-B recovery",
+    "independent120 continuation"
+  ],
+  "disposition": "Process termination observed. No recovery or certified safe containment claim; exact failure origin remains unresolved.",
+  "next_resolving_test": "First add bounded failure-site diagnostics to permanent native entry before/after, prerequisite admission, and queue-pop scope. Local negative checks must show each diagnostic before rejection. Retry this same shortest case only after that instrumentation is built/tested; hypothesis first normal callback/queue dispatch conflicts with selected guard predicate.",
+  "cleanup": [
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll",
+      "matches": true
+    },
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\disable_gameimgui.txt",
+      "matches": true
+    },
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\UE4SS.dll",
+      "matches": true
+    },
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\rollback.ini",
+      "matches": true
+    },
+    {
+      "path": "C:\\Users\\prest\\AppData\\Local\\HorseMod\\Qualification\\replay_diagnostics.ini",
+      "matches": true
+    },
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\dlls\\main.dll",
+      "matches": true
+    },
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\enabled.txt",
+      "matches": true
+    }
+  ],
+  "files": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c993f5dbda3ee3322b3aae5a7b265f6af9ccd23eccffaa91c990ef5f1fe2303b.json",
+      "sha256": "c993f5dbda3ee3322b3aae5a7b265f6af9ccd23eccffaa91c990ef5f1fe2303b",
+      "bytes": 10293
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a0e31c3b6a35d342590843683fc4bfdadf7c8ea200b40998a666fb9eb8e81c3a.json",
+      "sha256": "a0e31c3b6a35d342590843683fc4bfdadf7c8ea200b40998a666fb9eb8e81c3a",
+      "bytes": 9769
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\cb36d94bd96df78fa4427f673e6f419e18f1f00e2eabdc1b3b63b0dc2b512959.log",
+      "sha256": "cb36d94bd96df78fa4427f673e6f419e18f1f00e2eabdc1b3b63b0dc2b512959",
+      "bytes": 2452286
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\db83dee13b5388775aed986645ebee3a41fb47d2b2db4079b7805eaf19fa6a11.json",
+      "sha256": "db83dee13b5388775aed986645ebee3a41fb47d2b2db4079b7805eaf19fa6a11",
+      "bytes": 5153
+    }
+  ]
+}

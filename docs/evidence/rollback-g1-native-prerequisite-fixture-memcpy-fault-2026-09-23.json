@@ -1,0 +1,16 @@
+{
+  "result": "mapped fixture fault at remove_two external memcpy import; native one-edge dependency sequence reached preceding assertions",
+  "scope": "fixture dependency fault; not a production regression or native failure claim",
+  "files": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1f4e94b6f0e1ce6fff5eef45af51b15e675f65daf2c9dc058d90aee3277f8488.log",
+      "sha256": "1f4e94b6f0e1ce6fff5eef45af51b15e675f65daf2c9dc058d90aee3277f8488",
+      "bytes": 124
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6ca76ea30509e4e635ff78065a59943dd1e6dcfa99c0a3c9fb3e2024778aa918.inl",
+      "sha256": "6ca76ea30509e4e635ff78065a59943dd1e6dcfa99c0a3c9fb3e2024778aa918",
+      "bytes": 11133
+    }
+  ]
+}

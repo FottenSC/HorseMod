@@ -249,6 +249,122 @@ Status Sc6ReplayNativeBridge::InspectRound(
         : resolved;
 }
 
+Status Sc6ReplayNativeBridge::CapturePlaybackSource(
+    ReplaySourceState& output, bool include_inactive) const noexcept
+{
+    output = {};
+    void* object{};
+    if (!safe_resolve(resolvers_.replay_player, resolvers_.user, object))
+        return Status::failure(FailureCode::ContextUnavailable);
+    if (object == nullptr) return Status::success();
+    const auto* bytes = static_cast<const std::byte*>(object);
+    std::uintptr_t vtable{};
+    std::uint8_t active{};
+    if (!safe_read(bytes, 0x390, vtable)
+        || vtable != resolvers_.image_base + 0x3290d20
+        || !safe_read(bytes, 0x398, active))
+        return Status::failure(FailureCode::AdapterUnqualified);
+    if (active == 0 && !include_inactive) return Status::success();
+    ReplaySourceState state{};
+    state.owner = reinterpret_cast<std::uintptr_t>(object);
+    state.tracker_active = active;
+    // ReplayPlayer embeds FLuxBattleReplaySequenceTracker at +390.
+    // Native reader 140428D70 increments +3A0, independently of InputLog.
+    if (!safe_read(bytes, 0x39c, state.round)
+        || !safe_read(bytes, 0x3a0, state.cursor)
+        || !safe_read(bytes, 0x3a8, state.reset_images)
+        || !safe_read(bytes, 0x3b0, state.reset_count)
+        || !safe_read(bytes, 0x3b8, state.recordings)
+        || !safe_read(bytes, 0x3c0, state.recording_count)
+        || state.round < -1 || state.cursor < 0
+        || state.round >= state.recording_count
+        || state.recordings == 0 || state.reset_images == 0
+        || state.recording_count <= 0 || state.reset_count <= 0)
+        return Status::failure(FailureCode::IdentityMismatch);
+    output = state;
+    return Status::success();
+}
+
+Status Sc6ReplayNativeBridge::ValidatePlaybackSourceTransition(
+    const ReplaySourceState& expected_current,
+    const ReplaySourceState& target, bool include_inactive, SourceRestoreScope scope) const noexcept
+{
+    ReplaySourceState current{};
+    const Status captured = CapturePlaybackSource(current, include_inactive);
+    if (!captured.ok()) return captured;
+    if (current != expected_current || !current.SameReplay(target) || target.cursor < 0
+        || (scope!=SourceRestoreScope::CurrentRound && scope!=SourceRestoreScope::RetainedReplay))
+        return Status::failure(FailureCode::RestorePreflightFailed);
+    if(current.SameRecording(target)) return Status::success();
+    if(scope!=SourceRestoreScope::RetainedReplay || !include_inactive || current.tracker_active>1 || target.tracker_active>1)
+        return Status::failure(FailureCode::RestorePreflightFailed);
+    // Native140428510/140428750 only alter tracker+8/+C/+10 and
+    // refresh recorder metrics. For the verified L32a vtable, +28 derives
+    // object time from byte count, +30 is RET, +48/+50 are accessors.
+    // Require those metrics already canonical: do not replay initialization,
+    // consume input, or rewrite authored recorder data to manufacture a match.
+    const auto canonical_round=[&](std::int32_t round) noexcept {
+        if(round<0 || round>=current.recording_count || round>=current.reset_count
+            || current.recording_count>1024 || current.reset_count>1024) return false;
+        const auto* owner=reinterpret_cast<const std::byte*>(current.owner);
+        int rounds_capacity{},resets_capacity{};
+        if(!safe_read(owner,0x3c4,rounds_capacity) || !safe_read(owner,0x3b4,resets_capacity)
+            || rounds_capacity<current.recording_count || resets_capacity<current.reset_count) return false;
+        const auto* row=reinterpret_cast<const std::byte*>(current.recordings)+static_cast<std::size_t>(round)*16;
+        const std::byte* recorders{};int count{},capacity{};
+        if(!safe_read(row,0,recorders) || !recorders || !safe_read(row,8,count) || count!=2
+            || !safe_read(row,12,capacity) || capacity<count) return false;
+        for(unsigned player=0;player<2;++player) {
+            const auto* recorder=recorders+player*24;
+            const std::byte* object{};const std::byte* data{};std::uintptr_t vtable{};
+            std::uint32_t encoded{},time{};int size{},reserved{},object_time{};
+            if(!safe_read(recorder,0,encoded) || !safe_read(recorder,4,time)
+                || !safe_read(recorder,16,object) || !object || !safe_read(object,0,vtable)
+                || vtable!=resolvers_.image_base+0x328e948 || !safe_read(object,8,data)
+                || !safe_read(object,16,size) || size<0 || (size&3) || (size && !data)
+                || !safe_read(object,20,reserved) || reserved<size || !safe_read(object,24,object_time)
+                || encoded!=static_cast<unsigned>(size) || time!=static_cast<unsigned>(size/4)
+                || object_time!=size/4) return false;
+        }
+        return true;
+    };
+    return canonical_round(current.round) && canonical_round(target.round)
+        ? Status::success() : Status::failure(FailureCode::UnsupportedContent);
+}
+
+Status Sc6ReplayNativeBridge::RestorePlaybackSource(
+    const ReplaySourceState& expected_current,
+    const ReplaySourceState& target, bool include_inactive, SourceRestoreScope scope) const noexcept
+{
+    const auto status=ValidatePlaybackSourceTransition(expected_current,target,include_inactive,scope);
+    if(!status.ok()) return status;
+    const auto& current=expected_current;
+    auto* cursor = reinterpret_cast<std::byte*>(current.owner) + 0x3a0;
+    const bool transition=!current.SameRecording(target);
+    const auto write=[&](const ReplaySourceState& state) noexcept {
+        auto* owner=reinterpret_cast<std::byte*>(current.owner);
+        // No native consumer runs inside this owner-thread transaction. Close
+        // admission during scalar publication and preserve all padding bytes.
+        const std::uint8_t inactive=0;
+        bool ok=true;
+        if(transition) {
+            ok=safe_copy(owner+0x398,&inactive,sizeof(inactive));
+            ok=safe_copy(owner+0x39c,&state.round,sizeof(state.round)) && ok;
+        }
+        ok=safe_copy(cursor,&state.cursor,sizeof(state.cursor)) && ok;
+        if(transition) ok=safe_copy(owner+0x398,&state.tracker_active,sizeof(state.tracker_active)) && ok;
+        return ok;
+    };
+    const bool written = write(target);
+    ReplaySourceState verified{};
+    if (written && CapturePlaybackSource(verified, include_inactive).ok() && verified == target)
+        return Status::success();
+    write(current); // Attempt every scalar; verification decides whether B survived.
+    if (!CapturePlaybackSource(verified, include_inactive).ok() || verified != current)
+        return Status::failure(FailureCode::UndoFailed);
+    return Status::failure(FailureCode::RestoreVerificationFailed);
+}
+
 Status Sc6ReplayNativeBridge::undo(
     const ResolvedObjects& objects,
     const std::array<std::byte, Schema::replay_round_image_size>& image,

@@ -4,6 +4,8 @@
 #define NOMINMAX
 #endif
 #include <Windows.h>
+#include <bcrypt.h>
+#pragma comment(lib, "bcrypt.lib")
 
 #include <Unreal/UObject.hpp>
 #include <Unreal/UObjectGlobals.hpp>
@@ -38,6 +40,8 @@ using RequestReadyReplayFn = void (__fastcall*)(void*);
 using InitializeProfileFn = void* (__fastcall*)(void*);
 using DestroyProfileFn = void (__fastcall*)(void*);
 using CopyProfileFn = void* (__fastcall*)(void*, void*);
+using SerializeFn = ByteArray* (__fastcall*)(ByteArray*, void*);
+using SerializedLengthFn = std::int64_t (__fastcall*)(void*);
 
 struct NativeFunctions
 {
@@ -54,6 +58,9 @@ struct NativeFunctions
     InitializeProfileFn initialize_profile{};
     DestroyProfileFn destroy_profile{};
     CopyProfileFn copy_profile{};
+    CopyFn copy_battle{};
+    SerializeFn serialize{};
+    SerializedLengthFn serialized_length{};
 };
 
 NativeFunctions g_functions{};
@@ -65,6 +72,12 @@ struct FunctionContract
 };
 
 constexpr FunctionContract kContracts[]{
+    {0x599130, {std::byte{0x48}, std::byte{0x89}, std::byte{0x5c}, std::byte{0x24},
+                std::byte{0x10}, std::byte{0x48}, std::byte{0x89}, std::byte{0x74}}},
+    {0x538580, {std::byte{0x48}, std::byte{0x89}, std::byte{0x5c}, std::byte{0x24},
+                std::byte{0x08}, std::byte{0x57}, std::byte{0x48}, std::byte{0x83}}},
+    {0x5b49b0, {std::byte{0x48}, std::byte{0x89}, std::byte{0x5c}, std::byte{0x24},
+                std::byte{0x18}, std::byte{0x48}, std::byte{0x89}, std::byte{0x74}}},
     {0x5799d0, {std::byte{0x40}, std::byte{0x53}, std::byte{0x48}, std::byte{0x83},
                 std::byte{0xec}, std::byte{0x20}, std::byte{0x48}, std::byte{0x8b}}},
     {0x4eeba0, {std::byte{0x40}, std::byte{0x53}, std::byte{0x48}, std::byte{0x83},
@@ -132,6 +145,86 @@ void Release(ByteArray& bytes) noexcept
     }
     bytes = {};
 }
+
+using Digest = std::array<std::uint8_t, 32>;
+
+bool BattleIdentity(void* battle, std::uint32_t version, Digest& output) noexcept
+{
+    // Serialize an owned deep copy through the game's writer. Hash only its
+    // battle-data suffix, independently of list-row names or summary fields.
+    alignas(16) std::array<std::byte, 0x1A00> item{};
+    ByteArray encoded{};
+    if (!SafeCall(false, [&]() { g_functions.initialize(item.data()); return true; })) return false;
+    const bool copied = SafeCall(false, [&]() {
+        std::memcpy(item.data() + 0x18, &version, sizeof(version));
+        g_functions.copy_battle(item.data() + 0xA0, battle);
+        // Native writer only computes this field when version == -1.
+        // Preserve the source version and explicitly measure this owned copy.
+        const auto length = g_functions.serialized_length(item.data());
+        if (length <= 0 || length > 64 * 1024 * 1024) return false;
+        std::memcpy(item.data() + 0x20, &length, sizeof(length));
+        g_functions.serialize(&encoded, item.data());
+        return true;
+    });
+    const bool hashed = copied && SafeCall(false, [&]() {
+        if (encoded.data == nullptr || encoded.count < 0x1C || encoded.count > encoded.capacity
+            || encoded.count > 64 * 1024 * 1024)
+            return false;
+        std::uint64_t length{};
+        std::memcpy(&length, encoded.data + 0x14, sizeof(length));
+        if (length == 0 || length > static_cast<std::uint64_t>(encoded.count - 0x1C)) return false;
+        return BCRYPT_SUCCESS(BCryptHash(BCRYPT_SHA256_ALG_HANDLE, nullptr, 0,
+            reinterpret_cast<PUCHAR>(encoded.data + encoded.count - length),
+            static_cast<ULONG>(length), output.data(), static_cast<ULONG>(output.size())));
+    });
+    const bool destroyed = SafeCall(false, [&]() { g_functions.destroy(item.data()); return true; });
+    Release(encoded);
+    return hashed && destroyed;
+}
+
+bool RecordingIdentity(const std::byte* reset, const std::byte* recording, Digest& output) noexcept
+{
+    BCRYPT_HASH_HANDLE hash{};
+    if (!BCRYPT_SUCCESS(BCryptCreateHash(BCRYPT_SHA256_ALG_HANDLE, &hash, nullptr, 0, nullptr, 0, 0)))
+        return false;
+    const bool hashed = SafeCall(false, [&]() {
+        std::size_t total{};
+        const auto append = [&](const void* data, std::size_t size) {
+            if (size > 64 * 1024 * 1024 - total || (size != 0 && data == nullptr)) return false;
+            total += size;
+            return BCRYPT_SUCCESS(BCryptHashData(hash, reinterpret_cast<PUCHAR>(const_cast<void*>(data)),
+                static_cast<ULONG>(size), 0));
+        };
+        const auto reset_count = *reinterpret_cast<const std::int32_t*>(reset + 8);
+        const auto round_count = *reinterpret_cast<const std::int32_t*>(recording + 8);
+        if (reset_count <= 0 || reset_count > 16 || round_count <= 0 || round_count > 16
+            || reset_count > *reinterpret_cast<const std::int32_t*>(reset + 12)
+            || round_count > *reinterpret_cast<const std::int32_t*>(recording + 12)
+            || !append(&reset_count, 4) || !append(*reinterpret_cast<void* const*>(reset), reset_count * 0xC0)
+            || !append(&round_count, 4)) return false;
+        const auto* rounds = *reinterpret_cast<const std::byte* const*>(recording);
+        if (rounds == nullptr) return false;
+        for (std::int32_t round = 0; round < round_count; ++round) {
+            const auto* row = rounds + round * 0x10;
+            const auto count = *reinterpret_cast<const std::int32_t*>(row + 8);
+            const auto* entries = *reinterpret_cast<const std::byte* const*>(row);
+            if (entries == nullptr || count <= 0 || count > 8
+                || count > *reinterpret_cast<const std::int32_t*>(row + 12)
+                || !append(&count, 4)) return false;
+            for (std::int32_t recorder = 0; recorder < count; ++recorder) {
+                const auto* object = *reinterpret_cast<const std::byte* const*>(entries + recorder * 0x18 + 0x10);
+                if (object == nullptr) return false;
+                const auto bytes = *reinterpret_cast<const std::int32_t*>(object + 0x10);
+                if (bytes < 0 || bytes > *reinterpret_cast<const std::int32_t*>(object + 0x14)
+                    || !append(&bytes, 4)
+                    || !append(*reinterpret_cast<void* const*>(object + 8), static_cast<std::size_t>(bytes))) return false;
+            }
+        }
+        return BCRYPT_SUCCESS(BCryptFinishHash(hash, output.data(), static_cast<ULONG>(output.size()), 0));
+    });
+    BCryptDestroyHash(hash);
+    return hashed;
+}
 }
 
 ReplayPayloadImporter::~ReplayPayloadImporter()
@@ -157,7 +250,10 @@ bool ReplayPayloadImporter::Bind(std::uintptr_t image_base) noexcept
         reinterpret_cast<RequestReadyReplayFn>(image_base + 0x5ea1c0),
         reinterpret_cast<InitializeProfileFn>(image_base + 0x2dc0270),
         reinterpret_cast<DestroyProfileFn>(image_base + 0x4eeed0),
-        reinterpret_cast<CopyProfileFn>(image_base + 0x4f1cf0)};
+        reinterpret_cast<CopyProfileFn>(image_base + 0x4f1cf0),
+        reinterpret_cast<CopyFn>(image_base + 0x538580),
+        reinterpret_cast<SerializeFn>(image_base + 0x5b49b0),
+        reinterpret_cast<SerializedLengthFn>(image_base + 0x599130)};
     return true;
 }
 
@@ -174,6 +270,8 @@ ImportFailure ReplayPayloadImporter::Import(
     constexpr std::size_t kStateResetData = kBattleData + 0x1940;
     metadata = {};
     ReleasePlaybackContext();
+    identity_valid_ = false;
+    identity_phase_ = "none";
     if (g_functions.initialize == nullptr || payload.size() < 8
         || payload.size() > kMaximumPayload || payload.size() > INT32_MAX
         || std::memcmp(payload.data(), "ULX1", 4) != 0)
@@ -202,6 +300,18 @@ ImportFailure ReplayPayloadImporter::Import(
     }
     else
     {
+        std::memcpy(&replay_version_, item.data() + 0x18, sizeof(replay_version_));
+        // 1405A9C40 serializes summary +8 at wire +24 for version 0x2A.
+        if (replay_version_ == 0x2A && decoded.count >= 0x28 && decoded.count <= decoded.capacity)
+            std::memcpy(&metadata.recorded_match_winner, decoded.data + 0x24, sizeof(std::int32_t));
+        identity_phase_ = "payload_serialize";
+        identity_valid_ = BattleIdentity(item.data() + kBattleData, replay_version_, battle_identity_);
+        if (identity_valid_) {
+            identity_phase_ = "payload_recordings";
+            identity_valid_ = RecordingIdentity(item.data() + kStateResetData,
+                item.data() + kBattleData + 0x1950, recording_identity_);
+        }
+        if (!identity_valid_) result = ImportFailure::IdentityMismatch;
         std::memcpy(&metadata.stage_index, item.data() + kStageIndex,
                     sizeof(metadata.stage_index));
         std::memcpy(&metadata.left_character, item.data() + kLeftCharacter,
@@ -264,6 +374,13 @@ ImportFailure ReplayPayloadImporter::Import(
                     {
                         result = ImportFailure::PlaybackContextCopyFailed;
                         ReleasePlaybackContext();
+                    }
+                    else {
+                        identity_phase_ = "container_copy";
+                        Digest staged{};
+                        if (!BattleIdentity(container + kContainerCurrentItem + kBattleData,
+                                replay_version_, staged) || staged != battle_identity_)
+                            result = ImportFailure::IdentityMismatch;
                     }
                 }
             }
@@ -364,10 +481,24 @@ bool ReplayPayloadImporter::RequestReadyPlayback() noexcept
         // stock Play path. It invokes the virtual OnRequestPlay ownership
         // transfer and then broadcasts OnReadyReplayCompleted. Do not call
         // OnRequestPlay or ApplyReplayToBattleSetup directly: ReplaySetupScene
-        // applies the replay to battle setup later from OnStartVersusInfo.
+        // installs temporary creation profiles in OnStartVersusInfo and
+        // applies the replay battle setup later in OnRequestToStop.
         g_functions.request_ready_replay(playback_container_);
-        return true;
+        identity_phase_ = "save_staging";
+        auto* save = static_cast<std::byte*>(g_functions.get_save_manager(false));
+        Digest staged{};
+        return identity_valid_ && save != nullptr
+            && BattleIdentity(save + 0x40, replay_version_, staged) && staged == battle_identity_;
     });
+}
+
+bool ReplayPayloadImporter::VerifyPlaybackRecording(void* replay_player, Digest& actual) noexcept
+{
+    if (!identity_valid_ || replay_player == nullptr) return false;
+    const auto* player = static_cast<const std::byte*>(replay_player);
+    actual = {};
+    return RecordingIdentity(player + 0x3A8, player + 0x3B8, actual)
+        && actual == recording_identity_;
 }
 
 void ReplayPayloadImporter::ReleasePlaybackContext() noexcept

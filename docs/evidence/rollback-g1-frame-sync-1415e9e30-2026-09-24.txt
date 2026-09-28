@@ -1,0 +1,40 @@
+
+void FUN_1415e9e30(void)
+
+{
+  uint uVar1;
+  longlong *plVar2;
+  wchar_t *pwVar3;
+  
+  if (DAT_144090834 == '\0') {
+    DAT_14418b130 = 0;
+    pwVar3 = L"";
+    if (DAT_144351888 != 0) {
+      pwVar3 = DAT_144351880;
+    }
+    DAT_144197135 = '\0';
+    FMsg_Logf("D:\\dev\\sc6\\UE4_Steam\\Engine\\Source\\Runtime\\RenderCore\\Private\\RenderingThread.cpp"
+              ,0x32b,L"Rendering thread exception:\r\n%s",pwVar3);
+    pwVar3 = L"";
+    if (DAT_144351888 != 0) {
+      pwVar3 = DAT_144351880;
+    }
+    FError_Throwf(&DAT_1436b93f7,
+                  "D:\\dev\\sc6\\UE4_Steam\\Engine\\Source\\Runtime\\RenderCore\\Private\\RenderingThread.cpp"
+                  ,0x32b,L"Rendering thread exception:\r\n%s",pwVar3);
+  }
+  if (g_bGameThreadIdInitialized != false) {
+    uVar1 = (*g_pfnGetCurrentThreadId)();
+    if (uVar1 != g_dwGameThreadId) {
+      return;
+    }
+  }
+  if (DAT_144197135 == '\0') {
+    plVar2 = (longlong *)thunk_FUN_140dc85e0();
+    (**(code **)(*plVar2 + 0x40))();
+  }
+  HandleWindowsMessageQueue(0);
+  return;
+}
+
+

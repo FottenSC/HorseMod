@@ -1,0 +1,104 @@
+{
+  "scope": "Native vehicle lifetime binding and raw delegate invocation. No database script edits or hook changes.",
+  "native": [
+    {
+      "address": "1430fb290",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "\r\nundefined8 FUN_1430fb290(undefined8 param_1)\r\n\r\n{\r\n  undefined8 *puVar1;\r\n  undefined8 *puVar2;\r\n  int local_res10 [6];\r\n  \r\n  TArray_FindWorldContextByWorld(&DAT_1440e90a0,local_res10,param_1);\r\n  puVar2 = (undefined8 *)0x0;\r\n  if (local_res10[0] != -1) {\r\n    puVar2 = (undefined8 *)(DAT_1440e90a0 + (longlong)local_res10[0] * 0x18);\r\n  }\r\n  puVar1 = puVar2 + 1;\r\n  if (puVar2 == (undefined8 *)0x0) {\r\n    puVar1 = (undefined8 *)0x0;\r\n  }\r\n  if (puVar1 == (undefined8 *)0x0) {\r\n    return 0;\r\n  }\r\n  return *puVar1;\r\n}\r\n\r\n"
+          }
+        ],
+        "structuredContent": {
+          "result": "\r\nundefined8 FUN_1430fb290(undefined8 param_1)\r\n\r\n{\r\n  undefined8 *puVar1;\r\n  undefined8 *puVar2;\r\n  int local_res10 [6];\r\n  \r\n  TArray_FindWorldContextByWorld(&DAT_1440e90a0,local_res10,param_1);\r\n  puVar2 = (undefined8 *)0x0;\r\n  if (local_res10[0] != -1) {\r\n    puVar2 = (undefined8 *)(DAT_1440e90a0 + (longlong)local_res10[0] * 0x18);\r\n  }\r\n  puVar1 = puVar2 + 1;\r\n  if (puVar2 == (undefined8 *)0x0) {\r\n    puVar1 = (undefined8 *)0x0;\r\n  }\r\n  if (puVar1 == (undefined8 *)0x0) {\r\n    return 0;\r\n  }\r\n  return *puVar1;\r\n}\r\n\r\n"
+        },
+        "isError": false
+      }
+    },
+    {
+      "address": "1430fbff0",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "\r\nvoid FUN_1430fbff0(undefined8 param_1,longlong param_2,int param_3)\r\n\r\n{\r\n  void *pMemory;\r\n  \r\n  if ((param_3 == 0) && (pMemory = (void *)FUN_1430fb290(param_2), pMemory != (void *)0x0)) {\r\n    FUN_141f605a0(param_2 + 0x10,*(undefined8 *)((longlong)pMemory + 0x60));\r\n    FUN_141f605a0(param_2 + 0x80,*(undefined8 *)((longlong)pMemory + 0x68));\r\n    FUN_141dd4880(&DAT_1440e90a0,param_2);\r\n    FUN_1430f6870(pMemory);\r\n    UE_FMemory_Free(pMemory);\r\n  }\r\n  return;\r\n}\r\n\r\n"
+          }
+        ],
+        "structuredContent": {
+          "result": "\r\nvoid FUN_1430fbff0(undefined8 param_1,longlong param_2,int param_3)\r\n\r\n{\r\n  void *pMemory;\r\n  \r\n  if ((param_3 == 0) && (pMemory = (void *)FUN_1430fb290(param_2), pMemory != (void *)0x0)) {\r\n    FUN_141f605a0(param_2 + 0x10,*(undefined8 *)((longlong)pMemory + 0x60));\r\n    FUN_141f605a0(param_2 + 0x80,*(undefined8 *)((longlong)pMemory + 0x68));\r\n    FUN_141dd4880(&DAT_1440e90a0,param_2);\r\n    FUN_1430f6870(pMemory);\r\n    UE_FMemory_Free(pMemory);\r\n  }\r\n  return;\r\n}\r\n\r\n"
+        },
+        "isError": false
+      }
+    },
+    {
+      "address": "14322bc70",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "\r\n/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */\r\n\r\nvoid FUN_14322bc70(void)\r\n\r\n{\r\n  _DAT_1440e90e8 = 0;\r\n  if (DAT_1440e90e0 != (void *)0x0) {\r\n    FMemory_Free(DAT_1440e90e0);\r\n  }\r\n  _DAT_1440e90a8 = 0;\r\n  if (DAT_1440e90ac != 0) {\r\n    TArray_Reserve_Stride24(&DAT_1440e90a0,0);\r\n  }\r\n  _DAT_1440e90d0 = 0xffffffff;\r\n  _DAT_1440e90d4 = 0;\r\n  _DAT_1440e90c8 = 0;\r\n  if (DAT_1440e90cc != 0) {\r\n    DAT_1440e90cc = 0;\r\n    TBitArray_Reserve(&DAT_1440e90b0,0);\r\n  }\r\n  if (DAT_1440e90c0 != (void *)0x0) {\r\n    FMemory_Free(DAT_1440e90c0);\r\n  }\r\n  if (DAT_1440e90a0 != (void *)0x0) {\r\n    FMemory_Free(DAT_1440e90a0);\r\n    return;\r\n  }\r\n  return;\r\n}\r\n\r\n"
+          }
+        ],
+        "structuredContent": {
+          "result": "\r\n/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */\r\n\r\nvoid FUN_14322bc70(void)\r\n\r\n{\r\n  _DAT_1440e90e8 = 0;\r\n  if (DAT_1440e90e0 != (void *)0x0) {\r\n    FMemory_Free(DAT_1440e90e0);\r\n  }\r\n  _DAT_1440e90a8 = 0;\r\n  if (DAT_1440e90ac != 0) {\r\n    TArray_Reserve_Stride24(&DAT_1440e90a0,0);\r\n  }\r\n  _DAT_1440e90d0 = 0xffffffff;\r\n  _DAT_1440e90d4 = 0;\r\n  _DAT_1440e90c8 = 0;\r\n  if (DAT_1440e90cc != 0) {\r\n    DAT_1440e90cc = 0;\r\n    TBitArray_Reserve(&DAT_1440e90b0,0);\r\n  }\r\n  if (DAT_1440e90c0 != (void *)0x0) {\r\n    FMemory_Free(DAT_1440e90c0);\r\n  }\r\n  if (DAT_1440e90a0 != (void *)0x0) {\r\n    FMemory_Free(DAT_1440e90a0);\r\n    return;\r\n  }\r\n  return;\r\n}\r\n\r\n"
+        },
+        "isError": false
+      }
+    },
+    {
+      "address": "14201fc70",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "\r\n/* Bounds-check scene selector against FPhysScene+4, sign-extend its 16-bit ID from\r\n   +0xF8+2*selector, and tail-call native scene lookup. Returns null for an out-of-range selector.\r\n   Observed helper selectors: 0 sync, 2 async. */\r\n\r\nvoid * GetNativePhysicsSceneByType(void *pPhysScene,uint dwSceneType)\r\n\r\n{\r\n  void *pvVar1;\r\n  \r\n  if (dwSceneType < *(uint *)((longlong)pPhysScene + 4)) {\r\n    pvVar1 = ResolveNativePhysicsScene\r\n                       (*(short *)((longlong)pPhysScene + (ulonglong)dwSceneType * 2 + 0xf8));\r\n    return pvVar1;\r\n  }\r\n  return (void *)0x0;\r\n}\r\n\r\n"
+          }
+        ],
+        "structuredContent": {
+          "result": "\r\n/* Bounds-check scene selector against FPhysScene+4, sign-extend its 16-bit ID from\r\n   +0xF8+2*selector, and tail-call native scene lookup. Returns null for an out-of-range selector.\r\n   Observed helper selectors: 0 sync, 2 async. */\r\n\r\nvoid * GetNativePhysicsSceneByType(void *pPhysScene,uint dwSceneType)\r\n\r\n{\r\n  void *pvVar1;\r\n  \r\n  if (dwSceneType < *(uint *)((longlong)pPhysScene + 4)) {\r\n    pvVar1 = ResolveNativePhysicsScene\r\n                       (*(short *)((longlong)pPhysScene + (ulonglong)dwSceneType * 2 + 0xf8));\r\n    return pvVar1;\r\n  }\r\n  return (void *)0x0;\r\n}\r\n\r\n"
+        },
+        "isError": false
+      }
+    },
+    {
+      "address": "142018870",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "\r\nint * TArray_FindWorldContextByWorld(longlong *param_1,int *param_2,ulonglong param_3)\r\n\r\n{\r\n  uint uVar1;\r\n  uint uVar2;\r\n  int iVar3;\r\n  uint uVar4;\r\n  \r\n  if ((int)param_1[1] != *(int *)((longlong)param_1 + 0x34)) {\r\n    iVar3 = (int)(param_3 >> 4);\r\n    uVar2 = 0x9e3779b9U - iVar3 ^ iVar3 << 8;\r\n    uVar1 = -(uVar2 + iVar3) ^ uVar2 >> 0xd;\r\n    uVar4 = (iVar3 - uVar2) - uVar1 ^ uVar1 >> 0xc;\r\n    uVar2 = (uVar2 - uVar4) - uVar1 ^ uVar4 << 0x10;\r\n    uVar1 = (uVar1 - uVar2) - uVar4 ^ uVar2 >> 5;\r\n    uVar4 = (uVar4 - uVar2) - uVar1 ^ uVar1 >> 3;\r\n    uVar2 = (uVar2 - uVar4) - uVar1 ^ uVar4 << 10;\r\n    iVar3 = *(int *)(((ulonglong)(param_1[8] != 0) - 1 & (ulonglong)(param_1 + 7) | param_1[8]) +\r\n                    (((longlong)(int)((uVar1 - uVar2) - uVar4) ^ (ulonglong)(uVar2 >> 0xf)) &\r\n                    (longlong)((int)param_1[9] + -1)) * 4);\r\n    if (iVar3 != -1) {\r\n      do {\r\n        if (*(ulonglong *)(*param_1 + (longlong)iVar3 * 0x18) == param_3) {\r\n          *param_2 = iVar3;\r\n          return param_2;\r\n        }\r\n        iVar3 = *(int *)(*param_1 + 0x10 + (longlong)iVar3 * 0x18);\r\n      } while (iVar3 != -1);\r\n    }\r\n  }\r\n  *param_2 = -1;\r\n  return param_2;\r\n}\r\n\r\n"
+          }
+        ],
+        "structuredContent": {
+          "result": "\r\nint * TArray_FindWorldContextByWorld(longlong *param_1,int *param_2,ulonglong param_3)\r\n\r\n{\r\n  uint uVar1;\r\n  uint uVar2;\r\n  int iVar3;\r\n  uint uVar4;\r\n  \r\n  if ((int)param_1[1] != *(int *)((longlong)param_1 + 0x34)) {\r\n    iVar3 = (int)(param_3 >> 4);\r\n    uVar2 = 0x9e3779b9U - iVar3 ^ iVar3 << 8;\r\n    uVar1 = -(uVar2 + iVar3) ^ uVar2 >> 0xd;\r\n    uVar4 = (iVar3 - uVar2) - uVar1 ^ uVar1 >> 0xc;\r\n    uVar2 = (uVar2 - uVar4) - uVar1 ^ uVar4 << 0x10;\r\n    uVar1 = (uVar1 - uVar2) - uVar4 ^ uVar2 >> 5;\r\n    uVar4 = (uVar4 - uVar2) - uVar1 ^ uVar1 >> 3;\r\n    uVar2 = (uVar2 - uVar4) - uVar1 ^ uVar4 << 10;\r\n    iVar3 = *(int *)(((ulonglong)(param_1[8] != 0) - 1 & (ulonglong)(param_1 + 7) | param_1[8]) +\r\n                    (((longlong)(int)((uVar1 - uVar2) - uVar4) ^ (ulonglong)(uVar2 >> 0xf)) &\r\n                    (longlong)((int)param_1[9] + -1)) * 4);\r\n    if (iVar3 != -1) {\r\n      do {\r\n        if (*(ulonglong *)(*param_1 + (longlong)iVar3 * 0x18) == param_3) {\r\n          *param_2 = iVar3;\r\n          return param_2;\r\n        }\r\n        iVar3 = *(int *)(*param_1 + 0x10 + (longlong)iVar3 * 0x18);\r\n      } while (iVar3 != -1);\r\n    }\r\n  }\r\n  *param_2 = -1;\r\n  return param_2;\r\n}\r\n\r\n"
+        },
+        "isError": false
+      }
+    }
+  ],
+  "invoke": {
+    "content": [
+      {
+        "type": "text",
+        "text": "\r\n/* Forwards one bound raw physics-step delegate without altering its argument order.\r\n   \r\n   Algorithm:\r\n   Load method pointer from delegate+0x10 and owner from+0x08, replace RCX with the owner, and call\r\n   the method. RDX (FPhysScene), R8D (scene type), and XMM3 (delta seconds) remain unchanged. Return\r\n   true in AL after the method returns.\r\n   \r\n   This is virtual+0x68 of vtable143510A68. Registration1421377C0 allocates three16-byte units and\r\n   stores a nonzero handle at+0x20. The callable itself performs no owner liveness or count\r\n   validation. Callers must preserve native dispatch and separately establish the registered owner's\r\n   lifetime/state before classifying a route as inert.\r\n   \r\n   Parameters: pDelegate is raw callable storage; pPhysicsScene, dwSceneType and flDeltaSeconds are\r\n   forwarded unchanged. Returns:\r\n   bool true. Limited signature/behavior annotation; no complete delegate type recovery is claimed.\r\n    */\r\n\r\nbool InvokePhysicsStepRawDelegate\r\n               (void *pDelegate,void *pPhysicsScene,uint dwSceneType,float flDeltaSeconds)\r\n\r\n{\r\n  (**(code **)((longlong)pDelegate + 0x10))(*(undefined8 *)((longlong)pDelegate + 8));\r\n  return true;\r\n}\r\n\r\n"
+      }
+    ],
+    "structuredContent": {
+      "result": "\r\n/* Forwards one bound raw physics-step delegate without altering its argument order.\r\n   \r\n   Algorithm:\r\n   Load method pointer from delegate+0x10 and owner from+0x08, replace RCX with the owner, and call\r\n   the method. RDX (FPhysScene), R8D (scene type), and XMM3 (delta seconds) remain unchanged. Return\r\n   true in AL after the method returns.\r\n   \r\n   This is virtual+0x68 of vtable143510A68. Registration1421377C0 allocates three16-byte units and\r\n   stores a nonzero handle at+0x20. The callable itself performs no owner liveness or count\r\n   validation. Callers must preserve native dispatch and separately establish the registered owner's\r\n   lifetime/state before classifying a route as inert.\r\n   \r\n   Parameters: pDelegate is raw callable storage; pPhysicsScene, dwSceneType and flDeltaSeconds are\r\n   forwarded unchanged. Returns:\r\n   bool true. Limited signature/behavior annotation; no complete delegate type recovery is claimed.\r\n    */\r\n\r\nbool InvokePhysicsStepRawDelegate\r\n               (void *pDelegate,void *pPhysicsScene,uint dwSceneType,float flDeltaSeconds)\r\n\r\n{\r\n  (**(code **)((longlong)pDelegate + 0x10))(*(undefined8 *)((longlong)pDelegate + 8));\r\n  return true;\r\n}\r\n\r\n"
+    },
+    "isError": false
+  },
+  "invokeAssembly": {
+    "content": [
+      {
+        "type": "text",
+        "text": "142017dc0: SUB RSP,0x28 \n142017dc4: MOV RAX,qword ptr [RCX + 0x10] \n142017dc8: MOV RCX,qword ptr [RCX + 0x8] \n142017dcc: CALL RAX \n142017dce: MOV AL,0x1 \n142017dd0: ADD RSP,0x28 \n142017dd4: RET \n"
+      }
+    ],
+    "structuredContent": {
+      "result": "142017dc0: SUB RSP,0x28 \n142017dc4: MOV RAX,qword ptr [RCX + 0x10] \n142017dc8: MOV RCX,qword ptr [RCX + 0x8] \n142017dcc: CALL RAX \n142017dce: MOV AL,0x1 \n142017dd0: ADD RSP,0x28 \n142017dd4: RET \n"
+    },
+    "isError": false
+  }
+}

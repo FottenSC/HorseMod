@@ -13,7 +13,8 @@ namespace Horse::Deterministic
 namespace
 {
 Status PrepareOccupiedSnapshotCopyStorage(
-    Snapshot& target, const Snapshot& prototype) noexcept
+    Snapshot& target, const Snapshot& prototype,
+    bool capture_envelope) noexcept
 {
     // An occupied slot's Entry coordinate indexes this exact payload. Growing
     // its reusable buffers must not replace that payload with the newest
@@ -24,8 +25,12 @@ Status PrepareOccupiedSnapshotCopyStorage(
         return Status::failure(FailureCode::CapacityExceeded);
     try
     {
-        target.bytes.reserve(prototype.bytes.capacity());
-        target.local_images.reserve(prototype.local_images.capacity());
+        target.bytes.reserve(capture_envelope
+            ? candidate_checkpoint_capture_byte_capacity
+            : prototype.bytes.capacity());
+        target.local_images.reserve(capture_envelope
+            ? maximum_local_reconstruction_images
+            : prototype.local_images.capacity());
         for (std::size_t index = 0;
              index < prototype.local_images.size(); ++index)
         {
@@ -44,11 +49,11 @@ Status PrepareOccupiedSnapshotCopyStorage(
 SnapshotStore::SnapshotStore(
     std::size_t maximum_bytes,
     std::size_t maximum_entries,
-    CapacityPolicy policy) noexcept
+    CapacityPolicy policy, SnapshotIndex index) noexcept
     : maximum_bytes_(maximum_bytes),
       maximum_entries_(maximum_entries),
       slot_capacity_(maximum_entries),
-      policy_(policy)
+      policy_(policy), index_(index)
 {
     if (maximum_entries_ == 0
         || maximum_entries_ > maximum_bytes_ / sizeof(Snapshot))
@@ -218,8 +223,34 @@ Status PrepareSnapshotCaptureStorage(
 
 Status SnapshotStore::PrewarmCopySlots(const Snapshot& prototype) noexcept
 {
+    return prewarm_slots(prototype, false);
+}
+
+Status SnapshotStore::PrewarmCaptureSlots(const Snapshot& prototype) noexcept
+{
+    const auto status = prewarm_slots(prototype, true);
+    if (status.ok()) capture_slots_frozen_ = true;
+    return status;
+}
+
+Status SnapshotStore::prewarm_slots(
+    const Snapshot& prototype, bool capture_envelope) noexcept
+{
     if (slot_capacity_ == 0)
         return Status::failure(FailureCode::CapacityExceeded);
+    // Preparation may reserve several vectors before an allocator/budget
+    // failure. Always account their actual retained capacities, including the
+    // failing slot. Occupied payloads and coordinate indexes remain intact.
+    bool complete = false;
+    const auto reconcile = [this, &complete](void*) noexcept {
+        if (complete) return;
+        bytes_used_ = fixed_bytes_;
+        for (std::size_t slot = 0; slot < slot_capacity_; ++slot)
+            bytes_used_ += snapshot_dynamic_cost(snapshots_[slot]);
+        copy_slots_prewarmed_ = false;
+        capture_slots_frozen_ = false;
+    };
+    std::unique_ptr<void, decltype(reconcile)> preparation_guard(this, reconcile);
     const auto occupied = [this](std::size_t slot) noexcept {
         return std::any_of(entries_.begin(), entries_.end(),
             [slot](const Entry& entry) { return entry.slot == slot; });
@@ -242,7 +273,7 @@ Status SnapshotStore::PrewarmCopySlots(const Snapshot& prototype) noexcept
         {
             auto& target = snapshots_[entry.slot];
             const auto prepared = PrepareOccupiedSnapshotCopyStorage(
-                target, prototype);
+                target, prototype, capture_envelope);
             if (!prepared.ok()) return prepared;
             allocated += snapshot_dynamic_cost(target);
         }
@@ -252,17 +283,20 @@ Status SnapshotStore::PrewarmCopySlots(const Snapshot& prototype) noexcept
         for (std::size_t slot = 0; slot < slot_capacity_; ++slot)
         {
             if (occupied(slot)) continue;
-            const auto prepared = PrepareSnapshotCopyStorage(
-                snapshots_[slot], prototype);
+            const auto prepared = capture_envelope
+                ? PrepareSnapshotCaptureStorage(snapshots_[slot], prototype)
+                : PrepareSnapshotCopyStorage(snapshots_[slot], prototype);
             if (!prepared.ok()) return prepared;
             const auto cost = snapshot_dynamic_cost(snapshots_[slot]);
             if (cost > maximum_bytes_ - allocated)
             {
                 snapshots_[slot] = {};
+                if (have_occupied && slot < highest_occupied)
+                    return Status::failure(FailureCode::CapacityExceeded);
                 break;
             }
             allocated += cost;
-            admitted = slot + 1;
+            admitted = (std::max)(admitted, slot + 1);
         }
         if (admitted == 0 || (have_occupied && admitted <= highest_occupied))
             return Status::failure(FailureCode::CapacityExceeded);
@@ -281,26 +315,54 @@ Status SnapshotStore::PrewarmCopySlots(const Snapshot& prototype) noexcept
     {
         if (!occupied(slot)) free_slots_[free_slot_count_++] = slot;
     }
+    complete = true;
     return Status::success();
 }
 
 Status SnapshotStore::SaveCopyPrewarmed(const Snapshot& snapshot) noexcept
 {
+    if (index_ != SnapshotIndex::NativeCoordinate)
+        return Status::failure(FailureCode::InvalidConfiguration);
+    return save_copy_at_key(snapshot.coordinate, snapshot);
+}
+
+Status SnapshotStore::SaveIntervalCopyPrewarmed(
+    NativeIntervalId interval, const Snapshot& snapshot) noexcept
+{
+    if (index_ != SnapshotIndex::NativeInterval || interval.ownership_epoch == 0
+        || snapshot.coordinate.generation == 0)
+        return Status::failure(FailureCode::InvalidConfiguration);
+    // Owned intervals must have their complete storage envelope admitted
+    // before the first save. Never allocate as an incidental save side effect.
+    if (!capture_slots_frozen_ || !copy_slots_prewarmed_)
+        return Status::failure(FailureCode::CapacityExceeded);
+    if (FindInterval(interval) != nullptr)
+        return Status::failure(FailureCode::IdentityMismatch);
+    return save_copy_at_key({interval.ownership_epoch, interval.sequence}, snapshot);
+}
+
+Status SnapshotStore::save_copy_at_key(
+    FrameCoordinate key, const Snapshot& snapshot) noexcept
+{
     if (!copy_slots_prewarmed_)
     {
+        if (capture_slots_frozen_)
+            return Status::failure(FailureCode::CapacityExceeded);
         const auto prewarmed = PrewarmCopySlots(snapshot);
         if (!prewarmed.ok()) return prewarmed;
     }
     auto existing = std::lower_bound(entries_.begin(), entries_.end(),
-        snapshot.coordinate, [](const Entry& entry, FrameCoordinate value) {
-            return entry.coordinate < value;
+        key, [](const Entry& entry, FrameCoordinate value) {
+            return entry.key < value;
         });
     if (existing != entries_.end()
-        && existing->coordinate == snapshot.coordinate)
+        && existing->key == key)
     {
         auto& target = snapshots_[existing->slot];
         if (!CanCopySnapshotWithoutGrowth(target, snapshot))
         {
+            if (capture_slots_frozen_)
+                return Status::failure(FailureCode::CapacityExceeded);
             const auto rewarmed = PrewarmCopySlots(snapshot);
             if (!rewarmed.ok()
                 || !CanCopySnapshotWithoutGrowth(target, snapshot))
@@ -315,6 +377,8 @@ Status SnapshotStore::SaveCopyPrewarmed(const Snapshot& snapshot) noexcept
     if (!CanCopySnapshotWithoutGrowth(snapshots_[slot], snapshot))
     {
         ++free_slot_count_;
+        if (capture_slots_frozen_)
+            return Status::failure(FailureCode::CapacityExceeded);
         const auto rewarmed = PrewarmCopySlots(snapshot);
         if (!rewarmed.ok() || free_slot_count_ == 0)
             return Status::failure(FailureCode::CapacityExceeded);
@@ -325,22 +389,23 @@ Status SnapshotStore::SaveCopyPrewarmed(const Snapshot& snapshot) noexcept
             return Status::failure(FailureCode::CapacityExceeded);
         }
         CopySnapshotWithoutGrowth(snapshots_[rewarmed_slot], snapshot);
-        entries_.insert(existing, Entry{snapshot.coordinate, rewarmed_slot});
+        entries_.insert(existing, Entry{key, rewarmed_slot});
         return Status::success();
     }
     CopySnapshotWithoutGrowth(snapshots_[slot], snapshot);
-    entries_.insert(existing, Entry{snapshot.coordinate, slot});
+    entries_.insert(existing, Entry{key, slot});
     return Status::success();
 }
 
 void SnapshotStore::ReleasePrewarmedCopySlots() noexcept
 {
-    if (!copy_slots_prewarmed_) return;
+    // Failed preparation can also retain partially allocated envelopes.
     entries_.clear();
     for (std::size_t slot = 0; slot < slot_capacity_; ++slot)
         snapshots_[slot] = {};
     maximum_entries_ = slot_capacity_;
     copy_slots_prewarmed_ = false;
+    capture_slots_frozen_ = false;
     bytes_used_ = fixed_bytes_;
     reset_free_slots();
 }
@@ -374,6 +439,8 @@ void SnapshotStore::erase_oldest() noexcept
 
 Status SnapshotStore::Save(Snapshot snapshot) noexcept
 {
+    if (index_ != SnapshotIndex::NativeCoordinate)
+        return Status::failure(FailureCode::InvalidConfiguration);
     static_assert(std::is_nothrow_move_assignable_v<Snapshot>);
     const std::size_t incoming = snapshot_dynamic_cost(snapshot);
     if (maximum_entries_ == 0 || incoming > maximum_bytes_ - fixed_bytes_)
@@ -381,10 +448,10 @@ Status SnapshotStore::Save(Snapshot snapshot) noexcept
 
     auto existing = std::lower_bound(entries_.begin(), entries_.end(),
         snapshot.coordinate, [](const Entry& entry, FrameCoordinate value) {
-            return entry.coordinate < value;
+            return entry.key < value;
         });
     const bool replacing = existing != entries_.end()
-        && existing->coordinate == snapshot.coordinate;
+        && existing->key == snapshot.coordinate;
     const std::size_t replaced = replacing
         ? snapshot_dynamic_cost(snapshots_[existing->slot]) : 0;
     const std::size_t effective_count = entries_.size() - (replacing ? 1 : 0);
@@ -411,7 +478,7 @@ Status SnapshotStore::Save(Snapshot snapshot) noexcept
     const auto insertion = std::lower_bound(entries_.begin(), entries_.end(),
         snapshots_[slot].coordinate,
         [](const Entry& entry, FrameCoordinate value) {
-            return entry.coordinate < value;
+            return entry.key < value;
         });
     try
     {
@@ -440,30 +507,42 @@ std::optional<Snapshot> SnapshotStore::NearestAtOrBefore(
     return found == nullptr ? std::nullopt : std::optional<Snapshot>{*found};
 }
 
-const Snapshot* SnapshotStore::FindExact(
+const Snapshot* SnapshotStore::FindExact(FrameCoordinate coordinate) const noexcept
+{
+    return index_ == SnapshotIndex::NativeCoordinate ? find_key(coordinate) : nullptr;
+}
+
+const Snapshot* SnapshotStore::FindInterval(NativeIntervalId interval) const noexcept
+{
+    return index_ == SnapshotIndex::NativeInterval && interval.ownership_epoch != 0
+        ? find_key({interval.ownership_epoch, interval.sequence}) : nullptr;
+}
+
+const Snapshot* SnapshotStore::find_key(
     FrameCoordinate coordinate) const noexcept
 {
     const auto found = std::lower_bound(entries_.begin(), entries_.end(),
         coordinate, [](const Entry& entry, FrameCoordinate value) {
-            return entry.coordinate < value;
+            return entry.key < value;
         });
-    return found != entries_.end() && found->coordinate == coordinate
+    return found != entries_.end() && found->key == coordinate
         ? &snapshots_[found->slot] : nullptr;
 }
 
 const Snapshot* SnapshotStore::FindNearestAtOrBefore(
     FrameCoordinate coordinate) const noexcept
 {
+    if (index_ != SnapshotIndex::NativeCoordinate) return nullptr;
     auto found = std::upper_bound(entries_.begin(), entries_.end(),
         coordinate, [](FrameCoordinate value, const Entry& entry) {
-            return value < entry.coordinate;
+            return value < entry.key;
         });
     while (found != entries_.begin())
     {
         --found;
-        if (found->coordinate.generation == coordinate.generation)
+        if (found->key.generation == coordinate.generation)
             return &snapshots_[found->slot];
-        if (found->coordinate.generation < coordinate.generation) break;
+        if (found->key.generation < coordinate.generation) break;
     }
     return nullptr;
 }
@@ -472,7 +551,8 @@ Status SnapshotStore::ValidateExactReplacement(
     std::span<const Snapshot> replacements,
     std::span<const CanonicalHash> expected_hashes) const noexcept
 {
-    if (replacements.size() != expected_hashes.size())
+    if (index_ != SnapshotIndex::NativeCoordinate
+        || replacements.size() != expected_hashes.size())
         return Status::failure(FailureCode::InvalidConfiguration);
     std::size_t removed{};
     std::size_t incoming{};
@@ -487,10 +567,10 @@ Status SnapshotStore::ValidateExactReplacement(
         const auto found = std::lower_bound(entries_.begin(), entries_.end(),
             replacement.coordinate,
             [](const Entry& entry, FrameCoordinate value) {
-                return entry.coordinate < value;
+                return entry.key < value;
             });
         if (found == entries_.end()
-            || found->coordinate != replacement.coordinate)
+            || found->key != replacement.coordinate)
             return Status::failure(FailureCode::MissingSnapshot);
         const auto& current = snapshots_[found->slot];
         if (current.canonical_hash != expected_hashes[index])
@@ -522,7 +602,7 @@ void SnapshotStore::CommitValidatedExactReplacement(
         const auto found = std::lower_bound(entries_.begin(), entries_.end(),
             replacement.coordinate,
             [](const Entry& entry, FrameCoordinate value) {
-                return entry.coordinate < value;
+                return entry.key < value;
             });
         const auto slot = found->slot;
         if (copy_slots_prewarmed_)
@@ -536,11 +616,57 @@ void SnapshotStore::CommitValidatedExactReplacement(
     }
 }
 
+Status SnapshotStore::ValidateIntervalReplacement(
+    std::span<const NativeIntervalId> intervals,
+    std::span<const Snapshot> replacements,
+    std::span<const CanonicalHash> expected_hashes) const noexcept
+{
+    if (index_ != SnapshotIndex::NativeInterval
+        || intervals.size() != replacements.size()
+        || intervals.size() != expected_hashes.size())
+        return Status::failure(FailureCode::InvalidConfiguration);
+    if (!capture_slots_frozen_ || !copy_slots_prewarmed_)
+        return Status::failure(FailureCode::CapacityExceeded);
+    for (std::size_t index = 0; index < intervals.size(); ++index)
+    {
+        if (intervals[index].ownership_epoch == 0
+            || (index != 0 && (intervals[index].ownership_epoch
+                    != intervals[0].ownership_epoch
+                || !(intervals[index - 1] < intervals[index]))))
+            return Status::failure(FailureCode::InvalidConfiguration);
+        const auto* current = FindInterval(intervals[index]);
+        if (current == nullptr) return Status::failure(FailureCode::MissingSnapshot);
+        const auto& replacement = replacements[index];
+        if (current->canonical_hash != expected_hashes[index]
+            || current->context_identity != replacement.context_identity
+            || current->coordinate.generation != replacement.coordinate.generation)
+            return Status::failure(FailureCode::IdentityMismatch);
+        if (!CanCopySnapshotWithoutGrowth(*current, replacement))
+            return Status::failure(FailureCode::CapacityExceeded);
+    }
+    return Status::success();
+}
+
+void SnapshotStore::CommitValidatedIntervalReplacement(
+    std::span<const NativeIntervalId> intervals,
+    std::span<Snapshot> replacements) noexcept
+{
+    // Like coordinate replacements, admission and commit share the owner
+    // thread. No index, slot, capacity, or allocation changes during commit.
+    for (std::size_t index = 0; index < intervals.size(); ++index)
+    {
+        const FrameCoordinate key{intervals[index].ownership_epoch, intervals[index].sequence};
+        const auto found = std::lower_bound(entries_.begin(), entries_.end(), key,
+            [](const Entry& entry, FrameCoordinate value) { return entry.key < value; });
+        CopySnapshotWithoutGrowth(snapshots_[found->slot], replacements[index]);
+    }
+}
+
 void SnapshotStore::InvalidateGeneration(std::uint64_t generation) noexcept
 {
     for (auto entry = entries_.begin(); entry != entries_.end();)
     {
-        if (entry->coordinate.generation == generation)
+        if (snapshots_[entry->slot].coordinate.generation == generation)
         {
             const auto index = static_cast<std::size_t>(entry - entries_.begin());
             release_entry(entry);
@@ -550,16 +676,30 @@ void SnapshotStore::InvalidateGeneration(std::uint64_t generation) noexcept
     }
 }
 
-void SnapshotStore::DiscardBeforeRetainingNearest(
+void SnapshotStore::DiscardBeforeRetainingNearest(FrameCoordinate minimum) noexcept
+{
+    if (index_ == SnapshotIndex::NativeCoordinate)
+        discard_before_key_retaining_nearest(minimum);
+}
+
+void SnapshotStore::DiscardIntervalsBeforeRetainingNearest(NativeIntervalId minimum) noexcept
+{
+    if (index_ == SnapshotIndex::NativeInterval && minimum.ownership_epoch != 0)
+        discard_before_key_retaining_nearest({minimum.ownership_epoch, minimum.sequence});
+}
+
+void SnapshotStore::discard_before_key_retaining_nearest(
     FrameCoordinate minimum) noexcept
 {
     auto first = std::lower_bound(entries_.begin(), entries_.end(),
         minimum, [](const Entry& entry, FrameCoordinate value) {
-            return entry.coordinate < value;
+            return entry.key < value;
         });
     std::size_t discard = static_cast<std::size_t>(first - entries_.begin());
     if (discard != 0
-        && (first == entries_.end() || first->coordinate != minimum))
+        && (first == entries_.end() || first->key != minimum)
+        && (index_ != SnapshotIndex::NativeInterval
+            || entries_[discard - 1].key.generation == minimum.generation))
         --discard;
     while (discard-- != 0) release_entry(entries_.begin());
 }
@@ -571,7 +711,8 @@ std::size_t SnapshotStore::BytesUsed() const noexcept
 
 bool SnapshotStore::TakeOldestIfFull(Snapshot& output) noexcept
 {
-    if (policy_ != CapacityPolicy::EvictOldest
+    if (index_ != SnapshotIndex::NativeCoordinate
+        || policy_ != CapacityPolicy::EvictOldest
         || entries_.size() < maximum_entries_ || entries_.empty())
         return false;
     const auto slot = entries_.front().slot;

@@ -7,8 +7,10 @@ import pytest
 
 from hgmotion_reference import (
     HuffmanBitReader,
+    MotionDecodeError,
     MotionPlaybackState,
     PoseMotionLane,
+    SKILL_CHECK_CHANNEL_TYPE_STREAM,
     build_huffman_table,
     decode_huffman_keyframe_data,
     decode_root_movement_frames,
@@ -75,7 +77,7 @@ def test_nmd_overlay_uses_converted_native_core_parents_not_raw_source_links():
     assert skeleton.parents[15:19] == (14, 15, 16, 17)
 
 
-def test_selector06_consumes_words_without_publishing_a_joint_rotation():
+def test_selector06_publishes_z_axis_joint_rotation_and_preserves_translation():
     root = Path("E:/myMods/dump/Battle")
     mot = parse_mot((root / "mot" / "chr012.mot").read_bytes())
     skeleton = load_compact_collision_skeleton_from_nmd_manifest(
@@ -88,9 +90,15 @@ def test_selector06_consumes_words_without_publishing_a_joint_rotation():
         clip_index=clip_index, offset=mot.offsets[clip_index],
     )
 
-    # Default-stream logical transform 8 is selector 0x06. The executable
-    # consumes its i16 but performs no FTransform48 write or dirty publication.
-    assert pose.local[8] == skeleton.reference_local[8]
+    # Default-stream logical transform 8 is selector 0x06. Native code emits
+    # a Z-axis quaternion while retaining the base/reference translation.
+    rotation = pose.local[8].rotation
+    assert pose.local[8].translation == skeleton.reference_local[8].translation
+    assert rotation != skeleton.reference_local[8].rotation
+    assert (rotation[2], rotation[5], rotation[6], rotation[7], rotation[8]) == pytest.approx(
+        (0.0, 0.0, 0.0, 0.0, 1.0)
+    )
+    assert math.sqrt(rotation[0] ** 2 + rotation[1] ** 2) == pytest.approx(1.0)
 
 
 def test_four_lane_pose_single_full_weight_lane_matches_direct_decode():
@@ -154,17 +162,14 @@ def test_half_speed_common_grounded_clip_uses_effective_group_count():
     assert len(decoded.words) == clip.decoded_word_count
 
 
-def test_half_speed_root_curve_samples_and_interpolates_full_playback_timeline():
+def test_common_skill_pose_stream_does_not_invent_selector16_root_motion():
     mot = parse_mot(Path("E:/myMods/dump/Battle/mot/chr0ff.mot").read_bytes())
-    clip, frames, _ = decode_root_movement_frames(
-        mot.section(0x0011), 0x0011, mot.offsets[0x0011]
-    )
-
-    assert len(frames) == clip.playback_frame_count == 0x118
-    # Playback frame 5 samples stored keyframe 2.5.
-    for axis in ("local_x", "local_y", "local_z"):
-        assert getattr(frames[5], axis) == pytest.approx(
-            (getattr(frames[4], axis) + getattr(frames[6], axis)) * 0.5
+    with pytest.raises(MotionDecodeError, match="no active root channel"):
+        decode_root_movement_frames(
+            mot.section(0x0011),
+            0x0011,
+            mot.offsets[0x0011],
+            channel_type_stream=SKILL_CHECK_CHANNEL_TYPE_STREAM,
         )
 
 

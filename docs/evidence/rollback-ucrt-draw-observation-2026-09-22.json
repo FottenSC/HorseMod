@@ -1,0 +1,140 @@
+{
+  "red": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\26b9f091ca2c33a649dbacc1a2508ad3c73383ad1f1f54326f50ca00329568c7.log",
+    "sha256": "26b9f091ca2c33a649dbacc1a2508ad3c73383ad1f1f54326f50ca00329568c7",
+    "bytes": 2327
+  },
+  "fixture_setup_failures": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7b80ea914af5e35f501fda150dbfa7af4e323da0a6e1c6cb2c50878eed17a9a9.log",
+      "sha256": "7b80ea914af5e35f501fda150dbfa7af4e323da0a6e1c6cb2c50878eed17a9a9",
+      "bytes": 2488
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\41ac973760dfa4320278baac0832ce81b96ecf92aeb2af09e324a3ef6b1e3e02.log",
+      "sha256": "41ac973760dfa4320278baac0832ce81b96ecf92aeb2af09e324a3ef6b1e3e02",
+      "bytes": 2414
+    }
+  ],
+  "red_source": {
+    "base": {
+      "manifest_sha256": "22e57eb72765641e1954dd8ed4ef38ed4f4fdbc346cace528d7ab3ee39e78053",
+      "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-22e57eb72765641e1954dd8ed4ef38ed4f4fdbc346cace528d7ab3ee39e78053.zip",
+      "archive_sha256": "a5de90f9d50003c57c4fc77842cce45be3761ded3baadaad04f81496c6ea3366",
+      "files": 16571,
+      "uncompressed_bytes": 92352187,
+      "reconstructible": true
+    },
+    "replacements": {
+      "workspace/HorseMod/horselib/deterministic/Sc6ReplayHost.GroundDebris.inl": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\3307f21f4a58a4c1ca49ad232ac5be04229835f5610a3a1cb7fc894da48267cd.inl",
+        "sha256": "3307f21f4a58a4c1ca49ad232ac5be04229835f5610a3a1cb7fc894da48267cd",
+        "bytes": 86914
+      },
+      "workspace/tools/deterministic_qualification/tests/test_replay_run.py": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\acaf5fc6fddb4344230e0c8a6701fff5a6ce21111aadfe988ecb325d9258e9ff.py",
+        "sha256": "acaf5fc6fddb4344230e0c8a6701fff5a6ce21111aadfe988ecb325d9258e9ff",
+        "bytes": 490162
+      },
+      "workspace/tools/replay_ground_capture_selftest.cpp": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9760d9bc08d60e6db0d67b95d9a050c40925fbfaf08038e0a5194350a75143e6.cpp",
+        "sha256": "9760d9bc08d60e6db0d67b95d9a050c40925fbfaf08038e0a5194350a75143e6",
+        "bytes": 23597
+      },
+      "workspace/tools/replay_ucrt_draw_observer_selftest.cpp": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\30c94940a8d937d92dd0865dafbea2aaf556569f56a988bd316888eeb5d75868.cpp",
+        "sha256": "30c94940a8d937d92dd0865dafbea2aaf556569f56a988bd316888eeb5d75868",
+        "bytes": 3951
+      }
+    },
+    "deleted": [],
+    "scope": "Membership and all byte changes enumerated against retained base. Replacements are complete files."
+  },
+  "first_failure": "exit42: existing production IAT owner diagnostic lacks actual thread and pre-draw native state. Real UcrtRandBroker and dynamic CRT are used by the fixture; only diagnostic/log/return-address edges are controlled.",
+  "green": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\bd62044325cfece0f679d5b6565deacaf9b110bfce38b42195394d99b813ba42.log",
+    "sha256": "bd62044325cfece0f679d5b6565deacaf9b110bfce38b42195394d99b813ba42",
+    "bytes": 100
+  },
+  "green_source": {
+    "base": {
+      "manifest_sha256": "22e57eb72765641e1954dd8ed4ef38ed4f4fdbc346cace528d7ab3ee39e78053",
+      "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-22e57eb72765641e1954dd8ed4ef38ed4f4fdbc346cace528d7ab3ee39e78053.zip",
+      "archive_sha256": "a5de90f9d50003c57c4fc77842cce45be3761ded3baadaad04f81496c6ea3366",
+      "files": 16571,
+      "uncompressed_bytes": 92352187,
+      "reconstructible": true
+    },
+    "replacements": {
+      "workspace/HorseMod/horselib/deterministic/DeterministicHookSet.PresentationTerminals.inl": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9c1c667b621b48a1d1ae18cc4f34dd66caa5ed19da5411b0ebae6309f27d1d35.inl",
+        "sha256": "9c1c667b621b48a1d1ae18cc4f34dd66caa5ed19da5411b0ebae6309f27d1d35",
+        "bytes": 60846
+      },
+      "workspace/HorseMod/horselib/deterministic/Sc6ReplayHost.GroundDebris.inl": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\3307f21f4a58a4c1ca49ad232ac5be04229835f5610a3a1cb7fc894da48267cd.inl",
+        "sha256": "3307f21f4a58a4c1ca49ad232ac5be04229835f5610a3a1cb7fc894da48267cd",
+        "bytes": 86914
+      },
+      "workspace/tools/deterministic_qualification/replay_profiles/changed-rolling407-ground-rng.json": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\abdbfb4b684deafb4f2b1b9bc0136e74d421bb8a086127e271f7ac96285d7da0.json",
+        "sha256": "abdbfb4b684deafb4f2b1b9bc0136e74d421bb8a086127e271f7ac96285d7da0",
+        "bytes": 3131
+      },
+      "workspace/tools/deterministic_qualification/tests/test_replay_run.py": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\acaf5fc6fddb4344230e0c8a6701fff5a6ce21111aadfe988ecb325d9258e9ff.py",
+        "sha256": "acaf5fc6fddb4344230e0c8a6701fff5a6ce21111aadfe988ecb325d9258e9ff",
+        "bytes": 490162
+      },
+      "workspace/tools/replay_ground_capture_selftest.cpp": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9760d9bc08d60e6db0d67b95d9a050c40925fbfaf08038e0a5194350a75143e6.cpp",
+        "sha256": "9760d9bc08d60e6db0d67b95d9a050c40925fbfaf08038e0a5194350a75143e6",
+        "bytes": 23597
+      },
+      "workspace/tools/replay_ucrt_draw_observer_selftest.cpp": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\30c94940a8d937d92dd0865dafbea2aaf556569f56a988bd316888eeb5d75868.cpp",
+        "sha256": "30c94940a8d937d92dd0865dafbea2aaf556569f56a988bd316888eeb5d75868",
+        "bytes": 3951
+      }
+    },
+    "deleted": [],
+    "scope": "All source membership/byte changes enumerated versus retained base; full file replacements retained."
+  },
+  "scope": "Targeted production-boundary tests and required build/native checks pass. Named ground-rng407 and current integration/affected30 remain pending; no independent shared-CRT draw qualification yet.",
+  "required_build": {
+    "ground-callback-ucrt-build-20260922.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\25ee35eaf8f90d648c7e99a27428f82ff7ce39dfdd26086aceff06f57c93a854.log",
+      "sha256": "25ee35eaf8f90d648c7e99a27428f82ff7ce39dfdd26086aceff06f57c93a854",
+      "bytes": 334
+    },
+    "build-stage.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4529b132ca4da49860585620ae397e9e46284b7f39d73f6995e3704320466df9.json",
+      "sha256": "4529b132ca4da49860585620ae397e9e46284b7f39d73f6995e3704320466df9",
+      "bytes": 6238
+    },
+    "build-provenance.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\51298a47dd612a067fc8cb6e74bdd9d32d363d981eb79288b18ae665032fb685.json",
+      "sha256": "51298a47dd612a067fc8cb6e74bdd9d32d363d981eb79288b18ae665032fb685",
+      "bytes": 2373
+    },
+    "local-regressions.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d57037c130979fadb52e25642a128ae2ae75b98a942b837ec31da22d092696ec.log",
+      "sha256": "d57037c130979fadb52e25642a128ae2ae75b98a942b837ec31da22d092696ec",
+      "bytes": 4316
+    },
+    "local-regressions.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8c7704b4352cf0ed1e661dafd27dd346b26012d6dd794fccfb407993bea39fda.json",
+      "sha256": "8c7704b4352cf0ed1e661dafd27dd346b26012d6dd794fccfb407993bea39fda",
+      "bytes": 2141
+    }
+  },
+  "required_build_result": "pass",
+  "build_source": {
+    "manifest_sha256": "30553b3007326ac5ff1749e5e925ffa32141c78f560f023458d0a9c920dff0c1",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-30553b3007326ac5ff1749e5e925ffa32141c78f560f023458d0a9c920dff0c1.zip",
+    "archive_sha256": "f092cb61dfff862075a0879fe5eb4aa878194cb4835fc9a74ed022ad600895ca",
+    "files": 17276,
+    "uncompressed_bytes": 126806250,
+    "reconstructible": true
+  }
+}

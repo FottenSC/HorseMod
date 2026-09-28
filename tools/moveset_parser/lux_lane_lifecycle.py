@@ -17,7 +17,7 @@ class LuxAttackCellLifecycleView:
     range_stand_min: int = -1
     range_stand_max: int = -1
     slot_mask: int = 0
-    hitbox_group_bitfield: int = 0
+    packed_subwindow_selector: int = 0
     passthrough_tag_a: int = 0
     passthrough_tag_c: int = 0
 
@@ -40,10 +40,17 @@ class LuxAttackCellLifecycleView:
         )
         object.__setattr__(self, "slot_mask", self.slot_mask & 0xFFFFFFFFFFFFFFFF)
         object.__setattr__(
-            self, "hitbox_group_bitfield", self.hitbox_group_bitfield & 0xFFFF
+            self,
+            "packed_subwindow_selector",
+            self.packed_subwindow_selector & 0xFFFF,
         )
         object.__setattr__(self, "passthrough_tag_a", self.passthrough_tag_a & 0xFFFF)
         object.__setattr__(self, "passthrough_tag_c", self.passthrough_tag_c & 0xFFFF)
+
+    @property
+    def hitbox_group_bitfield(self) -> int:
+        """Compatibility alias; +0x5E is a packed subwindow selector."""
+        return self.packed_subwindow_selector
 
 
 SecondaryLaneScriptExecutor = Callable[

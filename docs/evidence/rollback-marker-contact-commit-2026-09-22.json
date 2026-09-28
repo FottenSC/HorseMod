@@ -1,0 +1,75 @@
+{
+  "live_failure": "d1cb87ba4bb7a7b3838f123a2eaa9831f149a633442c4714440cb8f806573d3a",
+  "native": "T619 header=FF004B00, actor count4. Contact ctor125D20 sets type0, vtable1AB540, shapes28/30, filterpair38. Base133BA0; actor register114080; scene registerEB900/unregisterEBA10: array38+type*16, count40+type*16, active68+type*4. No solver payload writes in commit.",
+  "red": {
+    "log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\efcb87a422eea443cc9d695a10ec3bcc65de4b78368d65cdb51a776f8c32e50e.log",
+      "sha256": "efcb87a422eea443cc9d695a10ec3bcc65de4b78368d65cdb51a776f8c32e50e",
+      "bytes": 5081
+    },
+    "test": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\bfb671149e69a9a5550829589c5ef0fef5d40b8a7efe53b9d67a0fae425894da.inl",
+      "sha256": "bfb671149e69a9a5550829589c5ef0fef5d40b8a7efe53b9d67a0fae425894da",
+      "bytes": 118246
+    },
+    "production": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\361f96c47c00b15ca42f5686454a0806b7d19597dea49b44ce78bd0a365e4d94.inl",
+      "sha256": "361f96c47c00b15ca42f5686454a0806b7d19597dea49b44ce78bd0a365e4d94",
+      "bytes": 42509
+    },
+    "graph": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\900a87ce4b80dfeb72b3bc7c77e8d5ff766acc61d3206549e124f91edc18b694.hpp",
+      "sha256": "900a87ce4b80dfeb72b3bc7c77e8d5ff766acc61d3206549e124f91edc18b694",
+      "bytes": 8839
+    }
+  },
+  "duplicate_red": {
+    "log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f49ce68734068d595c7069934cb1a793feb3b84fcf764ee3d5d837d2fc67d719.log",
+      "sha256": "f49ce68734068d595c7069934cb1a793feb3b84fcf764ee3d5d837d2fc67d719",
+      "bytes": 3371
+    },
+    "test": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b245185f612b83519e55c7d50bc45cf136913842920ebcf4b2bfdb92a59aa11a.inl",
+      "sha256": "b245185f612b83519e55c7d50bc45cf136913842920ebcf4b2bfdb92a59aa11a",
+      "bytes": 118985
+    },
+    "production": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a1c50cd9c086893cb4a791c5d146dec90e75dfad8b3b26100d4b4fd4941a82b5.inl",
+      "sha256": "a1c50cd9c086893cb4a791c5d146dec90e75dfad8b3b26100d4b4fd4941a82b5",
+      "bytes": 47140
+    }
+  },
+  "native_disassembly": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e644634e005ce4e8c1bab81538ee590f17c4e97c333d4ee98e6be74a8ae04ddb.txt",
+    "sha256": "e644634e005ce4e8c1bab81538ee590f17c4e97c333d4ee98e6be74a8ae04ddb",
+    "bytes": 9007
+  },
+  "green": {
+    "build": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1be5c71ce6f72df5a8d30ed7b83edb7502d1c2e5baa86f24579987d440581bae.json",
+      "sha256": "1be5c71ce6f72df5a8d30ed7b83edb7502d1c2e5baa86f24579987d440581bae",
+      "bytes": 5870
+    },
+    "log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\211bd86deb9604a177344ebe8d40e760cd912d971189993f792c25d7414c2a57.log",
+      "sha256": "211bd86deb9604a177344ebe8d40e760cd912d971189993f792c25d7414c2a57",
+      "bytes": 3645
+    },
+    "test": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b245185f612b83519e55c7d50bc45cf136913842920ebcf4b2bfdb92a59aa11a.inl",
+      "sha256": "b245185f612b83519e55c7d50bc45cf136913842920ebcf4b2bfdb92a59aa11a",
+      "bytes": 118985
+    },
+    "graph": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\300bee5e4418f6fcb7d92483b3a18ed0a19a7e5470c6e91ba11eb696823bced4.hpp",
+      "sha256": "300bee5e4418f6fcb7d92483b3a18ed0a19a7e5470c6e91ba11eb696823bced4",
+      "bytes": 8883
+    },
+    "production": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\bd1a52481160095b65d4b5fb2e08f01a47ea0ed0e1437af2278726b901fb732c.inl",
+      "sha256": "bd1a52481160095b65d4b5fb2e08f01a47ea0ed0e1437af2278726b901fb732c",
+      "bytes": 47417
+    }
+  }
+}

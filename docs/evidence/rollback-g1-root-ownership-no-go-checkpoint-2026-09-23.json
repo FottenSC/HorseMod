@@ -1,0 +1,160 @@
+{
+  "result": "G1_NO_GO",
+  "complete": false,
+  "scope": "G1 ownership prerequisite checkpoint; local readiness not complete",
+  "implemented": [
+    "22 verified before-entry sentinels with exact chara/scene admission",
+    "foreign selected-root retirement veto through native execution; original-thread callbacks forward",
+    "known crashing no-threading launch rejected before deployment"
+  ],
+  "validation": {
+    "local_tests": 61,
+    "build": "pass",
+    "ctest_total": 2,
+    "native_prefix_matches": 22,
+    "live_hold": "unproven",
+    "safe_termination_live": "unproven",
+    "complete_B_consumer_recovery": "unproven",
+    "independent_120_after_consumer_recovery": "not run",
+    "G2": "blocked",
+    "retry408": "not run",
+    "campaign600": "not run"
+  },
+  "blockers": [
+    "No proved selected-root lifetime/mutation exclusion covering already-entered native work before hook publication with required raw I/O workers enabled",
+    "PolyHook patching/removal has no inspected thread rendezvous; zero call count is insufficient",
+    "No complete supported consumer-mutation recovery disposition; BeginTrace births and shared mesh writes exceed current exact capture; one-shot callback writer unresolved",
+    "Niagara outside-tick initialization/rebinding and in-application physics/callback mutation boundaries remain open"
+  ],
+  "policy": {
+    "version": 1,
+    "semantic_change": false,
+    "debris": "exact/Unresolved",
+    "production_owned_limit_bytes": 1073741824
+  },
+  "build": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\bf067252302c448136e878d18dccd6245d3fd41bdc937d90759cfc06758c2d57.json",
+    "sha256": "bf067252302c448136e878d18dccd6245d3fd41bdc937d90759cfc06758c2d57",
+    "bytes": 6239
+  },
+  "build_provenance": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9a290e19bde556ba59727be4bce571303695e9cf95bf8f2cb7bc249b86988327.json",
+    "sha256": "9a290e19bde556ba59727be4bce571303695e9cf95bf8f2cb7bc249b86988327",
+    "bytes": 2373
+  },
+  "native_checks": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d14d2c25a3aba651da970c27bf79e4693683d39d94cdd83b235ef19ca614631d.json",
+    "sha256": "d14d2c25a3aba651da970c27bf79e4693683d39d94cdd83b235ef19ca614631d",
+    "bytes": 2141
+  },
+  "evidence": {
+    "rollback-g1-root-retirement-red-green-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\89034ccb8755c32a74e69312604c6701f3017aeb4190784fcbae3ba75fd54275.json",
+      "sha256": "89034ccb8755c32a74e69312604c6701f3017aeb4190784fcbae3ba75fd54275",
+      "bytes": 9849
+    },
+    "rollback-g1-null-pool-launch-red-green-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0e8cb1e90812c2ef746ba55bd48f2e828cd73b134f44159bd90c996b8466c20b.json",
+      "sha256": "0e8cb1e90812c2ef746ba55bd48f2e828cd73b134f44159bd90c996b8466c20b",
+      "bytes": 2400
+    },
+    "rollback-g1-root-guard-prefix-and-patch-audit-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\3e0df4ad2a61fe3e4a3c80d1f101c69e9ade9c410396acee2018d6997154faa3.json",
+      "sha256": "3e0df4ad2a61fe3e4a3c80d1f101c69e9ade9c410396acee2018d6997154faa3",
+      "bytes": 4744
+    },
+    "rollback-g1-exact-live-root-retirement-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\5669b93044391d2d6d191053cbc6122cd22712beb5cc735c501aa9eb12107209.json",
+      "sha256": "5669b93044391d2d6d191053cbc6122cd22712beb5cc735c501aa9eb12107209",
+      "bytes": 66683
+    },
+    "rollback-g1-scoped-worker-consumer-exclusions-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9d295b1287043438a1094828c5ebe92c4a7de4db21883637fd80fb6b01d50af7.json",
+      "sha256": "9d295b1287043438a1094828c5ebe92c4a7de4db21883637fd80fb6b01d50af7",
+      "bytes": 277125
+    },
+    "rollback-g1-trace-oneshot-writer-search-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f357562baa66ade03244ff40d0868b52fa08b3c1b1579971d9477fa1150bf0cd.json",
+      "sha256": "f357562baa66ade03244ff40d0868b52fa08b3c1b1579971d9477fa1150bf0cd",
+      "bytes": 190689
+    },
+    "rollback-g1-trace-root-family-census-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9d132c28404300ef1d7a4e1b371eac8c34aea1f6365cb7033bf8316c911ef793.json",
+      "sha256": "9d132c28404300ef1d7a4e1b371eac8c34aea1f6365cb7033bf8316c911ef793",
+      "bytes": 2977
+    },
+    "rollback-g1-startup-null-queued-pool-cause-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b9831e18f5c7ce60ad24999488c548df1616f78ce3f1b2d732b4a2992d870e7e.json",
+      "sha256": "b9831e18f5c7ce60ad24999488c548df1616f78ce3f1b2d732b4a2992d870e7e",
+      "bytes": 298165
+    },
+    "rollback-g1-consumer-startup-original-fault-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4fa9e1eac5d3beacbadc3886e4c197a5f90c9e2118c8f5e76ac18b7f33e289f0.json",
+      "sha256": "4fa9e1eac5d3beacbadc3886e4c197a5f90c9e2118c8f5e76ac18b7f33e289f0",
+      "bytes": 4636
+    },
+    "rollback-g1-retained-task-implementation-map-2026-09-23.md": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\ca7f8e4c3df72e3bbdfeb1f0b0cff294888710e49d737f8d85ae3ed81dd02609.md",
+      "sha256": "ca7f8e4c3df72e3bbdfeb1f0b0cff294888710e49d737f8d85ae3ed81dd02609",
+      "bytes": 7349
+    }
+  },
+  "cleanup": {
+    "journal": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\5bf88c9fb3b6a26ec0d4d7126e34d30ee88a9fe8f3c4550fbd976ff8b7e97833.json",
+      "sha256": "5bf88c9fb3b6a26ec0d4d7126e34d30ee88a9fe8f3c4550fbd976ff8b7e97833",
+      "bytes": 4431
+    },
+    "state": "clean",
+    "files": [
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll",
+        "before": "b583b65388616e4fc6bbac841a1de6bc7d87467e67132a0983c69eb5d0c40c2b",
+        "actual": "b583b65388616e4fc6bbac841a1de6bc7d87467e67132a0983c69eb5d0c40c2b",
+        "restored": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\UE4SS.dll",
+        "before": "df9e6e9a2280972b1c28ce590700feacc752b447204f8baadeb95f5776957055",
+        "actual": "df9e6e9a2280972b1c28ce590700feacc752b447204f8baadeb95f5776957055",
+        "restored": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\rollback.ini",
+        "before": "22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514",
+        "actual": "22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514",
+        "restored": true
+      },
+      {
+        "path": "C:\\Users\\prest\\AppData\\Local\\HorseMod\\Qualification\\replay_diagnostics.ini",
+        "before": null,
+        "actual": null,
+        "restored": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\dlls\\main.dll",
+        "before": null,
+        "actual": null,
+        "restored": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\enabled.txt",
+        "before": null,
+        "actual": null,
+        "restored": true
+      }
+    ],
+    "games": [],
+    "steam_left_running": [
+      {
+        "name": "steam.exe",
+        "pid": 98544
+      }
+    ]
+  },
+  "immutable": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\59f2d4bef402a1a8ca6c4f9170c03d489be5b3460153c7ef7b7f7ac895bc3ae9.json",
+    "sha256": "59f2d4bef402a1a8ca6c4f9170c03d489be5b3460153c7ef7b7f7ac895bc3ae9",
+    "bytes": 8150
+  }
+}

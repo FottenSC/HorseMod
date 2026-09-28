@@ -1,0 +1,259 @@
+{
+  "scope": "G1 empty frozen ground inventory must still validate actual physics step/substep callback domain; not Niagara or mid-application completion proof",
+  "red": {
+    "HorseMod/horselib/deterministic/Sc6ReplayHost.GroundDebris.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\cb77db32aef30f074af9c29480f5c17c6f9874bc30507d821245d29e5f1cf7b0.inl",
+      "sha256": "cb77db32aef30f074af9c29480f5c17c6f9874bc30507d821245d29e5f1cf7b0",
+      "bytes": 89103
+    },
+    "tools/replay_ground_capture_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\ce1efe5c7fea392c40e460658be845bdb40090fc6f69b7ceef19bdfb2bd9e6eb.cpp",
+      "sha256": "ce1efe5c7fea392c40e460658be845bdb40090fc6f69b7ceef19bdfb2bd9e6eb",
+      "bytes": 31448
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/empty-ground-callback-red-20260923.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a8850df31183c0f575760e6744b306bf700e7467e13addaf481be6782fb0e95a.log",
+      "sha256": "a8850df31183c0f575760e6744b306bf700e7467e13addaf481be6782fb0e95a",
+      "bytes": 3668
+    }
+  },
+  "cause": "ValidateFrozen returned success for zero roots before reading current native physics step/substep callback owners; reproduced child exit48 at scene+60 count1.",
+  "fix": "Empty frozen inventory now runs the existing read-only physics_step_consumers predicate, preserving native callback dispatch and existing nonempty validation.",
+  "green": {
+    "HorseMod/horselib/deterministic/Sc6ReplayHost.GroundDebris.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\866e5168c5565b8323e547e3577db86728faa3dd18f3f5dba1da4cf7aac581cd.inl",
+      "sha256": "866e5168c5565b8323e547e3577db86728faa3dd18f3f5dba1da4cf7aac581cd",
+      "bytes": 89420
+    },
+    "tools/replay_ground_capture_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\ce1efe5c7fea392c40e460658be845bdb40090fc6f69b7ceef19bdfb2bd9e6eb.cpp",
+      "sha256": "ce1efe5c7fea392c40e460658be845bdb40090fc6f69b7ceef19bdfb2bd9e6eb",
+      "bytes": 31448
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/empty-ground-callback-green-20260923.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\561f2ea2db1a3fb3cf62450d64ddd8d7e14d7385e8e356211555c876dfc37c40.log",
+      "sha256": "561f2ea2db1a3fb3cf62450d64ddd8d7e14d7385e8e356211555c876dfc37c40",
+      "bytes": 100
+    }
+  },
+  "required_build": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\b1e96eb411cfbaf58d560710bb9b13d380ad341b1b6946bf7f9ca5740c2631e4.json",
+    "sha256": "b1e96eb411cfbaf58d560710bb9b13d380ad341b1b6946bf7f9ca5740c2631e4",
+    "bytes": 6432,
+    "summary": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\da8681ab9312cc90cf9d9c6f5cb4bb8362fb437bd312792891e271052558d7a2.md",
+      "sha256": "da8681ab9312cc90cf9d9c6f5cb4bb8362fb437bd312792891e271052558d7a2",
+      "bytes": 533
+    }
+  },
+  "build_identities": {
+    "runtime": "da24a1e119c572a56120929c488a990cc3c126445351342b0685415316d43d45",
+    "observer": "50ce0f46e22372460f3c68bd5a89ff04a75af1ee13e32636dcce4787a04fb234",
+    "framework": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6"
+  },
+  "build_result": "pass",
+  "after_publication_diagnostic": {
+    "result": "pass",
+    "profile": {
+      "path": "E:\\myMods\\tools\\deterministic_qualification\\replay_profiles\\cancel-after210-217-startup-serial.json",
+      "sha256": "6f5e532a7b4bc7257c8a569e946d6313ae11c88270f86aac6d7bf0d30abdaf18",
+      "bytes_utf8": "{\r\n  \"schema\": 1,\r\n  \"name\": \"cancel-after210-217-startup-serial\",\r\n  \"purpose\": \"diagnostic\",\r\n  \"arguments\": [\r\n    \"combat-restore\",\r\n    \"--combat-case\",\r\n    \"after\",\r\n    \"--host-seek\",\r\n    \"--combat-exact-advance\",\r\n    \"--combat-anchor-tick\",\r\n    \"210\",\r\n    \"--combat-advanced-tick\",\r\n    \"217\",\r\n    \"--host-seek-target\",\r\n    \"217\",\r\n    \"--replay-budget-gib\",\r\n    \"1\",\r\n    \"--timeout\",\r\n    \"180\",\r\n    \"--diagnostic-mask\",\r\n    \"0\",\r\n    \"--diagnostic-stack-depth\",\r\n    \"0\",\r\n    \"--diagnostic-first-tick\",\r\n    \"0\",\r\n    \"--diagnostic-last-tick\",\r\n    \"36000\",\r\n    \"--diagnostic-byte-limit\",\r\n    \"1048576\",\r\n    \"--flush-startup-loading\",\r\n    \"--no-async-loading-thread\"\r\n  ],\r\n  \"continuation_ticks\": 120,\r\n  \"setup\": {\r\n    \"skip_intros\": true,\r\n    \"include_setup\": true,\r\n    \"native_fixed_seed\": true,\r\n    \"serial_particles\": true,\r\n    \"flush_startup_loading\": true,\r\n    \"no_async_loading_thread\": true\r\n  },\r\n  \"comparison\": \"Independent native unchanged history through B217 and120 continuation ticks after cancellation. Expected observations are comparison only.\",\r\n  \"observation\": {\r\n    \"normal_renderer\": true,\r\n    \"pixel_diagnostics\": false,\r\n    \"coherence_images\": false\r\n  },\r\n  \"scope\": \"Original A210/B217 depth-seven window. Cancel after A publication before historical execution/commit; restore complete B with actual native/GPU completion and120 independent continuation. One G7 row only; mid-application, changed-history and A617 publication remain separate.\",\r\n  \"admission\": \"Production1GiB; existing complete-B/native/GPU completion guards; fail at first rejection.\"\r\n}\r\n",
+      "definition": {
+        "schema": 1,
+        "name": "cancel-after210-217-startup-serial",
+        "purpose": "diagnostic",
+        "arguments": [
+          "combat-restore",
+          "--combat-case",
+          "after",
+          "--host-seek",
+          "--combat-exact-advance",
+          "--combat-anchor-tick",
+          "210",
+          "--combat-advanced-tick",
+          "217",
+          "--host-seek-target",
+          "217",
+          "--replay-budget-gib",
+          "1",
+          "--timeout",
+          "180",
+          "--diagnostic-mask",
+          "0",
+          "--diagnostic-stack-depth",
+          "0",
+          "--diagnostic-first-tick",
+          "0",
+          "--diagnostic-last-tick",
+          "36000",
+          "--diagnostic-byte-limit",
+          "1048576",
+          "--flush-startup-loading",
+          "--no-async-loading-thread"
+        ],
+        "continuation_ticks": 120,
+        "setup": {
+          "skip_intros": true,
+          "include_setup": true,
+          "native_fixed_seed": true,
+          "serial_particles": true,
+          "flush_startup_loading": true,
+          "no_async_loading_thread": true
+        },
+        "comparison": "Independent native unchanged history through B217 and120 continuation ticks after cancellation. Expected observations are comparison only.",
+        "observation": {
+          "normal_renderer": true,
+          "pixel_diagnostics": false,
+          "coherence_images": false
+        },
+        "scope": "Original A210/B217 depth-seven window. Cancel after A publication before historical execution/commit; restore complete B with actual native/GPU completion and120 independent continuation. One G7 row only; mid-application, changed-history and A617 publication remain separate.",
+        "admission": "Production1GiB; existing complete-B/native/GPU completion guards; fail at first rejection."
+      },
+      "resolved_settings": {
+        "stage": "combat-restore",
+        "replay": "E:\\myMods\\ReplayExample\\REPLAY_12744704008398858106.bin",
+        "samples": 1200,
+        "timeout": 180.0,
+        "full_match": false,
+        "seek_observer_failure": false,
+        "seek_preparation_failure": false,
+        "index_preparation_fallback": false,
+        "index_recovery": "",
+        "record_index": false,
+        "host_session": false,
+        "index_seek": false,
+        "index_extra_checkpoint": 0,
+        "index_sequence": "",
+        "index_seek_target": 208,
+        "index_seek_continuation": 120,
+        "index_checkpoint": false,
+        "yield_every_tick": false,
+        "include_setup": false,
+        "empty_interval": false,
+        "move_state": false,
+        "world_pause": false,
+        "interior_pause": false,
+        "application_pause": false,
+        "interactive_controls": false,
+        "resume_baseline": false,
+        "resume_native_control": false,
+        "resume_candidate": false,
+        "seek_publication_cancel": false,
+        "seek_drained_cancel": false,
+        "seek_settlement_failure": false,
+        "seek_advance_failure": false,
+        "combat_case": "after",
+        "checkpoint_fallback": false,
+        "checkpoint_pair": false,
+        "rolling_corrections": "",
+        "rolling_cycles": 0,
+        "host_seek_repeat": false,
+        "host_seek_target": 217,
+        "host_seek_first_target": 0,
+        "host_seek": true,
+        "restore_reuse": false,
+        "capture_cancel": false,
+        "particle_owner_copy": false,
+        "particle_owner_registration": false,
+        "particle_owner_gpu": false,
+        "source_revision": false,
+        "completion_repeat": false,
+        "combat_single_step": false,
+        "combat_exact_advance": true,
+        "complete_seek_application": false,
+        "combat_advanced_tick": 217,
+        "combat_anchor_tick": 210,
+        "corrected_inputs": false,
+        "changed_inputs": false,
+        "pixel_diagnostics": false,
+        "coherence_images": false,
+        "same_process_render": false,
+        "candidate_only": false,
+        "replay_budget_gib": 1,
+        "ground_motion_perturb": false,
+        "jobs": 4,
+        "diagnostic_stack_depth": 0,
+        "diagnostic_mask": 0,
+        "diagnostic_first_tick": 0,
+        "diagnostic_last_tick": 36000,
+        "diagnostic_byte_limit": 1048576,
+        "profile": "cancel-after210-217-startup-serial",
+        "flush_startup_loading": true,
+        "no_async_loading_thread": true,
+        "group": "auto",
+        "changed_path": [],
+        "list_tests": false,
+        "evidence_report": []
+      }
+    },
+    "native_callbacks_compared": 480,
+    "continuation_ticks": 120,
+    "retained_evidence": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\d9cda36a293f6751a9a6efb07b9af5d6e892bbef9343dd9e182c70f1c1561515.json",
+      "sha256": "d9cda36a293f6751a9a6efb07b9af5d6e892bbef9343dd9e182c70f1c1561515",
+      "bytes": 39920,
+      "summary": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\8b3ccd837566e1a64247809d223a3c2541e2dcd19ee80f5abdd3e3c92db84914.md",
+        "sha256": "8b3ccd837566e1a64247809d223a3c2541e2dcd19ee80f5abdd3e3c92db84914",
+        "bytes": 534
+      }
+    }
+  },
+  "full_integration": {
+    "result": "pass",
+    "groups": [
+      "all"
+    ],
+    "native": [],
+    "source_retention": {
+      "manifest_sha256": "0b94202115a63c32fe604492659deb69d57f38b66dd498bf7af81c6ef125c575",
+      "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-0b94202115a63c32fe604492659deb69d57f38b66dd498bf7af81c6ef125c575.zip",
+      "archive_sha256": "d8296225bf1dca7beb32f2b495a6412f0f02a3a9baf5ec79d3ece81d33a8e85c",
+      "files": 16586,
+      "uncompressed_bytes": 92477142,
+      "reconstructible": true
+    },
+    "workspace_fingerprint": "c28e0820a8bf516d21ce89e4df71ccce56af85099d6d8526f40f0fd562d477c9",
+    "command": [
+      "C:\\Program Files\\Python311\\python.exe",
+      "-m",
+      "pytest",
+      "-q",
+      "-x",
+      "tools/deterministic_qualification/tests"
+    ],
+    "elapsed_seconds": 353.391,
+    "raw_log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\697cf7945fc813e80d7bb5bfae8f88219854813803372466061bca1d7b725435.log",
+      "sha256": "697cf7945fc813e80d7bb5bfae8f88219854813803372466061bca1d7b725435",
+      "bytes": 752
+    },
+    "game_launched": false,
+    "reused": false,
+    "retained_receipt": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f22f19741817471a03d3e06c3c71f0f96a16f880fbc04298c9174d6b39f59f7d.json",
+      "sha256": "f22f19741817471a03d3e06c3c71f0f96a16f880fbc04298c9174d6b39f59f7d",
+      "bytes": 1487
+    }
+  },
+  "affected30": {
+    "result": "pass",
+    "native_callbacks_compared": 2300,
+    "continuation_ticks": 120,
+    "retained_evidence": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\267ae91aec92bac3485f479b567336266f2f8c8978f9033bbf8b2ca3976811e0.json",
+      "sha256": "267ae91aec92bac3485f479b567336266f2f8c8978f9033bbf8b2ca3976811e0",
+      "bytes": 57930,
+      "summary": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\fe9486e009e4ce72c8e25e0973685521179399baf78cfcfd1cc9f079009723e4.md",
+        "sha256": "fe9486e009e4ce72c8e25e0973685521179399baf78cfcfd1cc9f079009723e4",
+        "bytes": 518
+      }
+    },
+    "build_identities": {
+      "runtime": "da24a1e119c572a56120929c488a990cc3c126445351342b0685415316d43d45",
+      "observer": "50ce0f46e22372460f3c68bd5a89ff04a75af1ee13e32636dcce4787a04fb234",
+      "framework": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6"
+    }
+  }
+}

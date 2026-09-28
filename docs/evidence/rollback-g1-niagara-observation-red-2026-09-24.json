@@ -1,0 +1,18 @@
+{
+  "stage": "RED",
+  "source_retention": {
+    "manifest_sha256": "c3ebc967b4ccd87858416ed9ac5a8cfed51ed162f194cf43ac55905a52ec21f2",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-c3ebc967b4ccd87858416ed9ac5a8cfed51ed162f194cf43ac55905a52ec21f2.zip",
+    "archive_sha256": "5e36c5a18f8db55a77510364394dac1e87c2654d62fd5b7b5ce94e23cee3289f",
+    "files": 16608,
+    "uncompressed_bytes": 92837237,
+    "reconstructible": true
+  },
+  "log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\64c53420e7f1ec8351930414ec7dd38c9b7bac613763f69cbdafb72e1ed85434.json",
+    "sha256": "64c53420e7f1ec8351930414ec7dd38c9b7bac613763f69cbdafb72e1ed85434",
+    "bytes": 2838
+  },
+  "result": "Actual initial constructor does not install Niagara observer: exit81",
+  "fixture_note": "Initial fixture used installed local shadowing global counter; corrected to niagara_installs before RED"
+}

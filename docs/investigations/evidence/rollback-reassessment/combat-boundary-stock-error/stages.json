@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "stages": {
+    "stock-error-before-ownership": {
+      "dependencies": {
+        "build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\HorseMod.dll": "a6242945221b01d5249d6a8ea0ee1f02160f0694105e4422fa3c8707f7757863",
+        "build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\ReplayQualificationMod.dll": "1ce89babc982a8f5bce8544256dc5c52c0dc2e85776ee8244751378ceaa6de07",
+        "build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\generated\\deterministic_contract.json": "41c81bf2cc0f046355261ee540d3139fe74876c5b227fb7ccf9e61c0e1726383",
+        "capture": "775f97dbe122c3db84085a5097f2dbf7c188b43160dc794989d4bfe11327b1df",
+        "docs\\investigations\\deterministic-production-candidate-manifest.json": "c0cba1c615ae02e4e754421565f83bf35be655f1eb37e2904f82a878e8a948fe",
+        "stimulus": "a4079699d3a7f1a1206039980c66a31fab404de4bcfb2a54c87f16a5dbc5a724"
+      },
+      "experiment": {
+        "competing_explanations": [
+          "stocksession disconnect",
+          "stockmatchdisconnect or fatalerror",
+          "missing battleactor/mesh despitecorrectselectedprofiles"
+        ],
+        "first_divergent_boundary": "Stock TerminateBattle on host native frame5 and sandboxframe4 preceded customtransporttimeout byseconds. Previewready/profileidentity/selectiontimerspassed.",
+        "new_evidence": "Stock OnMatchError(IsFatal,DialogId),OnFatalError(result),OnOpponentDisconnect; FFrame terminationcallerchain; intro-entrybattleactor/mesh/visibility. Preownership termination immediatelyrecordsNativeLifecycleEnded beforeidentityclear.",
+        "stop_condition": "First stock/nativeerror or failedreadiness initiatescleanup; otherwise originalactualround2 corrections/reentry with300ssetup10sprotocol30scleanup. No furtherattempt withoutspecificnewhypothesis orfix."
+      },
+      "failure": "Command '['C:\\\\Program Files\\\\Python311\\\\python.exe', 'E:\\\\myMods\\\\tools\\\\deterministic_qualification.py', 'paired-online', '--case-manifest', 'E:\\\\myMods\\\\docs\\\\investigations\\\\deterministic-production-candidate-manifest.json', '--case', 'astaroth-raphael-silver-wolves-haven', '--dll', 'E:\\\\myMods\\\\build_cmake_LessEqual421__Shipping__Win64\\\\HorseMod\\\\HorseMod.dll', '--replay-mod', 'E:\\\\myMods\\\\build_cmake_LessEqual421__Shipping__Win64\\\\HorseMod\\\\ReplayQualificationMod.dll', '--schema', 'E:\\\\myMods\\\\build_cmake_LessEqual421__Shipping__Win64\\\\HorseMod\\\\generated\\\\deterministic_contract.json', '--output-dir', 'E:\\\\myMods\\\\docs\\\\investigations\\\\evidence\\\\rollback-reassessment\\\\combat-boundary-stock-error', '--report', 'E:\\\\myMods\\\\docs\\\\investigations\\\\evidence\\\\rollback-reassessment\\\\combat-boundary-stock-error\\\\report.json', '--scenario', 'online-round2-reentry', '--match-cycles', '2', '--launch-timeout', '300', '--match-timeout', '300', '--phase-timeout', '10', '--development-multiround-correction-smoke']' returned non-zero exit status 2.",
+      "report": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\combat-boundary-stock-error\\report.json",
+      "resource_journal": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\combat-boundary-stock-error\\resources.json",
+      "specification": {
+        "command": [
+          "C:\\Program Files\\Python311\\python.exe",
+          "E:\\myMods\\tools\\deterministic_qualification.py",
+          "paired-online",
+          "--case-manifest",
+          "E:\\myMods\\docs\\investigations\\deterministic-production-candidate-manifest.json",
+          "--case",
+          "astaroth-raphael-silver-wolves-haven",
+          "--dll",
+          "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\HorseMod.dll",
+          "--replay-mod",
+          "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\ReplayQualificationMod.dll",
+          "--schema",
+          "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\generated\\deterministic_contract.json",
+          "--output-dir",
+          "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\combat-boundary-stock-error",
+          "--report",
+          "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\combat-boundary-stock-error\\report.json",
+          "--scenario",
+          "online-round2-reentry",
+          "--match-cycles",
+          "2",
+          "--launch-timeout",
+          "300",
+          "--match-timeout",
+          "300",
+          "--phase-timeout",
+          "10",
+          "--development-multiround-correction-smoke"
+        ],
+        "scenario": {
+          "case_id": "astaroth-raphael-silver-wolves-haven",
+          "cleanup": [
+            "requests",
+            "watchers",
+            "impairment",
+            "processes",
+            "deployment"
+          ],
+          "cleanup_seconds": 30,
+          "correction_depths": [
+            7,
+            12,
+            1
+          ],
+          "cycles": 2,
+          "dependencies": [
+            "runtime",
+            "capture_bridge",
+            "capture_harness_sha256",
+            "stimulus_spec_sha256",
+            "schema_sha256"
+          ],
+          "failure": "",
+          "id": "online-round2-reentry",
+          "lifecycle_stage": "round-replacement",
+          "observations": [
+            "canonical-agreement",
+            "observed-correction-depth",
+            "correction-local-presentation",
+            "owned-storage-return"
+          ],
+          "prerequisites": [
+            "certificate-interop",
+            "native-python-tests"
+          ],
+          "profile": "clean",
+          "progress_seconds": 10,
+          "required_combat_round": 2,
+          "setup_seconds": 300,
+          "version": 2
+        }
+      },
+      "state": "failed"
+    }
+  }
+}

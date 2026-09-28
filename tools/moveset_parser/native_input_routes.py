@@ -699,6 +699,10 @@ class _Result:
     selected_slots: frozenset[int] = frozenset()
     selected_by_helper: tuple[tuple[int, frozenset[int]], ...] = ()
     truncated: bool = False
+    # PCs whose transition-author target is 0xFFFD. Native timing commits
+    # move end when the threshold is reached; this is not a packed slot or a
+    # variadic-stream terminator.
+    move_end_requests: frozenset[int] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -706,6 +710,7 @@ class NativeLiveTransitionTrace:
     publications: tuple[tuple[int, tuple[int, ...]], ...]
     truncated: bool
     resolutions: tuple[str, ...]
+    move_end_frames: tuple[int, ...] = ()
 
 
 def _merge_maps(
@@ -980,6 +985,7 @@ class NativeDispatcherResolver:
         )
         active_move_id: int | None = None
         publications: list[tuple[int, tuple[int, ...]]] = []
+        move_end_frames: list[int] = []
         truncated = False
         for observation in observations:
             chara_state_shorts = observation.chara_state_shorts
@@ -1014,9 +1020,12 @@ class NativeDispatcherResolver:
             )
             globals_state = selected.globals
             truncated = truncated or observed.truncated or selected.truncated
+            published_values = dict(globals_state).get(0x44, ())
+            if 0xFFFD in published_values:
+                move_end_frames.append(observation.move_play_frame)
             targets = tuple(sorted(
                 value
-                for value in dict(globals_state).get(0x44, ())
+                for value in published_values
                 if value not in (0, 0xFFFF, 0xFFFD)
             ))
             if targets:
@@ -1030,6 +1039,7 @@ class NativeDispatcherResolver:
                 f"khd-live-selection:packed0x3049->slot{transition_root}",
                 "khd-transition-author:packed0x300B;globals44/46/47;lane0",
             ),
+            tuple(move_end_frames),
         )
 
     def resolve_attack_route(
@@ -1148,6 +1158,7 @@ class NativeDispatcherResolver:
         known_returns: set[int] = set()
         selected_slots: set[int] = set()
         selected_by_helper: dict[int, set[int]] = {}
+        move_end_requests: set[int] = set()
         exit_globals: tuple[tuple[int, Val], ...] | None = None
         processed = 0
         truncated = False
@@ -1252,6 +1263,8 @@ class NativeDispatcherResolver:
                             value for value in targets
                             if value not in (0xFFFF, 0xFFFD)
                         )
+                        if 0xFFFD in targets:
+                            move_end_requests.add(instruction.pc)
                     acc = ZERO
                 elif function_index == 0x0D:
                     targets = args[0] if args else TOP
@@ -1280,6 +1293,7 @@ class NativeDispatcherResolver:
                             )
                             nested_returns = _union(nested_returns, child.returns)
                             nested_selected.update(child.selected_slots)
+                            move_end_requests.update(child.move_end_requests)
                             for helper, helper_slots in child.selected_by_helper:
                                 selected_by_helper.setdefault(helper, set()).update(helper_slots)
                             # These packed common helpers are the stance/input
@@ -1370,6 +1384,7 @@ class NativeDispatcherResolver:
                 for helper, slots in sorted(selected_by_helper.items())
             ),
             truncated,
+            frozenset(move_end_requests),
         )
 
 

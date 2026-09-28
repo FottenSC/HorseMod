@@ -1,0 +1,41 @@
+{
+  "result": "RED: owned GT queue pop140D2B9F0 could reach native effect during untouched hold; mesh retirement routing already GREEN",
+  "scope": "Actual entry routing with external native pop probe; no cancellation or admission claim",
+  "files": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\ec1275b81c82ae3593a47b572650697f5adb41a013af8ee61a7574f612341bc7.cmd",
+      "sha256": "ec1275b81c82ae3593a47b572650697f5adb41a013af8ee61a7574f612341bc7",
+      "bytes": 338
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\550a9d716aa0a0b894fec7d70609829ff50de8e24223ed0148a6274556aafed2.exe",
+      "sha256": "550a9d716aa0a0b894fec7d70609829ff50de8e24223ed0148a6274556aafed2",
+      "bytes": 184320
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1881e5c4a196e04055d1dfe97be840b84d0079caa2d2ad78d1332516e60c4800.obj",
+      "sha256": "1881e5c4a196e04055d1dfe97be840b84d0079caa2d2ad78d1332516e60c4800",
+      "bytes": 122285
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7a115ed424af77484b056a4948bb7c0a2d0df2a5e3bce54e66018a193acab8f0.cpp",
+      "sha256": "7a115ed424af77484b056a4948bb7c0a2d0df2a5e3bce54e66018a193acab8f0",
+      "bytes": 8584
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1d50b9589285c35745fec7df644dbb9833d5aa69ab417b808d25ba0f2a705821.hpp",
+      "sha256": "1d50b9589285c35745fec7df644dbb9833d5aa69ab417b808d25ba0f2a705821",
+      "bytes": 24468
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6588f436a20620df7936873618fdf8e9c533cd37aed402803e6a4c6bd135604c.inl",
+      "sha256": "6588f436a20620df7936873618fdf8e9c533cd37aed402803e6a4c6bd135604c",
+      "bytes": 5808
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0f7fba20a40f2809fae242ca8f5d14ec782b718ee6be90e6bf1161a63fe24880.py",
+      "sha256": "0f7fba20a40f2809fae242ca8f5d14ec782b718ee6be90e6bf1161a63fe24880",
+      "bytes": 40345
+    }
+  ]
+}

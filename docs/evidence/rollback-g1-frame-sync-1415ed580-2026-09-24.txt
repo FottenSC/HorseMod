@@ -1,0 +1,87 @@
+
+void FUN_1415ed580(longlong *param_1,char param_2)
+
+{
+  double dVar1;
+  double dVar2;
+  void *pvVar3;
+  char cVar4;
+  ulonglong uVar5;
+  longlong *plVar6;
+  undefined8 uVar7;
+  longlong *plVar8;
+  uint uVar9;
+  double dVar10;
+  longlong local_res8;
+  longlong local_res18;
+  longlong local_res20;
+  longlong local_68 [8];
+  
+  LOCK();
+  uVar5 = *(ulonglong *)(*param_1 + 8);
+  if (uVar5 == 0) {
+    *(ulonglong *)(*param_1 + 8) = 0;
+    uVar5 = 0;
+  }
+  UNLOCK();
+  if ((uVar5 >> 0x1a & 1) != 0) {
+    return;
+  }
+  DAT_144351b88 = DAT_144351b88 + 1;
+  if (DAT_144351b88 < 2) {
+    plVar6 = (longlong *)FUN_140d24400();
+    cVar4 = (**(code **)(*plVar6 + 0x20))(plVar6,2);
+    if (cVar4 == '\0') goto LAB_1415ed5f8;
+  }
+  param_2 = '\0';
+LAB_1415ed5f8:
+  plVar6 = (longlong *)FUN_140d28aa0(0);
+  uVar7 = FUN_140d24400();
+  FUN_1415efd70(uVar7,plVar6,param_1,2);
+  uVar9 = 0x21;
+  if (DAT_144090840 < 0x21) {
+    uVar9 = DAT_144090840;
+  }
+  (*g_pQueryPerformanceCounterIat)(&local_res8);
+  pvVar3 = ThreadLocalStoragePointer;
+  dVar2 = g_dLuxorQpcSecondsBias;
+  uVar5 = (ulonglong)g_dwTlsIndex;
+  dVar1 = (double)local_res8 * g_dLuxorQpcSecondsScale + g_dLuxorQpcSecondsBias;
+  dVar10 = (double)DAT_144090844 * g_dLuxorPeerHandshakeTickDelayScale;
+  while( true ) {
+    FUN_1415e9e30();
+    if (param_2 != '\0') {
+      plVar8 = (longlong *)FUN_140d24400();
+      (**(code **)(*plVar8 + 0x30))(plVar8,2);
+    }
+    cVar4 = (**(code **)(*plVar6 + 0x20))(plVar6,uVar9,0);
+    if (cVar4 != '\0') break;
+    if ((*(int *)(*(longlong *)((longlong)pvVar3 + uVar5 * 8) + 0x18) < DAT_144351b90) &&
+       (_Init_thread_header(&DAT_144351b90), DAT_144351b90 == -1)) {
+      uVar7 = FUN_140da6170();
+      DAT_144351b8c = FParse_Param(uVar7,L"nothreadtimeout");
+      _Init_thread_footer(&DAT_144351b90);
+    }
+    (*g_pQueryPerformanceCounterIat)(&local_res18);
+    if (dVar10 + dVar1 <= (double)local_res18 * g_dLuxorQpcSecondsScale + dVar2) {
+      uVar7 = FUN_140d470f0();
+      cVar4 = FUN_140d4ebe0(uVar7);
+      if ((cVar4 != '\0') && (DAT_144351b8c == '\0')) {
+        (*g_pQueryPerformanceCounterIat)(&local_res20);
+        FMsg_Logf("D:\\dev\\sc6\\UE4_Steam\\Engine\\Source\\Runtime\\RenderCore\\Private\\RenderingThread.cpp"
+                  ,0x428,L"GameThread timed out waiting for RenderThread after %.02f secs",
+                  ((double)local_res20 * g_dLuxorQpcSecondsScale + dVar2) - dVar1);
+        (*g_pQueryPerformanceCounterIat)(local_68);
+        FError_Throwf(&DAT_1436b93f6,
+                      "D:\\dev\\sc6\\UE4_Steam\\Engine\\Source\\Runtime\\RenderCore\\Private\\RenderingThread.cpp"
+                      ,0x428,L"GameThread timed out waiting for RenderThread after %.02f secs",
+                      ((double)local_68[0] * g_dLuxorQpcSecondsScale + dVar2) - dVar1);
+      }
+    }
+  }
+  FUN_140d31540(plVar6);
+  DAT_144351b88 = DAT_144351b88 + -1;
+  return;
+}
+
+

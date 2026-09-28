@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "stages": {
+    "round2-forward-boundary": {
+      "dependencies": {
+        "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\HorseMod.dll": "893d96edbf9bd62187d8a549ebdc33ad9d3587dfd358d47dd68b463894752195",
+        "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\ReplayQualificationMod.dll": "3ebc71e6252bfffcf4d6a7dcce220981ec1c78f9c46a4115c1c2f4ac3a367c1f",
+        "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\generated\\deterministic_contract.json": "5707722da8cd4c09c8500a3f8e4143d7788f3508fbade98920266ab7fc55c40b",
+        "E:\\myMods\\docs\\investigations\\deterministic-production-candidate-manifest.json": "c0cba1c615ae02e4e754421565f83bf35be655f1eb37e2904f82a878e8a948fe"
+      },
+      "experiment": {
+        "competing_explanations": [
+          "Repeated native traversals share one authoritative publication, breaking affine frame mapping.",
+          "Generation identity changes before the old completion callback can retain the final interval."
+        ],
+        "first_divergent_boundary": "Intro-to-round transition: observed native frame 361 exceeds affine Gekko completion and last retained canonical frame 359.",
+        "new_evidence": "Forward-only Gekko native callback excludes mid-stack corrections; fixed-size boundary trace records publications, repeats, pending advance, canonical generation and native frame before/after each observation.",
+        "stop_condition": "First failed native boundary ends functional waiting and begins cleanup; otherwise preserve original round-two corrections and same-process re-entry obligations."
+      },
+      "failure": "Command '['C:\\\\Program Files\\\\Python311\\\\python.exe', 'E:\\\\myMods\\\\tools\\\\deterministic_qualification.py', 'paired-online', '--case-manifest', 'E:\\\\myMods\\\\docs\\\\investigations\\\\deterministic-production-candidate-manifest.json', '--case', 'astaroth-raphael-silver-wolves-haven', '--dll', 'E:\\\\myMods\\\\build_cmake_LessEqual421__Shipping__Win64\\\\HorseMod\\\\HorseMod.dll', '--replay-mod', 'E:\\\\myMods\\\\build_cmake_LessEqual421__Shipping__Win64\\\\HorseMod\\\\ReplayQualificationMod.dll', '--schema', 'E:\\\\myMods\\\\build_cmake_LessEqual421__Shipping__Win64\\\\HorseMod\\\\generated\\\\deterministic_contract.json', '--output-dir', 'E:\\\\myMods\\\\docs\\\\investigations\\\\evidence\\\\rollback-reassessment\\\\online-forward-boundary', '--report', 'E:\\\\myMods\\\\docs\\\\investigations\\\\evidence\\\\rollback-reassessment\\\\online-forward-boundary\\\\report.json', '--scenario', 'online-round2-reentry', '--match-cycles', '2', '--launch-timeout', '300', '--match-timeout', '300', '--phase-timeout', '10', '--development-multiround-correction-smoke']' returned non-zero exit status 2.",
+      "report": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\online-forward-boundary\\report.json",
+      "resource_journal": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\online-forward-boundary\\resources.json",
+      "specification": {
+        "command": [
+          "C:\\Program Files\\Python311\\python.exe",
+          "E:\\myMods\\tools\\deterministic_qualification.py",
+          "paired-online",
+          "--case-manifest",
+          "E:\\myMods\\docs\\investigations\\deterministic-production-candidate-manifest.json",
+          "--case",
+          "astaroth-raphael-silver-wolves-haven",
+          "--dll",
+          "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\HorseMod.dll",
+          "--replay-mod",
+          "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\ReplayQualificationMod.dll",
+          "--schema",
+          "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\generated\\deterministic_contract.json",
+          "--output-dir",
+          "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\online-forward-boundary",
+          "--report",
+          "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\online-forward-boundary\\report.json",
+          "--scenario",
+          "online-round2-reentry",
+          "--match-cycles",
+          "2",
+          "--launch-timeout",
+          "300",
+          "--match-timeout",
+          "300",
+          "--phase-timeout",
+          "10",
+          "--development-multiround-correction-smoke"
+        ],
+        "scenario": {
+          "case_id": "astaroth-raphael-silver-wolves-haven",
+          "cleanup": [
+            "requests",
+            "watchers",
+            "impairment",
+            "processes",
+            "deployment"
+          ],
+          "cleanup_seconds": 30,
+          "correction_depths": [
+            7,
+            12,
+            1
+          ],
+          "cycles": 2,
+          "dependencies": [
+            "runtime",
+            "capture_bridge",
+            "capture_harness_sha256",
+            "stimulus_spec_sha256",
+            "schema_sha256"
+          ],
+          "failure": "",
+          "id": "online-round2-reentry",
+          "lifecycle_stage": "round-replacement",
+          "observations": [
+            "canonical-agreement",
+            "observed-correction-depth",
+            "correction-local-presentation",
+            "owned-storage-return"
+          ],
+          "prerequisites": [
+            "certificate-interop",
+            "native-python-tests"
+          ],
+          "profile": "clean",
+          "progress_seconds": 10,
+          "required_combat_round": 2,
+          "setup_seconds": 300,
+          "version": 2
+        }
+      },
+      "state": "failed"
+    }
+  }
+}

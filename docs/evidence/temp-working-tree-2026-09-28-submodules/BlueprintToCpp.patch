@@ -1,0 +1,31 @@
+diff --git a/BlueprintToCpp/Program.cs b/BlueprintToCpp/Program.cs
+index de1f2aff1d2f78787bcf904cfdbee37c5e87c222..555e50c198b977b16f24ff9ed911171f4c9bf77d 100644
+--- a/BlueprintToCpp/Program.cs
++++ b/BlueprintToCpp/Program.cs
+@@ -145,9 +145,12 @@ public static class Program
+             // for RegularProfile values (BODY/UPPER/LOWER scales and related
+             // setup) without launching the game or approximating UObject
+             // property serialization themselves.
+-            if (args.Length >= 3 && args[0] == "--export-package-json")
++            if (args.Length >= 3 && (args[0] == "--export-package-json" || args[0] == "--export-script-json"))
+             {
+                 var packageProvider = InitializeProvider(args[1], string.Empty, EGame.GAME_UE4_17);
++                // Opt in to primary Kismet expressions when auditing the
++                // pseudocode's branch targets and inherited timer callbacks.
++                packageProvider.ReadScriptData = args[0] == "--export-script-json";
+                 packageProvider.PostMount();
+                 var requestedPath = args[2].Replace('\\', '/');
+                 var exports = packageProvider.LoadPackage(requestedPath).GetExports().ToArray();
+diff --git a/README.md b/README.md
+index 3cc7dafcd3fef9a2a674ef7f6af8740424a202a5..55c1a079b216a0ef38937f24d4367bb1a4285b2c 100644
+--- a/README.md
++++ b/README.md
+@@ -39,6 +39,8 @@ If you want to set up AES, run the program once (with the config set), then modi
+ 
+ ## Output
+ 
++For a UE4.17 loose package, `Main --export-script-json <root> <package-path> <output.json>` exports parsed Kismet expressions with statement offsets. Use these to check pseudocode branch targets; ordinary `--export-package-json` keeps its existing property-only output.
++
+ Note: the C++ output may not be 100% accurate.
+ 
+ ## Issues

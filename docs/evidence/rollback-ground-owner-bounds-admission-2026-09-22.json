@@ -1,0 +1,104 @@
+{
+  "red": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d343440b9c4677e9fee42b8769bea3d34800323eb0a2b87c5ff4b4298cf2d353.log",
+    "sha256": "d343440b9c4677e9fee42b8769bea3d34800323eb0a2b87c5ff4b4298cf2d353",
+    "bytes": 3438
+  },
+  "red_source": {
+    "manifest_sha256": "4241f8de28bcf6e33f20f58b94c653b014b5919b260136881cc8973601da789b",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-4241f8de28bcf6e33f20f58b94c653b014b5919b260136881cc8973601da789b.zip",
+    "archive_sha256": "8b7c6798a1557cabeb221e072d03f9cc76bb9d7ef4410f843f8a9ad38edc7c37",
+    "files": 16571,
+    "uncompressed_bytes": 92347415,
+    "reconstructible": true
+  },
+  "native": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\58f67e5adb4fce7960b1d86a1005bce8eb315057175dba4b1fef5d0b2c70365c.json",
+    "sha256": "58f67e5adb4fce7960b1d86a1005bce8eb315057175dba4b1fef5d0b2c70365c",
+    "bytes": 88103
+  },
+  "class_lookup": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\58a66fbb3e0fecd66429cba0396eca65df236cd2fa20c4433c13bb26e08bec8b.json",
+    "sha256": "58a66fbb3e0fecd66429cba0396eca65df236cd2fa20c4433c13bb26e08bec8b",
+    "bytes": 1674
+  },
+  "expanded_fixture_failure": {
+    "cause": "Counter baseline included intervening frozen historical weak binding; scope assertion to update calls.",
+    "log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d79df26fab3cf8249dc7d338fde5a55f76e1fc013a5ba486870d88e2880cffe4.log",
+      "sha256": "d79df26fab3cf8249dc7d338fde5a55f76e1fc013a5ba486870d88e2880cffe4",
+      "bytes": 3544
+    },
+    "fixture": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4daa5c02ee7ffda6302cdea995fb99a866341dedf3a29d44f71a44c403793726.cpp",
+      "sha256": "4daa5c02ee7ffda6302cdea995fb99a866341dedf3a29d44f71a44c403793726",
+      "bytes": 22512
+    }
+  },
+  "green": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\cd35aa4268102b83879f2491245a32c8a0cf773590fb3d6ce7f21cd4a80c1e2d.log",
+    "sha256": "cd35aa4268102b83879f2491245a32c8a0cf773590fb3d6ce7f21cd4a80c1e2d",
+    "bytes": 100
+  },
+  "green_source": {
+    "manifest_sha256": "22e57eb72765641e1954dd8ed4ef38ed4f4fdbc346cace528d7ab3ee39e78053",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-22e57eb72765641e1954dd8ed4ef38ed4f4fdbc346cace528d7ab3ee39e78053.zip",
+    "archive_sha256": "a5de90f9d50003c57c4fc77842cce45be3761ded3baadaad04f81496c6ea3366",
+    "files": 16571,
+    "uncompressed_bytes": 92352187,
+    "reconstructible": true
+  },
+  "scope": "Root/frozen/update admission, expanded regressions, required build/native,407,614 integration tests and affected30 pass; both live cases include120 independent continuation. G1 collision/reflection/RNG and G2 A617 publication and broader readiness remain open.",
+  "required_build": {
+    "ground-owner-bounds-build-20260922.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8a99cead8cc729ef3dddd1c33bfff8d483109972e6fa30d6e2989e1b417eb022.log",
+      "sha256": "8a99cead8cc729ef3dddd1c33bfff8d483109972e6fa30d6e2989e1b417eb022",
+      "bytes": 335
+    },
+    "build-stage.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\26bcb4229dc2b0cf3355c7603d888e81d4a7857b5c90f35393d70f0244fdca4c.json",
+      "sha256": "26bcb4229dc2b0cf3355c7603d888e81d4a7857b5c90f35393d70f0244fdca4c",
+      "bytes": 6239
+    },
+    "build-provenance.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\88b9ac34cc5c8f1b0f5f1825994ecd16a9f7242fff44fe732dc9d43edd2281b8.json",
+      "sha256": "88b9ac34cc5c8f1b0f5f1825994ecd16a9f7242fff44fe732dc9d43edd2281b8",
+      "bytes": 2373
+    },
+    "local-regressions.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9a5ec8c545fdd0d5a029722cc0b0237428f6673c60fea139787ccd24c6c9c8f7.log",
+      "sha256": "9a5ec8c545fdd0d5a029722cc0b0237428f6673c60fea139787ccd24c6c9c8f7",
+      "bytes": 4316
+    },
+    "local-regressions.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\371a822265088eb3e6c1100f37e3379424a391ebec455ac244597cb9012efdf9.json",
+      "sha256": "371a822265088eb3e6c1100f37e3379424a391ebec455ac244597cb9012efdf9",
+      "bytes": 2141
+    }
+  },
+  "required_build_result": "pass",
+  "live_407": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\73ee8cc2ad482edf13d5cb85ba67e30280ffe109d1fec1f862983fbbb04a7a3e.json",
+    "sha256": "73ee8cc2ad482edf13d5cb85ba67e30280ffe109d1fec1f862983fbbb04a7a3e",
+    "bytes": 3661
+  },
+  "integration": {
+    "result": "pass",
+    "receipt": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\61e9d0d30d8aec95aef8eacce1d7e60c3096345f794aa9d293f514b544ee8d60.json",
+      "sha256": "61e9d0d30d8aec95aef8eacce1d7e60c3096345f794aa9d293f514b544ee8d60",
+      "bytes": 1342
+    },
+    "tests": 614,
+    "console": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\763a1371c24c87e0f1caf057d351650806b6cdd33bbc3a335b65760d28e98fc3.log",
+      "sha256": "763a1371c24c87e0f1caf057d351650806b6cdd33bbc3a335b65760d28e98fc3",
+      "bytes": 1057
+    }
+  },
+  "live_30": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\925fe5fbb2adcfced9d18f5088dcfdfa1b83dd4ab18a9e9eff5c141d162955e8.json",
+    "sha256": "925fe5fbb2adcfced9d18f5088dcfdfa1b83dd4ab18a9e9eff5c141d162955e8",
+    "bytes": 3625
+  }
+}

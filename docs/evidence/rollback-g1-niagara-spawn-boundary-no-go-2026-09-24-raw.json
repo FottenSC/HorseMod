@@ -1,0 +1,62 @@
+{
+  "program": "SoulcaliburVI.exe",
+  "read_only": true,
+  "functions": [
+    "141BCC5A0",
+    "141BCC730",
+    "141BA5A20"
+  ],
+  "responses": [
+    {
+      "status": "fulfilled",
+      "value": {
+        "content": [
+          {
+            "type": "text",
+            "text": "\r\nlonglong *\r\nFUN_141bcc5a0(void *param_1,UObject_Partial *param_2,undefined8 *param_3,undefined8 *param_4)\r\n\r\n{\r\n  longlong lVar1;\r\n  void *pvVar2;\r\n  void *pvVar3;\r\n  longlong *pSceneComponent;\r\n  void *pvVar4;\r\n  undefined8 local_38;\r\n  undefined4 local_30;\r\n  undefined8 local_28;\r\n  undefined4 local_20;\r\n  \r\n  if (param_2 == (UObject_Partial *)0x0) {\r\n    return (longlong *)0x0;\r\n  }\r\n  pvVar2 = GetWorldFromContextObject(g_pGEngine,param_1,1);\r\n  if (pvVar2 != (void *)0x0) {\r\n    pvVar3 = (void *)FUN_1421bc760(pvVar2,0,1);\r\n    pvVar4 = pvVar2;\r\n    if (pvVar3 != (void *)0x0) {\r\n      pvVar4 = pvVar3;\r\n    }\r\n    pSceneComponent = (longlong *)FUN_141ba5a20(pvVar4);\r\n    pSceneComponent[0x101] = (longlong)param_2;\r\n    if ((*(byte *)(pSceneComponent + 0x31) & 1) != 0) {\r\n      lVar1 = pSceneComponent[0x102];\r\n      FWeakObjectPtr_FromUObject((FWeakObjectPtr_Partial *)(lVar1 + 0x18),param_2);\r\n      FUN_141bc53d0(lVar1);\r\n      *(undefined1 *)(lVar1 + 0x62) = 1;\r\n      DispatchEngineCallbackEntriesAndCompact((FCallbackEntryCollection_Partial *)(lVar1 + 0x120));\r\n    }\r\n    FUN_141d58ba0(pSceneComponent,pvVar2);\r\n    SetSceneComponentAbsoluteTransformFlags(pSceneComponent,true,true,true);\r\n    local_38 = *param_4;\r\n    local_30 = *(undefined4 *)(param_4 + 1);\r\n    local_28 = *param_3;\r\n    local_20 = *(undefined4 *)(param_3 + 1);\r\n    FUN_141dadbe0(pSceneComponent,&local_28,&local_38,0,0,0);\r\n    local_30 = 0x3f800000;\r\n    local_20 = 0x3f800000;\r\n    local_28 = CONCAT44(g_flOne,g_flOne);\r\n    (**(code **)(*pSceneComponent + 0x3a8))(pSceneComponent,&local_28);\r\n    return pSceneComponent;\r\n  }\r\n  return (longlong *)0x0;\r\n}\r\n\r\n"
+          }
+        ],
+        "structuredContent": {
+          "result": "\r\nlonglong *\r\nFUN_141bcc5a0(void *param_1,UObject_Partial *param_2,undefined8 *param_3,undefined8 *param_4)\r\n\r\n{\r\n  longlong lVar1;\r\n  void *pvVar2;\r\n  void *pvVar3;\r\n  longlong *pSceneComponent;\r\n  void *pvVar4;\r\n  undefined8 local_38;\r\n  undefined4 local_30;\r\n  undefined8 local_28;\r\n  undefined4 local_20;\r\n  \r\n  if (param_2 == (UObject_Partial *)0x0) {\r\n    return (longlong *)0x0;\r\n  }\r\n  pvVar2 = GetWorldFromContextObject(g_pGEngine,param_1,1);\r\n  if (pvVar2 != (void *)0x0) {\r\n    pvVar3 = (void *)FUN_1421bc760(pvVar2,0,1);\r\n    pvVar4 = pvVar2;\r\n    if (pvVar3 != (void *)0x0) {\r\n      pvVar4 = pvVar3;\r\n    }\r\n    pSceneComponent = (longlong *)FUN_141ba5a20(pvVar4);\r\n    pSceneComponent[0x101] = (longlong)param_2;\r\n    if ((*(byte *)(pSceneComponent + 0x31) & 1) != 0) {\r\n      lVar1 = pSceneComponent[0x102];\r\n      FWeakObjectPtr_FromUObject((FWeakObjectPtr_Partial *)(lVar1 + 0x18),param_2);\r\n      FUN_141bc53d0(lVar1);\r\n      *(undefined1 *)(lVar1 + 0x62) = 1;\r\n      DispatchEngineCallbackEntriesAndCompact((FCallbackEntryCollection_Partial *)(lVar1 + 0x120));\r\n    }\r\n    FUN_141d58ba0(pSceneComponent,pvVar2);\r\n    SetSceneComponentAbsoluteTransformFlags(pSceneComponent,true,true,true);\r\n    local_38 = *param_4;\r\n    local_30 = *(undefined4 *)(param_4 + 1);\r\n    local_28 = *param_3;\r\n    local_20 = *(undefined4 *)(param_3 + 1);\r\n    FUN_141dadbe0(pSceneComponent,&local_28,&local_38,0,0,0);\r\n    local_30 = 0x3f800000;\r\n    local_20 = 0x3f800000;\r\n    local_28 = CONCAT44(g_flOne,g_flOne);\r\n    (**(code **)(*pSceneComponent + 0x3a8))(pSceneComponent,&local_28);\r\n    return pSceneComponent;\r\n  }\r\n  return (longlong *)0x0;\r\n}\r\n\r\n"
+        },
+        "isError": false
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "content": [
+          {
+            "type": "text",
+            "text": "\r\nUSceneComponent_WorldTransformOverlay *\r\nFUN_141bcc730(UObject_Partial *param_1,UActorComponent_Partial *param_2,undefined8 param_3,\r\n             undefined8 *param_4,undefined8 *param_5,int param_6)\r\n\r\n{\r\n  byte bVar1;\r\n  longlong lVar2;\r\n  UWorld_Partial *pUVar3;\r\n  USceneComponent_WorldTransformOverlay *pComponent;\r\n  FVector3f_Partial local_48;\r\n  FVector3f_Partial local_38;\r\n  \r\n  if ((param_1 != (UObject_Partial *)0x0) && (param_2 != (UActorComponent_Partial *)0x0)) {\r\n    pUVar3 = (UWorld_Partial *)param_2->pOwner;\r\n    if ((pUVar3 == (UWorld_Partial *)0x0) &&\r\n       (pUVar3 = *(UWorld_Partial **)&param_2[1].field_0x30, pUVar3 == (UWorld_Partial *)0x0)) {\r\n      pUVar3 = ResolveActorComponentWorld(param_2);\r\n    }\r\n    pComponent = (USceneComponent_WorldTransformOverlay *)FUN_141ba5a20(pUVar3);\r\n    bVar1 = (pComponent->actorComponentBase).field_0x188;\r\n    *(UObject_Partial **)&pComponent[2].actorComponentBase.field_0x48 = param_1;\r\n    if ((bVar1 & 1) != 0) {\r\n      lVar2 = *(longlong *)&pComponent[2].actorComponentBase.field_0x50;\r\n      FWeakObjectPtr_FromUObject((FWeakObjectPtr_Partial *)(lVar2 + 0x18),param_1);\r\n      FUN_141bc53d0(lVar2);\r\n      *(undefined1 *)(lVar2 + 0x62) = 1;\r\n      DispatchEngineCallbackEntriesAndCompact((FCallbackEntryCollection_Partial *)(lVar2 + 0x120));\r\n    }\r\n    pUVar3 = *(UWorld_Partial **)&param_2[1].field_0x30;\r\n    if (pUVar3 == (UWorld_Partial *)0x0) {\r\n      pUVar3 = ResolveActorComponentWorld(param_2);\r\n    }\r\n    FUN_141d58ba0(pComponent,pUVar3);\r\n    FUN_141d92b60(pComponent,param_2,&DAT_1443954d0);\r\n    local_38._0_8_ = *param_5;\r\n    local_38.flZ = *(float *)(param_5 + 1);\r\n    if (param_6 == 1) {\r\n      local_48._0_8_ = local_38._0_8_;\r\n      local_48.flZ = local_38.flZ;\r\n      local_38._0_8_ = *param_4;\r\n      local_38.flZ = *(float *)(param_4 + 1);\r\n      FUN_141dadbe0(pComponent,&local_38,&local_48);\r\n    }\r\n    else {\r\n      local_48._0_8_ = *param_4;\r\n      local_48.flZ = *(float *)(param_4 + 1);\r\n      SetSceneComponentRelativePoseFromEuler\r\n                (pComponent,&local_48,&local_38,false,(FHitResult136_Partial *)0x0,0);\r\n    }\r\n    local_48.flZ = 1.0;\r\n    local_38.flZ = 1.0;\r\n    local_38.flY = g_flOne;\r\n    local_38.flX = g_flOne;\r\n    (**(code **)((longlong)(pComponent->actorComponentBase).objectBase.pVirtualTable + 0x3a8))\r\n              (pComponent,&local_38);\r\n    return pComponent;\r\n  }\r\n  return (USceneComponent_WorldTransformOverlay *)0x0;\r\n}\r\n\r\n"
+          }
+        ],
+        "structuredContent": {
+          "result": "\r\nUSceneComponent_WorldTransformOverlay *\r\nFUN_141bcc730(UObject_Partial *param_1,UActorComponent_Partial *param_2,undefined8 param_3,\r\n             undefined8 *param_4,undefined8 *param_5,int param_6)\r\n\r\n{\r\n  byte bVar1;\r\n  longlong lVar2;\r\n  UWorld_Partial *pUVar3;\r\n  USceneComponent_WorldTransformOverlay *pComponent;\r\n  FVector3f_Partial local_48;\r\n  FVector3f_Partial local_38;\r\n  \r\n  if ((param_1 != (UObject_Partial *)0x0) && (param_2 != (UActorComponent_Partial *)0x0)) {\r\n    pUVar3 = (UWorld_Partial *)param_2->pOwner;\r\n    if ((pUVar3 == (UWorld_Partial *)0x0) &&\r\n       (pUVar3 = *(UWorld_Partial **)&param_2[1].field_0x30, pUVar3 == (UWorld_Partial *)0x0)) {\r\n      pUVar3 = ResolveActorComponentWorld(param_2);\r\n    }\r\n    pComponent = (USceneComponent_WorldTransformOverlay *)FUN_141ba5a20(pUVar3);\r\n    bVar1 = (pComponent->actorComponentBase).field_0x188;\r\n    *(UObject_Partial **)&pComponent[2].actorComponentBase.field_0x48 = param_1;\r\n    if ((bVar1 & 1) != 0) {\r\n      lVar2 = *(longlong *)&pComponent[2].actorComponentBase.field_0x50;\r\n      FWeakObjectPtr_FromUObject((FWeakObjectPtr_Partial *)(lVar2 + 0x18),param_1);\r\n      FUN_141bc53d0(lVar2);\r\n      *(undefined1 *)(lVar2 + 0x62) = 1;\r\n      DispatchEngineCallbackEntriesAndCompact((FCallbackEntryCollection_Partial *)(lVar2 + 0x120));\r\n    }\r\n    pUVar3 = *(UWorld_Partial **)&param_2[1].field_0x30;\r\n    if (pUVar3 == (UWorld_Partial *)0x0) {\r\n      pUVar3 = ResolveActorComponentWorld(param_2);\r\n    }\r\n    FUN_141d58ba0(pComponent,pUVar3);\r\n    FUN_141d92b60(pComponent,param_2,&DAT_1443954d0);\r\n    local_38._0_8_ = *param_5;\r\n    local_38.flZ = *(float *)(param_5 + 1);\r\n    if (param_6 == 1) {\r\n      local_48._0_8_ = local_38._0_8_;\r\n      local_48.flZ = local_38.flZ;\r\n      local_38._0_8_ = *param_4;\r\n      local_38.flZ = *(float *)(param_4 + 1);\r\n      FUN_141dadbe0(pComponent,&local_38,&local_48);\r\n    }\r\n    else {\r\n      local_48._0_8_ = *param_4;\r\n      local_48.flZ = *(float *)(param_4 + 1);\r\n      SetSceneComponentRelativePoseFromEuler\r\n                (pComponent,&local_48,&local_38,false,(FHitResult136_Partial *)0x0,0);\r\n    }\r\n    local_48.flZ = 1.0;\r\n    local_38.flZ = 1.0;\r\n    local_38.flY = g_flOne;\r\n    local_38.flX = g_flOne;\r\n    (**(code **)((longlong)(pComponent->actorComponentBase).objectBase.pVirtualTable + 0x3a8))\r\n              (pComponent,&local_38);\r\n    return pComponent;\r\n  }\r\n  return (USceneComponent_WorldTransformOverlay *)0x0;\r\n}\r\n\r\n"
+        },
+        "isError": false
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "content": [
+          {
+            "type": "text",
+            "text": "\r\nvoid FUN_141ba5a20(void *param_1)\r\n\r\n{\r\n  UClass_Partial *pClass;\r\n  \r\n  UObject_ValidateDefaultSubobjectName\r\n            (param_1,\r\n             L\"NewObject with empty name can\\'t be used to create default subobjects (inside of UObject derived class constructor) as it produces inconsistent object names. Use ObjectInitializer.CreateDefaultSuobject<> instead.\"\r\n            );\r\n  pClass = (UClass_Partial *)FUN_141bd3f90();\r\n  StaticConstructObject_Internal(pClass,param_1,0,0,0,(void *)0x0,0,(void *)0x0);\r\n  return;\r\n}\r\n\r\n"
+          }
+        ],
+        "structuredContent": {
+          "result": "\r\nvoid FUN_141ba5a20(void *param_1)\r\n\r\n{\r\n  UClass_Partial *pClass;\r\n  \r\n  UObject_ValidateDefaultSubobjectName\r\n            (param_1,\r\n             L\"NewObject with empty name can\\'t be used to create default subobjects (inside of UObject derived class constructor) as it produces inconsistent object names. Use ObjectInitializer.CreateDefaultSuobject<> instead.\"\r\n            );\r\n  pClass = (UClass_Partial *)FUN_141bd3f90();\r\n  StaticConstructObject_Internal(pClass,param_1,0,0,0,(void *)0x0,0,(void *)0x0);\r\n  return;\r\n}\r\n\r\n"
+        },
+        "isError": false
+      }
+    }
+  ],
+  "parent_native_corroboration": {
+    "class_accessor": "141BD3F90 registers NiagaraComponent, size860",
+    "registration": "141D58BA0 writes component+1C8 world and may call virtual+368 before141D42EF0",
+    "dispatch": "141D42EF0 calls virtual+280, then render/physics virtuals and callbacks",
+    "callers": "141BEE900 and141BEEA90 reflected UFunction unpack thunks call141BCC5A0 and141BCC730"
+  }
+}

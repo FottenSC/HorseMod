@@ -252,6 +252,43 @@ def parse_uexp(uexp_path: str, pkg: UAssetPackage,
         return _read_property_block(f, pkg, end_offset=end_offset)
 
 
+def parse_uexp_property(
+    uexp_path: str,
+    pkg: UAssetPackage,
+    property_name: str,
+    export_idx: int = 0,
+) -> Any:
+    """Read one requested top-level tagged property and stop at its boundary.
+
+    This keeps the minimal parser useful for DataAssets that contain a proven
+    tagged property followed by unrelated native/custom serialization the
+    module does not support. Earlier tags are still decoded normally; missing
+    or malformed requested properties fail closed.
+    """
+
+    with open(uexp_path, "rb") as f:
+        if not 0 <= export_idx < len(pkg.exports):
+            raise ValueError(f"export index {export_idx} is out of range")
+        export = pkg.exports[export_idx]
+        rel_offset = export.serial_offset - pkg.total_header_size
+        end_offset = rel_offset + export.serial_size
+        f.seek(0, io.SEEK_END)
+        file_size = f.tell()
+        if rel_offset < 0 or export.serial_size < 0 or end_offset > file_size:
+            raise ValueError(
+                f"export span [{rel_offset}, {end_offset}) is outside "
+                f"0x{file_size:X}-byte .uexp"
+            )
+        f.seek(rel_offset)
+        while f.tell() + 8 <= end_offset:
+            prop = _read_property_tag(f, pkg)
+            if prop is None:
+                break
+            if prop.name == property_name:
+                return prop.raw
+        raise KeyError(f"top-level property {property_name!r} not found")
+
+
 def parse_datatable(uexp_path: str, pkg: UAssetPackage,
                     export_idx: int = 0) -> dict[str, dict[str, Any]]:
     """Parse a UE4 `UDataTable` export from .uexp.
@@ -403,6 +440,26 @@ def _read_property_tag(f: BinaryIO, pkg: UAssetPackage) -> Optional[FProperty]:
             # enum value as FName
             v_idx, v_num = _read_fname_index(f)
             value = pkg.name(v_idx, v_num)
+        return FProperty(name=name, type=prop_type, raw=value)
+
+    if prop_type == "EnumProperty":
+        # UE4 FPropertyTag serializes the enum type before the optional
+        # property-guid marker. SC6's reflected asset selectors use
+        # FName-sized enum values.
+        enum_idx, _ = _read_fname_index(f)
+        enum_name = pkg.name(enum_idx)
+        f.read(1)  # HasGuid byte
+        if size == 8:
+            value_idx, value_num = _read_fname_index(f)
+            value: Any = pkg.name(value_idx, value_num)
+        elif size == 1:
+            value = f.read(1)[0]
+        elif size == 4:
+            value = _read_i32(f)
+        else:
+            raise NotImplementedError(
+                f"EnumProperty<{name}> {enum_name} has unsupported size {size}"
+            )
         return FProperty(name=name, type=prop_type, raw=value)
 
     if prop_type == "ObjectProperty":

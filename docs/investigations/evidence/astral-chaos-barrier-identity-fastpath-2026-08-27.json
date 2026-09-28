@@ -1,0 +1,110 @@
+{
+  "artifacts": {
+    "config": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\rollback.ini",
+      "sha256": "6ea590d8d5ab741e86ed29c50978e2941bf0c0f03b8869753e1007bdaa7efd12"
+    },
+    "game_executable": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\SoulcaliburVI.exe",
+      "sha256": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553"
+    },
+    "generated_schema": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\generated\\deterministic_contract.json",
+      "sha256": "e526908dccf35023acf885858a7507a4289f5c258a8d020c28ba7525f2191e53"
+    },
+    "horsemod_dll": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll",
+      "sha256": "c570f00eb1d419783d2db8a2d2089073930081115e1a178168d1ba873b9be050"
+    },
+    "replay": {
+      "path": "E:\\myMods\\ReplayExample\\REPLAY_10919796003596567142.bin",
+      "sha256": "192b59f0585fb0712f97e38335805707fbb79d440edd64e07810364f21f4d253"
+    },
+    "replay_qualification_mod": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\ReplayQualificationMod.dll",
+      "sha256": "ec70497f8556301f56a53b142fc46b510da65a7021c9b1926b40981b7e721b04"
+    },
+    "runner_sha256": "f0efbd66fa870d509f6ea3f7836093cf9585f49eb9e80781c20173846a84d110"
+  },
+  "certifying": false,
+  "created_utc": "2026-08-27T20:20:35.053145+00:00",
+  "kind": "replay_entry_probe",
+  "reason": "native replay import, stock launch request, and bounded normal-play frame observation",
+  "report_schema": 1,
+  "result": "pass",
+  "runtime": {
+    "clean_exit_requested": true,
+    "forced_depth7": {
+      "canonical_convergence": "exact",
+      "completed": 600,
+      "presentation_failures": 0,
+      "presentation_terminal_coverage": "incomplete",
+      "result": "passed",
+      "semantic_stage_dispatches": 0,
+      "status": "none",
+      "suppressed_particle_spawn": 7,
+      "suppressed_stage_barrier": 7,
+      "suppressed_stage_wall": 0
+    },
+    "frame_fencepost_observed": true,
+    "gameplay_rng_coverage": {
+      "if_draws": 4,
+      "known_callers": "0x1a001000001085",
+      "probability_state_mask_p0": "0x000000000000000000000000000000000000000000000000000000000000",
+      "probability_state_mask_p1": "0x000000000004000008000040000000000000000000000000400000800004",
+      "probability_transition_batches": 1,
+      "short25_p0": 0,
+      "short25_p1": 0,
+      "state_changes_p0": 496,
+      "state_changes_p1": 443,
+      "tira_probability_batches": 0,
+      "tira_random_transitions": 0,
+      "tira_targets": "0x0",
+      "transition07_calls": 59,
+      "unknown_callers": 0,
+      "weighted_draws": 0,
+      "xorshift_draws": 1242
+    },
+    "horsemod_version": "1.2.1",
+    "launch_requested": true,
+    "min_resume_tick_rate": 58.0,
+    "native_replay_import_ready": true,
+    "presentation_source_coverage": {
+      "audio": 513,
+      "audio_blueprint": 154,
+      "audio_direct": 363,
+      "audio_remap": 77,
+      "audio_source": 154,
+      "audio_stop_all": 16,
+      "particle_spawn": 1,
+      "stage_barrier": 1,
+      "stage_dispatch": 0,
+      "stage_wall": 0
+    },
+    "reported_source_commit": "c70b60ffbca1ab53b176d0d658f7c487e2d378a9",
+    "resume_tick_window": 120,
+    "run_id": "b93fe9e674a247b79728482c524cf429",
+    "seek_percentages": [],
+    "seeks": [],
+    "stage_terminal": "barrier",
+    "temporary_mod_removed": true,
+    "watch_frames": 600
+  },
+  "source": {
+    "commit": "c70b60ffbca1ab53b176d0d658f7c487e2d378a9",
+    "dirty": true,
+    "submodules": [
+      "f21698d85367c8d97585cf7610897316c873681c third_party/GekkoNet (v20260629200724-02c447c-6-gf21698d)",
+      " 6b3fd8a175f1e164eb1bd1be6f766f48b980f7c0 tools/BlueprintToCpp (heads/codex/pre-rollback-rewrite-snapshot-20260823)",
+      " 75f3878b7a348cbda3927048b142a0a6923e79c0 tools/BlueprintToCpp/CUE4Parse (v1.2.2-719-g75f3878b)",
+      " 414689d5cff4286a7898487a46dc5e48005d38da tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl (v2.1.0)",
+      " 0d98dba29d66e93259db7daa53a9327df767a415 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/benchmark (v1.6.1)",
+      " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/catch2 (v2.13.7)",
+      " d7982f2b2524feeb322f424b29cf43df30b5d5b7 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm (v2.2.0)",
+      " 0d98dba29d66e93259db7daa53a9327df767a415 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm/external/benchmark (v1.6.1)",
+      " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm/external/catch2 (v2.13.7)",
+      " 54b3985e8ccc5efb5f24dabf0b4b802a996366e6 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/sjson-cpp (v0.9.0)",
+      " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/sjson-cpp/external/catch2 (v2.13.7)"
+    ]
+  }
+}

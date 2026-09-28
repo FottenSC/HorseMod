@@ -135,9 +135,21 @@ enum class ReplayTimelinePartialReason : std::uint8_t
     BatchEntryCheckpoint,
 };
 
+struct NativeIdentityReplacementObservation
+{
+    FailureCode failure{FailureCode::None};
+    // 1 landing, 2 canonical, 3 batch entry, 4 camera source,
+    // 5 replay producer, 6 completed outer canonical, 7 completed replay source.
+    std::uint8_t source{};
+    FrameCoordinate coordinate{};
+    std::uint64_t batch_id{};
+    CandidateTransientCaptureDiagnostic capture{};
+};
+
 struct ReplayTimelineStatus
 {
     FailureCode failure{FailureCode::None};
+    NativeIdentityReplacementObservation first_identity_replacement{};
     FrameCoordinate last_coordinate{};
     std::int32_t native_round{};
     std::int32_t native_time{};
@@ -550,6 +562,8 @@ public:
     Status PrepareResumeOuterTick(
         std::uintptr_t battle_manager, std::uint32_t thread_id) noexcept;
     Status ObserveOuterTick(const OuterTickObservation& observation) noexcept;
+    bool ObserveTutorialTick(const TutorialConsumerObservation& observation) noexcept;
+    bool ObserveInputProducerTick(const InputProducerObservation& observation) noexcept;
     void ObserveReplayExit() noexcept;
     [[nodiscard]] Status ResetQualificationCycle(
         std::uint64_t& stale_state_mask) noexcept;
@@ -573,6 +587,11 @@ public:
         const noexcept;
     [[nodiscard]] PresentationJournal::Statistics presentation_statistics()
         const noexcept;
+    [[nodiscard]] std::uint64_t presentation_correction_id() const noexcept
+    { return presentation_controller_.correction_id(); }
+    [[nodiscard]] std::optional<PresentationJournal::CorrectionObservation>
+        TakeDrainedPresentationCorrection() noexcept
+    { return presentation_controller_.TakeDrainedCorrection(); }
     [[nodiscard]] ReplayTimelineStatus timeline_status() const noexcept;
     // Game-thread-only borrowed view for narrow native qualification exports.
     // The caller must consume fields immediately and never retain this reference.
@@ -601,6 +620,8 @@ public:
         FrameCoordinate coordinate) const noexcept;
     [[nodiscard]] Status GetCanonicalHash(
         FrameCoordinate coordinate, CanonicalHash& output) const noexcept;
+    Status CaptureOnlineHandoff(CanonicalHash& hash, std::uint64_t& context,
+        DeterministicHookSet& hooks, OuterTickState& native) noexcept;
     [[nodiscard]] Status GetCanonicalEntry(
         FrameCoordinate coordinate, CanonicalHashEntry& output) const noexcept;
     [[nodiscard]] Status GetLastCanonicalEntryInGeneration(
@@ -639,6 +660,9 @@ private:
     Status ValidateResumedFrame(FrameCoordinate coordinate) noexcept;
     void CaptureLandingCheckpoint(const FrameFencepostObservation& observation,
         FrameCoordinate coordinate, bool new_generation) noexcept;
+    void RecordIdentityReplacement(FailureCode failure, std::uint8_t source,
+        FrameCoordinate coordinate,
+        const CandidateTransientCaptureDiagnostic& capture = {}) noexcept;
     Status CaptureCanonicalFrame(FrameCoordinate coordinate,
         bool new_generation) noexcept;
     Status BeginObservedOuterTick(const OuterTickObservation& observation,
@@ -653,7 +677,7 @@ private:
         const OuterTickObservation& observation,
         bool input_generation_changed,
         NativeBatchEnvelope& envelope) const noexcept;
-    bool ConsumeResumeValidation() noexcept;
+    Status ConsumeResumeValidation(const NativeBatchEnvelope& observed) noexcept;
     Status AccumulateObservedGameplayIdentity(
         const OuterTickObservation& observation) noexcept;
     Status StoreObservedBatch(const OuterTickObservation& observation,
@@ -826,6 +850,7 @@ private:
         std::uint32_t landing_offset,
         Snapshot* landing,
         bool preserve_first_entry_input_log = false,
+        bool native_input_producer = false,
         std::uint64_t* replayed_coordinates = nullptr,
         std::uint32_t* replayed_batches = nullptr,
         std::size_t* failed_batch_index = nullptr,
@@ -905,6 +930,7 @@ private:
     std::uint64_t pending_batch_id_{};
     std::uint64_t active_outer_tick_id_{};
     FrameCoordinate pending_batch_entry_{};
+    ReplaySourceState pending_replay_source_{};
     NativeCameraSourceFrameImage pending_camera_source_frame_{};
     std::vector<FrameCoordinate> pending_batch_coordinates_{};
     std::array<std::uint16_t, 2> last_movevm_short25_{};
@@ -919,6 +945,17 @@ private:
     FrameCoordinate resume_source_end_{};
     bool resume_validation_active_{};
     bool resume_catchup_pending_{};
+    std::size_t resume_next_batch_{};
+    std::size_t resume_end_batch_{};
+    std::array<TutorialConsumerObservation,
+        maximum_tutorial_consumers_per_interval> pending_consumers_{};
+    std::uint8_t pending_consumer_count_{};
+    std::array<InputProducerObservation,
+        maximum_input_producers_per_interval> pending_producers_{};
+    std::uint8_t pending_producer_count_{};
+    std::uint64_t last_completed_outer_batch_id_{};
+    CanonicalInputDiagnostic pending_replay_input_{};
+    bool pending_replay_input_valid_{};
     bool generation_rebaseline_pending_{};
     bool online_rebaseline_deferred_{};
     bool continuing_session_rebaseline_{};

@@ -1,0 +1,21 @@
+{
+  "scope": "G1 exact physics substep graph-task before-wrapper RED",
+  "command": "$env:PYTHONPATH='tools'; python -m pytest -q -x tools/deterministic_qualification/tests/test_replay_run.py::test_component_dispatch_revalidates_admitted_consumer",
+  "result": "FAIL as intended at first new substep-initial negative",
+  "observed_output": [
+    "substep-initial child exit=124",
+    "changed substep callback queued; unchanged native entry count=2",
+    "G1 RED: changed substep callback reached native wrapper",
+    "1 failed in 5.50s"
+  ],
+  "source_archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7348682bd3eb2cf55856823ca87f6e5f4f131270278b1ba2588b45f577afee21.zip",
+  "source_archive_sha256": "7348682bd3eb2cf55856823ca87f6e5f4f131270278b1ba2588b45f577afee21",
+  "source_files": {
+    "HorseMod/horselib/deterministic/Sc6ReplayTaskGroup.cpp": "4467b30900ddff3ecb8dbef5aaabe7a007f95c15201800f0cf996f382086611b",
+    "HorseMod/horselib/deterministic/ReplayPhysicsStepConsumer.hpp": "eaf1fe750945916be416ef9ec7aa6f87d3d14aa7b24cb4e89d45fdf0cdfe81b0",
+    "tools/replay_component_dispatch_selftest.cpp": "436098599cc2a4b0602fef97c9c8fb0f2309460d4b2c83c0b114dd5add286fbd",
+    "tools/deterministic_qualification/tests/test_replay_run.py": "11cec5c226af7e0d83e987e2b212c6311cb13686de446527885f47635eabd023"
+  },
+  "native_map": "docs/evidence/rollback-g1-physics-substep-task-native-map-2026-09-24.md",
+  "limit": "Actual PumpOne/DispatchTask fixture with native graph task layout; terminal containment regression, no B recovery claim."
+}

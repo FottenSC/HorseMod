@@ -7,14 +7,8 @@ namespace Horse::Deterministic
 InputTimeline::InputTimeline(std::size_t maximum_entries) noexcept
     : maximum_entries_(maximum_entries)
 {
-    try
-    {
-        entries_.reserve(maximum_entries_);
-    }
-    catch (...)
-    {
-        maximum_entries_ = 0;
-    }
+    // Retired replay coordinators must not reserve their entire history
+    // before receiving an input. Grow only when an actual append needs it.
 }
 
 Status InputTimeline::AppendAuthoritative(
@@ -37,7 +31,13 @@ Status InputTimeline::AppendAuthoritative(
     }
     try
     {
-        entries_.insert(existing, Entry{coordinate, inputs});
+        const auto index = static_cast<std::size_t>(existing - entries_.begin());
+        if (entries_.size() == entries_.capacity()) {
+            const auto capacity = entries_.capacity();
+            entries_.reserve(capacity ? capacity + (std::min)(capacity, maximum_entries_ - capacity)
+                                     : (std::min)(std::size_t{64}, maximum_entries_));
+        }
+        entries_.insert(entries_.begin() + index, Entry{coordinate, inputs});
     }
     catch (...)
     {

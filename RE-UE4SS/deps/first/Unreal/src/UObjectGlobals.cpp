@@ -581,10 +581,14 @@ namespace RC::Unreal::UObjectGlobals
 
         const auto& ObjObjects = GUObjectArray->GetObjObjects();
         static const auto ItemSize = FUObjectItem::UEP_TotalSize();
+        // Keep references to the live header, not snapshots. Callbacks may
+        // append objects or replace the backing array; the next iteration must
+        // observe both changes. Layout accessors need resolving only once.
+        const auto& NumElements = ObjObjects.GetNumElements();
+        const auto& ChunkPtr = ObjObjects.GetObjects();
 
-        for (int32_t ItemIndex = 0; ItemIndex < ObjObjects.GetNumElements(); ++ItemIndex)
+        for (int32_t ItemIndex = 0; ItemIndex < NumElements; ++ItemIndex)
         {
-            const auto& ChunkPtr = ObjObjects.GetObjects();
             const auto ObjectItem = std::bit_cast<FUObjectItem*>(&std::bit_cast<uint8_t*>(ChunkPtr)[ItemIndex * ItemSize]);
             const auto Object = ObjectItem->GetUObject();
             if (ObjectItem->IsUnreachable() || !Object) { continue; }

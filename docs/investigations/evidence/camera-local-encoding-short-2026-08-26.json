@@ -1,0 +1,64 @@
+{
+  "artifacts": {
+    "config": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\rollback.ini",
+      "sha256": "d776cea27d15b930d5c723be9a64a461a844c3959d12642fdfbf11cfb955fd46"
+    },
+    "game_executable": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\SoulcaliburVI.exe",
+      "sha256": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553"
+    },
+    "generated_schema": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\generated\\deterministic_contract.json",
+      "sha256": "063c9c9f6986b017021ea53227c2bd6b14ce8cc6c0cf3bba5583743327d16ed7"
+    },
+    "horsemod_dll": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll",
+      "sha256": "382357257e7930a54e37e109ba62718daac4743696c11d8710a3c8f3f2050b9a"
+    },
+    "replay": {
+      "path": "E:\\myMods\\ReplayExample\\REPLAY_13173453392462886538.bin",
+      "sha256": "6c2389cf5b5f4ddab9e288ad5c4a567a55982e172d23ccf50bf97450e5e67787"
+    },
+    "replay_qualification_mod": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\ReplayQualificationMod.dll",
+      "sha256": "a5dd900772eaa0c99c7def19e00a36b84f29751639c9c734d2c303a6b98ea5d1"
+    },
+    "runner_sha256": "8097ca10505b633906623c9884951e3ab98cc040ec1f890b6f2512b59939da29"
+  },
+  "certifying": false,
+  "created_utc": "2026-08-26T07:44:44.319134+00:00",
+  "kind": "replay_entry_probe",
+  "reason": "native replay import, stock launch request, and bounded normal-play frame observation",
+  "report_schema": 1,
+  "result": "pass",
+  "runtime": {
+    "clean_exit_requested": true,
+    "frame_fencepost_observed": true,
+    "horsemod_version": "1.2.1",
+    "launch_requested": true,
+    "native_replay_import_ready": true,
+    "reported_source_commit": "3d0487edf60040ea68b013311a2b4d7e2ca95039",
+    "run_id": "fab56469ab5547ca9466b3c9bcd80063",
+    "seek_percentages": [],
+    "temporary_mod_removed": true,
+    "watch_frames": 10
+  },
+  "source": {
+    "commit": "3d0487edf60040ea68b013311a2b4d7e2ca95039",
+    "dirty": true,
+    "submodules": [
+      "f21698d85367c8d97585cf7610897316c873681c third_party/GekkoNet (v20260629200724-02c447c-6-gf21698d)",
+      " 6b3fd8a175f1e164eb1bd1be6f766f48b980f7c0 tools/BlueprintToCpp (heads/codex/pre-rollback-rewrite-snapshot-20260823)",
+      " 75f3878b7a348cbda3927048b142a0a6923e79c0 tools/BlueprintToCpp/CUE4Parse (v1.2.2-719-g75f3878b)",
+      " 414689d5cff4286a7898487a46dc5e48005d38da tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl (v2.1.0)",
+      " 0d98dba29d66e93259db7daa53a9327df767a415 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/benchmark (v1.6.1)",
+      " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/catch2 (v2.13.7)",
+      " d7982f2b2524feeb322f424b29cf43df30b5d5b7 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm (v2.2.0)",
+      " 0d98dba29d66e93259db7daa53a9327df767a415 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm/external/benchmark (v1.6.1)",
+      " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm/external/catch2 (v2.13.7)",
+      " 54b3985e8ccc5efb5f24dabf0b4b802a996366e6 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/sjson-cpp (v0.9.0)",
+      " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/sjson-cpp/external/catch2 (v2.13.7)"
+    ]
+  }
+}

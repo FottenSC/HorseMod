@@ -1,0 +1,91 @@
+{
+  "result": "pass",
+  "independent_controls": {
+    "0": {
+      "run_id": "replay-a76c744e06ef415987adefd9bf21b7aa",
+      "reuse": {
+        "reason": "exact control-side identities, setup, protocol and coverage",
+        "key": "34302173d57afe311999876cad65346e20e97281fd46a014df78e5871720ccd9"
+      }
+    },
+    "1": {
+      "run_id": "replay-5ccae7ce15134a93b8227ea5a2b084ae",
+      "reuse": {
+        "reason": "exact control-side identities, setup, protocol and coverage",
+        "key": "4fefd2d1d88552d8c8364370854c5948d34bb71f9b8240237640334692f59751"
+      }
+    },
+    "2": {
+      "run_id": "replay-6c1fdd01a6984c3c961ddbbea4516eac",
+      "reuse": {
+        "reason": "exact control-side identities, setup, protocol and coverage",
+        "key": "2017caaaeb5d833ed848f7f1de3e4711e68b18815cd95f087f38313d14630539"
+      }
+    },
+    "3": {
+      "run_id": "replay-4e2b82161cc946ecb43877a9d7f9c1c0",
+      "reuse": {
+        "reason": "exact control-side identities, setup, protocol and coverage",
+        "key": "ed70a1ac1a9cf875eb219ab85ba08e695ecca999a26dc66483a06a6fd2698374"
+      }
+    }
+  },
+  "continuation_ticks": 120,
+  "native_callbacks_compared": 14364,
+  "acceptance_results": {
+    "observer_validity": "pass",
+    "simulation": "pass"
+  },
+  "retained_evidence": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\abb853fb00a04c44ef42d11b2052a3a331be83a4bc84f8d8e4828f56ce264efe.json",
+    "sha256": "abb853fb00a04c44ef42d11b2052a3a331be83a4bc84f8d8e4828f56ce264efe",
+    "bytes": 234862,
+    "summary": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\65478a66674f668bd2da9341ac898fc6efcd67c9501d1ac5d27a33db80ccd751.md",
+      "sha256": "65478a66674f668bd2da9341ac898fc6efcd67c9501d1ac5d27a33db80ccd751",
+      "bytes": 518
+    }
+  },
+  "build_identities": {
+    "runtime": "d47b1682b8b79c42fb021048ff30eac0543bb62b9fe3bf1baed708e2ce6bdf69",
+    "observer": "9fc1cbe0beaf947293bab4f0a0dc82f87df4aedb17008236787ca5f1ab78d007",
+    "framework": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6"
+  },
+  "candidate": {
+    "result": "pass",
+    "cycles": 407,
+    "first_T": 217,
+    "last_T": 623,
+    "resimulated_ticks": 2849,
+    "peak_bytes": 906368544,
+    "scope": "native transaction receipts; independent comparison required"
+  },
+  "stage_receipt": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\3ddabfe9bb40d0b5857b2b959f4b5b6e0ffe8faf2209b8c7b57eb6c713d29ee5.json",
+    "sha256": "3ddabfe9bb40d0b5857b2b959f4b5b6e0ffe8faf2209b8c7b57eb6c713d29ee5",
+    "bytes": 209326
+  },
+  "console": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\93c1eaa7c81bcf14671ff35e6a82d1221066c37d9b0f643143e24ed3d701ac65.log",
+    "sha256": "93c1eaa7c81bcf14671ff35e6a82d1221066c37d9b0f643143e24ed3d701ac65",
+    "bytes": 662
+  },
+  "cost_summary_us": {
+    "capture_us": {
+      "median": 95128,
+      "p95": 138379,
+      "max": 168677
+    },
+    "correction_us": {
+      "median": 564043,
+      "p95": 950257,
+      "max": 2148176
+    },
+    "preceding_forward_us": {
+      "median": 57484,
+      "p95": 232566,
+      "max": 283114
+    }
+  },
+  "scope": "407 through C623 and independent120 continuation. Compatible native authored controls reused by runner. No A617 publication, no debris exclusion, coherence/recovery/epoch/full ownership unqualified, performance failing."
+}

@@ -34,6 +34,14 @@ DeterministicHookSet::GameplayXorshift96Detour() noexcept
     const auto original = reinterpret_cast<GameplayXorshift96Fn>(trampoline);
     const auto return_address = reinterpret_cast<std::uintptr_t>(
         _ReturnAddress());
+    // 14034F910 is inside native match/new-round initialization, after all
+    // CRT warmup. Reuse this owned hook solely as a completion witness;
+    // xorshift itself (including wind/camera consumers) remains unchanged.
+    if (hooks != nullptr && hooks->ucrt_broker_ != nullptr
+        && return_address == hooks->image_base_
+            + Schema::Sc6UcrtLayout::rng_init_xorshift_return_rva)
+        hooks->ucrt_broker_->ObserveInitializationComplete(
+            ::GetCurrentThreadId(), Schema::Sc6UcrtLayout::rng_init_xorshift_return_rva);
     const std::uint32_t result = original != nullptr ? original() : 0;
 
     auto* batch = active_outer_capture_;
@@ -538,6 +546,30 @@ void __fastcall DeterministicHookSet::ResolvedHitConsumerDetour() noexcept
     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
 }
 
+void DeterministicHookSet::ExecuteReplayInterval(void* battle_manager, float delta_seconds) noexcept
+{
+    // The replacement owns its continuation directly. Legacy correction
+    // observations contain stack-local scope bindings and must not surround it.
+    if (active_outer_capture_ != nullptr)
+    {
+        replay_executor_failure_ = FailureCode::IllegalTransition;
+        return;
+    }
+    auto status = replay_executor_.Begin(image_base_, battle_manager, delta_seconds);
+    if (status.ok() && replay_executor_yield_every_tick_)
+    {
+        // A world-owned manager task retains its event and task-body tail.
+        // Direct interval probes still drain here because they have no task owner.
+        do
+        {
+            status = replay_executor_.AdvanceOneTick();
+        } while (status.ok() && !replay_executor_.interval_complete()
+            && !replay_host_.OwnsManagerEntry(battle_manager));
+    }
+    else if (status.ok()) status = replay_executor_.DrainInterval();
+    if (!status.ok()) replay_executor_failure_ = status.code;
+}
+
 void __fastcall DeterministicHookSet::OuterTickDetour(
     void* battle_manager, float delta_seconds) noexcept
 {
@@ -547,6 +579,24 @@ void __fastcall DeterministicHookSet::OuterTickDetour(
         ? hooks->outer_tick_trampoline_
         : outer_tick_trampoline_global_.load(std::memory_order_acquire);
     const auto original = reinterpret_cast<OuterTickFn>(trampoline);
+    if (hooks != nullptr && hooks->replay_executor_selected_)
+    {
+        if (hooks->replay_executor_enabled_
+            && battle_manager == hooks->replay_executor_manager_)
+            hooks->ExecuteReplayInterval(battle_manager, delta_seconds);
+        else if (original != nullptr)
+            original(battle_manager, delta_seconds);
+        callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+        return;
+    }
+    // The manager entry already belongs to this detour. A prefix lease must
+    // never install a second entry patch or unwind a partly executed batch.
+    if (hooks != nullptr && hooks->callbacks_.outer_tick_hold != nullptr
+        && hooks->callbacks_.outer_tick_hold(hooks->callbacks_.user))
+    {
+        callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+        return;
+    }
     OuterTickObservation observation{};
     observation.battle_manager = reinterpret_cast<std::uintptr_t>(battle_manager);
     observation.batch_id = hooks != nullptr ? ++hooks->next_outer_batch_id_ : 0;
@@ -556,8 +606,16 @@ void __fastcall DeterministicHookSet::OuterTickDetour(
     observation.fp_before_valid = true;
     if (hooks != nullptr)
     {
-        hooks->callbacks_.outer_tick_prepare(
-            hooks->callbacks_.user, observation);
+        if (hooks->callbacks_.outer_tick_prepare != nullptr
+            && !hooks->callbacks_.outer_tick_prepare(
+                hooks->callbacks_.user, observation))
+        {
+            // Preparation can discover a terminal correction failure after
+            // the earlier prefix-hold check. Do not enter native maintenance,
+            // install a capture scope, or report a completed simulation tick.
+            callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+            return;
+        }
         hooks->CaptureOuterTickState(
             battle_manager, observation.before, observation.read_mask,
             0x1, 0x2, 0x4, 0x8);
@@ -606,10 +664,7 @@ void __fastcall DeterministicHookSet::OuterTickDetour(
         hooks->callbacks_.outer_tick_source(
             hooks->callbacks_.user, observation);
     }
-    if (original != nullptr)
-        observation.authoritative_input_aborted_before_consume =
-            InvokeOuterTickWithAbortGuard(
-                original, battle_manager, delta_seconds);
+    if (original != nullptr) original(battle_manager, delta_seconds);
     observation.input_filter_invocations =
         capture_context.input_filter_invocations;
     observation.input_filter_observed = capture_context.input_filter_observed;
@@ -634,38 +689,6 @@ void __fastcall DeterministicHookSet::OuterTickDetour(
             hooks->callbacks_.outer_tick, observation);
     }
     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
-}
-
-namespace
-{
-constexpr DWORD authoritative_input_abort_exception = 0xe0484d01u;
-
-int AuthoritativeInputAbortFilter(DWORD code) noexcept
-{
-    return code == authoritative_input_abort_exception
-        ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH;
-}
-}
-
-bool DeterministicHookSet::InvokeOuterTickWithAbortGuard(
-    OuterTickFn original, void* battle_manager, float delta_seconds) noexcept
-{
-    bool aborted = false;
-    __try
-    {
-        original(battle_manager, delta_seconds);
-    }
-    __except (AuthoritativeInputAbortFilter(GetExceptionCode()))
-    {
-        aborted = true;
-    }
-    return aborted;
-}
-
-[[noreturn]] void DeterministicHookSet::AbortActiveOuterTick() noexcept
-{
-    RaiseException(authoritative_input_abort_exception, 0, 0, nullptr);
-    std::terminate();
 }
 
 bool DeterministicHookSet::installed() const noexcept
@@ -757,6 +780,17 @@ Status DeterministicHookSet::PrepareOwnedBatchState(
     OuterTickState pre_handoff{};
     CaptureOuterTickState(reinterpret_cast<void*>(request.battle_manager),
         pre_handoff, pre_handoff_mask, 0x1, 0x2, 0x4, 0x8);
+    if (request.native_input_producer)
+    {
+        output.before = pre_handoff;
+        if (pre_handoff_mask != Schema::Sc6FrameLayout::required_outer_tick_pre_read_mask
+            || !OuterStateMatchesEnvelope(pre_handoff, *request.envelope, true))
+        {
+            output.failure = FailureCode::IdentityMismatch;
+            return Status::failure(output.failure);
+        }
+        return Status::success();
+    }
     if (pre_handoff_mask != Schema::Sc6FrameLayout::required_outer_tick_pre_read_mask
         || pre_handoff.input_log == 0
         || pre_handoff.frame_counter != request.envelope->native_frame_before
@@ -1146,7 +1180,7 @@ void __fastcall DeterministicHookSet::FrameFencepostDetour(
     if (original != nullptr)
     {
         original(battle_manager);
-        if (hooks != nullptr)
+        if (hooks != nullptr && !hooks->replay_executor_selected_)
         {
             hooks->EmitFrameFencepost(battle_manager);
         }
@@ -1204,8 +1238,11 @@ void __fastcall DeterministicHookSet::CallbackExecutorDetour(
         const auto index = execution.result->observed_coordinates;
         if (index >= execution.request->inputs.size()
             || execution.invocations_for_coordinate != 0
-            || !PublishInputPairArray(callback_argument,
-                execution.request->inputs[index].players))
+            || (execution.request->native_input_producer
+                ? (before[0] != execution.request->inputs[index].players[0]
+                    || before[1] != execution.request->inputs[index].players[1])
+                : !PublishInputPairArray(callback_argument,
+                    execution.request->inputs[index].players)))
         {
             execution.result->failure = FailureCode::AdvanceFailed;
             before_valid = false;
@@ -1217,52 +1254,10 @@ void __fastcall DeterministicHookSet::CallbackExecutorDetour(
             ++execution.invocations_for_coordinate;
         }
     }
-    else if (is_input_filter && hooks != nullptr
-        && hooks->callbacks_.authoritative_input != nullptr)
-    {
-        PlayerInput authoritative[2]{};
-        const auto disposition = hooks->callbacks_.authoritative_input(
-            hooks->callbacks_.user, *batch->observation, before_valid, before,
-            authoritative);
-        const auto publish = [](void* context,
-            const PlayerInput (&input)[2]) noexcept {
-                return PublishInputPairArray(context, input);
-            };
-        const auto commit = [](void* context) noexcept {
-                auto* active_hooks = static_cast<DeterministicHookSet*>(context);
-                return active_hooks->callbacks_.authoritative_input_commit
-                    != nullptr
-                    && active_hooks->callbacks_.authoritative_input_commit(
-                        active_hooks->callbacks_.user);
-            };
-        const auto gated = ApplyAuthoritativeInputGate(
-            disposition, before_valid, before, authoritative,
-            publish, callback_argument, commit, hooks);
-        before[0] = gated.before[0];
-        before[1] = gated.before[1];
-        before_valid = gated.before_valid;
-        batch->observation->authoritative_input_requested = gated.requested;
-        batch->observation->authoritative_input_round_barrier =
-            gated.round_barrier;
-        batch->observation->authoritative_input_applied = gated.applied;
-        batch->observation->authoritative_input_failed_closed =
-            gated.failed_closed;
-    }
-    const bool abort_before_consume = batch != nullptr
-        && batch->observation != nullptr
-        && batch->observation->authoritative_input_failed_closed;
-    if (abort_before_consume)
-    {
-        callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
-        AbortActiveOuterTick();
-    }
-    const bool suppress_stock_callback = batch != nullptr
-        && batch->observation != nullptr
-        && batch->observation->authoritative_input_requested
-        && (!before_valid
-            || batch->observation->authoritative_input_failed_closed);
-    if (original != nullptr && !suppress_stock_callback)
-        original(collection, callback_argument);
+    const auto collection18 = NativeReplayVfxCompletionObservation::BeforeCollection18Broadcast(
+        collection, callback_argument, _ReturnAddress());
+    if (original != nullptr) original(collection, callback_argument);
+    NativeReplayVfxCompletionObservation::AfterCollection18Broadcast(collection18, original != nullptr);
     PlayerInput after[2]{};
     const bool after_valid = before_valid
         && CaptureInputPairArray(callback_argument, after);
@@ -1581,6 +1576,462 @@ void __fastcall DeterministicHookSet::StageBreakBarrierDetour(
             ++batch->observation->stage_signature_failures;
         else
             entry.particle_count = static_cast<std::uint8_t>(count);
+    }
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+}
+
+std::uint32_t __fastcall DeterministicHookSet::InputSampleDetour(
+    void* input_log, std::int32_t slot) noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    auto* hooks = active_.load(std::memory_order_acquire);
+    const auto trampoline = hooks != nullptr ? hooks->input_sample_trampoline_
+        : input_sample_trampoline_global_.load(std::memory_order_acquire);
+    using Sample = std::uint32_t (__fastcall*)(void*, std::int32_t);
+    const auto original = reinterpret_cast<Sample>(trampoline);
+    auto* context = active_input_producer_;
+    const bool owned = context != nullptr && context->observation != nullptr;
+    const bool admitted = owned && slot >= 0 && slot < 2
+        && reinterpret_cast<std::uintptr_t>(input_log) == context->observation->before.owner
+        && (context->observation->sampled_slots & (1u << slot)) == 0;
+    std::uint32_t value{};
+    if (owned && context->replay != nullptr)
+    {
+        if (!admitted || (context->replay->sampled_slots & (1u << slot)) == 0)
+            context->failed = true;
+        else value = context->replay->sampled_inputs[slot];
+    }
+    else if (original != nullptr) value = original(input_log, slot);
+    if (owned)
+    {
+        if (!admitted || original == nullptr) context->failed = true;
+        else
+        {
+            context->observation->sampled_slots |= static_cast<std::uint8_t>(1u << slot);
+            context->observation->sampled_inputs[slot] = value;
+        }
+    }
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+    return value;
+}
+
+Status DeterministicHookSet::ReplayInputProducer(
+    const InputProducerObservation& expected, std::uintptr_t replay_source_owner) noexcept
+{
+    if (!installed() || !expected.valid || !expected.parent.inert
+        || expected.thread_id != ::GetCurrentThreadId()
+        || active_input_producer_ != nullptr || replay_source_owner == 0
+        || expected.before.receiver_counts[0] != 0
+        || expected.before.receiver_counts[1] != 1
+        || expected.before.scalars[2] != 2 || expected.before.scalars[9] != UINT32_MAX)
+        return Status::failure(FailureCode::RestorePreflightFailed);
+    // Admit only the base offline transaction. In particular, Sync +620
+    // receives/releases packets and emits persistent FrameStream output.
+    constexpr std::array<std::uintptr_t, 8> methods{
+        0x3F5D20, 0x3FDB60, 0x3E9E60, 0x3E1FC0,
+        0x3FDF30, 0x3F2AB0, 0x3F6600, 0x3F6070};
+    for (std::size_t i = 0; i < methods.size(); ++i)
+        if (expected.before.dispatch[i] != image_base_ + methods[i])
+            return Status::failure(FailureCode::AdapterUnqualified);
+    const auto read = [](std::uintptr_t address, auto& value) noexcept {
+        return SafeRead(address, value);
+    };
+    InputProducerObservation observed{};
+    if (!CaptureInputProducerState(read, expected.before.owner, observed.before)
+        || observed.before != expected.before
+        || !SafeRead(image_base_ + Schema::Sc6FrameLayout::frame_counter_rva,
+            observed.native_frame_before)
+        || observed.native_frame_before != expected.native_frame_before)
+        return Status::failure(FailureCode::IdentityMismatch);
+    TutorialParentGuard parent{};
+    if (!CaptureTutorialParentGuard(reinterpret_cast<void*>(expected.before.owner),
+            image_base_, parent, expected.parent.receive_tick)
+        || !parent.inert || parent.actor_class != expected.parent.actor_class
+        || parent.receive_tick != expected.parent.receive_tick
+        || parent.object_index != expected.parent.object_index
+        || parent.object_serial != expected.parent.object_serial
+        || parent.latent_manager != expected.parent.latent_manager)
+        return Status::failure(FailureCode::RestorePreflightFailed);
+    // The sole current-input receiver must be this immutable replay reader;
+    // no recorder, transport receiver or unknown callback may run here.
+    const auto entry = observed.before.receiver_arrays[1];
+    std::uintptr_t wrapper{}, vtable{}, owner{}, target_vtable{}, rounds{};
+    std::int32_t active{}, round{}, round_count{}, recorder_count{};
+    std::uint8_t tracker_active{};
+    if (!SafeRead(entry + 0x30, active) || active == 0
+        || !SafeRead(entry + 0x20, wrapper))
+        return Status::failure(FailureCode::RestorePreflightFailed);
+    if (wrapper == 0) wrapper = entry;
+    if (!SafeRead(wrapper, vtable) || vtable != image_base_ + 0x3298810
+        || !SafeRead(wrapper + 8, owner) || owner != replay_source_owner
+        || !SafeRead(owner + 0x390, target_vtable)
+        || target_vtable != image_base_ + 0x3290D20
+        || !SafeRead(owner + 0x398, tracker_active) || tracker_active != 1
+        || !SafeRead(owner + 0x39C, round) || round < 0
+        || !SafeRead(owner + 0x3B8, rounds) || rounds == 0
+        || !SafeRead(owner + 0x3C0, round_count) || round >= round_count
+        || !SafeRead(rounds + static_cast<std::uintptr_t>(round) * 16 + 8, recorder_count)
+        || recorder_count != 2)
+        return Status::failure(FailureCode::RestorePreflightFailed);
+    const auto round_entry = rounds + static_cast<std::uintptr_t>(round) * 16;
+    std::uintptr_t recorders{};
+    std::int32_t recorder_capacity{};
+    if (!SafeRead(round_entry, recorders) || recorders == 0
+        || !SafeRead(round_entry + 12, recorder_capacity) || recorder_capacity < 2)
+        return Status::failure(FailureCode::RestorePreflightFailed);
+    for (std::size_t slot = 0; slot < 2; ++slot)
+    {
+        std::uintptr_t object{}, object_vtable{}, reader{}, bytes{};
+        std::int32_t size{}, capacity{};
+        // 140428D70 ->14089B740 is polymorphic. Only the verified L32a
+        // leaf14089F5A0 is read-only; an arbitrary tracker-compatible object
+        // could mutate state absent from the simulation/source undo.
+        if (!SafeRead(recorders + slot * 24 + 16, object) || object == 0
+            || !SafeRead(object, object_vtable) || object_vtable != image_base_ + 0x328E948
+            || !SafeRead(object_vtable + 0x40, reader) || reader != image_base_ + 0x89F5A0
+            || !SafeRead(object + 8, bytes)
+            || !SafeRead(object + 0x10, size) || size < 0 || (size & 3) != 0
+            || !SafeRead(object + 0x14, capacity) || capacity < size
+            || static_cast<std::uint32_t>(size) > 64u * 1024u * 1024u
+            || (size != 0 && (bytes == 0 || bytes > UINTPTR_MAX - size)))
+            return Status::failure(FailureCode::RestorePreflightFailed);
+        std::uint32_t last{};
+        if (size != 0 && !SafeRead(bytes + size - 4, last))
+            return Status::failure(FailureCode::RestorePreflightFailed);
+    }
+    InputProducerCaptureContext context{&observed, &expected};
+    active_input_producer_ = &context;
+    bool called{};
+    __try
+    {
+        // Parent execution was observed and rechecked inert. Reproduce the
+        // native producer itself; its clock/cache writes must be derived.
+        reinterpret_cast<void (__fastcall*)(void*)>(observed.before.dispatch[0])(
+            reinterpret_cast<void*>(observed.before.owner));
+        called = true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {}
+    active_input_producer_ = nullptr;
+    if (!called || context.failed || observed.sampled_slots != expected.sampled_slots
+        || !CaptureInputProducerState(read, expected.before.owner, observed.after)
+        || observed.after != expected.after
+        || !SafeRead(image_base_ + Schema::Sc6FrameLayout::frame_counter_rva,
+            observed.native_frame_after)
+        || observed.native_frame_after != expected.native_frame_after)
+        return Status::failure(FailureCode::AdvanceFailed);
+    return Status::success();
+}
+
+void __fastcall DeterministicHookSet::InputProducerTickDetour(void* actor,
+    float delta_seconds) noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    auto* hooks = active_.load(std::memory_order_acquire);
+    const auto trampoline = hooks != nullptr ? hooks->input_producer_tick_trampoline_
+        : input_producer_tick_trampoline_global_.load(std::memory_order_acquire);
+    using Tick = void (__fastcall*)(void*, float);
+    const auto original = reinterpret_cast<Tick>(trampoline);
+    if (hooks != nullptr && !hooks->replay_executor_selected_
+        && hooks->callbacks_.input_producer_hold != nullptr
+        && hooks->callbacks_.input_producer_hold(hooks->callbacks_.user))
+    {
+        callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+        return;
+    }
+    InputProducerObservation observation{};
+    observation.thread_id = ::GetCurrentThreadId();
+    observation.delta_seconds = delta_seconds;
+    const auto read = [](std::uintptr_t address, auto& value) noexcept {
+        return SafeRead(address, value);
+    };
+    const bool observe = hooks != nullptr
+        && !hooks->replay_executor_selected_
+        && hooks->callbacks_.input_producer_tick != nullptr;
+    const auto owner = reinterpret_cast<std::uintptr_t>(actor);
+    const bool before_valid = observe
+        && CaptureInputProducerState(read, owner, observation.before)
+        && SafeRead(hooks->image_base_ + Schema::Sc6FrameLayout::frame_counter_rva,
+            observation.native_frame_before)
+        && CaptureTutorialParentGuard(actor, hooks->image_base_, observation.parent);
+    // Preserve the parent call and both native arguments. A +5F8 hook
+    // would observe only the state after Blueprint/latent parent execution.
+    InputProducerCaptureContext context{&observation};
+    auto* previous = active_input_producer_;
+    context.failed = previous != nullptr;
+    if (observe) active_input_producer_ = &context;
+    if (original != nullptr) original(actor, delta_seconds);
+    active_input_producer_ = previous;
+    if (observe)
+    {
+        observation.valid = before_valid && original != nullptr && !context.failed
+            && CaptureInputProducerState(read, owner, observation.after)
+            && observation.before.vtable == observation.after.vtable
+            && observation.before.dispatch == observation.after.dispatch
+            && SafeRead(hooks->image_base_ + Schema::Sc6FrameLayout::frame_counter_rva,
+                observation.native_frame_after);
+        hooks->callbacks_.input_producer_tick(hooks->callbacks_.user, observation);
+    }
+    callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
+}
+
+bool DeterministicHookSet::SetReplayExecutorEnabled(bool enabled, bool yield_every_tick, void* manager) noexcept
+{
+    auto* hooks = active_.load(std::memory_order_acquire);
+    if (!hooks || !hooks->installed()) return false;
+    if (enabled && (!manager || hooks->replay_executor_enabled_ || active_outer_capture_ != nullptr)) return false;
+    if (enabled && !hooks->replay_host_.Bind(hooks->image_base_, manager,
+        &hooks->replay_executor_, yield_every_tick, hooks->ucrt_broker_,
+        hooks->callbacks_.user, hooks->callbacks_.companion_replay_storage)) return false;
+    if (!enabled)
+    {
+        if (!hooks->replay_executor_.interval_complete()) return false;
+        if (!hooks->replay_host_.Stop()) return false;
+        if (!hooks->replay_executor_.Stop().ok()) return false;
+    }
+    hooks->replay_executor_failure_ = FailureCode::None;
+    if (enabled) hooks->replay_executor_selected_ = true;
+    hooks->replay_executor_enabled_ = enabled;
+    hooks->replay_executor_yield_every_tick_ = enabled && yield_every_tick;
+    hooks->replay_executor_manager_ = enabled ? manager : nullptr;
+    return true;
+}
+
+bool DeterministicHookSet::ReadReplayExecutorStatus(std::uint64_t* values, std::size_t count) noexcept
+{
+    auto* hooks = active_.load(std::memory_order_acquire);
+    if (!hooks || !values || (count != 6 && count != 12)) return false;
+    const auto& state = hooks->replay_executor_.continuation();
+    values[0] = hooks->replay_executor_enabled_;
+    values[1] = static_cast<std::uint64_t>(state.phase);
+    values[2] = state.tick;
+    values[3] = state.interval;
+    values[4] = state.publications;
+    values[5] = static_cast<std::uint64_t>(hooks->replay_executor_failure_);
+    if (hooks->replay_executor_enabled_ && !hooks->replay_host_.CheckBinding())
+        values[5] = static_cast<std::uint64_t>(FailureCode::IdentityMismatch);
+    if (count == 12)
+    {
+        const auto& stats = hooks->replay_executor_.statistics();
+        values[6] = stats.completed_intervals;
+        values[7] = stats.zero_tick_intervals;
+        values[8] = stats.multi_tick_intervals;
+        values[9] = stats.repeat_requests;
+        values[10] = stats.move_state_ticks;
+        values[11] = stats.yielded_boundaries;
+    }
+    return true;
+}
+
+bool DeterministicHookSet::SetReplayWorldPaused(bool paused) noexcept
+{
+    auto* hooks = active_.load(std::memory_order_acquire);
+    return hooks && hooks->replay_executor_enabled_
+        && hooks->replay_executor_.interval_complete() && hooks->replay_host_.Pause(paused);
+}
+
+bool DeterministicHookSet::ArmReplayInteriorPause(std::uint64_t tick, void* context,
+    Sc6ReplayHost::InteriorObserver observer) noexcept
+{
+    auto* hooks = active_.load(std::memory_order_acquire);
+    return hooks && hooks->replay_executor_enabled_
+        && hooks->replay_host_.ArmInteriorPause(tick, context, observer);
+}
+
+Status DeterministicHookSet::CaptureReplayCheckpoint(Sc6ReplayHost::Checkpoint* checkpoint) noexcept
+{
+    auto* hooks = active_.load(std::memory_order_acquire);
+    return hooks && hooks->replay_executor_enabled_ && checkpoint
+        ? hooks->replay_host_.Capture(*checkpoint) : Status::failure(FailureCode::ContextUnavailable);
+}
+
+bool DeterministicHookSet::ArmReplayApplicationPause(std::uint64_t tick, void* context,
+    Sc6ReplayHost::InteriorObserver observer) noexcept
+{
+    auto* hooks = active_.load(std::memory_order_acquire);
+    return hooks && hooks->replay_executor_enabled_
+        && hooks->replay_host_.ArmApplicationPause(tick, context, observer);
+}
+
+Status DeterministicHookSet::RestoreReplayCheckpoint(const Sc6ReplayHost::Checkpoint* checkpoint,
+    const Sc6ReplayHost::RestoreControl* control) noexcept
+{
+    auto* hooks = active_.load(std::memory_order_acquire);
+    return hooks && hooks->replay_executor_enabled_ && checkpoint
+        ? hooks->replay_host_.Restore(*checkpoint, control) : Status::failure(FailureCode::ContextUnavailable);
+}
+
+Status DeterministicHookSet::AdvanceReplayToTick(std::uint64_t tick) noexcept
+{
+    auto* hooks = active_.load(std::memory_order_acquire);
+    return hooks && hooks->replay_executor_enabled_ ? hooks->replay_host_.AdvancePendingRepeatToTick(tick)
+        : Status::failure(FailureCode::ContextUnavailable);
+}
+
+Status DeterministicHookSet::ReviseReplayInputs(std::span<const ReplayInputOverride> edits,std::uint64_t expected,std::uint64_t& revision) noexcept
+{
+    auto* hooks=active_.load(std::memory_order_acquire);
+    return hooks && hooks->replay_executor_enabled_ ? hooks->replay_host_.ReviseInputs(edits,expected,revision)
+        : Status::failure(FailureCode::ContextUnavailable);
+}
+
+Sc6ReplayHost::TickAdvanceWitness DeterministicHookSet::ReadReplayTick() noexcept
+{
+    auto* hooks = active_.load(std::memory_order_acquire);
+    return hooks && hooks->replay_executor_enabled_ ? hooks->replay_host_.ReadTickAdvance()
+        : Sc6ReplayHost::TickAdvanceWitness{Sc6ReplayHost::TickAdvancePhase::Failed, FailureCode::ContextUnavailable};
+}
+
+Sc6ReplayHost::TickAdvanceWitness DeterministicHookSet::RequestReplayTick(std::uint64_t tick, void* context, Sc6ReplayHost::InteriorObserver observer) noexcept
+{
+    auto* hooks = active_.load(std::memory_order_acquire);
+    return hooks && hooks->replay_executor_enabled_ ? hooks->replay_host_.AdvanceToTick(tick, context, observer)
+        : Sc6ReplayHost::TickAdvanceWitness{Sc6ReplayHost::TickAdvancePhase::Failed, FailureCode::ContextUnavailable};
+}
+
+Status DeterministicHookSet::ResumeReplayExecution() noexcept
+{
+    auto* hooks = active_.load(std::memory_order_acquire);
+    return hooks && hooks->replay_executor_enabled_ ? hooks->replay_host_.Resume()
+        : Status::failure(FailureCode::ContextUnavailable);
+}
+
+bool DeterministicHookSet::ReadReplayInteriorWitness(Sc6ReplayHost::InteriorWitness* witness) noexcept
+{
+    auto* hooks = active_.load(std::memory_order_acquire);
+    if (!hooks || !witness || !hooks->replay_executor_enabled_) return false;
+    *witness = hooks->replay_host_.ReadInteriorWitness();
+    return true;
+}
+
+bool DeterministicHookSet::ReadReplayHostStatus(std::uint64_t* values, std::size_t count) noexcept
+{
+    auto* hooks = active_.load(std::memory_order_acquire);
+    if (!hooks || !values || (count != 3 && count != 5 && count != 7 && count != 9 && count != 12 && count != 13 && count != 15)) return false;
+    values[0] = hooks->replay_host_.paused();
+    values[1] = hooks->replay_host_.held_updates();
+    values[2] = hooks->replay_host_.failed();
+    if (count >= 5)
+    {
+        values[3] = hooks->replay_host_.completed_worlds();
+        values[4] = hooks->replay_host_.world_idle();
+    }
+    if (count >= 7)
+    {
+        values[5] = hooks->replay_host_.completed_groups();
+        values[6] = hooks->replay_host_.dispatched_tasks();
+    }
+    if (count >= 9)
+    {
+        values[7] = hooks->replay_host_.manager_tasks();
+        values[8] = hooks->replay_host_.manager_yields();
+    }
+    if (count >= 12)
+    {
+        values[9] = hooks->replay_host_.arena_scopes();
+        values[10] = hooks->replay_host_.max_retained_arena_bytes();
+        values[11] = hooks->replay_host_.arena_empty();
+    }
+    if (count >= 13) values[12] = hooks->replay_host_.arena_probe_checks();
+    if (count >= 15)
+    {
+        values[13] = hooks->replay_host_.completed_engines();
+        values[14] = hooks->replay_host_.engine_idle();
+    }
+    return true;
+}
+
+bool DeterministicHookSet::CaptureTutorialParentGuard(void* actor,
+    std::uintptr_t image_base, TutorialParentGuard& output,
+    std::uintptr_t cached_receive_tick) noexcept
+{
+    // This is an observation at original parent entry. Resolve existing weak
+    // identity without constructing FWeakObjectPtr (which may assign serials).
+    output = {};
+    __try
+    {
+        auto* object = static_cast<RC::Unreal::UObject*>(actor);
+        if (object == nullptr) return false;
+        output.object_index = object->GetInternalIndex();
+        auto* item = RC::Unreal::UObjectArray::IndexToObject(output.object_index);
+        if (item == nullptr || item->GetUObject() != object) return false;
+        output.object_serial = item->GetSerialNumber();
+        if (output.object_serial <= 0) return false;
+        auto* function = cached_receive_tick == 0
+            ? object->GetFunctionByNameInChain(L"ReceiveTick")
+            : reinterpret_cast<RC::Unreal::UFunction*>(cached_receive_tick);
+        if (function == nullptr) return false;
+        output.receive_tick = reinterpret_cast<std::uintptr_t>(function);
+        std::uintptr_t vtable{}, world_getter{}, world{}, game_instance{};
+        const auto owner = reinterpret_cast<std::uintptr_t>(actor);
+        if (!SafeRead(owner, vtable)
+            || !SafeRead(owner + 0x10, output.actor_class)
+            || !SafeRead(owner + 0x148, output.destruction_flags)
+            || !SafeRead(output.receive_tick + 0x88, output.function_flags)
+            || !SafeRead(output.receive_tick + 0x50, output.script_size)
+            || !SafeRead(vtable + 0x138, world_getter) || world_getter == 0)
+            return false;
+        world = reinterpret_cast<std::uintptr_t (__fastcall*)(void*)>(world_getter)(actor);
+        if (world == 0 || !SafeRead(world + 0x140, game_instance)) return false;
+        output.latent_manager = world + 0x438;
+        if (game_instance != 0
+            && !SafeRead(game_instance + 0xE0, output.latent_manager)) return false;
+        if (output.latent_manager == 0) return false;
+        std::int32_t removal_count{}, removal_free{}, object_count{}, object_free{};
+        if (!SafeRead(output.latent_manager + 0xA8, removal_count)
+            || !SafeRead(output.latent_manager + 0xD4, removal_free)
+            || !SafeRead(output.latent_manager + 0x08, object_count)
+            || !SafeRead(output.latent_manager + 0x34, object_free)
+            || removal_count < 0 || removal_free < 0 || removal_free > removal_count
+            || object_count < 0 || object_free < 0 || object_free > object_count)
+            return false;
+        output.pending_removals = removal_count - removal_free;
+        const std::uint32_t key[2]{static_cast<std::uint32_t>(output.object_index),
+            static_cast<std::uint32_t>(output.object_serial)};
+        using Find = std::int32_t* (__fastcall*)(std::uintptr_t, std::int32_t*,
+            const std::uint32_t*);
+        reinterpret_cast<Find>(image_base + 0x17AC350)(output.latent_manager,
+            &output.actor_latent_index, key);
+        output.inert = (output.function_flags & 0x400) == 0 && output.script_size == 0
+            && output.actor_latent_index == -1 && output.pending_removals == 0
+            && (output.destruction_flags & 1) == 0;
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+void __fastcall DeterministicHookSet::TutorialTickDetour(
+    void* actor, float delta_seconds) noexcept
+{
+    callbacks_in_flight_.fetch_add(1, std::memory_order_acq_rel);
+    auto* hooks = active_.load(std::memory_order_acquire);
+    const auto trampoline = hooks != nullptr ? hooks->tutorial_tick_trampoline_
+        : tutorial_tick_trampoline_global_.load(std::memory_order_acquire);
+    const auto original = reinterpret_cast<OuterTickFn>(trampoline);
+    TutorialConsumerObservation observation{};
+    observation.thread_id = ::GetCurrentThreadId();
+    observation.delta_seconds = delta_seconds;
+    const auto read = [](std::uintptr_t address, auto& value) noexcept {
+        return SafeRead(address, value);
+    };
+    const auto owner = reinterpret_cast<std::uintptr_t>(actor);
+    const bool observe = hooks != nullptr && !hooks->replay_executor_selected_
+        && hooks->callbacks_.tutorial_tick != nullptr;
+    bool before_valid = observe
+        && CaptureTutorialConsumerState(read, owner, observation.before)
+        && observation.before.vtable == hooks->image_base_ + Sc6HookLayout::tutorial_vtable_rva
+        && SafeRead(hooks->image_base_ + Schema::Sc6FrameLayout::frame_counter_rva,
+            observation.native_frame);
+    if (before_valid)
+        before_valid = CaptureTutorialParentGuard(actor, hooks->image_base_, observation.parent);
+    if (original != nullptr) original(actor, delta_seconds);
+    if (observe)
+    {
+        observation.valid = before_valid && original != nullptr
+            && CaptureTutorialConsumerState(read, owner, observation.after)
+            && observation.after.vtable == observation.before.vtable
+            && observation.after.mask_owner == observation.before.mask_owner
+            && observation.after.mask_count == observation.before.mask_count;
+        hooks->callbacks_.tutorial_tick(hooks->callbacks_.user, observation);
     }
     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
 }

@@ -1,0 +1,35 @@
+{
+  "result": "RED exit81: fixed object ownership rejected as nonempty",
+  "files": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\cea9c30dcca812cc8510dc0376398f32fedc10f301c619d9f397ec4905a2e292.cpp",
+      "sha256": "cea9c30dcca812cc8510dc0376398f32fedc10f301c619d9f397ec4905a2e292",
+      "bytes": 2326
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9aae5d965bbbc7627889e3773ff105bb2ace363e3805d0f6fc10095da4a5684d.exe",
+      "sha256": "9aae5d965bbbc7627889e3773ff105bb2ace363e3805d0f6fc10095da4a5684d",
+      "bytes": 129024
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6f8e5081e2f86de8d412199ec6deb77b0bf97ae27428f6afdd76eab0c70a7faf.obj",
+      "sha256": "6f8e5081e2f86de8d412199ec6deb77b0bf97ae27428f6afdd76eab0c70a7faf",
+      "bytes": 124308
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4bda68c1b32dfa37b05533ac47b148dd580ddc9fad9762eacb94242c39869a2b.cmd",
+      "sha256": "4bda68c1b32dfa37b05533ac47b148dd580ddc9fad9762eacb94242c39869a2b",
+      "bytes": 153
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f2446ebadbbd60a720e289aee9970af7a381071ba7d1b9f3de9ac46330891d0b.cpp",
+      "sha256": "f2446ebadbbd60a720e289aee9970af7a381071ba7d1b9f3de9ac46330891d0b",
+      "bytes": 519837
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d38fb4c314803bacd9d016ded374a75afeaffff0fece6876ca3a65e46b2afb0a.py",
+      "sha256": "d38fb4c314803bacd9d016ded374a75afeaffff0fece6876ca3a65e46b2afb0a",
+      "bytes": 36239
+    }
+  ]
+}

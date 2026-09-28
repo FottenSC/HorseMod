@@ -1,0 +1,41 @@
+{
+  "scope": "Raw service destruction currently reaches native effect during lease",
+  "result": "RED exit5 native-effect4096; expected before-entry failfast",
+  "files": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f92e56e67e2829940fdb5f19e0d90ee34ee55a7ac796195b954ec573378b0ade.hpp",
+      "sha256": "f92e56e67e2829940fdb5f19e0d90ee34ee55a7ac796195b954ec573378b0ade",
+      "bytes": 21986
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a557a8c07410c276831e3ea9ba63ce8c6324184ebb705f519ca39547afd5030a.inl",
+      "sha256": "a557a8c07410c276831e3ea9ba63ce8c6324184ebb705f519ca39547afd5030a",
+      "bytes": 5258
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\5b0fa606621e8058b506bca40bea3477fe506dc8420cf0d0d21a9b368dcb7a1f.py",
+      "sha256": "5b0fa606621e8058b506bca40bea3477fe506dc8420cf0d0d21a9b368dcb7a1f",
+      "bytes": 20063
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\5488e6f3bfe39bdbb5b81da776b205fea0afe4809b96ea8c416666415f9155e6.cmd",
+      "sha256": "5488e6f3bfe39bdbb5b81da776b205fea0afe4809b96ea8c416666415f9155e6",
+      "bytes": 338
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c861f43aedb9103fdf7483fec593cac6702b83f30306193b4aaad8fac3a8638c.exe",
+      "sha256": "c861f43aedb9103fdf7483fec593cac6702b83f30306193b4aaad8fac3a8638c",
+      "bytes": 183296
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c9fd8016694e0d246de6a475106dd4c356384c9fe909c3b74c430dbcac51eb49.obj",
+      "sha256": "c9fd8016694e0d246de6a475106dd4c356384c9fe909c3b74c430dbcac51eb49",
+      "bytes": 116931
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0a2b3a80c174f434116967a5d0699c031197fc697958e07d21aa213d06e93000.cpp",
+      "sha256": "0a2b3a80c174f434116967a5d0699c031197fc697958e07d21aa213d06e93000",
+      "bytes": 8105
+    }
+  ]
+}

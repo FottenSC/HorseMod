@@ -1,0 +1,40 @@
+{
+  "case_id": "astaroth-raphael-silver-wolves-haven",
+  "certifying": false,
+  "cleanup": {
+    "diagnostic_flags_restored_false": {
+      "correction_probe": true,
+      "forced_depth7_qualification": true,
+      "trace": true
+    },
+    "process_absent": true
+  },
+  "created_utc": "2026-09-03T03:48:04.075613+00:00",
+  "display_map_name": "Silver Wolves' Haven",
+  "failure": {
+    "bounded_log": "E:\\myMods\\docs\\investigations\\evidence\\replay-depth7-timing-silver-wolves-75.failure.log",
+    "bounded_log_lines": 66,
+    "field_or_mask": null,
+    "fields": {
+      "elapsed_us": "2093640",
+      "fps_milli": "57316",
+      "minimum": "58000",
+      "native_ticks": "120",
+      "tick_rate_milli": "57316",
+      "viewport_frames": "120"
+    },
+    "first_failing_frame": null,
+    "first_failure_line": "[2026-09-03 05:48:00.6152526] [ReplayQualification] normal-render active battle rate failed viewport_frames=120 native_ticks=120 elapsed_us=2093640 fps_milli=57316 tick_rate_milli=57316 minimum=58000",
+    "graph_provenance": null,
+    "lifecycle_phase": null,
+    "owner_pointer": null,
+    "owner_selector": null,
+    "return_rva": null
+  },
+  "kind": "replay_entry_failure",
+  "reason": "native replay entry failed: normal_render_active_battle_rate_below_minimum",
+  "report_schema": 2,
+  "result": "fail",
+  "row_id": "development-depth7-timing",
+  "stage_package_root": "/Game/DLC/07/Stage/STG011_R"
+}

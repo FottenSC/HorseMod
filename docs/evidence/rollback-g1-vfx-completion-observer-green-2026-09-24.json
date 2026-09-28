@@ -1,0 +1,138 @@
+{
+  "created_utc": "2026-09-24T06:22:35.480294+00:00",
+  "scope": "forwarding-only VFX completion observation; no mutation enforcement, recovery, or writer synchronization claim",
+  "red": "docs/evidence/rollback-g1-vfx-completion-observer-red-2026-09-24.json",
+  "focused_green": {
+    "result": "10 passed",
+    "raw_log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\77cbc7fe0c6ae7f8ffa90c38c2eb71cf2c31e32b73144d577edf62715f35b4cd.log",
+      "sha256": "77cbc7fe0c6ae7f8ffa90c38c2eb71cf2c31e32b73144d577edf62715f35b4cd",
+      "bytes": 4547
+    }
+  },
+  "required_build": {
+    "result": "pass",
+    "stage_report": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\fe828a5da1a2435fe709cc3d888842a3070751ab654e1004cc8cdf9ddc1064f7.json",
+      "sha256": "fe828a5da1a2435fe709cc3d888842a3070751ab654e1004cc8cdf9ddc1064f7",
+      "bytes": 6240
+    },
+    "source_retention": {
+      "manifest_sha256": "17fb03919ca5497fa38d93c4ab5d3dae88757272189f08e4130f0c11eb94f89e",
+      "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-17fb03919ca5497fa38d93c4ab5d3dae88757272189f08e4130f0c11eb94f89e.zip",
+      "archive_sha256": "1922ab95c3794239bd43b2ec487b0db5386d47dfece5a702a5b9ca8a88ba9b0f",
+      "files": 17319,
+      "uncompressed_bytes": 127381914,
+      "reconstructible": true
+    },
+    "build_identities": {
+      "runtime": "17e4742b6da56268455e21b48f82c8220fbca85141fcc6a545db9ddb4919bf6a",
+      "observer": "3b6edc1662591affc8c7108a4206589861229cd891ecf603bedac77b2f7da8b9",
+      "framework": "e1136a410343cc5caad0dfce2b2722002a20d5707ef6077ff794541f48a4847f"
+    },
+    "native_test_evidence": {
+      "result": "pass",
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\local-regressions-94a3e17710b14a719704bbdb1577f7dfa06da4bb0f05d714f8c744cd877eaa80.log",
+      "sha256": "94a3e17710b14a719704bbdb1577f7dfa06da4bb0f05d714f8c744cd877eaa80",
+      "binaries": {
+        "runtime": {
+          "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\HorseMod.dll",
+          "sha256": "17e4742b6da56268455e21b48f82c8220fbca85141fcc6a545db9ddb4919bf6a"
+        },
+        "observer": {
+          "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\ReplayQualificationMod.dll",
+          "sha256": "3b6edc1662591affc8c7108a4206589861229cd891ecf603bedac77b2f7da8b9"
+        },
+        "framework": {
+          "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\LessEqual421__Shipping__Win64\\bin\\UE4SS.dll",
+          "sha256": "e1136a410343cc5caad0dfce2b2722002a20d5707ef6077ff794541f48a4847f"
+        },
+        "core_test": {
+          "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\DeterministicCoreSelfTest.exe",
+          "sha256": "48028516251b65033c21021a6b65b1ff6faaf736223f2524dfd52579d0d98d7c"
+        },
+        "native_test": {
+          "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\NativeCandidateRegionsSelfTest.exe",
+          "sha256": "938050a3334a148cc8795220547a2200f7cc51a39c23d5b31e96737be00df452"
+        }
+      },
+      "source_retention": {
+        "manifest_sha256": "17fb03919ca5497fa38d93c4ab5d3dae88757272189f08e4130f0c11eb94f89e",
+        "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-17fb03919ca5497fa38d93c4ab5d3dae88757272189f08e4130f0c11eb94f89e.zip",
+        "archive_sha256": "1922ab95c3794239bd43b2ec487b0db5386d47dfece5a702a5b9ca8a88ba9b0f",
+        "files": 17319,
+        "uncompressed_bytes": 127381914,
+        "reconstructible": true
+      },
+      "native_fixture_inputs": {
+        "physics": "c3c7bd6e13260ee5f850552b6e9a15f69e58e0b41cd4f4bcb48e1b419719b5a2",
+        "game": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553"
+      },
+      "game_launched": false
+    },
+    "ctest_total": 2,
+    "ctest_failed": 0
+  },
+  "preflight": {
+    "result": "ready",
+    "raw_log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7b999c58a678f59dbe83c70b4183ed8a84bf234d2e1370df995a297f4bd48067.log",
+      "sha256": "7b999c58a678f59dbe83c70b4183ed8a84bf234d2e1370df995a297f4bd48067",
+      "bytes": 271
+    }
+  },
+  "source_files": {
+    "HorseMod/horselib/deterministic/NativeReplayVfxCompletionObservation.hpp": "ed2f8017a23b8dd1d52c4391c076cc4cb2ee17972f13af13ca8bff0cae97f578",
+    "HorseMod/HorseModService.PublicApiAndLifetime.inl": "f86cdd5412f5c125d1758c23ebdc95e1fd5f46585ba063260c2bd6b32515c72d",
+    "HorseMod/dllmain.cpp": "d8a4169993bca0f34e21a29dd91939944845543b80f23a03bf6d7981075defc8",
+    "HorseMod/horselib/deterministic/Sc6ReplayHost.cpp": "d3e2be0b07eb48f1a0753ef3702b4827b5afe2df6009c49cb35ff51e11958995",
+    "HorseMod/horselib/deterministic/Sc6ReplayHost.Checkpoint.inl": "79227f43b2e86aaeb3cce0bcd2543d91a540072e7c920a2e7ac44200b5362eb7",
+    "tools/replay_qualification_mod/ReplayQualificationMod.cpp": "e290ff587bd3cd485298cc833f7a1e37c3bf41115562eda46df17f6ba5c21329",
+    "tools/deterministic_qualification/replay_control.py": "59b22612f97b00e28ebf91247517de631700c784bd8e160cd12952026389142c",
+    "tools/deterministic_qualification/tests/test_vfx_completion_observation.py": "48495cd40cadbfa048c2e81bf792e0689693ffd1357b61032012423a99ea4958",
+    "tools/replay_vfx_completion_observation_selftest.cpp": "ea4b0432fcf9093efee4ed27bd1d6ddf44750588405fcceea6104613cffb26a3"
+  },
+  "deployment_before_live": {
+    "journal_state": "clean",
+    "journal_sha256": "07d1ba3da0465dd826fd949859ba99d139f0d77b65947636edb0c31b47b1c3d8",
+    "files": [
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll",
+        "before": "b583b65388616e4fc6bbac841a1de6bc7d87467e67132a0983c69eb5d0c40c2b",
+        "actual": "b583b65388616e4fc6bbac841a1de6bc7d87467e67132a0983c69eb5d0c40c2b",
+        "matches": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\UE4SS.dll",
+        "before": "df9e6e9a2280972b1c28ce590700feacc752b447204f8baadeb95f5776957055",
+        "actual": "df9e6e9a2280972b1c28ce590700feacc752b447204f8baadeb95f5776957055",
+        "matches": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\rollback.ini",
+        "before": "22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514",
+        "actual": "22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514",
+        "matches": true
+      },
+      {
+        "path": "C:\\Users\\prest\\AppData\\Local\\HorseMod\\Qualification\\replay_diagnostics.ini",
+        "before": null,
+        "actual": null,
+        "matches": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\dlls\\main.dll",
+        "before": null,
+        "actual": null,
+        "matches": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\enabled.txt",
+        "before": null,
+        "actual": null,
+        "matches": true
+      }
+    ],
+    "all_prior_states_match": true
+  }
+}

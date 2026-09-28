@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "date": "2026-09-24",
+  "scope": "read-only nonempty VFX finish, nested attachment deactivation, and Astra high enforcement assessment",
+  "files": {
+    "audit": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e4bf7d99b95ec9b468b6bf2432eaf41bad5290486b38eee22012b9646c1877f2.md",
+      "sha256": "e4bf7d99b95ec9b468b6bf2432eaf41bad5290486b38eee22012b9646c1877f2",
+      "bytes": 4418
+    },
+    "enforcement_assessment": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\39cfc0c1efefa8e393134882210a610b890fe615bbd12710c3c3b8909002882f.txt",
+      "sha256": "39cfc0c1efefa8e393134882210a610b890fe615bbd12710c3c3b8909002882f",
+      "bytes": 3997
+    },
+    "enforcement_events": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\2fd6c37f48152782528ab6597147bb991cf808b7d2ccc887f5963fd946042a28.log",
+      "sha256": "2fd6c37f48152782528ab6597147bb991cf808b7d2ccc887f5963fd946042a28",
+      "bytes": 1086224
+    },
+    "attachment_assessment": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\55931e4768064033c697544823401d1f8af5c36eef188583adab81ef659ac5de.txt",
+      "sha256": "55931e4768064033c697544823401d1f8af5c36eef188583adab81ef659ac5de",
+      "bytes": 1894
+    },
+    "attachment_events": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\ef6bc1fa7d0d4bfc8bb8181cd791993f7c511d93397758b18f7e4d48da2a14d1.log",
+      "sha256": "ef6bc1fa7d0d4bfc8bb8181cd791993f7c511d93397758b18f7e4d48da2a14d1",
+      "bytes": 668182
+    }
+  },
+  "code_changed": false,
+  "tests_or_live_this_audit": false,
+  "remaining_blocker": "No shared owner/barrier or recoverable pre-side-effect finish disposition; attachment +0x1B8 is capture-empty and binding-checked but can change before nested native consumption; B undo rejects changed binding.",
+  "next_resolving_check": "Find concrete writer/enclosing task for selected attachment+0x1B8 and prove lifetime/undo through nested Deactivate; locate pre-deactivation owned boundary for manager finish and verify receiver lifetime through ProcessEvent."
+}

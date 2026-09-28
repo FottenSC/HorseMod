@@ -1,0 +1,1425 @@
+[
+  {
+    "Type": "FloatProperty",
+    "Name": "acc",
+    "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'FloatProperty'",
+    "Outer": {
+      "ObjectName": "BlueprintGeneratedClass'BP_side_rool_C'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.23"
+    },
+    "PropertyFlags": "Edit | BlueprintVisible | DisableEditOnInstance"
+  },
+  {
+    "Type": "ObjectProperty",
+    "Name": "DefaultSceneRoot",
+    "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'ObjectProperty'",
+    "Outer": {
+      "ObjectName": "BlueprintGeneratedClass'BP_side_rool_C'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.23"
+    },
+    "Next": {
+      "ObjectName": "FloatProperty'BP_side_rool_C:acc'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.0"
+    },
+    "PropertyFlags": "BlueprintVisible | NonTransactional",
+    "PropertyClass": {
+      "ObjectName": "Class'SceneComponent'",
+      "ObjectPath": "/Script/Engine"
+    }
+  },
+  {
+    "Type": "ObjectProperty",
+    "Name": "side_rool01",
+    "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'ObjectProperty'",
+    "Outer": {
+      "ObjectName": "BlueprintGeneratedClass'BP_side_rool_C'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.23"
+    },
+    "Next": {
+      "ObjectName": "ObjectProperty'BP_side_rool_C:DefaultSceneRoot'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.1"
+    },
+    "PropertyFlags": "BlueprintVisible | NonTransactional",
+    "PropertyClass": {
+      "ObjectName": "Class'StaticMeshComponent'",
+      "ObjectPath": "/Script/Engine"
+    }
+  },
+  {
+    "Type": "BoolProperty",
+    "Name": "CallFunc_LessEqual_FloatFloat_ReturnValue",
+    "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'BoolProperty'",
+    "Outer": {
+      "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+    },
+    "BoolSize": 1,
+    "bIsNativeBool": true
+  },
+  {
+    "Type": "FloatProperty",
+    "Name": "CallFunc_Abs_ReturnValue2",
+    "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'FloatProperty'",
+    "Outer": {
+      "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+    },
+    "Next": {
+      "ObjectName": "BoolProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.CallFunc_LessEqual_FloatFloat_ReturnValue'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.3"
+    }
+  },
+  {
+    "Type": "FloatProperty",
+    "Name": "CallFunc_Multiply_FloatFloat_ReturnValue2",
+    "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'FloatProperty'",
+    "Outer": {
+      "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+    },
+    "Next": {
+      "ObjectName": "FloatProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.CallFunc_Abs_ReturnValue2'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.4"
+    }
+  },
+  {
+    "Type": "StructProperty",
+    "Name": "CallFunc_K2_AddRelativeRotation_SweepHitResult",
+    "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'StructProperty'",
+    "Outer": {
+      "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+    },
+    "Next": {
+      "ObjectName": "FloatProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.CallFunc_Multiply_FloatFloat_ReturnValue2'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.5"
+    },
+    "PropertyFlags": "ContainsInstancedReference",
+    "Struct": {
+      "ObjectName": "ScriptStruct'HitResult'",
+      "ObjectPath": "/Script/Engine"
+    }
+  },
+  {
+    "Type": "StructProperty",
+    "Name": "CallFunc_RotatorFromAxisAndAngle_ReturnValue",
+    "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'StructProperty'",
+    "Outer": {
+      "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+    },
+    "Next": {
+      "ObjectName": "StructProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.CallFunc_K2_AddRelativeRotation_SweepHitResult'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.6"
+    },
+    "Struct": {
+      "ObjectName": "ScriptStruct'Rotator'",
+      "ObjectPath": "/Script/CoreUObject"
+    }
+  },
+  {
+    "Type": "FloatProperty",
+    "Name": "CallFunc_Multiply_FloatFloat_ReturnValue",
+    "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'FloatProperty'",
+    "Outer": {
+      "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+    },
+    "Next": {
+      "ObjectName": "StructProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.CallFunc_RotatorFromAxisAndAngle_ReturnValue'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.7"
+    }
+  },
+  {
+    "Type": "BoolProperty",
+    "Name": "CallFunc_Greater_FloatFloat_ReturnValue",
+    "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'BoolProperty'",
+    "Outer": {
+      "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+    },
+    "Next": {
+      "ObjectName": "FloatProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.CallFunc_Multiply_FloatFloat_ReturnValue'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.8"
+    },
+    "BoolSize": 1,
+    "bIsNativeBool": true
+  },
+  {
+    "Type": "FloatProperty",
+    "Name": "CallFunc_Abs_ReturnValue",
+    "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'FloatProperty'",
+    "Outer": {
+      "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+    },
+    "Next": {
+      "ObjectName": "BoolProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.CallFunc_Greater_FloatFloat_ReturnValue'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.9"
+    }
+  },
+  {
+    "Type": "IntProperty",
+    "Name": "K2Node_Event_WallId",
+    "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'IntProperty'",
+    "Outer": {
+      "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+    },
+    "Next": {
+      "ObjectName": "FloatProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.CallFunc_Abs_ReturnValue'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.10"
+    }
+  },
+  {
+    "Type": "FloatProperty",
+    "Name": "K2Node_Event_DeltaSeconds",
+    "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'FloatProperty'",
+    "Outer": {
+      "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+    },
+    "Next": {
+      "ObjectName": "IntProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.K2Node_Event_WallId'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.11"
+    }
+  },
+  {
+    "Type": "FloatProperty",
+    "Name": "CallFunc_Add_FloatFloat_ReturnValue",
+    "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'FloatProperty'",
+    "Outer": {
+      "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+    },
+    "Next": {
+      "ObjectName": "FloatProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.K2Node_Event_DeltaSeconds'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.12"
+    }
+  },
+  {
+    "Type": "IntProperty",
+    "Name": "EntryPoint",
+    "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'IntProperty'",
+    "Outer": {
+      "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+    },
+    "Next": {
+      "ObjectName": "FloatProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.CallFunc_Add_FloatFloat_ReturnValue'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.13"
+    },
+    "PropertyFlags": "BlueprintVisible | BlueprintReadOnly | Parm"
+  },
+  {
+    "Type": "Function",
+    "Name": "ExecuteUbergraph_BP_side_rool",
+    "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'Function'",
+    "Outer": {
+      "ObjectName": "BlueprintGeneratedClass'BP_side_rool_C'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.23"
+    },
+    "Next": {
+      "ObjectName": "ObjectProperty'BP_side_rool_C:side_rool01'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.2"
+    },
+    "Children": [
+      {
+        "ObjectName": "IntProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.EntryPoint'",
+        "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.14"
+      }
+    ],
+    "ScriptBytecode": [
+      {
+        "Inst": "EX_ComputedJump",
+        "StatementIndex": 0,
+        "OffsetExpression": {
+          "Inst": "EX_LocalVariable",
+          "Variable": {
+            "Type": "IntProperty",
+            "Name": "EntryPoint",
+            "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+            "Class": "UScriptClass'IntProperty'",
+            "Outer": {
+              "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+            },
+            "Next": {
+              "ObjectName": "FloatProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.CallFunc_Add_FloatFloat_ReturnValue'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.13"
+            },
+            "PropertyFlags": "BlueprintVisible | BlueprintReadOnly | Parm"
+          }
+        }
+      },
+      {
+        "Inst": "EX_Let",
+        "StatementIndex": 10,
+        "Variable": {
+          "Inst": "EX_InstanceVariable",
+          "Variable": {
+            "Type": "FloatProperty",
+            "Name": "acc",
+            "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+            "Class": "UScriptClass'FloatProperty'",
+            "Outer": {
+              "ObjectName": "BlueprintGeneratedClass'BP_side_rool_C'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.23"
+            },
+            "PropertyFlags": "Edit | BlueprintVisible | DisableEditOnInstance"
+          }
+        },
+        "Expression": {
+          "Inst": "EX_FloatConst",
+          "Value": 0.0
+        }
+      },
+      {
+        "Inst": "EX_Jump",
+        "StatementIndex": 33,
+        "CodeOffset": 532,
+        "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.ExecuteUbergraph_BP_side_rool[532]"
+      },
+      {
+        "Inst": "EX_Let",
+        "StatementIndex": 38,
+        "Variable": {
+          "Inst": "EX_LocalVariable",
+          "Variable": {
+            "Type": "FloatProperty",
+            "Name": "CallFunc_Add_FloatFloat_ReturnValue",
+            "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+            "Class": "UScriptClass'FloatProperty'",
+            "Outer": {
+              "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+            },
+            "Next": {
+              "ObjectName": "FloatProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.K2Node_Event_DeltaSeconds'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.12"
+            }
+          }
+        },
+        "Expression": {
+          "Inst": "EX_CallMath",
+          "Function": {
+            "ObjectName": "Function'KismetMathLibrary:Add_FloatFloat'",
+            "ObjectPath": "/Script/Engine"
+          },
+          "Parameters": [
+            {
+              "Inst": "EX_InstanceVariable",
+              "Variable": {
+                "Type": "FloatProperty",
+                "Name": "acc",
+                "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+                "Class": "UScriptClass'FloatProperty'",
+                "Outer": {
+                  "ObjectName": "BlueprintGeneratedClass'BP_side_rool_C'",
+                  "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.23"
+                },
+                "PropertyFlags": "Edit | BlueprintVisible | DisableEditOnInstance"
+              }
+            },
+            {
+              "Inst": "EX_FloatConst",
+              "Value": 180.0
+            }
+          ]
+        }
+      },
+      {
+        "Inst": "EX_Let",
+        "StatementIndex": 80,
+        "Variable": {
+          "Inst": "EX_InstanceVariable",
+          "Variable": {
+            "Type": "FloatProperty",
+            "Name": "acc",
+            "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+            "Class": "UScriptClass'FloatProperty'",
+            "Outer": {
+              "ObjectName": "BlueprintGeneratedClass'BP_side_rool_C'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.23"
+            },
+            "PropertyFlags": "Edit | BlueprintVisible | DisableEditOnInstance"
+          }
+        },
+        "Expression": {
+          "Inst": "EX_LocalVariable",
+          "Variable": {
+            "Type": "FloatProperty",
+            "Name": "CallFunc_Add_FloatFloat_ReturnValue",
+            "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+            "Class": "UScriptClass'FloatProperty'",
+            "Outer": {
+              "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+            },
+            "Next": {
+              "ObjectName": "FloatProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.K2Node_Event_DeltaSeconds'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.12"
+            }
+          }
+        }
+      },
+      {
+        "Inst": "EX_Jump",
+        "StatementIndex": 107,
+        "CodeOffset": 532,
+        "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.ExecuteUbergraph_BP_side_rool[532]"
+      },
+      {
+        "Inst": "EX_Let",
+        "StatementIndex": 112,
+        "Variable": {
+          "Inst": "EX_LocalVariable",
+          "Variable": {
+            "Type": "FloatProperty",
+            "Name": "CallFunc_Abs_ReturnValue",
+            "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+            "Class": "UScriptClass'FloatProperty'",
+            "Outer": {
+              "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+            },
+            "Next": {
+              "ObjectName": "BoolProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.CallFunc_Greater_FloatFloat_ReturnValue'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.9"
+            }
+          }
+        },
+        "Expression": {
+          "Inst": "EX_CallMath",
+          "Function": {
+            "ObjectName": "Function'KismetMathLibrary:Abs'",
+            "ObjectPath": "/Script/Engine"
+          },
+          "Parameters": [
+            {
+              "Inst": "EX_InstanceVariable",
+              "Variable": {
+                "Type": "FloatProperty",
+                "Name": "acc",
+                "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+                "Class": "UScriptClass'FloatProperty'",
+                "Outer": {
+                  "ObjectName": "BlueprintGeneratedClass'BP_side_rool_C'",
+                  "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.23"
+                },
+                "PropertyFlags": "Edit | BlueprintVisible | DisableEditOnInstance"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "Inst": "EX_LetBool",
+        "StatementIndex": 149,
+        "Variable": {
+          "Inst": "EX_LocalVariable",
+          "Variable": {
+            "Type": "BoolProperty",
+            "Name": "CallFunc_Greater_FloatFloat_ReturnValue",
+            "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+            "Class": "UScriptClass'BoolProperty'",
+            "Outer": {
+              "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+            },
+            "Next": {
+              "ObjectName": "FloatProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.CallFunc_Multiply_FloatFloat_ReturnValue'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.8"
+            },
+            "BoolSize": 1,
+            "bIsNativeBool": true
+          }
+        },
+        "Expression": {
+          "Inst": "EX_CallMath",
+          "Function": {
+            "ObjectName": "Function'KismetMathLibrary:Greater_FloatFloat'",
+            "ObjectPath": "/Script/Engine"
+          },
+          "Parameters": [
+            {
+              "Inst": "EX_LocalVariable",
+              "Variable": {
+                "Type": "FloatProperty",
+                "Name": "CallFunc_Abs_ReturnValue",
+                "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+                "Class": "UScriptClass'FloatProperty'",
+                "Outer": {
+                  "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+                  "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+                },
+                "Next": {
+                  "ObjectName": "BoolProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.CallFunc_Greater_FloatFloat_ReturnValue'",
+                  "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.9"
+                }
+              }
+            },
+            {
+              "Inst": "EX_FloatConst",
+              "Value": 0.01
+            }
+          ]
+        }
+      },
+      {
+        "Inst": "EX_JumpIfNot",
+        "StatementIndex": 183,
+        "CodeOffset": 532,
+        "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.ExecuteUbergraph_BP_side_rool[532]",
+        "BooleanExpression": {
+          "Inst": "EX_LocalVariable",
+          "Variable": {
+            "Type": "BoolProperty",
+            "Name": "CallFunc_Greater_FloatFloat_ReturnValue",
+            "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+            "Class": "UScriptClass'BoolProperty'",
+            "Outer": {
+              "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+            },
+            "Next": {
+              "ObjectName": "FloatProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.CallFunc_Multiply_FloatFloat_ReturnValue'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.8"
+            },
+            "BoolSize": 1,
+            "bIsNativeBool": true
+          }
+        }
+      },
+      {
+        "Inst": "EX_Let",
+        "StatementIndex": 197,
+        "Variable": {
+          "Inst": "EX_LocalVariable",
+          "Variable": {
+            "Type": "FloatProperty",
+            "Name": "CallFunc_Multiply_FloatFloat_ReturnValue",
+            "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+            "Class": "UScriptClass'FloatProperty'",
+            "Outer": {
+              "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+            },
+            "Next": {
+              "ObjectName": "StructProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.CallFunc_RotatorFromAxisAndAngle_ReturnValue'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.7"
+            }
+          }
+        },
+        "Expression": {
+          "Inst": "EX_CallMath",
+          "Function": {
+            "ObjectName": "Function'KismetMathLibrary:Multiply_FloatFloat'",
+            "ObjectPath": "/Script/Engine"
+          },
+          "Parameters": [
+            {
+              "Inst": "EX_InstanceVariable",
+              "Variable": {
+                "Type": "FloatProperty",
+                "Name": "acc",
+                "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+                "Class": "UScriptClass'FloatProperty'",
+                "Outer": {
+                  "ObjectName": "BlueprintGeneratedClass'BP_side_rool_C'",
+                  "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.23"
+                },
+                "PropertyFlags": "Edit | BlueprintVisible | DisableEditOnInstance"
+              }
+            },
+            {
+              "Inst": "EX_LocalVariable",
+              "Variable": {
+                "Type": "FloatProperty",
+                "Name": "K2Node_Event_DeltaSeconds",
+                "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+                "Class": "UScriptClass'FloatProperty'",
+                "Outer": {
+                  "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+                  "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+                },
+                "Next": {
+                  "ObjectName": "IntProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.K2Node_Event_WallId'",
+                  "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.11"
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "Inst": "EX_Let",
+        "StatementIndex": 243,
+        "Variable": {
+          "Inst": "EX_LocalVariable",
+          "Variable": {
+            "Type": "StructProperty",
+            "Name": "CallFunc_RotatorFromAxisAndAngle_ReturnValue",
+            "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+            "Class": "UScriptClass'StructProperty'",
+            "Outer": {
+              "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+            },
+            "Next": {
+              "ObjectName": "StructProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.CallFunc_K2_AddRelativeRotation_SweepHitResult'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.6"
+            },
+            "Struct": {
+              "ObjectName": "ScriptStruct'Rotator'",
+              "ObjectPath": "/Script/CoreUObject"
+            }
+          }
+        },
+        "Expression": {
+          "Inst": "EX_CallMath",
+          "Function": {
+            "ObjectName": "Function'KismetMathLibrary:RotatorFromAxisAndAngle'",
+            "ObjectPath": "/Script/Engine"
+          },
+          "Parameters": [
+            {
+              "Inst": "EX_VectorConst",
+              "Value": {
+                "X": 0.0,
+                "Y": 0.0,
+                "Z": 1.0
+              }
+            },
+            {
+              "Inst": "EX_LocalVariable",
+              "Variable": {
+                "Type": "FloatProperty",
+                "Name": "CallFunc_Multiply_FloatFloat_ReturnValue",
+                "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+                "Class": "UScriptClass'FloatProperty'",
+                "Outer": {
+                  "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+                  "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+                },
+                "Next": {
+                  "ObjectName": "StructProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.CallFunc_RotatorFromAxisAndAngle_ReturnValue'",
+                  "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.7"
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "Inst": "EX_Context",
+        "StatementIndex": 293,
+        "ObjectExpression": {
+          "Inst": "EX_InstanceVariable",
+          "Variable": {
+            "Type": "ObjectProperty",
+            "Name": "side_rool01",
+            "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+            "Class": "UScriptClass'ObjectProperty'",
+            "Outer": {
+              "ObjectName": "BlueprintGeneratedClass'BP_side_rool_C'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.23"
+            },
+            "Next": {
+              "ObjectName": "ObjectProperty'BP_side_rool_C:DefaultSceneRoot'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.1"
+            },
+            "PropertyFlags": "BlueprintVisible | NonTransactional",
+            "PropertyClass": {
+              "ObjectName": "Class'StaticMeshComponent'",
+              "ObjectPath": "/Script/Engine"
+            }
+          }
+        },
+        "Offset": 30,
+        "RValuePointer": null,
+        "ContextExpression": {
+          "Inst": "EX_FinalFunction",
+          "Function": {
+            "ObjectName": "Function'SceneComponent:K2_AddRelativeRotation'",
+            "ObjectPath": "/Script/Engine"
+          },
+          "Parameters": [
+            {
+              "Inst": "EX_LocalVariable",
+              "Variable": {
+                "Type": "StructProperty",
+                "Name": "CallFunc_RotatorFromAxisAndAngle_ReturnValue",
+                "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+                "Class": "UScriptClass'StructProperty'",
+                "Outer": {
+                  "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+                  "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+                },
+                "Next": {
+                  "ObjectName": "StructProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.CallFunc_K2_AddRelativeRotation_SweepHitResult'",
+                  "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.6"
+                },
+                "Struct": {
+                  "ObjectName": "ScriptStruct'Rotator'",
+                  "ObjectPath": "/Script/CoreUObject"
+                }
+              }
+            },
+            {
+              "Inst": "EX_False"
+            },
+            {
+              "Inst": "EX_LocalVariable",
+              "Variable": {
+                "Type": "StructProperty",
+                "Name": "CallFunc_K2_AddRelativeRotation_SweepHitResult",
+                "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+                "Class": "UScriptClass'StructProperty'",
+                "Outer": {
+                  "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+                  "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+                },
+                "Next": {
+                  "ObjectName": "FloatProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.CallFunc_Multiply_FloatFloat_ReturnValue2'",
+                  "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.5"
+                },
+                "PropertyFlags": "ContainsInstancedReference",
+                "Struct": {
+                  "ObjectName": "ScriptStruct'HitResult'",
+                  "ObjectPath": "/Script/Engine"
+                }
+              }
+            },
+            {
+              "Inst": "EX_False"
+            }
+          ]
+        }
+      },
+      {
+        "Inst": "EX_Let",
+        "StatementIndex": 345,
+        "Variable": {
+          "Inst": "EX_LocalVariable",
+          "Variable": {
+            "Type": "FloatProperty",
+            "Name": "CallFunc_Multiply_FloatFloat_ReturnValue2",
+            "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+            "Class": "UScriptClass'FloatProperty'",
+            "Outer": {
+              "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+            },
+            "Next": {
+              "ObjectName": "FloatProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.CallFunc_Abs_ReturnValue2'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.4"
+            }
+          }
+        },
+        "Expression": {
+          "Inst": "EX_CallMath",
+          "Function": {
+            "ObjectName": "Function'KismetMathLibrary:Multiply_FloatFloat'",
+            "ObjectPath": "/Script/Engine"
+          },
+          "Parameters": [
+            {
+              "Inst": "EX_InstanceVariable",
+              "Variable": {
+                "Type": "FloatProperty",
+                "Name": "acc",
+                "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+                "Class": "UScriptClass'FloatProperty'",
+                "Outer": {
+                  "ObjectName": "BlueprintGeneratedClass'BP_side_rool_C'",
+                  "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.23"
+                },
+                "PropertyFlags": "Edit | BlueprintVisible | DisableEditOnInstance"
+              }
+            },
+            {
+              "Inst": "EX_FloatConst",
+              "Value": 0.99
+            }
+          ]
+        }
+      },
+      {
+        "Inst": "EX_Let",
+        "StatementIndex": 387,
+        "Variable": {
+          "Inst": "EX_InstanceVariable",
+          "Variable": {
+            "Type": "FloatProperty",
+            "Name": "acc",
+            "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+            "Class": "UScriptClass'FloatProperty'",
+            "Outer": {
+              "ObjectName": "BlueprintGeneratedClass'BP_side_rool_C'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.23"
+            },
+            "PropertyFlags": "Edit | BlueprintVisible | DisableEditOnInstance"
+          }
+        },
+        "Expression": {
+          "Inst": "EX_LocalVariable",
+          "Variable": {
+            "Type": "FloatProperty",
+            "Name": "CallFunc_Multiply_FloatFloat_ReturnValue2",
+            "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+            "Class": "UScriptClass'FloatProperty'",
+            "Outer": {
+              "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+            },
+            "Next": {
+              "ObjectName": "FloatProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.CallFunc_Abs_ReturnValue2'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.4"
+            }
+          }
+        }
+      },
+      {
+        "Inst": "EX_Let",
+        "StatementIndex": 414,
+        "Variable": {
+          "Inst": "EX_LocalVariable",
+          "Variable": {
+            "Type": "FloatProperty",
+            "Name": "CallFunc_Abs_ReturnValue2",
+            "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+            "Class": "UScriptClass'FloatProperty'",
+            "Outer": {
+              "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+            },
+            "Next": {
+              "ObjectName": "BoolProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.CallFunc_LessEqual_FloatFloat_ReturnValue'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.3"
+            }
+          }
+        },
+        "Expression": {
+          "Inst": "EX_CallMath",
+          "Function": {
+            "ObjectName": "Function'KismetMathLibrary:Abs'",
+            "ObjectPath": "/Script/Engine"
+          },
+          "Parameters": [
+            {
+              "Inst": "EX_InstanceVariable",
+              "Variable": {
+                "Type": "FloatProperty",
+                "Name": "acc",
+                "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+                "Class": "UScriptClass'FloatProperty'",
+                "Outer": {
+                  "ObjectName": "BlueprintGeneratedClass'BP_side_rool_C'",
+                  "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.23"
+                },
+                "PropertyFlags": "Edit | BlueprintVisible | DisableEditOnInstance"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "Inst": "EX_LetBool",
+        "StatementIndex": 451,
+        "Variable": {
+          "Inst": "EX_LocalVariable",
+          "Variable": {
+            "Type": "BoolProperty",
+            "Name": "CallFunc_LessEqual_FloatFloat_ReturnValue",
+            "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+            "Class": "UScriptClass'BoolProperty'",
+            "Outer": {
+              "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+            },
+            "BoolSize": 1,
+            "bIsNativeBool": true
+          }
+        },
+        "Expression": {
+          "Inst": "EX_CallMath",
+          "Function": {
+            "ObjectName": "Function'KismetMathLibrary:LessEqual_FloatFloat'",
+            "ObjectPath": "/Script/Engine"
+          },
+          "Parameters": [
+            {
+              "Inst": "EX_LocalVariable",
+              "Variable": {
+                "Type": "FloatProperty",
+                "Name": "CallFunc_Abs_ReturnValue2",
+                "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+                "Class": "UScriptClass'FloatProperty'",
+                "Outer": {
+                  "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+                  "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+                },
+                "Next": {
+                  "ObjectName": "BoolProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.CallFunc_LessEqual_FloatFloat_ReturnValue'",
+                  "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.3"
+                }
+              }
+            },
+            {
+              "Inst": "EX_FloatConst",
+              "Value": 0.02
+            }
+          ]
+        }
+      },
+      {
+        "Inst": "EX_JumpIfNot",
+        "StatementIndex": 485,
+        "CodeOffset": 532,
+        "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.ExecuteUbergraph_BP_side_rool[532]",
+        "BooleanExpression": {
+          "Inst": "EX_LocalVariable",
+          "Variable": {
+            "Type": "BoolProperty",
+            "Name": "CallFunc_LessEqual_FloatFloat_ReturnValue",
+            "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+            "Class": "UScriptClass'BoolProperty'",
+            "Outer": {
+              "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+            },
+            "BoolSize": 1,
+            "bIsNativeBool": true
+          }
+        }
+      },
+      {
+        "Inst": "EX_Let",
+        "StatementIndex": 499,
+        "Variable": {
+          "Inst": "EX_InstanceVariable",
+          "Variable": {
+            "Type": "FloatProperty",
+            "Name": "acc",
+            "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+            "Class": "UScriptClass'FloatProperty'",
+            "Outer": {
+              "ObjectName": "BlueprintGeneratedClass'BP_side_rool_C'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.23"
+            },
+            "PropertyFlags": "Edit | BlueprintVisible | DisableEditOnInstance"
+          }
+        },
+        "Expression": {
+          "Inst": "EX_FloatConst",
+          "Value": 0.0
+        }
+      },
+      {
+        "Inst": "EX_Jump",
+        "StatementIndex": 522,
+        "CodeOffset": 532,
+        "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.ExecuteUbergraph_BP_side_rool[532]"
+      },
+      {
+        "Inst": "EX_Jump",
+        "StatementIndex": 527,
+        "CodeOffset": 38,
+        "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.ExecuteUbergraph_BP_side_rool[38]"
+      },
+      {
+        "Inst": "EX_Return",
+        "StatementIndex": 532,
+        "Expression": {
+          "Inst": "EX_Nothing"
+        }
+      },
+      {
+        "Inst": "EX_EndOfScript",
+        "StatementIndex": 534
+      }
+    ],
+    "FunctionFlags": "FUNC_HasDefaults"
+  },
+  {
+    "Type": "IntProperty",
+    "Name": "WallId",
+    "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'IntProperty'",
+    "Outer": {
+      "ObjectName": "Function'BP_side_rool_C:OnWallHitEvent'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.17"
+    },
+    "PropertyFlags": "BlueprintVisible | BlueprintReadOnly | Parm"
+  },
+  {
+    "Type": "Function",
+    "Name": "OnWallHitEvent",
+    "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'Function'",
+    "Outer": {
+      "ObjectName": "BlueprintGeneratedClass'BP_side_rool_C'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.23"
+    },
+    "Next": {
+      "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+    },
+    "SuperStruct": {
+      "ObjectName": "Function'LuxStageActorBase:OnWallHitEvent'",
+      "ObjectPath": "/Script/LuxorGame"
+    },
+    "Children": [
+      {
+        "ObjectName": "IntProperty'BP_side_rool_C:OnWallHitEvent.WallId'",
+        "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.16"
+      }
+    ],
+    "ScriptBytecode": [
+      {
+        "Inst": "EX_LetValueOnPersistentFrame",
+        "StatementIndex": 0,
+        "DestinationProperty": {
+          "Type": "IntProperty",
+          "Name": "K2Node_Event_WallId",
+          "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+          "Class": "UScriptClass'IntProperty'",
+          "Outer": {
+            "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+            "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+          },
+          "Next": {
+            "ObjectName": "FloatProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.CallFunc_Abs_ReturnValue'",
+            "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.10"
+          }
+        },
+        "AssignmentExpression": {
+          "Inst": "EX_LocalVariable",
+          "Variable": {
+            "Type": "IntProperty",
+            "Name": "WallId",
+            "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+            "Class": "UScriptClass'IntProperty'",
+            "Outer": {
+              "ObjectName": "Function'BP_side_rool_C:OnWallHitEvent'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.17"
+            },
+            "PropertyFlags": "BlueprintVisible | BlueprintReadOnly | Parm"
+          }
+        }
+      },
+      {
+        "Inst": "EX_VirtualFunction",
+        "StatementIndex": 18,
+        "Function": "ExecuteUbergraph_BP_side_rool",
+        "Parameters": [
+          {
+            "Inst": "EX_IntConst",
+            "Value": 527
+          }
+        ]
+      },
+      {
+        "Inst": "EX_Return",
+        "StatementIndex": 37,
+        "Expression": {
+          "Inst": "EX_Nothing"
+        }
+      },
+      {
+        "Inst": "EX_EndOfScript",
+        "StatementIndex": 39
+      }
+    ],
+    "FunctionFlags": "FUNC_Event | FUNC_Public | FUNC_BlueprintEvent"
+  },
+  {
+    "Type": "FloatProperty",
+    "Name": "DeltaSeconds",
+    "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'FloatProperty'",
+    "Outer": {
+      "ObjectName": "Function'BP_side_rool_C:ReceiveTick'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.19"
+    },
+    "PropertyFlags": "BlueprintVisible | BlueprintReadOnly | Parm"
+  },
+  {
+    "Type": "Function",
+    "Name": "ReceiveTick",
+    "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'Function'",
+    "Outer": {
+      "ObjectName": "BlueprintGeneratedClass'BP_side_rool_C'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.23"
+    },
+    "Next": {
+      "ObjectName": "Function'BP_side_rool_C:OnWallHitEvent'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.17"
+    },
+    "SuperStruct": {
+      "ObjectName": "Function'Actor:ReceiveTick'",
+      "ObjectPath": "/Script/Engine"
+    },
+    "Children": [
+      {
+        "ObjectName": "FloatProperty'BP_side_rool_C:ReceiveTick.DeltaSeconds'",
+        "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.18"
+      }
+    ],
+    "ScriptBytecode": [
+      {
+        "Inst": "EX_LetValueOnPersistentFrame",
+        "StatementIndex": 0,
+        "DestinationProperty": {
+          "Type": "FloatProperty",
+          "Name": "K2Node_Event_DeltaSeconds",
+          "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+          "Class": "UScriptClass'FloatProperty'",
+          "Outer": {
+            "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+            "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+          },
+          "Next": {
+            "ObjectName": "IntProperty'BP_side_rool_C:ExecuteUbergraph_BP_side_rool.K2Node_Event_WallId'",
+            "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.11"
+          }
+        },
+        "AssignmentExpression": {
+          "Inst": "EX_LocalVariable",
+          "Variable": {
+            "Type": "FloatProperty",
+            "Name": "DeltaSeconds",
+            "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+            "Class": "UScriptClass'FloatProperty'",
+            "Outer": {
+              "ObjectName": "Function'BP_side_rool_C:ReceiveTick'",
+              "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.19"
+            },
+            "PropertyFlags": "BlueprintVisible | BlueprintReadOnly | Parm"
+          }
+        }
+      },
+      {
+        "Inst": "EX_VirtualFunction",
+        "StatementIndex": 18,
+        "Function": "ExecuteUbergraph_BP_side_rool",
+        "Parameters": [
+          {
+            "Inst": "EX_IntConst",
+            "Value": 112
+          }
+        ]
+      },
+      {
+        "Inst": "EX_Return",
+        "StatementIndex": 37,
+        "Expression": {
+          "Inst": "EX_Nothing"
+        }
+      },
+      {
+        "Inst": "EX_EndOfScript",
+        "StatementIndex": 39
+      }
+    ],
+    "FunctionFlags": "FUNC_Event | FUNC_Public | FUNC_BlueprintEvent"
+  },
+  {
+    "Type": "Function",
+    "Name": "ReceiveBeginPlay",
+    "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'Function'",
+    "Outer": {
+      "ObjectName": "BlueprintGeneratedClass'BP_side_rool_C'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.23"
+    },
+    "Next": {
+      "ObjectName": "Function'BP_side_rool_C:ReceiveTick'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.19"
+    },
+    "SuperStruct": {
+      "ObjectName": "Function'Actor:ReceiveBeginPlay'",
+      "ObjectPath": "/Script/Engine"
+    },
+    "ScriptBytecode": [
+      {
+        "Inst": "EX_VirtualFunction",
+        "StatementIndex": 0,
+        "Function": "ExecuteUbergraph_BP_side_rool",
+        "Parameters": [
+          {
+            "Inst": "EX_IntConst",
+            "Value": 10
+          }
+        ]
+      },
+      {
+        "Inst": "EX_Return",
+        "StatementIndex": 19,
+        "Expression": {
+          "Inst": "EX_Nothing"
+        }
+      },
+      {
+        "Inst": "EX_EndOfScript",
+        "StatementIndex": 21
+      }
+    ],
+    "FunctionFlags": "FUNC_Event | FUNC_Protected | FUNC_BlueprintEvent"
+  },
+  {
+    "Type": "Function",
+    "Name": "UserConstructionScript",
+    "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'Function'",
+    "Outer": {
+      "ObjectName": "BlueprintGeneratedClass'BP_side_rool_C'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.23"
+    },
+    "Next": {
+      "ObjectName": "Function'BP_side_rool_C:ReceiveBeginPlay'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.20"
+    },
+    "SuperStruct": {
+      "ObjectName": "Function'Actor:UserConstructionScript'",
+      "ObjectPath": "/Script/Engine"
+    },
+    "ScriptBytecode": [
+      {
+        "Inst": "EX_Return",
+        "StatementIndex": 0,
+        "Expression": {
+          "Inst": "EX_Nothing"
+        }
+      },
+      {
+        "Inst": "EX_EndOfScript",
+        "StatementIndex": 2
+      }
+    ],
+    "FunctionFlags": "FUNC_Event | FUNC_Public | FUNC_BlueprintCallable | FUNC_BlueprintEvent"
+  },
+  {
+    "Type": "StructProperty",
+    "Name": "UberGraphFrame",
+    "Flags": "RF_Public | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'StructProperty'",
+    "Outer": {
+      "ObjectName": "BlueprintGeneratedClass'BP_side_rool_C'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.23"
+    },
+    "Next": {
+      "ObjectName": "Function'BP_side_rool_C:UserConstructionScript'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.21"
+    },
+    "PropertyFlags": "Transient | DuplicateTransient",
+    "Struct": {
+      "ObjectName": "ScriptStruct'PointerToUberGraphFrame'",
+      "ObjectPath": "/Script/Engine"
+    }
+  },
+  {
+    "Type": "BlueprintGeneratedClass",
+    "Name": "BP_side_rool_C",
+    "Flags": "RF_Public | RF_Transactional | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'BlueprintGeneratedClass'",
+    "Package": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool",
+    "Properties": {
+      "SimpleConstructionScript": {
+        "ObjectName": "SimpleConstructionScript'BP_side_rool_C:SimpleConstructionScript_0'",
+        "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.28"
+      },
+      "UberGraphFramePointerProperty": {
+        "ObjectName": "StructProperty'BP_side_rool_C:UberGraphFrame'",
+        "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.22"
+      },
+      "UberGraphFunction": {
+        "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+        "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+      }
+    },
+    "SuperStruct": {
+      "ObjectName": "Class'LuxStageActorBase'",
+      "ObjectPath": "/Script/LuxorGame"
+    },
+    "Children": [
+      {
+        "ObjectName": "StructProperty'BP_side_rool_C:UberGraphFrame'",
+        "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.22"
+      }
+    ],
+    "FuncMap": {
+      "ExecuteUbergraph_BP_side_rool": {
+        "ObjectName": "Function'BP_side_rool_C:ExecuteUbergraph_BP_side_rool'",
+        "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.15"
+      },
+      "OnWallHitEvent": {
+        "ObjectName": "Function'BP_side_rool_C:OnWallHitEvent'",
+        "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.17"
+      },
+      "ReceiveTick": {
+        "ObjectName": "Function'BP_side_rool_C:ReceiveTick'",
+        "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.19"
+      },
+      "ReceiveBeginPlay": {
+        "ObjectName": "Function'BP_side_rool_C:ReceiveBeginPlay'",
+        "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.20"
+      },
+      "UserConstructionScript": {
+        "ObjectName": "Function'BP_side_rool_C:UserConstructionScript'",
+        "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.21"
+      }
+    },
+    "ClassFlags": "CLASS_Optional | CLASS_CompiledFromBlueprint | CLASS_HasInstancedReference",
+    "ClassWithin": {
+      "ObjectName": "Class'Object'",
+      "ObjectPath": "/Script/CoreUObject"
+    },
+    "ClassConfigName": "Engine",
+    "bCooked": true,
+    "ClassDefaultObject": {
+      "ObjectName": "BP_side_rool_C'Default__BP_side_rool_C'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.24"
+    }
+  },
+  {
+    "Type": "BP_side_rool_C",
+    "Name": "Default__BP_side_rool_C",
+    "Flags": "RF_Public | RF_ClassDefaultObject | RF_ArchetypeObject | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "BlueprintGeneratedClass'DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.BP_side_rool_C'",
+    "Package": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool",
+    "Properties": {
+      "UberGraphFrame": {}
+    }
+  },
+  {
+    "Type": "SceneComponent",
+    "Name": "DefaultSceneRoot_GEN_VARIABLE",
+    "Flags": "RF_Public | RF_Transactional | RF_ArchetypeObject | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'SceneComponent'",
+    "Outer": {
+      "ObjectName": "BlueprintGeneratedClass'BP_side_rool_C'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.23"
+    },
+    "Properties": {
+      "Mobility": "EComponentMobility::Static"
+    }
+  },
+  {
+    "Type": "SCS_Node",
+    "Name": "SCS_Node_0",
+    "Flags": "RF_Transactional | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'SCS_Node'",
+    "Outer": {
+      "ObjectName": "SimpleConstructionScript'BP_side_rool_C:SimpleConstructionScript_0'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.28"
+    },
+    "Properties": {
+      "ComponentClass": {
+        "ObjectName": "Class'SceneComponent'",
+        "ObjectPath": "/Script/Engine"
+      },
+      "ComponentTemplate": {
+        "ObjectName": "SceneComponent'BP_side_rool_C:DefaultSceneRoot_GEN_VARIABLE'",
+        "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.25"
+      },
+      "ChildNodes": [
+        {
+          "ObjectName": "SCS_Node'BP_side_rool_C:SimpleConstructionScript_0.SCS_Node_2'",
+          "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.27"
+        }
+      ],
+      "VariableGuid": "6E2CE816-4FB04D19-616A50B7-53C671CC",
+      "InternalVariableName": "DefaultSceneRoot"
+    }
+  },
+  {
+    "Type": "SCS_Node",
+    "Name": "SCS_Node_2",
+    "Flags": "RF_Transactional | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'SCS_Node'",
+    "Outer": {
+      "ObjectName": "SimpleConstructionScript'BP_side_rool_C:SimpleConstructionScript_0'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.28"
+    },
+    "Properties": {
+      "ComponentClass": {
+        "ObjectName": "Class'StaticMeshComponent'",
+        "ObjectPath": "/Script/Engine"
+      },
+      "ComponentTemplate": {
+        "ObjectName": "StaticMeshComponent'BP_side_rool_C:side_rool01_GEN_VARIABLE'",
+        "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.29"
+      },
+      "VariableGuid": "FE650D90-4006BC95-9E8172BE-63EDE26C",
+      "InternalVariableName": "side_rool01"
+    }
+  },
+  {
+    "Type": "SimpleConstructionScript",
+    "Name": "SimpleConstructionScript_0",
+    "Flags": "RF_Transactional | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'SimpleConstructionScript'",
+    "Outer": {
+      "ObjectName": "BlueprintGeneratedClass'BP_side_rool_C'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.23"
+    },
+    "Properties": {
+      "RootNodes": [
+        {
+          "ObjectName": "SCS_Node'BP_side_rool_C:SimpleConstructionScript_0.SCS_Node_0'",
+          "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.26"
+        }
+      ],
+      "AllNodes": [
+        {
+          "ObjectName": "SCS_Node'BP_side_rool_C:SimpleConstructionScript_0.SCS_Node_0'",
+          "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.26"
+        },
+        {
+          "ObjectName": "SCS_Node'BP_side_rool_C:SimpleConstructionScript_0.SCS_Node_2'",
+          "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.27"
+        }
+      ],
+      "DefaultSceneRootNode": {
+        "ObjectName": "SCS_Node'BP_side_rool_C:SimpleConstructionScript_0.SCS_Node_0'",
+        "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.26"
+      }
+    }
+  },
+  {
+    "Type": "StaticMeshComponent",
+    "Name": "side_rool01_GEN_VARIABLE",
+    "Flags": "RF_Public | RF_Transactional | RF_ArchetypeObject | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'StaticMeshComponent'",
+    "Outer": {
+      "ObjectName": "BlueprintGeneratedClass'BP_side_rool_C'",
+      "ObjectPath": "DLC/09/Stage/STG006_R/BGBase/Meshes/BP_side_rool.23"
+    },
+    "Properties": {
+      "StaticMesh": {
+        "ObjectName": "StaticMesh'side_rool01'",
+        "ObjectPath": "/Game/DLC/09/Stage/STG006_R/BGBase/Meshes/side_rool01"
+      },
+      "bSelfShadowOnly": true
+    }
+  }
+]

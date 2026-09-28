@@ -1,3 +1,10 @@
+namespace {
+bool ReplayDiagnosticAllowed(unsigned subsystem,unsigned tick) {
+    const auto admitted=g_replay_diagnostics.Admit(subsystem,tick);
+    if(admitted<0) RC::Output::send<RC::LogLevel::Warning>(STR("[HorseMod] replay diagnostic overflow=true tick={} read_only=true\n"),tick);
+    return admitted>0;
+}
+}
 std::uint32_t __fastcall
 DeterministicHookSet::BattleAudioResolveCharaCueDetour(
     void* battle_audio_manager, const void* event,
@@ -203,9 +210,30 @@ std::uint32_t __fastcall DeterministicHookSet::BattleAudioRegisterVoiceDetour(
         callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);
         return logical_id;
     }
+    std::uint32_t diagnostic_tick{};
+    const bool diagnostic=hooks && hooks->ucrt_broker_
+        && ::GetCurrentThreadId()==hooks->ucrt_broker_->owner_thread_id()
+        && SafeRead(hooks->image_base_+0x470d0c4,diagnostic_tick)
+        && ReplayDiagnosticAllowed(ReplayDiagnosticTrace::Audio,diagnostic_tick);
+    if(diagnostic) {
+        void* stack[16]{};
+        const auto count=(g_replay_diagnostics.stack_depth ? ::CaptureStackBackTrace(0,g_replay_diagnostics.stack_depth,stack,nullptr) : 0);
+        std::array<std::uintptr_t,16> frames{};
+        for(unsigned i=0;i<static_cast<unsigned>(count);++i) {
+            const auto address=reinterpret_cast<std::uintptr_t>(stack[i]);
+            if(address>=hooks->image_base_ && address-hooks->image_base_<0x5000000)
+                frames[i]=address-hooks->image_base_;
+        }
+        RC::Output::send<RC::LogLevel::Default>(STR("[HorseMod] native audio create entry tick={} owner={:x} sheet={} cue={} flags={:x} caller={:x} stack={:x},{:x},{:x},{:x},{:x},{:x},{:x},{:x} read_only=true\n"),
+            diagnostic_tick,reinterpret_cast<std::uintptr_t>(active_voice_owner),cue_sheet_id,cue_id,playback_flags,return_rva,
+            frames[0],frames[1],frames[2],frames[3],frames[4],frames[5],frames[6],frames[7]);
+        if(g_replay_diagnostics.stack_depth>8) RC::Output::send<RC::LogLevel::Default>(STR("[HorseMod] native audio source stack tick={} stack={:x},{:x},{:x},{:x},{:x},{:x},{:x},{:x} read_only=true\n"),
+            diagnostic_tick,frames[8],frames[9],frames[10],frames[11],frames[12],frames[13],frames[14],frames[15]);
+    }
     const auto result = original != nullptr
         ? original(active_voice_owner, cue_sheet_id, cue_id, playback_flags)
         : audio_invalid_playback_id;
+    if(diagnostic) RC::Output::send<RC::LogLevel::Default>(STR("[HorseMod] native audio create returned tick={} result={} read_only=true\n"),diagnostic_tick,result);
     if (result != audio_invalid_playback_id && batch != nullptr)
     {
         std::uint32_t cue_sheet_identity = cue_sheet_id;
@@ -742,8 +770,24 @@ int __cdecl DeterministicHookSet::UcrtRandDetour() noexcept
         const auto return_address = reinterpret_cast<std::uintptr_t>(_ReturnAddress());
         const auto return_rva = return_address >= hooks->image_base_
             ? return_address - hooks->image_base_ : 0;
-        result = hooks->ucrt_broker_->HandleRand(
-            ::GetCurrentThreadId(), return_rva, original);
+        const auto thread=::GetCurrentThreadId();
+        // Bounded observation through the existing IAT owner. Capture both
+        // sides of the actual draw, including non-allowlisted shared callers.
+        std::uint32_t tick{};
+        const bool trace=thread==hooks->ucrt_broker_->owner_thread_id()
+            && SafeRead(hooks->image_base_+0x470d0c4,tick) && ReplayDiagnosticAllowed(ReplayDiagnosticTrace::Rng,tick);
+        UcrtRandBrokerImage before{};
+        const bool before_valid=trace && hooks->ucrt_broker_->Capture(thread,before).ok();
+        const auto* lane=hooks->ucrt_broker_->Lane(thread,return_rva);
+        result = hooks->ucrt_broker_->HandleRand(thread, return_rva, original);
+        if (trace) {
+            UcrtRandBrokerImage observed{};
+            const auto read=hooks->ucrt_broker_->Capture(thread,observed);
+            RC::Output::send<RC::LogLevel::Default>(STR("[HorseMod] native RNG draw schema=3 tick={} thread_id={} caller_rva={:x} result={} before={:08x} state={:08x} valid={} lane={} combat_before={:08x} combat_state={:08x} combat_draws={} native_draws={} unknown_draws={} epoch={} read_only=true\n"),
+                tick,thread,return_rva,result,before.state,observed.state,before_valid && read.ok(),
+                RC::to_generic_string(lane),before.combat_state,observed.combat_state,observed.draws,
+                observed.native_draws,observed.unknown_draws,observed.epoch);
+        }
     }
     else if (original != nullptr)
     {
@@ -783,6 +827,7 @@ bool DeterministicHookSet::InstallUcrtIatHooks() noexcept
     {
         return false;
     }
+    if (!ucrt_broker_->BindNative(original_rand_, original_srand_).ok()) return false;
     DWORD old_protect{};
     if (!::VirtualProtect(reinterpret_cast<void*>(rand_iat_slot_), sizeof(void*),
             PAGE_READWRITE, &old_protect))
@@ -816,26 +861,7 @@ bool DeterministicHookSet::InstallUcrtIatHooks() noexcept
     return true;
 }
 
-void DeterministicHookSet::UninstallUcrtIatHooks() noexcept
-{
-    const auto restore = [](std::uintptr_t slot, void* hook, void* original) {
-        if (slot == 0 || original == nullptr) return;
-        DWORD old_protect{};
-        if (!::VirtualProtect(reinterpret_cast<void*>(slot), sizeof(void*),
-                PAGE_READWRITE, &old_protect)) return;
-        ::InterlockedCompareExchangePointer(
-            reinterpret_cast<void* volatile*>(slot), original, hook);
-        DWORD ignored{};
-        ::VirtualProtect(reinterpret_cast<void*>(slot), sizeof(void*),
-            old_protect, &ignored);
-    };
-    restore(srand_iat_slot_, reinterpret_cast<void*>(&UcrtSrandDetour),
-        reinterpret_cast<void*>(original_srand_));
-    restore(rand_iat_slot_, reinterpret_cast<void*>(&UcrtRandDetour),
-        reinterpret_cast<void*>(original_rand_));
-    srand_iat_slot_ = 0;
-    rand_iat_slot_ = 0;
-}
+#include "DeterministicHookSet.UninstallUcrt.inl"
 
 void DeterministicHookSet::EmitFrameFencepost(void* battle_manager) noexcept
 {
@@ -1020,14 +1046,6 @@ void DeterministicHookSet::FinalizeFrameFencepost(
         observation.outer_batch_id = batch->observation->batch_id;
         observation.input_filter_observed = batch->input_filter_observed;
         observation.input_filter_invocations = batch->input_filter_invocations;
-        observation.authoritative_input_requested =
-            batch->observation->authoritative_input_requested;
-        observation.authoritative_input_applied =
-            batch->observation->authoritative_input_applied;
-        observation.authoritative_input_round_barrier =
-            batch->observation->authoritative_input_round_barrier;
-        observation.authoritative_input_failed_closed =
-            batch->observation->authoritative_input_failed_closed;
         std::copy(std::begin(batch->pre_filter_inputs),
             std::end(batch->pre_filter_inputs), observation.pre_filter_inputs);
         if (batch->input_filter_observed
@@ -1086,6 +1104,16 @@ void DeterministicHookSet::FinalizeFrameFencepost(
     {
         callbacks_.frame_fencepost(callbacks_.user, observation);
     }
+}
+
+Status DeterministicHookSet::ReadOnlineHandoffState(
+    void* manager, OuterTickState& state) noexcept
+{
+    state = {};
+    std::uint16_t mask{};
+    CaptureOuterTickState(manager, state, mask, 1, 2, 4, 8);
+    return mask == 15 && SafeRead(state.input_log + 0x3AC, state.input_update_time) ? Status::success()
+        : Status::failure(FailureCode::IdentityMismatch);
 }
 
 void DeterministicHookSet::CaptureOuterTickState(
@@ -1181,6 +1209,9 @@ bool DeterministicHookSet::IsObservedBattleAudioTrackingSet(
 
 void DeterministicHookSet::ClearState() noexcept
 {
+    replay_executor_selected_ = false;
+    replay_executor_enabled_ = false;
+    replay_executor_manager_ = nullptr;
     suppress_presentation_next_outer_tick_.store(
         false, std::memory_order_release);
     stage_break_presentation_identity_.Invalidate();
@@ -1213,11 +1244,17 @@ void DeterministicHookSet::ClearState() noexcept
     stage_break_barrier_detour_.reset();
     stage_break_wall_detour_.reset();
     callback_executor_detour_.reset();
+    tutorial_tick_detour_.reset();
+    input_producer_tick_detour_.reset();
+    input_sample_detour_.reset();
     outer_tick_detour_.reset();
     replay_post_tick_detour_.reset();
     frame_fencepost_detour_.reset();
     replay_post_tick_trampoline_ = 0;
     frame_fencepost_trampoline_ = 0;
+    tutorial_tick_trampoline_ = 0;
+    input_producer_tick_trampoline_ = 0;
+    input_sample_trampoline_ = 0;
     outer_tick_trampoline_ = 0;
     callback_executor_trampoline_ = 0;
     stage_break_wall_trampoline_ = 0;
@@ -1247,6 +1284,9 @@ void DeterministicHookSet::ClearState() noexcept
     next_outer_batch_id_ = 0;
     replay_post_tick_trampoline_global_.store(0, std::memory_order_release);
     frame_fencepost_trampoline_global_.store(0, std::memory_order_release);
+    tutorial_tick_trampoline_global_.store(0, std::memory_order_release);
+    input_producer_tick_trampoline_global_.store(0, std::memory_order_release);
+    input_sample_trampoline_global_.store(0, std::memory_order_release);
     outer_tick_trampoline_global_.store(0, std::memory_order_release);
     callback_executor_trampoline_global_.store(0, std::memory_order_release);
     stage_break_wall_trampoline_global_.store(0, std::memory_order_release);

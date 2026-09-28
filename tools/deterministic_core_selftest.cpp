@@ -1,6 +1,12 @@
+#include "deterministic/ReplayDiagnosticTrace.hpp"
+#include "deterministic/ReplayTraceWeakReference.hpp"
+#include "deterministic/ReplayHudPlayback.hpp"
+#include "deterministic/ReplayHudWidgetAdmission.hpp"
+#include "replay_qualification_mod/ReplayResumeRateWindow.hpp"
+#include "deterministic/ReplayOcclusionHistory.hpp"
+#include "deterministic/ReplayStreamableDomain.hpp"
 #include "deterministic/CanonicalHashTimeline.hpp"
 #include "deterministic/AudioPresentation.hpp"
-#include "deterministic/AuthoritativeInputGate.hpp"
 #include "deterministic/CandidateGameStateAdapter.hpp"
 #include "deterministic/DeterministicHookSet.hpp"
 #include "deterministic/InputTimeline.hpp"
@@ -10,13 +16,17 @@
 #include "deterministic/NativeBatchTimeline.hpp"
 #include "deterministic/NativeAudioPresentationController.hpp"
 #include "deterministic/NativePresentationJournal.hpp"
-#include "deterministic/OnlineQualificationMetrics.hpp"
 #include "deterministic/ParticlePresentation.hpp"
 #include "deterministic/PresentationJournal.hpp"
 #include "deterministic/ReplayCoordinator.hpp"
 #include "deterministic/ReplaySeekPlanner.hpp"
 #include "deterministic/Sc6ReplayNativeBridge.hpp"
+#include "deterministic/InputProducer.hpp"
+#include "deterministic/ReplaySourceRegistration.hpp"
 #include "deterministic/Sc6ReplayRuntime.hpp"
+#include "deterministic/Sc6ReplaySchedulerState.hpp"
+#include "deterministic/Sc6ReplayVfxState.hpp"
+#include "deterministic/ReplayLightingBinding.hpp"
 #include "deterministic/SnapshotStore.hpp"
 #include "deterministic/StagePresentation.hpp"
 #include "deterministic/UcrtRandBroker.hpp"
@@ -25,10 +35,20 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <cstdlib>
 #include <xmmintrin.h>
 #include <vector>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
+#include <thread>
+#endif
 
+#include "replay_seek_state_selftest.inl"
+#include "replay_capture_accounting_selftest.inl"
 using namespace Horse::Deterministic;
 
 namespace
@@ -57,132 +77,151 @@ void expect(bool condition, const char* message)
     }
 }
 
-void test_online_qualification_metrics_are_bounded_and_resettable()
-{
-    OnlineQualificationMetrics metrics{};
-    metrics.SetPreMatchOwnedBytes(500);
-    metrics.BeginStatus4(1000);
-    metrics.ObserveOwnedBytes(1000);
-    metrics.RecordCorrection(1'000'000);
-    metrics.RecordCorrection(2'000'000);
-    metrics.RecordCorrection(3'000'000);
-    metrics.RecordCapacityFailure();
-    auto status = metrics.status();
-    expect(status.correction_samples == 3
-            && status.correction_p50_ns == 2'010'000
-            && status.correction_p95_ns == 3'010'000
-            && status.correction_p99_ns == 3'010'000
-            && status.correction_max_ns == 3'000'000,
-        "online timing histogram reports bounded upper quantiles and exact max");
-    expect(status.post_status4_growth_events == 0
-            && status.capacity_failures == 1
-            && status.pre_match_owned_bytes == 500,
-        "online metrics retain growth and capacity failure evidence");
-    metrics.ObserveOwnedBytes(1001);
-    expect(metrics.status().post_status4_growth_events == 1,
-        "online metrics detect allocator-accounted post-status-4 growth");
-    metrics.Reset();
-    status = metrics.status();
-    expect(status.correction_samples == 0
-            && status.post_status4_growth_events == 0
-            && status.capacity_failures == 0,
-        "online metrics reset completely between owned matches");
+void test_replay_resume_wall_clock() {
+    Horse::Qualification::ReplayResumeRateWindow rate;
+    expect(!rate.Sample(0,0),"rate requires an explicit start");
+    rate.Begin(170,0,120);
+    expect(rate.Sample(170,100'000) && rate.Sample(170,180'000)
+        && rate.Sample(171,200'000) && rate.elapsed_us()==200'000 && rate.ticks()==1,
+        "zero-progress polls preserve the entire initial stall");
+    expect(rate.Sample(289,2'180'000) && rate.Sample(289,2'280'000)
+        && rate.Sample(290,2'300'000) && rate.elapsed_us()==2'300'000 && rate.ticks()==120,
+        "120-tick wall window includes intermediate stalls");
+    expect(rate.ticks()*1'000'000'000ull/rate.elapsed_us()<58'000,
+        "stalled playback cannot qualify through discarded poll time");
+    expect(rate.Sample(310,4'000'000) && rate.elapsed_us()==2'300'000 && rate.ticks()==120,
+        "completed rate window excludes later observation time");
+    expect(!rate.Sample(309,4'100'000) && !rate.Sample(311,3'999'999)
+        && rate.ticks()==120 && rate.elapsed_us()==2'300'000,
+        "tick and clock regressions reject without changing the measurement");
+    rate.Begin(100,10,120);
+    expect(rate.Sample(223,2'050'010) && rate.ticks()==123 && rate.elapsed_us()==2'050'000
+        && rate.ticks()*1'000'000'000ull/rate.elapsed_us()==60'000,
+        "multi-tick final poll uses actual observed count and full wall time");
+    rate.Begin(0,0,120);
+    expect(rate.Sample(120,2'000'000) && rate.ticks()*1'000'000'000ull/rate.elapsed_us()==60'000,
+        "ordinary 60 TPS and zero epoch are measured correctly");
 }
 
-struct InputGateFixture
+void test_particle_tile_partition_rejects_equal_count_corruption()
 {
-    bool publish_result{true};
-    bool commit_result{true};
-    std::uint32_t publish_calls{};
-    std::uint32_t commit_calls{};
-    PlayerInput published[2]{};
-};
-
-bool publish_input_gate_pair(
-    void* context, const PlayerInput (&input)[2]) noexcept
-{
-    auto& fixture = *static_cast<InputGateFixture*>(context);
-    ++fixture.publish_calls;
-    fixture.published[0] = input[0];
-    fixture.published[1] = input[1];
-    return fixture.publish_result;
+    std::array<std::uint64_t, 1024> owned{};
+    owned[0] = 1; // Tile zero belongs to an emitter.
+    std::vector<std::uint32_t> free;
+    for (std::uint32_t tile = 1; tile < 65536; ++tile) free.push_back(tile);
+    expect(Sc6ReplayVfxState::IsCompleteTilePartition(owned, free), "full disjoint tile partition accepted");
+    free.back() = 0;
+    expect(!Sc6ReplayVfxState::IsCompleteTilePartition(owned, free), "equal counts cannot hide free/owned overlap");
+    free.back() = 1;
+    expect(!Sc6ReplayVfxState::IsCompleteTilePartition(owned, free), "duplicate free ID and missing tile rejected");
+    free.back() = 65536;
+    expect(!Sc6ReplayVfxState::IsCompleteTilePartition(owned, free), "out-of-range free ID rejected");
+    free.pop_back();
+    expect(!Sc6ReplayVfxState::IsCompleteTilePartition(owned, free), "unaccounted tile rejected");
 }
 
-bool commit_input_gate_ownership(void* context) noexcept
+#ifdef _WIN32
+void test_particle_tile_prefix_recovery_and_lock_exclusion()
 {
-    auto& fixture = *static_cast<InputGateFixture*>(context);
-    ++fixture.commit_calls;
-    return fixture.commit_result;
+    struct PoolFixture
+    {
+        std::byte* data = static_cast<std::byte*>(VirtualAlloc(nullptr, 0x41000, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        CRITICAL_SECTION* lock{};
+        PoolFixture()
+        {
+            if (data) { lock = reinterpret_cast<CRITICAL_SECTION*>(data + 0x40198); InitializeCriticalSectionAndSpinCount(lock, 733); }
+        }
+        ~PoolFixture() { if (lock) DeleteCriticalSection(lock); if (data) VirtualFree(data, 0, MEM_RELEASE); }
+    } pool;
+    expect(pool.data != nullptr, "tile-prefix fixture allocation");
+    if (!pool.data) return;
+    const auto address = reinterpret_cast<std::uintptr_t>(pool.data);
+    auto* count = reinterpret_cast<int*>(pool.data + 0x40190);
+    auto* prefix = reinterpret_cast<std::uint32_t*>(pool.data + 0x190);
+    const auto spin = pool.lock->SpinCount;
+    const auto debug = pool.lock->DebugInfo;
+    std::vector<std::uint32_t> b(2048), a(2048);
+    for (std::uint32_t i = 0; i < b.size(); ++i) { b[i] = i; a[i] = static_cast<std::uint32_t>(b.size() - i - 1); }
+    std::memcpy(prefix, b.data(), b.size() * 4); *count = static_cast<int>(b.size());
+    bool dirty{};
+    auto status = Sc6ReplayVfxState::ReplaceNativeTilePrefix(address, a, a, true, dirty);
+    expect(status.code == FailureCode::GenerationMismatch && !dirty && *count == b.size()
+        && !std::memcmp(prefix, b.data(), b.size() * 4), "stale B prefix rejects before mutation");
+
+    HANDLE held = CreateEventW(nullptr, TRUE, FALSE, nullptr), release = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    expect(held && release, "tile-prefix contention events");
+    if (held && release)
+    {
+        std::thread worker([&] {
+            EnterCriticalSection(pool.lock); SetEvent(held);
+            WaitForSingleObject(release, INFINITE); LeaveCriticalSection(pool.lock);
+        });
+        const auto acquired = WaitForSingleObject(held, 5000) == WAIT_OBJECT_0;
+        expect(acquired, "fixture worker owns native pool lock");
+        if (acquired)
+        {
+            status = Sc6ReplayVfxState::ReplaceNativeTilePrefix(address, b, a, true, dirty);
+            expect(status.code == FailureCode::RestorePreflightFailed && !dirty
+                && !std::memcmp(prefix, b.data(), b.size() * 4), "contended native lock does not block or write");
+        }
+        SetEvent(release); worker.join();
+    }
+    if (held) CloseHandle(held);
+    if (release) CloseHandle(release);
+
+    DWORD previous{};
+    const bool protected_page = VirtualProtect(pool.data + 0x1000, 0x1000, PAGE_READONLY, &previous) != FALSE;
+    expect(protected_page, "inject tile-prefix write fault after a writable prefix");
+    if (protected_page)
+    {
+        status = Sc6ReplayVfxState::ReplaceNativeTilePrefix(address, b, a, true, dirty);
+        expect(status.code == FailureCode::RestoreWriteFailed && dirty, "partial-write fault preserves dirty undo disposition");
+        DWORD ignored{};
+        const bool writable = VirtualProtect(pool.data + 0x1000, 0x1000, previous, &ignored) != FALSE;
+        expect(writable, "restore fixture page before undo");
+        if (!writable) return;
+        status = Sc6ReplayVfxState::ReplaceNativeTilePrefix(address, a, b, false, dirty);
+        expect(status.ok() && dirty && *count == b.size() && !std::memcmp(prefix, b.data(), b.size() * 4),
+            "undo recovers B after a partial A write and requires enclosing acknowledgment");
+        dirty = false; // Independent B readback above is the fixture's acknowledgment.
+    }
+    status = Sc6ReplayVfxState::ReplaceNativeTilePrefix(address, b, {}, true, dirty);
+    expect(status.ok() && dirty && *count == 0, "zero free tiles is a valid installed prefix");
+    status = Sc6ReplayVfxState::ReplaceNativeTilePrefix(address, {}, b, false, dirty);
+    expect(status.ok() && *count == b.size() && !std::memcmp(prefix, b.data(), b.size() * 4), "undo restores a nonempty free list");
+    expect(pool.lock->SpinCount == spin && pool.lock->DebugInfo == debug && pool.lock->RecursionCount == 0,
+        "publication/failure/undo preserve and release the original native lock");
 }
+#endif
 
-void test_authoritative_input_gate_is_transactional_and_fail_closed()
+void test_native_tick_epoch_rebase_preserves_signed_comparison()
 {
-    const PlayerInput stock[2]{{0x11, 0x01}, {0x22, 0x02}};
-    const PlayerInput selected[2]{{0x33, 0x03}, {0x44, 0x04}};
-    InputGateFixture fixture{};
-    auto result = ApplyAuthoritativeInputGate(
-        AuthoritativeInputDisposition::PreparedTakeover, true, stock, selected,
-        publish_input_gate_pair, &fixture,
-        commit_input_gate_ownership, &fixture);
-    expect(result.action
-                == AuthoritativeInputGateAction::ContinueAuthoritative
-            && result.applied && result.before_valid
-            && result.before[0] == selected[0]
-            && fixture.publish_calls == 1 && fixture.commit_calls == 1,
-        "first ownership commits only after a complete paired publication");
-
-    fixture = {};
-    fixture.publish_result = false;
-    result = ApplyAuthoritativeInputGate(
-        AuthoritativeInputDisposition::PreparedTakeover, true, stock, selected,
-        publish_input_gate_pair, &fixture,
-        commit_input_gate_ownership, &fixture);
-    expect(result.action == AuthoritativeInputGateAction::AbortBeforeConsume
-            && result.failed_closed && !result.applied
-            && fixture.publish_calls == 1 && fixture.commit_calls == 0,
-        "failed first-owned publication aborts before commit or consumption");
-
-    fixture = {};
-    fixture.commit_result = false;
-    result = ApplyAuthoritativeInputGate(
-        AuthoritativeInputDisposition::PreparedTakeover, true, stock, selected,
-        publish_input_gate_pair, &fixture,
-        commit_input_gate_ownership, &fixture);
-    expect(result.action == AuthoritativeInputGateAction::AbortBeforeConsume
-            && result.failed_closed && !result.applied
-            && fixture.publish_calls == 1 && fixture.commit_calls == 1,
-        "failed ownership commit aborts the already-published frame before consumption");
-
-    fixture = {};
-    result = ApplyAuthoritativeInputGate(
-        AuthoritativeInputDisposition::FailClosed, false, stock, selected,
-        publish_input_gate_pair, &fixture,
-        commit_input_gate_ownership, &fixture);
-    expect(result.action == AuthoritativeInputGateAction::AbortBeforeConsume
-            && result.failed_closed && !result.before_valid
-            && fixture.publish_calls == 0 && fixture.commit_calls == 0,
-        "unreadable or failed owned input never substitutes neutral or advances stock");
-}
-
-void test_aborted_outer_tick_reaches_post_completion_callback()
-{
-    struct Fixture { bool called{}; bool saw_abort{}; } fixture{};
-    OuterTickObservation observation{};
-    observation.authoritative_input_aborted_before_consume = true;
-    const auto callback = [](void* context,
-        const OuterTickObservation& completed) noexcept {
-            auto& value = *static_cast<Fixture*>(context);
-            value.called = true;
-            value.saw_abort = completed.authoritative_input_aborted_before_consume;
-        };
-    DispatchCompletedOuterTick(&fixture, callback, observation);
-    expect(fixture.called && fixture.saw_abort,
-        "pre-consumption abort is delivered through the post-original outer callback");
+#ifdef _WIN32
+    Sc6ReplaySchedulerState current, original;
+    expect(current.Capture(1,reinterpret_cast<void*>(1),1024,{},&current).code==FailureCode::IllegalTransition,
+        "continuation capture rejects self alias before touching native addresses");
+    expect(current.Capture(1,reinterpret_cast<void*>(1),1024,{},&original).code==FailureCode::GenerationMismatch,
+        "continuation capture rejects an unowned B scheduler before native reads");
+    expect(current.tick_count()==0 && original.tick_count()==0 && current.owned_bytes()==0,
+        "rejected continuation capture leaves current and original storage unchanged");
+#endif
+    std::int32_t output{};
+    expect(Sc6ReplaySchedulerState::RebaseEpochStamp(99, 100, 200, output) && output == 199,
+        "unadmitted native ticks must stay older than the live epoch");
+    expect(Sc6ReplaySchedulerState::RebaseEpochStamp(100, 100, 200, output) && output == 200,
+        "admitted native ticks must remain admitted without rewinding the engine epoch");
+    expect(Sc6ReplaySchedulerState::RebaseEpochStamp(-1, 0xffffffffULL, 200, output) && output == 199,
+        "native sign extension must not be replaced by a 32-bit epoch comparison");
+    expect(!Sc6ReplaySchedulerState::RebaseEpochStamp(100, 100, 0x80000000ULL, output),
+        "an admitted state must fail when the live epoch cannot be represented by a signed stamp");
+    expect(Sc6ReplaySchedulerState::RebaseEpochStamp(-1, 0xffffffffffffffffULL, 200, output) && output == 200,
+        "native comparison uses the complete sign-extended bit pattern");
 }
 
 void test_canonical_hash_timeline_is_immutable_and_bounded()
 {
     CanonicalHashTimeline timeline{2};
+    expect(timeline.allocated_bytes() == 0, "unused canonical history owns no reserved backing");
     CanonicalHash first{};
     CanonicalHash second{};
     first[0] = std::byte{0x11};
@@ -595,6 +634,9 @@ struct RawReplayBridgeFixture
         write(replay, Schema::Sc6ReplayLayout::round_images, round_images.data());
         write(replay, Schema::Sc6ReplayLayout::round_count, std::int32_t{2});
         write(replay, Schema::Sc6ReplayLayout::round_capacity, std::int32_t{2});
+        write(replay, 0x390, std::uintptr_t{0x3290d20});
+        write(replay, 0x3b8, round_images.data());
+        write(replay, 0x3c0, std::int32_t{2});
         write(manager, Schema::Sc6ReplayLayout::manager_status, std::uint8_t{2});
         write(manager, Schema::Sc6ReplayLayout::manager_move_state, std::uint8_t{0});
         write(manager, Schema::Sc6ReplayLayout::manager_pending_dispatch, std::uint8_t{1});
@@ -658,7 +700,7 @@ struct RawReplayBridgeFixture
     }
 
     inline static RawReplayBridgeFixture* active_setter_fixture{};
-    std::array<std::byte, 0x3b8> replay{};
+    std::array<std::byte, 0x3d0> replay{};
     std::array<std::byte, 0x1481> manager{};
     std::array<std::byte, Schema::replay_round_image_size * 2> round_images{};
     std::uint64_t fighter_one{1};
@@ -725,6 +767,7 @@ void test_public_config_contract()
 void test_input_replacement_and_invalidation()
 {
     InputTimeline timeline{2};
+    expect(timeline.allocated_bytes() == 0, "unused input history owns no reserved backing");
     expect(timeline.AppendAuthoritative({1, 1}, one_input(false)).ok(), "append predicted input");
     expect(timeline.AppendAuthoritative({1, 0}, one_input(false)).ok(),
         "append an earlier coordinate into reserved sorted storage");
@@ -791,6 +834,7 @@ void test_native_batch_timeline_is_exact_and_bounded()
         "batch storage admits the observed 17-dispatch authored audio burst");
 
     NativeBatchTimeline timeline{2, 4};
+    expect(timeline.allocated_bytes() == 0, "unused native batch history owns no reserved backing");
     NativeBatchEnvelope first{};
     first.batch_id = 10;
     first.entry_coordinate = {};
@@ -954,8 +998,24 @@ void test_native_batch_timeline_is_exact_and_bounded()
     zero_width.native_frame_before = 2;
     zero_width.native_frame_after = 2;
     zero_width.coordinate_count = 0;
+    zero_width.consumers_before_count = 2;
+    zero_width.producers_before_count = 2;
+    for (std::uint8_t index = 0; index < 2; ++index)
+    {
+        auto& producer = zero_width.producers_before[index];
+        producer.valid = true;
+        producer.native_frame_before = 2;
+        producer.native_frame_after = 2;
+        producer.preceding_consumers = index + 1;
+    }
     expect(zero_width_timeline.Append(zero_width, {}).ok(),
         "batch storage accepts offset zero presentation at a zero-width entry");
+    auto reordered_producers = zero_width;
+    reordered_producers.producers_before[1].preceding_consumers = 0;
+    expect(zero_width_timeline.ReplaceBatch(0, zero_width, reordered_producers).code
+            == FailureCode::IdentityMismatch
+            && zero_width_timeline.GetBatch(0)->producers_before[1].preceding_consumers == 2,
+        "zero-coordinate calls retain producer order and reject reordered replacement atomically");
     zero_width.presentation_order_journal[0].source_offset = 1;
     NativeBatchTimeline invalid_zero_width_timeline{1, 1};
     expect(invalid_zero_width_timeline.Append(zero_width, {}).code
@@ -1041,6 +1101,166 @@ void test_native_batch_timeline_is_exact_and_bounded()
         "reject an unexplained same-generation batch gap");
 }
 
+void test_native_interval_suffix_rebuilds_coordinate_index()
+{
+    NativeBatchTimeline timeline{4, 6};
+    const auto batch = [](std::uint64_t id, std::uint64_t first,
+                         std::uint64_t last, std::uint32_t count) {
+        NativeBatchEnvelope value{};
+        value.batch_id = id;
+        value.entry_coordinate = {9, first};
+        value.exit_coordinate = {9, last};
+        value.coordinate_count = count;
+        value.completed_identity_valid = true;
+        value.completed_hash[0] = std::byte{1};
+        return value;
+    };
+    const std::array prefix_coordinates{FrameCoordinate{9, 359}};
+    expect(timeline.Append(batch(50, 358, 359, 1), prefix_coordinates).ok(),
+        "retain an unchanged interval prefix");
+    const std::array expected{
+        batch(51, 359, 359, 0), batch(52, 359, 361, 2), batch(53, 361, 362, 1)};
+    const std::array old_coordinates{
+        FrameCoordinate{9, 360}, FrameCoordinate{9, 361}, FrameCoordinate{9, 362}};
+    expect(timeline.Append(expected[0], {}).ok()
+            && timeline.Append(expected[1], std::span{old_coordinates}.first(2)).ok()
+            && timeline.Append(expected[2], std::span{old_coordinates}.last(1)).ok(),
+        "retain zero, repeated, and ordinary native intervals");
+    const auto allocated = timeline.allocated_bytes();
+    auto incomplete = expected;
+    incomplete[1].exit_coordinate.frame = 362;
+    incomplete[2].entry_coordinate.frame = 362;
+    incomplete[2].exit_coordinate.frame = 363;
+    const std::array skipped_coordinates{
+        FrameCoordinate{9, 360}, FrameCoordinate{9, 362}, FrameCoordinate{9, 363}};
+    expect(timeline.ValidateSuffixReplacement(expected, incomplete, skipped_coordinates).code
+            == FailureCode::IdentityMismatch && timeline.coordinate_count() == 4,
+        "a complete interval cannot omit an interior native fencepost");
+    auto replacements = std::array{
+        batch(51, 359, 360, 1), batch(52, 360, 360, 0), batch(53, 360, 363, 3)};
+    const std::array corrected_coordinates{
+        FrameCoordinate{9, 360}, FrameCoordinate{9, 361},
+        FrameCoordinate{9, 362}, FrameCoordinate{9, 363}};
+    const auto admitted = timeline.ValidateSuffixReplacement(
+        expected, replacements, corrected_coordinates);
+    expect(admitted.ok(), "admit an entire corrected suffix with changed native geometry");
+    if (admitted.ok()) timeline.CommitValidatedSuffixReplacement(replacements, corrected_coordinates);
+    const auto changed_membership = timeline.FindCoordinate({9, 360});
+    expect(changed_membership.has_value() && changed_membership->batch_index == 1
+            && timeline.GetBatchCoordinate(2, 0) == nullptr
+            && timeline.GetBatchCoordinate(3, 2)->coordinate == FrameCoordinate{9, 363}
+            && timeline.FindCoordinate({9, 359})->batch_index == 0
+            && timeline.coordinate_count() == 5 && timeline.allocated_bytes() == allocated,
+        "rebuild native membership while preserving interval IDs, prefix and allocation baseline");
+    expect(timeline.ValidateSuffixReplacement(expected, replacements, corrected_coordinates).code
+            == FailureCode::IdentityMismatch,
+        "stale suffix evidence cannot overwrite corrected history");
+    const std::array<FrameCoordinate, 6> excessive{};
+    expect(timeline.ValidateSuffixReplacement(replacements, replacements, excessive).code
+            == FailureCode::CapacityExceeded && timeline.coordinate_count() == 5,
+        "insufficient coordinate capacity rejects the whole replacement before mutation");
+    auto crossing = replacements;
+    crossing.back().input_generation_changed = true;
+    expect(timeline.ValidateSuffixReplacement(replacements, crossing, corrected_coordinates).code
+            == FailureCode::IdentityMismatch,
+        "native ownership transitions require a barrier instead of suffix replacement");
+    expect(timeline.ValidateSuffixReplacement(std::span{replacements}.first(2),
+                std::span{replacements}.first(2), std::span{corrected_coordinates}.first(1)).code
+            == FailureCode::InvalidConfiguration,
+        "partial geometry replacement cannot leave an incompatible later suffix");
+    timeline.DiscardBefore({9, 360});
+    expect(timeline.GetBatch(0)->batch_id == 51
+            && timeline.ValidateSuffixReplacement(replacements, expected, old_coordinates).ok(),
+        "immutable batch IDs resolve the suffix after retained-prefix compaction");
+    timeline.CommitValidatedSuffixReplacement(expected, old_coordinates);
+    expect(timeline.FindCoordinate({9, 360})->batch_index == 1
+            && !timeline.FindCoordinate({9, 363}).has_value()
+            && timeline.allocated_bytes() == allocated,
+        "suffix shrink removes obsolete coordinates without reallocating");
+}
+
+void test_interval_checkpoint_identity_survives_native_geometry_changes()
+{
+    SnapshotStore intervals{4 * 1024 * 1024, 4, CapacityPolicy::EvictOldest,
+        SnapshotIndex::NativeInterval};
+    Snapshot baseline{};
+    baseline.coordinate = {7, 359};
+    baseline.context_identity = 91;
+    baseline.bytes.resize(32, std::byte{1});
+    baseline.canonical_hash[0] = std::byte{1};
+    expect(intervals.SaveIntervalCopyPrewarmed({12, 0}, baseline).code
+            == FailureCode::CapacityExceeded,
+        "interval capture cannot allocate its storage on the first owned save");
+    expect(intervals.PrewarmCaptureSlots(baseline).ok(), "admit interval capture storage");
+    const auto retained_bytes = intervals.BytesUsed();
+    expect(intervals.SaveIntervalCopyPrewarmed({12, 0}, baseline).ok(), "save baseline interval");
+    auto maintenance = baseline;
+    maintenance.bytes[0] = std::byte{2};
+    maintenance.canonical_hash[0] = std::byte{2};
+    expect(intervals.SaveIntervalCopyPrewarmed({12, 0}, maintenance).code
+            == FailureCode::IdentityMismatch
+            && intervals.FindInterval({12, 0})->bytes == baseline.bytes,
+        "ordinary interval save cannot overwrite history without validating its prior hash");
+    expect(intervals.SaveIntervalCopyPrewarmed({12, 1}, maintenance).ok(),
+        "zero-coordinate interval has its own retained state");
+    auto repeated = maintenance;
+    repeated.coordinate.frame = 361;
+    repeated.bytes[0] = std::byte{3};
+    repeated.canonical_hash[0] = std::byte{3};
+    expect(intervals.SaveIntervalCopyPrewarmed({12, 2}, repeated).ok()
+            && intervals.FindInterval({12, 0})->bytes == baseline.bytes
+            && intervals.FindInterval({12, 1})->bytes == maintenance.bytes,
+        "repeated native coordinates do not overwrite earlier interval states");
+    expect(intervals.FindExact({7, 359}) == nullptr
+            && intervals.FindInterval({13, 1}) == nullptr
+            && intervals.SaveCopyPrewarmed(baseline).code == FailureCode::InvalidConfiguration,
+        "interval ownership cannot be confused with affine native coordinate lookup");
+    std::array replacements{maintenance, repeated};
+    replacements[0].coordinate.frame = 360;
+    replacements[1].coordinate.frame = 362;
+    replacements[1].canonical_hash[0] = std::byte{4};
+    const std::array ids{NativeIntervalId{12, 1}, NativeIntervalId{12, 2}};
+    const std::array expected{maintenance.canonical_hash, repeated.canonical_hash};
+    const auto admitted = intervals.ValidateIntervalReplacement(ids, replacements, expected);
+    expect(admitted.ok(), "admit corrected interval geometry using immutable interval identities");
+    if (admitted.ok()) intervals.CommitValidatedIntervalReplacement(ids, replacements);
+    expect(intervals.FindInterval({12, 1})->coordinate.frame == 360
+            && intervals.FindInterval({12, 2})->coordinate.frame == 362
+            && intervals.BytesUsed() == retained_bytes,
+        "commit changed native geometry in existing preallocated slots");
+    expect(intervals.ValidateIntervalReplacement(ids, replacements, expected).code
+            == FailureCode::IdentityMismatch,
+        "stale saved hashes cannot replace an already-corrected suffix");
+    intervals.DiscardIntervalsBeforeRetainingNearest({12, 1});
+    expect(intervals.FindInterval({12, 0}) == nullptr
+            && intervals.FindInterval({12, 1})->coordinate.frame == 360,
+        "prefix retirement keeps interval token identity independent of index compaction");
+    auto oversized = repeated;
+    oversized.bytes.resize(candidate_checkpoint_capture_byte_capacity + 1);
+    expect(intervals.SaveIntervalCopyPrewarmed({12, 3}, oversized).code
+            == FailureCode::CapacityExceeded
+            && intervals.FindInterval({12, 3}) == nullptr
+            && intervals.FindInterval({12, 2})->coordinate.frame == 362
+            && intervals.BytesUsed() == retained_bytes,
+        "partial capacity failure preserves retained history and allocation baseline");
+    expect(intervals.SaveIntervalCopyPrewarmed({12, 3}, repeated).ok(),
+        "freed preallocated slot remains usable after rejected capture");
+    expect(intervals.SaveIntervalCopyPrewarmed({12, 4}, repeated).ok(),
+        "fill the admitted interval store");
+    Snapshot extracted{};
+    expect(!intervals.TakeOldestIfFull(extracted)
+            && intervals.entry_count() == 4
+            && intervals.BytesUsed() == retained_bytes,
+        "legacy eviction cannot extract an owned interval storage envelope");
+    intervals.DiscardIntervalsBeforeRetainingNearest({12, 5});
+    expect(intervals.entry_count() == 1 && intervals.FindInterval({12, 4}) != nullptr,
+        "retirement retains the nearest anchor within the same ownership epoch");
+    intervals.DiscardIntervalsBeforeRetainingNearest({13, 0});
+    expect(intervals.entry_count() == 0 && intervals.BytesUsed() == retained_bytes
+            && intervals.SaveIntervalCopyPrewarmed({13, 0}, baseline).ok(),
+        "new ownership cannot retain a previous epoch anchor and reuses admitted buffers");
+}
+
 void test_snapshot_capacity_is_atomic()
 {
     SnapshotStore store{sizeof(Snapshot) + 64, 1, CapacityPolicy::RejectNew};
@@ -1115,6 +1335,54 @@ void test_snapshot_capacity_is_atomic()
         candidate_checkpoint_capture_byte_capacity, std::byte{0x5a});
     expect(capture_scratch.bytes.capacity() == capture_capacity,
         "maximum encoded checkpoint capture cannot grow after ownership");
+    Snapshot later_content_capture{};
+    expect(PrepareSnapshotCaptureStorage(
+               later_content_capture, prototype).ok(),
+        "online correction capture prewarms beyond the status-4 prototype");
+    const auto later_content_capacity = later_content_capture.bytes.capacity();
+    later_content_capture.bytes.resize(
+        prototype.bytes.capacity() + 1476, std::byte{0x3c});
+    expect(later_content_capture.bytes.capacity() == later_content_capacity,
+        "content-specific correction snapshots cannot grow owned storage");
+    SnapshotStore online_history{4 * 1024 * 1024, 8,
+        CapacityPolicy::RejectNew};
+    expect(online_history.PrewarmCopySlots(prototype).ok()
+            && online_history.SaveCopyPrewarmed(prototype).ok(),
+        "seed online history before ownership");
+    expect(online_history.PrewarmCaptureSlots(prototype).ok(),
+        "status 4 prewarms history to the bounded capture envelope");
+    const auto online_history_bytes = online_history.BytesUsed();
+    auto later_history = prototype;
+    later_history.coordinate = {5, 2};
+    later_history.bytes.resize(
+        prototype.bytes.capacity() + 65536, std::byte{0x6d});
+    expect(online_history.SaveCopyPrewarmed(later_history).ok()
+            && online_history.BytesUsed() == online_history_bytes
+            && online_history.FindExact({5, 1}) != nullptr,
+        "post-ownership content growth uses preowned history storage");
+    auto outside_envelope = later_history;
+    outside_envelope.coordinate = {5, 3};
+    outside_envelope.bytes.resize(candidate_checkpoint_capture_byte_capacity + 1);
+    expect(!online_history.SaveCopyPrewarmed(outside_envelope).ok()
+            && online_history.BytesUsed() == online_history_bytes
+            && online_history.FindExact({5, 1})->coordinate == FrameCoordinate{5, 1}
+            && online_history.FindExact({5, 2})->bytes == later_history.bytes
+            && online_history.FindExact({5, 3}) == nullptr,
+        "owned envelope exhaustion preserves allocation and required checkpoint history");
+    SnapshotStore partial{64 * 1024, 4, CapacityPolicy::RejectNew};
+    expect(partial.PrewarmCopySlots(prototype).ok()
+            && partial.SaveCopyPrewarmed(prototype).ok(),
+        "partial preparation fixture retains a real checkpoint");
+    const auto before_partial = partial.BytesUsed();
+    expect(!partial.PrewarmCaptureSlots(prototype).ok()
+            && partial.BytesUsed() > before_partial
+            && partial.FindExact(prototype.coordinate) != nullptr
+            && partial.FindExact(prototype.coordinate)->canonical_hash == prototype.canonical_hash,
+        "failed full-envelope admission accounts partial allocation and retains identity");
+    partial.ReleasePrewarmedCopySlots();
+    expect(partial.FindExact(prototype.coordinate) == nullptr
+            && partial.BytesUsed() < before_partial,
+        "failed preparation can release its entire retained envelope");
     std::vector<LocalReconstructionImage> movable_capture_exchange;
     expect(PrepareLocalReconstructionCopyStorage(
                 movable_capture_exchange, prototype.local_images).ok(),
@@ -1791,6 +2059,33 @@ void test_presentation_exactly_once()
         expect(bounded.CommitThrough(event.coordinate, bounded_sink).ok(), "commit bounded event");
     }
     expect(bounded_sink.count == 100, "committed-event dedup metadata stays bounded");
+
+    PresentationJournal corrected{8, 64};
+    CountingSink corrected_sink;
+    event.coordinate = {2, 10};
+    expect(corrected.RecordPresented(event).ok()
+            && corrected.ReplaceFrom({2, 10}, std::span{&event, 1}).ok()
+            && corrected.CommitThrough({2, 10}, corrected_sink).ok(),
+        "correction reuses an already-presented event");
+    auto local = corrected.TakeDrainedCorrection();
+    expect(local && local->reused_events == 1 && local->published_events == 0
+            && local->changed_published_events == 0 && local->final_drain,
+        "positive commit totals do not imply changed publication");
+    event.coordinate = {2, 11};
+    expect(corrected.ReplaceFrom({2, 11}, std::span{&event, 1}).ok()
+            && corrected.CommitThrough({2, 11}, corrected_sink).ok(),
+        "new correction event publishes through the real sink");
+    local = corrected.TakeDrainedCorrection();
+    expect(local && local->changed_published_events == 1 && corrected_sink.count == 1,
+        "correction-local observation records actual changed publication");
+    event.coordinate = {2, 12};
+    expect(corrected.ReplaceFrom({2, 12}, std::span{&event, 1}).ok(),
+        "prepare an unpublished correction before generation exit");
+    corrected.InvalidateGeneration(2);
+    expect(corrected.CommitThrough({2, 12}, corrected_sink).ok(), "drain after generation exit");
+    local = corrected.TakeDrainedCorrection();
+    expect(local && local->discarded_events == 1 && !local->final_drain,
+        "generation exit cannot relabel discarded publication as a successful drain");
 }
 
 void test_native_audio_presentation_preserves_cross_family_order()
@@ -2083,10 +2378,536 @@ void test_native_replay_materializer_requires_state4_fencepost()
     expect(bridge.request_count == 1, "failed image preflight performs no native request");
 }
 
+void test_replay_source_registration_transaction()
+{
+    using R=ReplaySourceRegistration;
+    struct Fixture {
+        std::array<std::byte,0x5000> input{};
+        std::array<std::byte,0x500> source{};
+        unsigned allocations{},frees{},destroys{};
+        bool bound{true},fail_write{};
+        R::Ops ops() {
+            return {this,0x140000000,
+                [](void*,std::uintptr_t p,void* out,std::size_t n){std::memcpy(out,reinterpret_cast<void*>(p),n);return true;},
+                [](void* u,std::uintptr_t p,const void* in,std::size_t n){auto& f=*static_cast<Fixture*>(u);if(f.fail_write){f.fail_write=false;return false;}std::memcpy(reinterpret_cast<void*>(p),in,n);return true;},
+                [](void* u){return static_cast<Fixture*>(u)->bound;},
+                [](void* u,std::size_t n)->void*{++static_cast<Fixture*>(u)->allocations;return new std::byte[n];},
+                [](void* u,void* p){++static_cast<Fixture*>(u)->frees;delete[] static_cast<std::byte*>(p);},
+                [](void*,std::uintptr_t owner,std::uint64_t token,void* p){auto* b=static_cast<std::byte*>(p);const std::uintptr_t v=0x143298810;const std::int32_t units=2;std::memcpy(b,&v,8);std::memcpy(b+8,&owner,8);std::memcpy(b+0x18,&token,8);std::memcpy(b+0x30,&units,4);return true;},
+                [](void* u,void*){++static_cast<Fixture*>(u)->destroys;}};
+        }
+        R::Image read(){R::Image i;expect(R::Capture(ops(),reinterpret_cast<std::uintptr_t>(input.data()),reinterpret_cast<std::uintptr_t>(source.data()),i),"capture source fixture");return i;}
+    };
+    for(unsigned scenario=0;scenario<8;++scenario) {
+        Fixture f;auto b=f.read();auto a=b;a.storage.count=1;a.handle=17;
+        R::Prepared p;expect(p.Prepare(f.ops(),a,b,32768).ok(),"prepare source ownership");
+        if(scenario==0){expect(p.Undo().ok() && f.read()==b && f.frees==1,"cancel before publication retains B");continue;}
+        if(scenario==1){f.fail_write=true;expect(!p.Publish().ok(),"partial publication rejects");expect(p.Undo().ok() && f.read()==b && f.frees==1,"partial publication recovers both B roots");continue;}
+        expect(p.Publish().ok(),"publish retained replay receiver");
+        expect(p.BeginExecution(32768).ok(),"source execution retains B");
+        expect(!p.Undo().ok(),"unsettled source cannot undo");
+        f.bound=false;expect(!p.ReopenExecution().ok(),"unsettled reopen rejects invalid bindings");f.bound=true;
+        expect(p.ReopenExecution().ok() && p.ReopenExecution().ok() && !p.Undo().ok(),
+            "early participant failure and reopening retry retain native ownership");
+        if(scenario==5) {
+            auto native=f.read();f.ops().destroy_wrapper(&f,reinterpret_cast<void*>(native.storage.data));f.ops().free(&f,reinterpret_cast<void*>(native.storage.data));
+            std::memset(f.input.data()+0x43d0,0,16);std::memset(f.source.data()+0x3c8,0,8);
+            expect(p.ReopenExecution().ok() && p.ReopenExecution().ok(),"reopening native removal never reads stale A storage");
+        }
+        if(scenario==7) {
+            auto native=f.read();auto replacement=native;
+            auto* allocation=f.ops().allocate(&f,4*R::stride);std::memset(allocation,0,4*R::stride);
+            replacement.storage.data=reinterpret_cast<std::uintptr_t>(allocation);replacement.handle=31;
+            expect(f.ops().copy_wrapper(&f,replacement.source,replacement.handle,allocation),"native C receiver reallocation");
+            f.ops().destroy_wrapper(&f,reinterpret_cast<void*>(native.storage.data));f.ops().free(&f,reinterpret_cast<void*>(native.storage.data));
+            std::memcpy(f.input.data()+0x43d0,&replacement.storage,16);std::memcpy(f.source.data()+0x3c8,&replacement.handle,8);
+            expect(p.ReopenExecution().ok() && p.ReopenExecution().ok() && !p.Undo().ok(),
+                "reallocated native C reopens without adopting stale A or permitting direct undo");
+        }
+        expect(p.SettleExecution().ok(),"settle current source owner");
+        if(scenario==2){f.bound=false;expect(!p.Undo().ok() && !f.frees,"invalid bindings preserve allocations");f.bound=true;expect(p.Undo().ok() && f.read()==b && f.frees==1,"settled source restores exact B");}
+        if(scenario==3){expect(p.ReopenExecution().ok() && p.ReopenExecution().ok() && !p.Undo().ok()
+            && p.SettleExecution().ok() && p.Undo().ok() && f.read()==b,"reopened source retry restores B after fresh settlement");}
+        if(scenario==4){expect(p.Commit().ok() && p.Commit().ok() && !f.frees,"commit leaves native current allocation alive");auto c=f.read();f.ops().destroy_wrapper(&f,reinterpret_cast<void*>(c.storage.data));f.ops().free(&f,reinterpret_cast<void*>(c.storage.data));}
+        if(scenario==5){expect(p.Undo().ok() && f.read()==b && f.frees==1,"native removal never retires stale A twice");}
+        if(scenario==7){expect(p.Undo().ok() && f.read()==b && f.frees==2 && f.destroys==2,
+            "fresh C settlement recovers B and retires reallocated receiver exactly once");}
+        if(scenario==6){
+            expect(p.Commit().ok(),"establish registered B");auto registered=f.read();auto target=registered;target.handle=23;
+            R::Prepared next;expect(next.Prepare(f.ops(),target,registered,32768).ok() && next.Publish().ok(),"private A keeps registered B storage");
+            expect(next.BeginExecution(32768).ok(),"registered B execution begins");
+            auto* token=reinterpret_cast<std::uint64_t*>(registered.storage.data+0x18);
+            const auto saved_token=*token;*token=999;
+            expect(!next.ReopenExecution().ok(),"unsettled reopen rejects corrupt private B");*token=saved_token;
+            expect(next.ReopenExecution().ok() && next.SettleExecution().ok()
+                && next.ReopenExecution().ok() && next.ReopenExecution().ok() && !next.Undo().ok()
+                && next.SettleExecution().ok() && next.Undo().ok(),"registered B recovery after early and repeated reopening");
+            expect(f.read()==registered && f.frees==1,"B allocation and handle recovered exactly");
+            f.ops().destroy_wrapper(&f,reinterpret_cast<void*>(registered.storage.data));f.ops().free(&f,reinterpret_cast<void*>(registered.storage.data));
+        }
+    }
+}
+
+void test_replay_source_route_admission()
+{
+    std::array<std::byte,0x7000> storage{};
+    const auto first=reinterpret_cast<std::uintptr_t>(storage.data());
+    const auto manager=first, input=first+0x1000, replay=first+0x6000, entries=first+0x6800;
+    constexpr std::uintptr_t base=0x140000000;
+    const auto write=[](std::uintptr_t address,const auto& value){std::memcpy(reinterpret_cast<void*>(address),&value,sizeof(value));};
+    const auto read=[&](std::uintptr_t address,auto& value){
+        if(address<first || address-first>storage.size() || sizeof(value)>storage.size()-(address-first))return false;
+        std::memcpy(&value,reinterpret_cast<void*>(address),sizeof(value));return true;};
+    write(manager+0x478,input);write(input+0x43d0,entries);write(input+0x43d8,std::int32_t{1});write(input+0x43dc,std::int32_t{2});
+    write(replay+0x3c8,std::uintptr_t{17});write(entries,base+0x3298810);write(entries+8,replay);
+    write(entries+0x18,std::uintptr_t{17});write(entries+0x30,std::int32_t{2});
+    const auto original=storage;
+    auto route=InspectReplayInputRoute(read,base,manager,replay);
+    expect(route.valid && route.registered && route.matches==1 && storage==original,"native source registration admission is read-only");
+    write(entries+0x18,std::uintptr_t{18});
+    expect(!InspectReplayInputRoute(read,base,manager,replay).valid,"source handle mismatch rejects");
+    storage=original;std::memcpy(reinterpret_cast<void*>(entries+0x40),reinterpret_cast<void*>(entries),0x40);
+    write(input+0x43d8,std::int32_t{2});
+    expect(!InspectReplayInputRoute(read,base,manager,replay).valid,"duplicate replay source subscriptions reject");
+    storage=original;write(input+0x43d8,std::int32_t{});write(replay+0x3c8,std::uintptr_t{});
+    route=InspectReplayInputRoute(read,base,manager,replay);
+    expect(route.valid && !route.registered,"completed replay can have a valid absent subscription but cannot feed restored input");
+    write(input+0x43d8,std::int32_t{65});
+    expect(!InspectReplayInputRoute(read,base,manager,replay).valid,"source registry inventory remains bounded");
+}
+
+void test_sc6_replay_source_round_transaction()
+{
+    RawReplayBridgeFixture f;
+    std::array<std::byte,32> rounds{};
+    std::array<std::array<std::byte,48>,2> recorders{};
+    std::array<std::array<std::byte,32>,4> objects{};
+    std::array<std::array<std::byte,16>,4> inputs{};
+    f.write(f.replay,0x3b8,rounds.data());f.write(f.replay,0x3c4,std::int32_t{2});
+    for(unsigned round=0;round<2;++round) {
+        f.write(rounds,round*16,recorders[round].data());
+        f.write(rounds,round*16+8,std::int32_t{2});f.write(rounds,round*16+12,std::int32_t{2});
+        for(unsigned player=0;player<2;++player) {
+            auto& object=objects[round*2+player];auto& recorder=recorders[round];
+            f.write(recorder,player*24,std::uint32_t{16});f.write(recorder,player*24+4,std::uint32_t{4});
+            f.write(recorder,player*24+16,object.data());
+            f.write(object,0,std::uintptr_t{0x328e948});f.write(object,8,inputs[round*2+player].data());
+            f.write(object,16,std::int32_t{16});f.write(object,20,std::int32_t{16});f.write(object,24,std::int32_t{4});
+        }
+    }
+    Sc6ReplayNativeBridge bridge(f.resolvers());ReplaySourceState a{},b{},actual{};
+    f.write(f.replay,0x3a0,std::int32_t{2});expect(bridge.CapturePlaybackSource(a,true).ok(),"capture round A source");
+    f.write(f.replay,0x398,std::uint8_t{0});f.write(f.replay,0x39c,std::int32_t{1});f.write(f.replay,0x3a0,std::int32_t{7});
+    expect(bridge.CapturePlaybackSource(b,true).ok(),"capture inactive round B source beyond input end");
+    const auto original=f.replay;const auto original_objects=objects;const auto original_recorders=recorders;
+    using Scope=Sc6ReplayNativeBridge::SourceRestoreScope;
+    expect(!bridge.RestorePlaybackSource(b,a,true).ok() && f.replay==original,"legacy source scope cannot cross rounds");
+    expect(bridge.RestorePlaybackSource(b,a,true,Scope::RetainedReplay).ok()
+        && bridge.CapturePlaybackSource(actual,true).ok() && actual==a,"retained replay restores active round and cursor");
+    expect(bridge.RestorePlaybackSource(a,b,true,Scope::RetainedReplay).ok() && f.replay==original,
+        "source B undo preserves every tracker byte including padding");
+    expect(objects==original_objects && recorders==original_recorders,"round restore never refreshes or overwrites authored metrics");
+    f.write(objects[0],24,std::int32_t{3});
+    expect(bridge.RestorePlaybackSource(b,a,true,Scope::RetainedReplay).code==FailureCode::UnsupportedContent
+        && f.replay==original,"noncanonical target recorder rejects before source publication");
+    objects=original_objects;
+#if defined(_WIN32)
+    auto* pages=static_cast<std::byte*>(VirtualAlloc(nullptr,8192,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));
+    expect(pages!=nullptr,"allocate interrupted source publication fixture");
+    if(pages) {
+        auto* replay=pages+4096-0x3a0;std::memcpy(replay,f.replay.data(),f.replay.size());
+        auto resolvers=f.resolvers();resolvers.user=replay;resolvers.replay_player=[](void* p) noexcept {return p;};
+        Sc6ReplayNativeBridge interrupted(resolvers);ReplaySourceState before{};
+        expect(interrupted.CapturePlaybackSource(before,true).ok(),"capture protected B source");
+        auto target=a;target.owner=reinterpret_cast<std::uintptr_t>(replay);
+        DWORD old{};expect(VirtualProtect(pages+4096,4096,PAGE_READONLY,&old)!=0,"protect cursor after writable round prefix");
+        expect(interrupted.RestorePlaybackSource(before,target,true,Scope::RetainedReplay).code==FailureCode::RestoreVerificationFailed
+            && interrupted.CapturePlaybackSource(actual,true).ok() && actual==before
+            && std::memcmp(replay,original.data(),original.size())==0,"interrupted round publication independently verifies complete B recovery");
+        DWORD ignored{};VirtualProtect(pages+4096,4096,old,&ignored);VirtualFree(pages,0,MEM_RELEASE);
+    }
+#endif
+}
+
+void test_hud_playback_retains_logical_time_without_player_ownership()
+{
+    std::array<std::byte,0x780> native{};
+    const auto write=[&](std::size_t offset,const auto& value) {
+        std::memcpy(native.data()+offset,&value,sizeof(value));
+    };
+    // Native UMG clock is a double even though evaluation converts it to float.
+    // This input is not imported from an expected gameplay observation.
+    const double time=1.0/3.0, upper=0.35;
+    write(0x6a0,time);write(0x6d0,upper);
+    write(0x6b8,std::uint8_t{1});write(0x6c8,std::uint8_t{1});
+    write(0x6d8,std::int32_t{1});write(0x750,std::int32_t{1});
+    write(0x758,1.0f);write(0x760,std::uint8_t{1});
+    ReplayHudPlayback a;
+    const auto original=native;
+    expect(ReplayHudPlayback::Read(native,a) && a.forward_first_loop(),"HUD logical first-loop shape");
+    expect(native==original && a.time==time && a.time!=double(float(time)),"HUD read preserves native double and storage");
+    write(0x6a0,upper);write(0x6d8,std::int32_t{0});write(0x754,std::int32_t{1});
+    ReplayHudPlayback completed;
+    expect(ReplayHudPlayback::Read(native,completed) && !completed.forward_first_loop()
+        && a.time==time && a.status==1 && a.completed_loops==0,"HUD capture survives original player completion");
+    auto rejected=a;
+    expect(!ReplayHudPlayback::Read(std::span(native).first(0x779),rejected)
+        && rejected.time==a.time && rejected.status==a.status,"HUD short read leaves prior logical value intact");
+    for(unsigned variant=0;variant<8;++variant) {
+        auto other=a;
+        switch(variant) {
+        case 0:other.mode=1;other.forward=0;break;
+        case 1:other.mode=2;break;
+        case 2:other.completed_loops=1;break;
+        case 3:other.offset=std::numeric_limits<double>::infinity();break;
+        case 4:other.time=std::numeric_limits<double>::quiet_NaN();break;
+        case 5:other.rate=std::numeric_limits<float>::infinity();break;
+        case 6:other.lower_kind=2;break;
+        case 7:other.time=upper+0.01;break;
+        }
+        expect(!other.forward_first_loop(),"HUD unsupported playback is not normalized into reconstruction");
+    }
+    const float asset_start=-9.313226e-10f,asset_end=0.35000002f;
+    auto shifted=a;shifted.offset=double(asset_start);shifted.upper=double(float(asset_end-asset_start));
+    expect(shifted.forward_first_loop() && shifted.matches_asset_range(asset_start,asset_end),"HUD authored nonzero offset retains native range arithmetic");
+    shifted.offset=0;
+    expect(!shifted.matches_asset_range(asset_start,asset_end),"HUD offset cannot be normalized away");
+}
+
+void test_hud_player_undo_survives_completion_and_partial_start()
+{
+    using Journal=ReplayHudPlayerOperation;
+    unsigned finishes{},starts{};
+    auto finish=[&]{++finishes;return true;};
+    auto start=[&]{++starts;return true;};
+    Journal untouched;
+    expect(!untouched.Publish(finish,start) && !starts && !finishes,"HUD publication requires preparation");
+    expect(untouched.Prepare() && untouched.Undo(finish) && !finishes,"HUD prepublication cancellation leaves native B untouched");
+    expect(!untouched.Commit(),"HUD cancelled journal cannot commit");
+
+    Journal partial;
+    bool evaluation_owned{},native_playing{};
+    expect(partial.Prepare() && !partial.Publish(finish,[&]{
+        ++starts;evaluation_owned=true;native_playing=true;return false;
+    }) && partial.phase()==Journal::Phase::Starting,"HUD failed start retains publication ownership");
+    expect(!partial.Commit(),"HUD incomplete start cannot commit B away");
+    expect(!partial.Undo([&]{native_playing=false;return false;})
+        && partial.phase()==Journal::Phase::FinishingUndo && evaluation_owned,"HUD failed undo retains evaluation ownership");
+    expect(partial.Undo([&]{evaluation_owned=false;return true;})
+        && partial.phase()==Journal::Phase::Retired,"HUD undo retry reaches completed retirement");
+    expect(partial.Undo([&]{expect(false,"HUD completed undo must not repeat native work");return false;}),"HUD repeated undo is completed");
+
+    Journal completed;
+    expect(completed.Prepare() && completed.Publish(finish,[&]{evaluation_owned=true;native_playing=true;return true;}),"HUD player publication completes");
+    // Native141826F90 changes status/membership on natural completion without
+    // finishing the evaluation root. Journal ownership must not follow status.
+    native_playing=false;
+    expect(evaluation_owned && completed.Undo([&]{++finishes;evaluation_owned=false;return true;})
+        && !native_playing && !evaluation_owned,"HUD undo finishes a naturally stopped player missing from C membership");
+
+    Journal committed;
+    expect(committed.Prepare() && committed.Publish(finish,start) && committed.Commit()
+        && committed.Commit() && !committed.Undo(finish),"HUD native ownership follows explicit enclosing commit only");
+    Journal early_failure;
+    expect(early_failure.Prepare() && !early_failure.Publish([]{return false;},start)
+        && early_failure.phase()==Journal::Phase::FinishingOriginal
+        && early_failure.Undo(finish),"HUD original evaluation cleanup failure remains recoverable");
+}
+
+void test_hud_private_B_publication_and_retirement()
+{
+    using J=ReplayHudPrivatePlayer;
+    std::array<std::byte,0x780> b{};b[0x6d8]=std::byte{1};
+    const auto original=b;
+    unsigned finishes{},attachments{};
+    J untouched;
+    expect(untouched.Prepare(b) && untouched.Recover(b,[&]{++attachments;return true;})
+        && !attachments && !untouched.Commit(b,[&]{++finishes;return true;}),"private HUD prepublication cancellation cannot retire B");
+    J partial;
+    expect(partial.Prepare(b) && !partial.Park(b,[]{return false;}) && partial.phase()==J::Phase::Private,
+        "private HUD journals detachment before allocation/publication failure");
+    expect(!partial.Recover(b,[]{return false;}) && partial.phase()==J::Phase::Private,
+        "private HUD failed membership recovery retains B");
+    b[0x6a0]=std::byte{1};
+    expect(!partial.Recover(b,[&]{++attachments;return true;}) && !attachments,
+        "private HUD rejects changed B instead of installing witness bytes");
+    b=original;
+    expect(partial.Recover(b,[&]{++attachments;return true;}) && attachments==1
+        && partial.Recover(b,[&]{++attachments;return false;}) && attachments==1,
+        "private HUD complete B recovery is idempotent");
+    expect(!partial.Commit(b,[&]{++finishes;return true;}) && !finishes,"recovered B cannot be discarded by commit");
+    J committed;
+    expect(committed.Prepare(b) && committed.Park(b,[]{return true;}),"private HUD retains original evaluation during C execution");
+    expect(!committed.Commit(b,[&]{++finishes;b[0x6d8]=std::byte{};return false;})
+        && committed.phase()==J::Phase::Retiring,"private HUD failed native retirement retains explicit ownership");
+    expect(!committed.Recover(b,[]{return true;}),"irreversible retirement cannot claim B recovery");
+    expect(committed.Commit(b,[&]{++finishes;return true;}) && finishes==2
+        && committed.Commit(b,[&]{++finishes;return false;}) && finishes==2,
+        "private HUD retirement retry completes once without stale witness installation");
+    J invalid;
+    expect(!invalid.Prepare(std::span<const std::byte>(b).first(0x779)) && invalid.phase()==J::Phase::Empty,
+        "private HUD rejects incomplete native player witness");
+}
+
+void test_streamable_domain_ignores_only_retirement_eligible_records()
+{
+    using D=ReplayStreamableDomain;using M=ReplayOcclusionHistory;
+    std::array<std::byte,0xc0> manager{};
+    std::array<std::byte,0x20> entry{};
+    std::array<std::byte,0x30> record{};
+    std::array<std::byte,0x20> handle{};
+    std::array<std::byte,0x10> control{},pair{};
+    M::Write(manager.data(),8,entry.data());M::Write(manager.data(),0x10,1);M::Write(manager.data(),0x14,1);
+    M::Write(manager.data(),0x18,1u);M::Write(manager.data(),0x30,1);M::Write(manager.data(),0x34,32);
+    M::Write(entry.data(),0x10,record.data());M::Write(record.data(),0,std::uintptr_t(0x12340000));
+    M::Write(record.data(),0x20,pair.data());M::Write(record.data(),0x28,1);M::Write(record.data(),0x2c,1);
+    M::Write(pair.data(),0,std::uintptr_t(1));M::Write(pair.data(),8,control.data());M::Write(control.data(),12,1);
+    bool relevant{};D::Diagnostic diagnostic{};
+    auto digest=[&]() {
+        std::uint64_t hash=14695981039346656037ull;
+        const bool ok=D::Manager(manager.data(),hash,relevant,diagnostic);
+        return std::pair{ok,relevant?hash:std::uint64_t(0)};
+    };
+    const auto original=manager;const auto original_record=record;const auto original_control=control;
+    const auto expired=digest();
+    expect(expired.first && !expired.second && manager==original && record==original_record && control==original_control,
+        "expired weak payload is never dereferenced and retirement-eligible cache is read-only");
+    M::Write(manager.data(),0x10,0);M::Write(manager.data(),0x30,0);M::Write(manager.data(),0x18,0u);
+    expect(digest()==expired,"native removal of expired-only records preserves callback lease identity");manager=original;
+    M::Write(control.data(),12,0);expect(!digest().first,"malformed expired controller still rejects");control=original_control;
+    M::Write(record.data(),8,static_cast<unsigned char>(1));expect(!digest().first,"in-flight request cannot be normalized away");record=original_record;
+    M::Write(record.data(),0x18,1);expect(!digest().first,"pending strong waiter rejects before retirement normalization");record=original_record;
+    M::Write(pair.data(),0,handle.data());M::Write(control.data(),8,1);
+    expect(!digest().first,"unfinished live callback handle rejects");
+    M::Write(handle.data(),0x10,static_cast<unsigned char>(1));const auto live=digest();
+    expect(live.first && live.second,"completed live handle keeps its full resource lease");
+    M::Write(record.data(),0,std::uintptr_t(0x12340001));
+    expect(digest().second!=live.second,"changed live resource binding invalidates callback lease");record=original_record;
+    M::Write(manager.data(),0x30,2);expect(!digest().first,"malformed sparse membership cannot be treated as empty");
+}
+
+void test_occlusion_private_history_reconstruction()
+{
+    using H=ReplayOcclusionHistory;
+    std::array<std::byte,0x50> header{};
+    std::vector<std::byte> entries(4*0x50),flags(4),hashes(4);
+    H::Write(header.data(),8,4);H::Write(header.data(),0xc,4);
+    H::Write(header.data(),0x28,4);H::Write(header.data(),0x2c,32);
+    H::Write(header.data(),0x30,3);H::Write(header.data(),0x34,1);H::Write(header.data(),0x48,1);
+    H::Write(flags.data(),0,7u);H::Write(hashes.data(),0,0);
+    auto* q=reinterpret_cast<void*>(0x1000);auto* kept=reinterpret_cast<void*>(0x2000);
+    for(int i=0;i<3;++i) {
+        auto* row=entries.data()+i*0x50;H::Write(row,0,unsigned(770+i));
+        H::Write(row,8,i==1?kept:q);H::Write(row,0x20,2);H::Write(row,0x24,2);
+        H::Write(row,0x48,i==2?-1:i+1);H::Write(row,0x4c,0u);
+    }
+    H::Write(entries.data()+3*0x50,0,-1);H::Write(entries.data()+3*0x50,4,-1);
+    // Independent complete B and immutable checkpoint A remain byte-identical.
+    const auto original_header=header;const auto original_entries=entries;
+    const auto original_flags=flags;const auto original_hashes=hashes;
+    std::vector<void*> queries{q,kept,q};std::size_t leases=3;
+    unsigned callbacks{},q_refs=5;
+    const auto erase=[&](void* map,int slot) noexcept {
+        ++callbacks;
+        auto* rows=H::Read<std::byte*>(map);auto* f=H::Read<std::byte*>(map,0x20);
+        auto* buckets=H::Read<std::byte*>(map,0x40);
+        expect(rows==entries.data() && f==flags.data() && buckets==hashes.data(),"native erase only sees private A storage");
+        auto* link=buckets;
+        while(H::Read<int>(link)!=slot) link=rows+H::Read<int>(link)*0x50+0x48;
+        auto* row=rows+slot*0x50;H::Write(link,0,H::Read<int>(row,0x48));
+        expect(H::Read<void*>(row,8)==q,"only orphan query lease is released");--q_refs;
+        const int old=H::Read<int>(map,0x30);H::Write(rows+old*0x50,0,slot);
+        H::Write(row,0,-1);H::Write(row,4,old);H::Write(map,0x30,slot);
+        H::Write(map,0x34,H::Read<int>(map,0x34)+1);
+        H::Write(f,0,H::Read<unsigned>(f)&~(1u<<slot));
+    };
+    auto broken=hashes;H::Write(broken.data(),0,9);
+    expect(!H::Prune(header,entries,flags,broken,queries,leases,[](unsigned,unsigned){return true;},erase).ok
+        && !callbacks && q_refs==5 && entries==original_entries,"invalid hash chain rejects before native release");
+    auto result=H::Prune(header,entries,flags,hashes,queries,leases,
+        [](unsigned id,unsigned subquery){return id!=771 && !subquery;},erase);
+    expect(result.ok && result.removed==2 && result.queries_released==2 && callbacks==2 && q_refs==3,
+        "two orphan records release exactly their operation-owned references");
+    expect(leases==1 && queries==std::vector<void*>{kept} && H::Read<int>(hashes.data())==1
+        && H::Read<int>(header.data(),0x34)==3,"retained active history and native sparse map survive pruning");
+    expect(H::Read<unsigned>(header.data(),0x10)==2 && H::Read<int>(header.data(),0x38)==1,
+        "inline native flags/hash are synchronized without historical pointers");
+    result=H::Prune(header,entries,flags,hashes,queries,leases,[](unsigned,unsigned){return false;},erase);
+    expect(result.ok && !result.removed && callbacks==2,"repeated preparation does not double-release");
+    expect(original_header!=header && H::Read<unsigned>(original_flags.data())==7
+        && H::Read<int>(original_hashes.data())==0 && H::Read<unsigned>(original_entries.data())==770,
+        "complete B/checkpoint copies remain unchanged for cancellation and future seeks");
+}
+
+void test_lighting_lod_binding_correspondence()
+{
+    ReplayLightingBinding a{};
+    a.mesh=100;a.render_data=200;a.count=2;
+    a.lods[0]={300,400,500};a.lods[1]={600,700,800};
+    auto b=a;
+    expect(a.Matches(b,3),"same mesh LOD and light-map domain admits relocated LCI slots");
+    std::swap(b.lods[0],b.lods[1]);
+    expect(!a.Matches(b,3),"equal LCI counts cannot hide changed LOD ordering");
+    b=a;b.mesh++;
+    expect(!a.Matches(b,3),"replacement mesh rejects historical LCI correspondence");
+    b=a;b.render_data++;
+    expect(!a.Matches(b,3),"replacement render data rejects historical LCI correspondence");
+    b=a;b.lods[1][1]++;
+    expect(!a.Matches(b,3),"changed light-map binding rejects historical uniform mapping");
+    b=a;b.lods[1][2]++;
+    expect(!a.Matches(b,3),"changed shadow-map binding rejects historical uniform mapping");
+    expect(!a.Matches(a,2),"missing enumerated LCI rejects correspondence");
+    b=a;b.count=17;
+    expect(!b.Matches(b,18),"out-of-range LOD count rejects before access");
+    b=a;b.lods[0][0]=0;
+    expect(!b.Matches(b,3),"null mesh LOD rejects mapping");
+
+    struct ReopenControl {int strong{},weak{},added{},removed{};bool leased{};
+        bool operator==(const ReopenControl&) const=default;};
+    const auto has_lease=[](const auto& c){return c.leased;};
+    std::array<ReopenControl,2> bookkeeping{{{0,3,1,0,true},{0,1,1,0,true}}};
+    const auto unchanged=bookkeeping;
+    expect(!ReplayTraceReopenControls(bookkeeping,2,2,has_lease) && bookkeeping==unchanged
+        && !ReplayTraceReopenControls(bookkeeping,2,2,has_lease) && bookkeeping==unchanged,
+        "later weak retirement rejection preserves all metadata across retry");
+    expect(ReplayTraceReopenControls(bookkeeping,2,1,has_lease)
+        && bookkeeping[0].weak==2 && bookkeeping[1]==ReopenControl{},
+        "C-only expired bookkeeping is forgotten while original B bookkeeping survives");
+    bookkeeping=unchanged;bookkeeping[1].removed=1;const auto private_b_ref=bookkeeping;
+    expect(!ReplayTraceReopenControls(bookkeeping,2,1,has_lease) && bookkeeping==private_b_ref,
+        "C-only metadata cannot discard a displaced B weak reference");
+    bookkeeping=unchanged;bookkeeping[1].leased=false;
+    expect(!ReplayTraceReopenControls(bookkeeping,2,1,has_lease),"unleased C controller remains rejected");
+    bookkeeping={{{1,1,1,0,false},{0,1,1,0,true}}};
+    const auto retained_live=[](const auto& c){return c.strong==1;};
+    expect(ReplayTraceReopenControls(bookkeeping,2,0,has_lease,retained_live)
+        && bookkeeping[0]==ReopenControl{} && bookkeeping[1]==ReopenControl{},
+        "live A/B owner newly referenced by C and C-expired controller relinquish bookkeeping together");
+    bookkeeping={{{1,1,1,0,false},{}}};const auto live_before=bookkeeping;
+    expect(!ReplayTraceReopenControls(bookkeeping,1,0,has_lease) && bookkeeping==live_before,
+        "newly tracked live controller without exact A/B ownership rejects atomically");
+    bookkeeping[0].removed=1;const auto live_b_reference=bookkeeping;
+    expect(!ReplayTraceReopenControls(bookkeeping,1,0,has_lease,retained_live) && bookkeeping==live_b_reference,
+        "retained live ownership never permits dropping displaced B reference bookkeeping");
+    ReplayTraceWeakController current_expired{0x1234,0,1};
+    expect(!current_expired.MatchesOwnership(0x1234,false,false,false),
+        "expired C-only controller without an image lease rejects");
+    expect(current_expired.RetainExpired(0x1234)
+        && current_expired.MatchesOwnership(0x1234,true,false,false),
+        "independent C weak lease admits destroyed state without A/B membership");
+    const auto drop_controller=+[](void*) {};
+    expect(current_expired.ReleaseExpired(0x1234,drop_controller)
+        && current_expired.weak==1 && current_expired.strong==0,
+        "C lease retirement preserves native weak ownership without resurrection");
+    for(auto bad: {ReplayTraceWeakController{0x9999,0,1},ReplayTraceWeakController{0x1234,0,0},
+                  ReplayTraceWeakController{0x1234,-1,1},ReplayTraceWeakController{0x1234,1,1}})
+        expect(!bad.MatchesOwnership(0x1234,true,false,false),
+            "C expired admission rejects wrong type, dead count, corruption and live C-only state");
+    ReplayTraceWeakController live_trace{0x1234,1,1};
+    expect(live_trace.MatchesOwnership(0x1234,false,true,true)
+        && !live_trace.MatchesOwnership(0x1234,true,true,false),
+        "live trace settlement still requires both A and B membership");
+    ReplayTraceWeakController expired{0x1234,0,1};
+    expect(expired.RetainExpired(0x1234) && expired.strong==0 && expired.weak==2,
+        "captured expired weak reference pins controller without resurrecting state");
+    // Native removes its original weak entry after capture; the image survives.
+    --expired.weak;
+    static int controller_deletions{};controller_deletions=0;
+    const auto dispose=+[](void*) {++controller_deletions;};
+    // C-only handoff keeps no controller pointer after C's lease is released.
+    // Native can subsequently remove its last entry; the next image starts
+    // from the retained original controls, never the destroyed C controller.
+    ReplayTraceWeakController c_only{0x1234,0,2};
+    bookkeeping={{{0,1,1,0,true},{}}};
+    expect(ReplayTraceReopenControls(bookkeeping,1,0,has_lease) && bookkeeping[0]==ReopenControl{}
+        && c_only.weak==2,"C-only reopening changes no native weak counts");
+    expect(c_only.ReleaseExpired(0x1234,dispose) && controller_deletions==0
+        && c_only.ReleaseExpired(0x1234,dispose) && controller_deletions==1,
+        "C lease then final native entry retire controller exactly once after handoff");
+    expect(ReplayTraceReopenControls(bookkeeping,0,0,has_lease) && controller_deletions==1,
+        "repeated handoff has no stale C controller to inspect");
+    controller_deletions=0;
+    expect(expired.ReleaseExpired(0x1234,dispose) && controller_deletions==1 && expired.strong==0,
+        "last expired weak owner deletes only the controller exactly once");
+    expect(!expired.ReleaseExpired(0x1234,dispose) && controller_deletions==1,
+        "double expired-controller release rejects");
+    expired={0x1234,0,1};
+    expect(expired.RetainExpired(0x1234) && expired.RetainExpired(0x1234),
+        "A clone and complete B lease may coexist");
+    expect(expired.ReleaseExpired(0x1234,dispose) && expired.ReleaseExpired(0x1234,dispose)
+        && expired.weak==1 && expired.strong==0 && controller_deletions==1,
+        "cancellation drops private owners while preserving original B weak reference");
+    expired={0x1234,1,1};expect(!expired.RetainExpired(0x1234),"live trace cannot enter expired ownership");
+    expired={0x1234,-1,1};expect(!expired.RetainExpired(0x1234),"corrupt strong count rejects");
+    expired={0x1234,0,INT_MAX};expect(!expired.RetainExpired(0x1234),"weak overflow rejects");
+    expired={0x1234,0,1};expect(!expired.RetainExpired(0x9999),"unknown controller type rejects");
+    ReplayCreationRenderOwner visible{};
+    visible.component=100;visible.owner=200;visible.storage=300;visible.parent=400;
+    visible.mesh=500;visible.animation=600;visible.weak={7,8};visible.owner_weak={9,10};
+    visible.slot=1;visible.count=2;visible.capacity=4;visible.flags=0x2e4e0e03;visible.visibility=0x411;
+    expect(visible.ValidMembership(300,2,4,100),"creation membership validates exact native backing");
+    auto weapon=visible;weapon.membership=ReplayCreationRenderOwner::Membership::WeaponSlot;
+    weapon.storage=weapon.owner+0x390;weapon.slot=0;weapon.count=weapon.capacity=1;
+    expect(weapon.ValidMembership(weapon.owner+0x390,1,1,weapon.component),"weapon requires exact inline fighter slot");
+    expect(!weapon.ValidMembership(weapon.owner+0x390,1,1,weapon.component+1),"replaced weapon rejects before reconstruction");
+    expect(!weapon.ValidMembership(300,2,4,weapon.component),"creation array cannot substitute for weapon slot");
+    unsigned membership_reads{};
+    const auto weapon_reader=[&](std::uintptr_t address,auto& value){
+        ++membership_reads;
+        if(address!=weapon.owner+0x390 || sizeof(value)!=sizeof(weapon.component))return false;
+        std::memcpy(&value,&weapon.component,sizeof(value));return true;};
+    expect(weapon.LiveMembership(weapon_reader) && membership_reads==1,"live weapon undo reads inline slot without creation-array substitution");
+    expect(!visible.LiveMembership(weapon_reader),"creation owner cannot borrow weapon membership");
+    expect(!weapon.LiveMembership([](std::uintptr_t,auto&){return false;}),"unreadable live weapon rejects undo");
+    auto corrupt=weapon;corrupt.slot=1;
+    expect(!corrupt.ValidMembership(corrupt.storage,1,1,corrupt.component),"out of range weapon membership rejects");
+    corrupt=weapon;corrupt.storage++;
+    expect(!corrupt.ValidMembership(corrupt.storage,1,1,corrupt.component),"weapon backing cannot relocate away from fighter slot");
+    corrupt=weapon;corrupt.membership=ReplayCreationRenderOwner::Membership::CreationArray;
+    expect(!weapon.SameBinding(corrupt),"membership kind remains immutable across undo");
+    auto hidden=visible;hidden.visibility^=0x10;
+    expect(visible!=hidden && visible.SameBinding(hidden),"captured visibility changes state without changing native component identity");
+    auto invalid=hidden;invalid.visibility^=0x20;
+    expect(!visible.SameBinding(invalid),"visibility admission cannot mask unrelated scene flags");
+    invalid=hidden;invalid.mesh++;
+    expect(!visible.SameBinding(invalid),"hidden variant cannot authorize replacement mesh assets");
+    invalid=hidden;invalid.animation++;
+    expect(!visible.SameBinding(invalid),"hidden variant cannot authorize replacement animation instances");
+    invalid=hidden;invalid.weak[1]++;
+    expect(!visible.SameBinding(invalid),"component generation remains an exact binding");
+    invalid=hidden;invalid.primitive_id++;
+    expect(!visible.SameBinding(invalid),"cached visibility cannot borrow a different primitive generation");
+    invalid=hidden;invalid.slot++;
+    expect(!visible.SameBinding(invalid),"component array membership remains an exact binding");
+    invalid=hidden;invalid.flags^=0x20000000;
+    expect(!visible.SameBinding(invalid),"visibility admission cannot mask scheduling registration");
+}
+
 void test_sc6_replay_bridge_transaction_and_undo()
 {
     RawReplayBridgeFixture fixture;
     Sc6ReplayNativeBridge bridge{fixture.resolvers()};
+    ReplaySourceState target_source{};
+    fixture.write(fixture.replay, 0x3a0, std::int32_t{120});
+    expect(bridge.CapturePlaybackSource(target_source).ok()
+        && target_source.cursor == 120, "capture actual replay producer continuation");
+    fixture.write(fixture.replay, 0x3a0, std::int32_t{480});
+    ReplaySourceState frontier_source{};
+    expect(bridge.CapturePlaybackSource(frontier_source).ok(), "capture source frontier");
+    expect(bridge.RestorePlaybackSource(frontier_source, target_source).ok(),
+        "rewind source cursor with simulation, before normal playback resumes");
+    ReplaySourceState restored_source{};
+    expect(bridge.CapturePlaybackSource(restored_source).ok()
+        && restored_source == target_source, "source continuation restored exactly");
+    expect(bridge.RestorePlaybackSource(frontier_source, target_source).code
+        == FailureCode::RestorePreflightFailed, "reject stale producer frontier");
+    const auto source_before_rejection = fixture.replay;
+    auto replacement_source = target_source;
+    ++replacement_source.recordings;
+    expect(bridge.RestorePlaybackSource(target_source, replacement_source).code
+        == FailureCode::RestorePreflightFailed
+        && fixture.replay == source_before_rejection,
+        "replacement recording identity cannot inherit another replay cursor");
     ReplayNativeRoundView view;
     expect(bridge.InspectRound(1, view).ok(), "inspect bounded SC6 replay round image");
     expect(view.replay_enabled, "inspect native replay enable state");
@@ -2207,58 +3028,353 @@ void test_floating_point_environment_capture_is_raw_and_non_mutating()
 
 void test_ucrt_broker_is_callsite_and_thread_bound()
 {
-    constexpr unsigned seed = 0x12345678u;
+    const auto thread = GetCurrentThreadId();
+    constexpr unsigned seed = 0x01234500u; // Compatible zero-warmup native seed.
     std::array<int, 4> expected{};
     std::srand(seed);
     for (auto& value : expected) value = std::rand();
 
     UcrtRandBroker broker;
     expect(broker.Start().ok(), "start UCRT broker before its native stream exists");
-    broker.HandleSrand(77, Schema::Sc6UcrtLayout::rng_init_srand_return_rva,
+    expect(broker.BindNative(&std::rand, &std::srand).ok(), "bind verified native CRT state access");
+    broker.HandleSrand(thread, Schema::Sc6UcrtLayout::rng_init_srand_return_rva,
         seed, &std::srand);
-    expect(broker.owner_thread_id() == 77,
+    expect(broker.owner_thread_id() == thread,
         "allowlisted native seed binds the broker's simulation thread");
-    expect(broker.AcquireOwnership(77).ok(),
+    expect(broker.AcquireOwnership(thread).ok(),
         "UCRT broker acquires only after an allowlisted seed");
-    expect(broker.EnsureOwnership(77).ok(),
+    expect(broker.EnsureOwnership(thread).ok(),
         "UCRT ownership transition is idempotent for its owner");
-    expect(broker.EnsureOwnership(78).code == FailureCode::WrongThread,
+    expect(broker.EnsureOwnership(thread + 1).code == FailureCode::WrongThread,
         "UCRT ownership transition rejects a different thread");
     for (const auto value : expected)
     {
-        expect(broker.HandleRand(77,
+        expect(broker.HandleRand(thread,
                 Schema::Sc6UcrtLayout::movevm_rand_return_rva, &std::rand)
                 == value,
-            "private UCRT algorithm matches the imported CRT sequence");
+            "owned calls retain the imported CRT sequence");
     }
 
     UcrtRandBrokerImage saved{};
-    expect(broker.Capture(77, saved).ok() && saved.draws == expected.size(),
+    expect(broker.Capture(thread, saved).ok() && saved.draws == expected.size() && saved.native_draws == 0
+            && saved.state == seed && saved.combat_state != seed,
         "capture value-only UCRT state and draw count");
-    const int advanced = broker.HandleRand(77,
+    const int advanced = broker.HandleRand(thread,
         Schema::Sc6UcrtLayout::movevm_rand_return_rva, &std::rand);
-    expect(broker.Restore(77, saved).ok()
-            && broker.HandleRand(77,
+    expect(broker.Restore(thread, saved).ok()
+            && broker.HandleRand(thread,
                 Schema::Sc6UcrtLayout::movevm_rand_return_rva, &std::rand)
                 == advanced,
-        "restored private UCRT state reproduces the exact next draw");
-    expect(broker.ReleaseOwnership(77).ok()
+        "restored private MoveVM state reproduces the exact next draw");
+    // A call bypassing the game IAT must be included in the actual CRT image.
+    std::rand();
+    UcrtRandBrokerImage external{};
+    expect(broker.Capture(thread, external).ok(), "capture native state after an unobserved caller");
+    const auto native_next = std::rand();
+    expect(broker.Restore(thread, external).ok() && std::rand() == native_next,
+        "restoration reproduces direct native calls without a private replacement result");
+    expect(broker.ReleaseOwnership(thread).ok()
             && broker.mode() == UcrtRandBrokerMode::Observing,
         "qualification cleanup releases UCRT ownership without disabling observation");
-    expect(broker.EnsureOwnership(77).ok()
+    expect(broker.EnsureOwnership(thread).ok()
             && broker.mode() == UcrtRandBrokerMode::Owned,
         "a later qualification cycle can reacquire the same synchronized stream");
 
     std::srand(seed);
-    const int forwarded = broker.HandleRand(99, 0x1111, &std::rand);
+    const int forwarded = broker.HandleRand(thread + 2, 0x1111, &std::rand);
     std::srand(seed);
     expect(forwarded == std::rand() && broker.mode() == UcrtRandBrokerMode::Owned,
         "non-allowlisted calls on other threads forward without broker mutation");
-    broker.HandleRand(99, Schema::Sc6UcrtLayout::movevm_rand_return_rva,
+    broker.HandleRand(thread + 2, Schema::Sc6UcrtLayout::movevm_rand_return_rva,
         &std::rand);
     expect(broker.mode() == UcrtRandBrokerMode::Failed
             && broker.failure() == FailureCode::WrongThread,
         "allowlisted callsite migration fails the broker terminally");
+}
+
+void test_ucrt_broker_separates_movevm_and_native_presentation_lanes()
+{
+#ifdef _WIN32
+    const auto thread = GetCurrentThreadId();
+    constexpr unsigned battle_seed = 0x12345007u;
+    // LuxBattle_InitRngAndHashPrimes: srand(seed >> 4), then seed & 0xFFF
+    // CRT warm-up draws. These are return RVAs, not CALL instruction RVAs.
+    constexpr std::uintptr_t seed_return = 0x34f634;
+    constexpr std::uintptr_t warmup_return = 0x34f658;
+    constexpr std::uintptr_t movevm_return = 0x366ff4; // Opcode 0x50006.
+    // Ground yaw/jitter, tile-pool emitter, and audio: retained native callers
+    // in docs/evidence/rollback-ground-ucrt-live-shared-audio-2026-09-22.json.
+    constexpr std::array<std::uintptr_t, 4> presentation_returns{
+        0x895d6e, 0x896105, 0x1f9bd5c, 0x54f91e};
+
+    // Observe the actual owner-thread PTD independently of the owned broker's
+    // image; checking only its diagnostic state/draw count could hide forwarding.
+    UcrtRandBroker observer;
+    std::uint32_t original_native_state{};
+    const bool observing = observer.Start().ok()
+        && observer.BindNative(&std::rand, &std::srand).ok()
+        && observer.ObserveNative(thread, original_native_state).ok();
+    expect(observing, "lane regression binds the real owner-thread UCRT PTD");
+    if (!observing) return;
+    struct RestoreNativeState
+    {
+        std::uint32_t state;
+        ~RestoreNativeState() { std::srand(state); }
+    } restore_native{original_native_state};
+
+    const auto initialize = [&](UcrtRandBroker& broker) {
+        if (!broker.Start().ok() || !broker.BindNative(&std::rand, &std::srand).ok())
+            return false;
+        broker.HandleSrand(thread, seed_return, battle_seed >> 4, &std::srand);
+        for (unsigned i = 0; i < (battle_seed & 0xfffu); ++i)
+            broker.HandleRand(thread, warmup_return, &std::rand);
+        return broker.AcquireOwnership(thread).ok();
+    };
+    struct Draws
+    {
+        std::array<int, 8> movevm{};
+        std::array<int, 32> presentation{};
+        bool movevm_preserved_native{true};
+        std::uint32_t native_end{};
+    };
+    const auto draw_interleaved = [&](UcrtRandBroker& broker, Draws& draws) {
+        for (std::size_t i = 0; i < draws.movevm.size(); ++i)
+        {
+            for (std::size_t j = 0; j < presentation_returns.size(); ++j)
+                draws.presentation[i * presentation_returns.size() + j] =
+                    broker.HandleRand(thread, presentation_returns[j], &std::rand);
+            std::uint32_t before{}, after{};
+            if (!observer.ObserveNative(thread, before).ok()) return false;
+            draws.movevm[i] = broker.HandleRand(thread, movevm_return, &std::rand);
+            if (!observer.ObserveNative(thread, after).ok()) return false;
+            draws.movevm_preserved_native &= before == after;
+        }
+        return observer.ObserveNative(thread, draws.native_end).ok();
+    };
+
+    // Independent modified control: same seed/warm-up and MoveVM inputs,
+    // without presentation calls. No saved/expected image is imported.
+    UcrtRandBroker control;
+    const bool control_ready = initialize(control);
+    expect(control_ready, "initialize independently seeded MoveVM control");
+    if (!control_ready) return;
+    std::array<int, 8> expected_movevm{};
+    for (auto& value : expected_movevm)
+        value = control.HandleRand(thread, movevm_return, &std::rand);
+    control.Stop();
+
+    // Native presentation reference uses the actual CRT, not a fixture LCG.
+    std::srand(battle_seed >> 4);
+    for (unsigned i = 0; i < (battle_seed & 0xfffu); ++i) std::rand();
+    std::array<int, 32> expected_presentation{};
+    for (auto& value : expected_presentation) value = std::rand();
+    std::uint32_t expected_native_end{};
+    const bool reference_observed = observer.ObserveNative(thread, expected_native_end).ok();
+    expect(reference_observed, "observe independently advanced native presentation reference");
+    if (!reference_observed) return;
+
+    UcrtRandBroker candidate;
+    const bool candidate_ready = initialize(candidate);
+    expect(candidate_ready, "initialize independently seeded interleaved candidate");
+    if (!candidate_ready) return;
+    Draws interleaved{};
+    const bool interleaved_observed = draw_interleaved(candidate, interleaved);
+    expect(interleaved_observed, "observe native PTD around every candidate MoveVM draw");
+    if (!interleaved_observed) return;
+    expect(interleaved.movevm == expected_movevm,
+        "native presentation rand calls do not change MoveVM 0x50006 outputs");
+    expect(interleaved.movevm_preserved_native,
+        "MoveVM draws do not advance the actual owner-thread native UCRT PTD stream");
+    expect(interleaved.presentation == expected_presentation
+            && interleaved.native_end == expected_native_end,
+        "presentation calls retain the independently advanced native UCRT sequence");
+
+    // Both lanes have advanced, by different amounts (8 MoveVM / 32 native).
+    // Replaying the suffix must restore each lane's own cursor, not copy one
+    // cursor to both or reconstruct a stream from diagnostic draw counts.
+    UcrtRandBrokerImage checkpoint{};
+    const bool captured = candidate.Capture(thread, checkpoint).ok();
+    expect(captured, "capture both RNG lanes after unequal draw counts");
+    if (!captured) return;
+    Draws continued{};
+    const bool continuation_observed = draw_interleaved(candidate, continued);
+    expect(continuation_observed, "observe both RNG lane continuations before restore");
+    if (!continuation_observed) return;
+    const int direct_native_next = std::rand(); // Bypass the game IAT too.
+    const bool restored = candidate.Restore(thread, checkpoint).ok();
+    expect(restored, "restore broker checkpoint after advancing both RNG lanes");
+    if (!restored) return;
+    std::uint32_t restored_native{};
+    expect(observer.ObserveNative(thread, restored_native).ok()
+            && restored_native == interleaved.native_end,
+        "broker restore rewinds the actual native PTD to its captured cursor");
+    Draws replayed{};
+    const bool replay_observed = draw_interleaved(candidate, replayed);
+    expect(replay_observed, "observe both RNG lane continuations after restore");
+    if (!replay_observed) return;
+    expect(replayed.movevm == continued.movevm,
+        "broker capture/restore reproduces the MoveVM lane continuation");
+    expect(replayed.presentation == continued.presentation
+            && replayed.native_end == continued.native_end
+            && std::rand() == direct_native_next,
+        "broker capture/restore reproduces presentation and direct native UCRT continuation");
+    expect(continued.movevm_preserved_native && replayed.movevm_preserved_native,
+        "MoveVM preserves native PTD before and after broker restore");
+#endif
+}
+
+void test_ucrt_split_preflight_reset_and_complete_b()
+{
+#ifdef _WIN32
+    const auto thread = GetCurrentThreadId();
+    constexpr auto seed_rva = Schema::Sc6UcrtLayout::rng_init_srand_return_rva;
+    constexpr auto warmup_rva = Schema::Sc6UcrtLayout::rng_init_rand_return_rva;
+    constexpr auto movevm_rva = Schema::Sc6UcrtLayout::movevm_rand_return_rva;
+    constexpr auto complete_rva = Schema::Sc6UcrtLayout::rng_init_xorshift_return_rva;
+    constexpr unsigned seed = 0x01234500u;
+    UcrtRandBroker broker;
+    const auto start = [&] {
+        return broker.Start().ok() && broker.BindNative(&std::rand, &std::srand).ok();
+    };
+    const auto capture = [&] {
+        UcrtRandBrokerImage result{};
+        expect(broker.Capture(thread, result).ok(), "capture production split image");
+        return result;
+    };
+    expect(start(), "bind native broker for split preflight and recovery");
+    expect(!broker.AcquireOwnership(thread).ok(), "ownership before native seed rejects");
+    broker.HandleSrand(thread, seed_rva, seed, &std::srand);
+    UcrtRandBrokerImage incomplete{};
+    expect(!broker.EnsureOwnership(thread).ok() && !broker.Capture(thread, incomplete).ok(),
+        "production admission and capture cannot complete a seed implicitly");
+    expect(!broker.ObserveInitializationComplete(thread, complete_rva + 1).ok(),
+        "wrong completion callsite does not grant ownership");
+    expect(broker.ObserveInitializationComplete(thread, complete_rva).ok()
+            && broker.mode() == UcrtRandBrokerMode::Observing,
+        "zero-warmup native boundary establishes split before correction ownership");
+    const auto initial = capture();
+    expect(initial.state == seed && initial.combat_state == seed
+            && initial.warmup_draws == 0 && initial.draws == 0,
+        "zero warmup clones actual seed to both cursors");
+    // The modified independent control has the same routing while Observing.
+    broker.HandleRand(thread, movevm_rva, &std::rand);
+    const auto observed = capture();
+    expect(observed.state == seed && observed.draws == 1,
+        "observing modified control routes MoveVM privately");
+    expect(broker.EnsureOwnership(thread).ok(), "production admission after init succeeds");
+    const auto a = capture();
+    const auto expected_move = broker.HandleRand(thread, movevm_rva, &std::rand);
+    const auto expected_native = broker.HandleRand(thread, 0x895d6e, &std::rand);
+    const auto b = capture();
+    expect(b.draws == a.draws + 1 && b.native_draws == a.native_draws + 1
+            && b.combat_state != a.combat_state && b.state != a.state,
+        "omitted or extra draw in either lane changes the complete image");
+    expect(broker.Restore(thread, a).ok(), "publish A with complete B retained by caller");
+    broker.HandleRand(thread, 0x1111, &std::rand);
+    const auto unknown = capture();
+    expect(unknown.combat_state == a.combat_state && unknown.draws == a.draws
+            && unknown.state != a.state && unknown.unknown_draws == a.unknown_draws + 1
+            && unknown.native_draws == a.native_draws + 1,
+        "unknown owner calls stay native and remain in exact authoritative image");
+    broker.HandleRand(thread, movevm_rva, &std::rand);
+    expect(broker.Restore(thread, b).ok() && capture() == b,
+        "cancel corrected suffix restores complete B in both lanes and counters");
+    const auto b_next_move = broker.HandleRand(thread, movevm_rva, &std::rand);
+    const auto b_next_native = std::rand();
+    expect(broker.Restore(thread, b).ok()
+            && broker.HandleRand(thread, movevm_rva, &std::rand) == b_next_move
+            && std::rand() == b_next_native,
+        "B cancellation reproduces private and direct-native continuation");
+    expect(broker.Restore(thread, a).ok()
+            && broker.HandleRand(thread, movevm_rva, &std::rand) == expected_move
+            && broker.HandleRand(thread, 0x895d6e, &std::rand) == expected_native,
+        "independent traversal from A replays both lane outputs");
+    const auto retained = capture();
+    for (unsigned mutation = 0; mutation < 7; ++mutation)
+    {
+        auto invalid = retained;
+        switch (mutation) {
+        case 0: --invalid.algorithm_version; break;
+        case 1: --invalid.allowlist_version; break;
+        case 2: ++invalid.epoch; break;
+        case 3: invalid.combat_ready = false; break;
+        case 4: ++invalid.seed_state; break;
+        case 5: ++invalid.warmup_draws; break;
+        case 6: invalid.unknown_draws = invalid.native_draws + 1; break;
+        }
+        expect(!broker.Restore(thread, invalid).ok() && capture() == retained
+                && broker.Restore(thread, retained).ok(),
+            "rejected target leaves both lanes untouched and complete B restorable");
+    }
+    expect(!broker.Restore(thread + 1, a).ok() && capture() == retained,
+        "wrong-thread restore preflight has no state or mode side effects");
+    expect(broker.ReleaseOwnership(thread).ok(), "release checkpoint permission");
+    broker.HandleRand(thread, 0x54f91e, &std::rand);
+    const auto release_native = capture().state;
+    broker.HandleRand(thread, movevm_rva, &std::rand);
+    expect(capture().state == release_native && !broker.Restore(thread, a).ok(),
+        "release keeps split routing but rejects restore until reacquired");
+    const auto released = capture();
+    expect(broker.EnsureOwnership(thread).ok() && capture() == released,
+        "reacquire never reclones over advanced combat state");
+
+    broker.HandleSrand(thread, seed_rva, seed, &std::srand); // Native new round.
+    expect(!broker.EnsureOwnership(thread).ok() && !broker.Restore(thread, retained).ok(),
+        "new round revokes old epoch and rejects premature correction");
+    expect(broker.ObserveInitializationComplete(thread, complete_rva).ok()
+            && broker.EnsureOwnership(thread).ok(), "complete new-round split");
+    const auto reset = capture();
+    expect(reset.epoch != retained.epoch && reset.draws == 0 && reset.native_draws == 0
+            && reset.unknown_draws == 0 && reset.state == seed && reset.combat_state == seed
+            && !broker.Restore(thread, retained).ok() && capture() == reset,
+        "same seed still starts a new epoch and cannot revive old checkpoint");
+    expect(start(), "restart broker without reviving old epochs");
+    broker.HandleSrand(thread, seed_rva, seed, &std::srand);
+    expect(broker.AcquireOwnership(thread).ok() && !broker.Restore(thread, reset).ok(),
+        "Stop/Start invalidates prior seed epoch even for same seed and thread");
+
+    expect(start(), "start premature MoveVM case");
+    broker.HandleSrand(thread, seed_rva, seed, &std::srand);
+    broker.HandleRand(thread, movevm_rva, &std::rand);
+    expect(broker.mode() == UcrtRandBrokerMode::Failed,
+        "MoveVM before completed initialization fails admission");
+    expect(start(), "start incomplete warmup case");
+    broker.HandleSrand(thread, seed_rva, seed + 1, &std::srand); // At least 16 draws.
+    broker.HandleRand(thread, warmup_rva, &std::rand);
+    expect(!broker.AcquireOwnership(thread).ok(), "detect incomplete native warmup");
+    for (unsigned i = 1; i < 16; ++i) broker.HandleRand(thread, warmup_rva, &std::rand);
+    expect(broker.ObserveInitializationComplete(thread, complete_rva).ok(),
+        "warmup bound and native completion agree");
+    broker.HandleRand(thread, warmup_rva, &std::rand);
+    expect(broker.mode() == UcrtRandBrokerMode::Failed,
+        "extra initialization call after completed clone fails admission");
+    expect(start(), "start unknown reseed case");
+    broker.HandleSrand(thread, seed_rva, seed, &std::srand);
+    expect(broker.AcquireOwnership(thread).ok(), "complete unknown reseed setup");
+    broker.HandleSrand(thread, 0x1111, seed, &std::srand);
+    expect(broker.mode() == UcrtRandBrokerMode::Failed,
+        "unresolved same-thread reseed cannot silently retain stale combat epoch");
+    expect(start(), "start unobserved initialization draw case");
+    broker.HandleSrand(thread, seed_rva, seed, &std::srand);
+    std::rand();
+    expect(!broker.ObserveInitializationComplete(thread, complete_rva).ok(),
+        "unobserved CRT mutation before clone cannot manufacture warmup agreement");
+    expect(start(), "start extra warmup count case");
+    broker.HandleSrand(thread, seed_rva, seed, &std::srand);
+    for (unsigned i = 0; i < 16; ++i) broker.HandleRand(thread, warmup_rva, &std::rand);
+    expect(broker.mode() == UcrtRandBrokerMode::Failed,
+        "warmup exceeding every possible low seed nibble fails before admission");
+    expect(start(), "start genuine foreign-thread MoveVM case");
+    broker.HandleSrand(thread, seed_rva, seed, &std::srand);
+    expect(broker.AcquireOwnership(thread).ok(), "initialize foreign-thread case");
+    std::thread foreign([&] {
+        broker.HandleRand(GetCurrentThreadId(), movevm_rva, &std::rand);
+    });
+    foreign.join();
+    expect(broker.mode() == UcrtRandBrokerMode::Failed
+            && broker.failure() == FailureCode::WrongThread,
+        "actual foreign TLS cannot consume the private MoveVM stream");
+#endif
 }
 
 void test_audio_presentation_identities_are_epoch_bound()
@@ -2483,18 +3599,181 @@ void test_stage_presentation_is_pointer_free_and_composite()
 }
 }
 
-int main()
+void test_replay_diagnostic_budget()
 {
-    test_online_qualification_metrics_are_bounded_and_resettable();
-    test_authoritative_input_gate_is_transactional_and_fail_closed();
-    test_aborted_outer_tick_reaches_post_completion_callback();
+    using Horse::Deterministic::ReplayDiagnosticTrace;
+    ReplayDiagnosticTrace trace;
+    expect(trace.Admit(ReplayDiagnosticTrace::Audio, 418)==0,"diagnostics default disabled");
+    const auto path=std::filesystem::temp_directory_path()/("horse-diagnostic-"+std::to_string(GetCurrentProcessId())+".ini");
+    for(unsigned depth:{0u,8u,16u}) {
+        {std::ofstream out(path);out<<"stack_depth="<<depth<<"\nmask=3\nfirst_tick=416\nlast_tick=426\nbyte_limit=4096\n";}
+        expect(trace.Load(path) && trace.stack_depth==depth,"runtime diagnostic stack depth");
+        expect(trace.Admit(ReplayDiagnosticTrace::Particles,418)==0 && trace.Admit(ReplayDiagnosticTrace::Audio,415)==0,"subsystem and tick admission");
+        expect(trace.Admit(ReplayDiagnosticTrace::Audio,418)==1 && trace.Admit(ReplayDiagnosticTrace::Rng,418)==1,"bounded diagnostic records");
+        expect(trace.Admit(ReplayDiagnosticTrace::Audio,418)==-1 && trace.Admit(ReplayDiagnosticTrace::Audio,418)==0 && trace.Overflowed(),"overflow reported once without further capture");
+    }
+    {std::ofstream out(path);out<<"stack_depth=24\nmask=3\nfirst_tick=416\nlast_tick=426\nbyte_limit=4096\n";}
+    expect(!trace.Load(path) && trace.Admit(1,418)==0,"invalid diagnostics fail closed");
+    std::filesystem::remove(path);
+}
+
+int main(int argc,char** argv)
+{
+    test_replay_diagnostic_budget();
+    if(argc==2 && std::string_view(argv[1])=="--diagnostic-trace") return failures?1:0;
+    if(argc==2 && std::string_view(argv[1])=="--seek-advance-recovery")
+        return ReplaySeekStateTest::advance_failure_recovery_contract()?0:1;
+    test_replay_resume_wall_clock();
+    {
+        using I=ReplayTickIndex;
+        const auto prepare=[](I& index) {
+            I::Entry row{};
+            expect(index.Begin(row,sizeof(row)*8,7,I::EndPolicy::RetainedSourceStop).ok(),"retained policy begins explicitly");
+            row.tick=row.native_tick=row.interval=1;row.round_state=5;
+            expect(index.Append(row).ok() && index.CompleteInterval(1,1,false).ok()
+                && index.ObserveRetainedSourceStop(1).ok(),"native source stop recorded at complete interval");
+        };
+        I index;prepare(index);
+        expect(!index.witness().native_finish && !index.witness().final_tail
+            && !index.witness().unsupported_native_tail,"source stop is not native replay completion");
+        I::Entry row=index.entries().back();row.tick=row.native_tick=row.interval=2;
+        expect(index.Append(row).ok() && index.CompleteInterval(2,2,false).ok()
+            && index.FinishRetainedSourceStop(2).ok(),"completed retained application includes every actual traversal");
+        expect(index.witness().unsupported_native_tail && !index.AllowsPlaybackFrom(2)
+            && index.AllowsPlaybackFrom(1),"unsupported tail cannot escape retained session");
+        index.SuspendSourceRevision(8);index.SettleSourceRevision(7);
+        expect(index.witness().phase==I::Phase::Complete && index.witness().unsupported_native_tail,
+            "B recovery preserves retained range policy");
+        index.ObserveNativeFinish();
+        expect(index.witness().phase==I::Phase::Failed,"native finish invalidates retained session admission");
+        I cancelled;prepare(cancelled);expect(cancelled.Cancel() && !cancelled.FinishRetainedSourceStop(2).ok(),"cancel cannot publish shortened index");
+        I premature;prepare(premature);expect(!premature.FinishRetainedSourceStop(1).ok(),"source stop alone cannot replace application tail");
+        I changed;prepare(changed);row.source_active=1;
+        expect(!changed.Append(row).ok(),"reactivated source rejects retained endpoint");
+        I finish;prepare(finish);row.source_active=0;row.round_state=10;
+        expect(!finish.Append(row).ok(),"native finish transition rejects pre-teardown hold");
+    }
+    {
+        ReplayTickIndex index;
+        ReplayTickIndex::Entry row{};
+        expect(index.Begin(row, sizeof(row) * 8).ok(), "index reserves bounded baseline storage");
+        expect(!index.ReleaseAfterOwners(true).ok() && index.witness().phase==ReplayTickIndex::Phase::Recording,
+            "index release cannot bypass recording cancellation");
+        expect(!index.FinishAtApplicationBoundary(0).ok(), "index cannot finish without native witnesses");
+        expect(index.CompleteInterval(1, 0, false).ok(), "index retains zero-tick interval");
+        row.tick = row.native_tick = 1; row.interval = 2; row.publications = 1;
+        expect(index.Append(row).ok(), "index records first traversal");
+        row.tick = row.native_tick = 2; // Two ticks sharing one publication.
+        expect(index.Append(row).ok() && index.CompleteInterval(2, 2, true).ok(), "index records repeat and final tail");
+        expect(!index.FinishAtApplicationBoundary(2).ok(), "final tail alone does not complete index");
+        index.ObserveNativeFinish();
+        for(unsigned tick=3;tick<=4;++tick) {
+            row.tick=row.native_tick=tick;row.interval=tick;row.round_state=10;
+            expect(index.Append(row).ok() && index.CompleteInterval(tick,tick,true).ok(),
+                "native source tail remains indexed after finish notification");
+        }
+        expect(index.source_end_tick()==2 && index.witness().phase==ReplayTickIndex::Phase::Recording,
+            "source endpoint stays distinct from the retained boundary");
+        expect(index.FinishAtApplicationBoundary(4).ok() && index.entries().size() == 5
+            && index.witness().zero_tick_intervals == 1 && index.witness().multi_tick_intervals == 1,
+            "native finish and complete tail seal exact contiguous timeline");
+        expect(!index.Append(row).ok() && index.entries().size() == 5, "finished index rejects further native traversal admission");
+        expect(index.AllowsPlaybackFrom(0) && index.AllowsPlaybackFrom(3)
+            && !index.AllowsPlaybackFrom(4) && !index.AllowsPlaybackFrom(5) && !index.AllowsPlaybackFrom(UINT64_MAX),
+            "retained endpoint blocks playback escape but permits backward continuation");
+        const auto indexed_bytes=index.storage_bytes();
+        index.InvalidateSourceRevision();
+        expect(index.witness().phase==ReplayTickIndex::Phase::Failed
+            && index.witness().failure==FailureCode::GenerationMismatch
+            && index.entries().size()==5 && index.storage_bytes()==indexed_bytes
+            && !index.FinishAtApplicationBoundary(4).ok(),
+            "changed authored history invalidates completion without discarding bounded evidence or replaying expected entries");
+        expect(index.ReleaseAfterOwners(false).ok() && index.witness().phase==ReplayTickIndex::Phase::Releasing
+            && index.entries().size()==5 && index.storage_bytes()==indexed_bytes,
+            "index retains map and budget while checkpoint owners retire");
+        expect(index.ReleaseAfterOwners(false).ok() && index.storage_bytes()==indexed_bytes
+            && !index.Begin({},sizeof(row)*4).ok(), "pending retirement cannot restart or silently release index");
+        expect(index.ReleaseAfterOwners(true).ok() && index.witness().phase==ReplayTickIndex::Phase::Empty
+            && !index.storage_bytes() && index.entries().empty(), "completed owner retirement releases map exactly once");
+        row = {};
+        expect(index.Begin(row, sizeof(row) * 2).ok(), "index restarts after explicit clear");
+        row.tick = row.native_tick = 1;
+        expect(index.Append(row).ok(), "last reserved index slot admitted");
+        row.tick = row.native_tick = 2;
+        expect(index.Append(row).code == FailureCode::CapacityExceeded
+            && index.witness().phase == ReplayTickIndex::Phase::Failed && index.entries().size() == 2,
+            "capacity failure preserves partial evidence without success");
+        for(unsigned defect=0;defect<5;++defect) {
+            index.Clear();row={};
+            expect(index.Begin(row,sizeof(row)*(defect==4?2:4)).ok(),"tail failure fixture begins");
+            row.tick=row.native_tick=1;row.interval=1;row.round_state=10;
+            expect(index.Append(row).ok() && index.CompleteInterval(1,1,true).ok(),"tail fixture reaches source endpoint");
+            index.ObserveNativeFinish();
+            if(defect==0) {
+                expect(!index.FinishAtApplicationBoundary(2).ok() && index.witness().phase==ReplayTickIndex::Phase::Failed,
+                    "completion cannot omit an unindexed native tick");
+                continue;
+            }
+            row.tick=row.native_tick=2;row.interval=2;
+            if(defect==1)row.source_active=1;
+            if(defect==2)row.round=1;
+            if(defect==3)row.round_state=2;
+            const auto failure=index.Append(row);
+            expect(!failure.ok() && index.witness().phase==ReplayTickIndex::Phase::Failed && index.entries().size()==2
+                && index.source_end_tick()==1,"tail replacement or exhaustion preserves incomplete evidence without success");
+            if(defect==4)expect(failure.code==FailureCode::CapacityExceeded,"tail capacity remains part of the index budget");
+        }
+        index.Clear(); row = {};
+        expect(index.Begin(row, sizeof(row) * 4).ok() && index.Cancel()
+            && !index.FinishAtApplicationBoundary(0).ok(), "cancelled index cannot become complete");
+        index.Clear();
+        expect(index.Begin(row, sizeof(row) * 4).ok(), "index starts continuity check");
+        row.tick = row.native_tick = 2;
+        expect(index.Append(row).code == FailureCode::AdvanceFailed && index.entries().size() == 1,
+            "missing interior boundary fails indexing");
+    }
+    ReplaySeekStateTest::run();
+    ReplayCaptureAccountingTest::run();
+    test_hud_playback_retains_logical_time_without_player_ownership();
+    test_hud_player_undo_survives_completion_and_partial_start();
+    test_hud_private_B_publication_and_retirement();
+    {
+        ReplayHudWidgetAdmission admission;
+        int transaction{},foreign{},b1{},b2{},c{};
+        std::array<const void*,2> b{&b1,&b2};
+        expect(admission.Acquire(&transaction,b) && admission.Excludes(&b1) && admission.Excludes(&b2)
+            && !admission.Excludes(&c),"private B excludes all widget work without excluding C");
+        expect(admission.Acquire(&transaction,b),"private B acquisition retry is idempotent");
+        expect(!admission.Acquire(&foreign,b) && !admission.Release(&foreign)
+            && admission.Excludes(&b1),"foreign cancellation cannot re-admit B");
+        std::array<const void*,2> changed{&b1,&c};
+        expect(!admission.Acquire(&transaction,changed) && !admission.Excludes(&c),"retry cannot replace private membership");
+        expect(admission.Release(&transaction) && admission.empty() && !admission.Excludes(&b1)
+            && admission.Release(&transaction),"undo or completed retirement re-admits once");
+        std::array<const void*,2> duplicate{&b1,&b1},missing{&b1,nullptr};
+        expect(!admission.Acquire(&transaction,duplicate) && !admission.Acquire(&transaction,missing)
+            && admission.empty(),"invalid membership rejects atomically before publication");
+        std::array<const void*,17> overflow{};
+        expect(!admission.Acquire(&transaction,overflow) && !admission.Acquire(nullptr,b)
+            && admission.empty(),"bounded admission rejects capacity and absent owner");
+    }
+    test_streamable_domain_ignores_only_retirement_eligible_records();
+    test_occlusion_private_history_reconstruction();
+    test_lighting_lod_binding_correspondence();
+    test_particle_tile_partition_rejects_equal_count_corruption();
+#ifdef _WIN32
+    test_particle_tile_prefix_recovery_and_lock_exclusion();
+#endif
+    test_native_tick_epoch_rebase_preserves_signed_comparison();
     test_canonical_hash_timeline_is_immutable_and_bounded();
     test_round_transition_selects_the_last_canonicalized_fencepost();
     test_round_rearm_clears_prediction_before_checkpoint_reservation();
     test_public_config_contract();
     test_input_replacement_and_invalidation();
     test_native_batch_timeline_is_exact_and_bounded();
+    test_native_interval_suffix_rebuilds_coordinate_index();
     test_snapshot_capacity_is_atomic();
+    test_interval_checkpoint_identity_survives_native_geometry_changes();
     test_confirmed_online_history_retirement_is_bounded();
     test_checkpoint_memory_matches_capture_cadence();
     test_resimulation_base_planning_respects_batch_width();
@@ -2509,9 +3788,14 @@ int main()
     test_cross_generation_identity_mismatch_fails_before_restore();
     test_native_replay_materializer_requires_state4_fencepost();
     test_sc6_replay_bridge_transaction_and_undo();
+    test_replay_source_route_admission();
+    test_replay_source_registration_transaction();
+    test_sc6_replay_source_round_transaction();
     test_transactional_restore_failures_undo();
     test_floating_point_environment_capture_is_raw_and_non_mutating();
     test_ucrt_broker_is_callsite_and_thread_bound();
+    test_ucrt_broker_separates_movevm_and_native_presentation_lanes();
+    test_ucrt_split_preflight_reset_and_complete_b();
     test_audio_presentation_identities_are_epoch_bound();
     test_stage_presentation_is_pointer_free_and_composite();
     if (failures == 0)

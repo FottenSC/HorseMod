@@ -1,0 +1,38 @@
+[ReplayQualification] executor started run_id=fixture native_frame=0
+[HorseMod] rolling cycle ordinal=1 T=217 A=210 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=68253 correction_us=225980 preceding_forward_us=30538 owned_bytes=800042591
+[HorseMod] rolling cycle ordinal=2 T=218 A=211 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=64698 correction_us=235412 preceding_forward_us=24305 owned_bytes=799526690
+[HorseMod] rolling cycle ordinal=3 T=219 A=212 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=69578 correction_us=235703 preceding_forward_us=24574 owned_bytes=799545105
+[HorseMod] rolling cycle ordinal=4 T=220 A=213 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=63310 correction_us=225928 preceding_forward_us=24629 owned_bytes=799560000
+[HorseMod] rolling cycle ordinal=5 T=221 A=214 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=70337 correction_us=239213 preceding_forward_us=26168 owned_bytes=799574895
+[HorseMod] rolling cycle ordinal=6 T=222 A=215 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=72887 correction_us=252590 preceding_forward_us=25387 owned_bytes=799591478
+[HorseMod] rolling cycle ordinal=7 T=223 A=216 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=65458 correction_us=233740 preceding_forward_us=25442 owned_bytes=799589374
+[HorseMod] rolling cycle ordinal=8 T=224 A=217 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=64165 correction_us=231022 preceding_forward_us=23947 owned_bytes=799587238
+[HorseMod] rolling cycle ordinal=9 T=225 A=218 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=67992 correction_us=236455 preceding_forward_us=23530 owned_bytes=800638102
+[HorseMod] rolling cycle ordinal=10 T=226 A=219 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=61317 correction_us=226454 preceding_forward_us=24385 owned_bytes=801688966
+[HorseMod] rolling cycle ordinal=11 T=227 A=220 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=68534 correction_us=241670 preceding_forward_us=24895 owned_bytes=802738142
+[HorseMod] rolling cycle ordinal=12 T=228 A=221 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=69291 correction_us=237799 preceding_forward_us=24226 owned_bytes=804845430
+[HorseMod] rolling cycle ordinal=13 T=229 A=222 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=69560 correction_us=238287 preceding_forward_us=26136 owned_bytes=806952718
+[HorseMod] rolling cycle ordinal=14 T=230 A=223 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=69931 correction_us=241363 preceding_forward_us=33117 owned_bytes=809060006
+[HorseMod] rolling cycle ordinal=15 T=231 A=224 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=67487 correction_us=239379 preceding_forward_us=24525 owned_bytes=811167566
+[HorseMod] rolling cycle ordinal=16 T=232 A=225 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=71393 correction_us=235371 preceding_forward_us=26921 owned_bytes=813275094
+[HorseMod] rolling cycle ordinal=17 T=233 A=226 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=67385 correction_us=241410 preceding_forward_us=24167 owned_bytes=815382590
+[HorseMod] rolling cycle ordinal=18 T=234 A=227 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=68319 correction_us=235669 preceding_forward_us=27005 owned_bytes=817488170
+[HorseMod] rolling cycle ordinal=19 T=235 A=228 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=67843 correction_us=244874 preceding_forward_us=24650 owned_bytes=817490110
+[HorseMod] rolling cycle ordinal=20 T=236 A=229 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=67929 correction_us=236479 preceding_forward_us=25094 owned_bytes=816435302
+[HorseMod] rolling cycle ordinal=21 T=237 A=230 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=66117 correction_us=243082 preceding_forward_us=24318 owned_bytes=815380494
+[HorseMod] rolling cycle ordinal=22 T=238 A=231 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=65059 correction_us=230605 preceding_forward_us=24194 owned_bytes=814323174
+[HorseMod] rolling cycle ordinal=23 T=239 A=232 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=69074 correction_us=234633 preceding_forward_us=22482 owned_bytes=812211006
+[HorseMod] rolling cycle ordinal=24 T=240 A=233 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=67098 correction_us=246829 preceding_forward_us=26182 owned_bytes=810100782
+[HorseMod] rolling cycle ordinal=25 T=241 A=234 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=66599 correction_us=238810 preceding_forward_us=25043 owned_bytes=807990590
+[HorseMod] rolling cycle ordinal=26 T=242 A=235 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=65962 correction_us=233872 preceding_forward_us=23491 owned_bytes=805882314
+[HorseMod] rolling cycle ordinal=27 T=243 A=236 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=63493 correction_us=233674 preceding_forward_us=24288 owned_bytes=805877678
+[HorseMod] rolling cycle ordinal=28 T=244 A=237 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=68975 correction_us=240449 preceding_forward_us=25270 owned_bytes=805875150
+[HorseMod] rolling cycle ordinal=29 T=245 A=238 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=72204 correction_us=234352 preceding_forward_us=24585 owned_bytes=805872622
+[HorseMod] rolling cycle ordinal=30 T=246 A=239 resimulated_ticks=7 committed=true tails_completed=true retirement_complete=true capture_us=66347 correction_us=235336 preceding_forward_us=24688 owned_bytes=805872606
+[ReplayQualification] rolling completed run_id=fixture first=210 last=246 cycles=30 resimulated_ticks=210 resimulated_intervals=210 peak_bytes=975482378 missed=0
+[ReplayQualification] world executor completed run_id=fixture worlds=719 groups=10066 tasks=166955 manager_tasks=719 manager_yields=723 idle=true disabled=true
+[ReplayQualification] engine executor completed run_id=fixture intervals=719 idle=true disabled=true
+[ReplayQualification] world arena completed run_id=fixture scopes=292063 max_retained_bytes=1008 probe_checks=397 empty=true
+[ReplayQualification] executor boundaries run_id=fixture completed_intervals=719 zero_intervals=0 multi_intervals=3 repeat_requests=2 move_state_ticks=0 yielded_boundaries=723 yield_every_tick=true
+[ReplayQualification] executor completed run_id=fixture ticks=513 intervals=509 publications=511 native_frame=513 disabled=true
+[HorseMod] application executor stopped intervals=719 idle=true disabled=true

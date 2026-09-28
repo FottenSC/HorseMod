@@ -1,0 +1,20 @@
+{
+  "scope": "Production-boundary RED before PhysX start task dispatch",
+  "result": "pytest target fails on newly added physics child exit113; changed callback reached native wrapper",
+  "command": "$env:PYTHONPATH='tools'; python -m pytest -q -x tools/deterministic_qualification/tests/test_replay_run.py::test_component_dispatch_revalidates_admitted_consumer",
+  "observed_output": [
+    "1 failed in 4.86s",
+    "physics child exit=113",
+    "changed physics callback queued; unchanged native entry count=2",
+    "G1 RED: changed physics callback reached native wrapper"
+  ],
+  "source_archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6b40e59db481e267ea316102fb51c262253455421108550f37188c6cdadf29d3.zip",
+  "source_archive_sha256": "6b40e59db481e267ea316102fb51c262253455421108550f37188c6cdadf29d3",
+  "source_files": {
+    "HorseMod/horselib/deterministic/Sc6ReplayTaskGroup.cpp": "d04d374055bf203b8aa4eda999d08b5eaace207b84b3297581efe9cfea9a2d2f",
+    "HorseMod/horselib/deterministic/Sc6ReplayHost.GroundDebris.inl": "866e5168c5565b8323e547e3577db86728faa3dd18f3f5dba1da4cf7aac581cd",
+    "tools/replay_component_dispatch_selftest.cpp": "2f3ebc287b8d1bddc600ac658306be4eccd21c101f8992c65ad55585001edcd1",
+    "tools/deterministic_qualification/tests/test_replay_run.py": "bc78aa04d9ccf3baffc4ffe95532968001fc5b641a1e41536776b65f29a168ae"
+  },
+  "limit": "Local fixture uses actual PumpOne/DispatchTask and stops at first failure; this is a terminal containment regression, not live B recovery."
+}

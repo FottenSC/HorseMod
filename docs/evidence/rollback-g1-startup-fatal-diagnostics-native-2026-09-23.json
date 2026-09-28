@@ -1,0 +1,781 @@
+{
+  "schema": 1,
+  "date": "2026-09-23",
+  "program": "SoulcaliburVI.exe",
+  "scope": "Read-only native startup exit/fatal diagnostics. No production or Ghidra database edits.",
+  "limitations": [
+    "Exit code 3 does not identify the actual failing path. No causal connection to -nothreading established.",
+    "140E0ED30 consumes RCX only internally, but occupies error-device Serialize slot+0x10; preserve full caller ABI RCX device, RDX UTF16 text, R8B verbosity, R9 raw category argument. The exact source-language category type remains unproven.",
+    "Global error buffers can be blank or stale and diagnostic snapshots do not establish cause.",
+    "Bounded source hook-owner search found no existing hooks at 140E0ED30 or 140E0E590, only ordinary RequestExit(false) calls; this is not runtime hook inventory.",
+    "No live game was run by this investigation. Alternative CRT/OpenSSL exit(3) paths exist."
+  ],
+  "findings": {
+    "fatalSerialize": {
+      "address": "140E0ED30",
+      "abi": "void __fastcall(void* device,const wchar_t* text,uint8_t verbosity,uint64_t category_raw)",
+      "prefix32": "40534883ec20803df883380300488bd9750dff1578d74102c605e68338030180",
+      "dispatch": "vtable1434EBA98 slot+10. Sets fatal flag144197135. Guarded flag14419713C -> RaiseException(1) via140E0CDD0; otherwise virtual+40 handler140E04EE0, shutdown delegates, logger flush, TerminateProcess(flag?3:0)."
+    },
+    "requestExit": {
+      "address": "140E0E590",
+      "abi": "void __fastcall(bool forceExit)",
+      "prefix32": "40534883ec200fb6d9488d0da07d2603e81bb458ff84db744be812b6fbff4885",
+      "behavior": "force false posts quit and sets14419713D; force true dispatches shutdown delegates/flushes logger then TerminateProcess(fatalFlag?3:0)."
+    },
+    "errorHistory": {
+      "address": "14418B130",
+      "utf16Capacity": 16384,
+      "assertionBuffer": "144195130",
+      "assertionUtf16Capacity": 4096,
+      "writer": "140DB9300",
+      "appendWriter": "140E04C90",
+      "capture": "Prefer bounded incoming RDX text at Serialize; optional bounded error-history copy. Do not lock engine error critical section from diagnostic capture."
+    }
+  },
+  "raw": {
+    "startup_exit_symbols": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "abort @ 14311c11e"
+            }
+          ],
+          "structuredContent": {
+            "result": "abort @ 14311c11e"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "DestroyBattlePhaseCodeMapAtExit @ 1431ec280\nDestroyLuxCriAtomManagerAtExit @ 1431f0b10\nDestroyLuxInputRouterOwnerArraysAtExit @ 1431ef860\nFEngineLoop_Exit @ 14039b420\nFTickTaskManager_Dtor_atexit @ 1432262d0\nLuxBattleChara_TransitionStyleState_DispatchEnterExit @ 140432a40\n_cexit @ 14311c322\n_crt_atexit @ 14311c31c\n_exit @ 14311c1de\n_initialize_onexit_table @ 14311c310\n_onexit @ 143119b8c\n_register_onexit_function @ 14311c316\n_register_thread_local_exe_atexit_callback @ 14311c35e\natexit @ 143119bdc\nexit @ 14311c0d0"
+            }
+          ],
+          "structuredContent": {
+            "result": "DestroyBattlePhaseCodeMapAtExit @ 1431ec280\nDestroyLuxCriAtomManagerAtExit @ 1431f0b10\nDestroyLuxInputRouterOwnerArraysAtExit @ 1431ef860\nFEngineLoop_Exit @ 14039b420\nFTickTaskManager_Dtor_atexit @ 1432262d0\nLuxBattleChara_TransitionStyleState_DispatchEnterExit @ 140432a40\n_cexit @ 14311c322\n_crt_atexit @ 14311c31c\n_exit @ 14311c1de\n_initialize_onexit_table @ 14311c310\n_onexit @ 143119b8c\n_register_onexit_function @ 14311c316\n_register_thread_local_exe_atexit_callback @ 14311c35e\natexit @ 143119bdc\nexit @ 14311c0d0"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "No functions matching 'ExitProcess'"
+            }
+          ],
+          "structuredContent": {
+            "result": "No functions matching 'ExitProcess'"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "No functions matching 'TerminateProcess'"
+            }
+          ],
+          "structuredContent": {
+            "result": "No functions matching 'TerminateProcess'"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "startup_exit_thunk_refs": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "From 142a7363b in FUN_142a73270 [UNCONDITIONAL_CALL]"
+            }
+          ],
+          "structuredContent": {
+            "result": "From 142a7363b in FUN_142a73270 [UNCONDITIONAL_CALL]"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "From 14311a914 in __scrt_common_main_seh [UNCONDITIONAL_CALL]"
+            }
+          ],
+          "structuredContent": {
+            "result": "From 14311a914 in __scrt_common_main_seh [UNCONDITIONAL_CALL]"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "From 1429f099d in FUN_1429f08f0 [UNCONDITIONAL_CALL]\nFrom 1429f1011 in FUN_1429f0fe0 [UNCONDITIONAL_CALL]"
+            }
+          ],
+          "structuredContent": {
+            "result": "From 1429f099d in FUN_1429f08f0 [UNCONDITIONAL_CALL]\nFrom 1429f1011 in FUN_1429f0fe0 [UNCONDITIONAL_CALL]"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "startup_exit_callers": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\n/* WARNING: Function: _alloca_probe replaced with injection: alloca_probe */\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n\r\nundefined8 FUN_142a73270(undefined4 *param_1,void *param_2,int param_3,longlong param_4)\r\n\r\n{\r\n  uint uVar1;\r\n  bool bVar2;\r\n  bool bVar3;\r\n  int iVar4;\r\n  undefined8 uVar5;\r\n  __time64_t _Var6;\r\n  undefined1 *puVar7;\r\n  uint *puVar8;\r\n  bool bVar9;\r\n  undefined1 auStack_1f8 [32];\r\n  uint **local_1d8;\r\n  uint *local_1c8;\r\n  int local_1c0 [2];\r\n  undefined4 local_1b8 [17];\r\n  int local_174;\r\n  undefined1 local_170 [264];\r\n  undefined1 local_68;\r\n  undefined1 local_67;\r\n  undefined1 local_66;\r\n  undefined1 local_65;\r\n  ulonglong local_58;\r\n  undefined8 uStack_48;\r\n  \r\n  uStack_48 = 0x142a7328f;\r\n  local_58 = g_qwSecurityCookie ^ (ulonglong)auStack_1f8;\r\n  bVar2 = false;\r\n  bVar3 = false;\r\n  local_1c8 = (uint *)0x0;\r\n  if (param_4 - (longlong)param_2 < (longlong)param_3) {\r\nLAB_142a73515:\r\n    uVar5 = 0xffffffff;\r\n  }\r\n  else {\r\n    bVar9 = param_3 != 0;\r\n    local_1d8 = &local_1c8;\r\n    iVar4 = FUN_142a7e940(param_1,param_2,param_3);\r\n    if (iVar4 == -1) {\r\nLAB_142a734e6:\r\n      puVar8 = local_1c8;\r\n      bVar3 = true;\r\n      goto LAB_142a734f1;\r\n    }\r\n    if (iVar4 < 0) {\r\nLAB_142a7363b:\r\n                    /* WARNING: Subroutine does not return */\r\n      abort();\r\n    }\r\n    if (iVar4 < 2) {\r\n      if (!bVar9) goto LAB_142a73484;\r\n      if (local_1c8 != (uint *)0x0) goto LAB_142a73492;\r\n      if ((*(uint *)(*(longlong *)(param_1 + 0x96) + 0x40) & 0x100) == 0) {\r\n        local_1b8[0] = *param_1;\r\n        if (param_3 != 0) {\r\n          local_174 = param_3;\r\n          memcpy(local_170,param_2,(longlong)param_3);\r\n          FUN_1429f08f0(5,0xc,s___ssl_ssl_sess_c_1440bb4c0,0x267);\r\n          local_1c8 = (uint *)FUN_1429ffa70(*(undefined8 *)(*(longlong *)(param_1 + 0x96) + 0x20),\r\n                                            local_1b8);\r\n          if (local_1c8 != (uint *)0x0) {\r\n            local_1d8 = (uint **)CONCAT44(local_1d8._4_4_,0x26b);\r\n            FUN_1429f06c0(local_1c8 + 0x2f,1,0xe,s___ssl_ssl_sess_c_1440bb4d8);\r\n          }\r\n          FUN_1429f08f0(6,0xc,s___ssl_ssl_sess_c_1440bb4f0,0x26d);\r\n          if (local_1c8 != (uint *)0x0) goto LAB_142a73492;\r\n          *(int *)(*(longlong *)(param_1 + 0x96) + 0x78) =\r\n               *(int *)(*(longlong *)(param_1 + 0x96) + 0x78) + 1;\r\n          goto LAB_142a733f2;\r\n        }\r\n      }\r\n      else {\r\nLAB_142a733f2:\r\n        if (*(code **)(*(longlong *)(param_1 + 0x96) + 0x58) != (code *)0x0) {\r\n          local_1c0[0] = 1;\r\n          local_1c8 = (uint *)(**(code **)(*(longlong *)(param_1 + 0x96) + 0x58))\r\n                                        (param_1,param_2,param_3,local_1c0);\r\n          if (local_1c8 != (uint *)0x0) {\r\n            *(int *)(*(longlong *)(param_1 + 0x96) + 0x88) =\r\n                 *(int *)(*(longlong *)(param_1 + 0x96) + 0x88) + 1;\r\n            if (local_1c0[0] != 0) {\r\n              local_1d8 = (uint **)CONCAT44(local_1d8._4_4_,0x281);\r\n              FUN_1429f06c0(local_1c8 + 0x2f,1,0xe,s___ssl_ssl_sess_c_1440bb508);\r\n            }\r\n            if ((*(uint *)(*(longlong *)(param_1 + 0x96) + 0x40) & 0x200) == 0) {\r\n              FUN_142a725d0(*(longlong *)(param_1 + 0x96),local_1c8);\r\n            }\r\n            goto LAB_142a73484;\r\n          }\r\n        }\r\n      }\r\n    }\r\n    else {\r\n      bVar9 = bVar2;\r\n      if (3 < iVar4) goto LAB_142a7363b;\r\nLAB_142a73484:\r\n      if (local_1c8 != (uint *)0x0) {\r\nLAB_142a73492:\r\n        puVar8 = local_1c8;\r\n        uVar1 = param_1[0x42];\r\n        if ((local_1c8[0x1a] == uVar1) &&\r\n           (iVar4 = memcmp(local_1c8 + 0x1b,param_1 + 0x43,(ulonglong)local_1c8[0x1a]), iVar4 == 0))\r\n        {\r\n          if (((*(byte *)(param_1 + 0x50) & 1) != 0) && (uVar1 == 0)) {\r\n            local_1d8 = (uint **)CONCAT44(local_1d8._4_4_,0x2ac);\r\n            FUN_1429f2610(0x14,0xd9,0x115,s___ssl_ssl_sess_c_1440bb520);\r\n            goto LAB_142a734e6;\r\n          }\r\n          if (*(longlong *)(puVar8 + 0x34) == 0) {\r\n            uVar1 = puVar8[0x36];\r\n            puVar7 = &local_66;\r\n            local_65 = (undefined1)uVar1;\r\n            local_68 = (undefined1)(uVar1 >> 0x18);\r\n            local_67 = (undefined1)(uVar1 >> 0x10);\r\n            local_66 = (undefined1)(uVar1 >> 8);\r\n            if ((int)(*puVar8 & 0xffffff00) < 0x300) {\r\n              puVar7 = &local_67;\r\n            }\r\n            uVar5 = FUN_142a77300(param_1,puVar7);\r\n            *(undefined8 *)(local_1c8 + 0x34) = uVar5;\r\n            puVar8 = local_1c8;\r\n            if (*(longlong *)(local_1c8 + 0x34) == 0) goto LAB_142a734f1;\r\n          }\r\n          _Var6 = _time64((__time64_t *)0x0);\r\n          if ((int)((int)_Var6 - local_1c8[0x31]) <= (int)local_1c8[0x30]) {\r\n            *(int *)(*(longlong *)(param_1 + 0x96) + 0x84) =\r\n                 *(int *)(*(longlong *)(param_1 + 0x96) + 0x84) + 1;\r\n            if (*(longlong *)(param_1 + 0x4c) != 0) {\r\n              FUN_142a728c0();\r\n            }\r\n            *(uint **)(param_1 + 0x4c) = local_1c8;\r\n            param_1[0x5f] = local_1c8[0x2e];\r\n            return 1;\r\n          }\r\n          *(int *)(*(longlong *)(param_1 + 0x96) + 0x7c) =\r\n               *(int *)(*(longlong *)(param_1 + 0x96) + 0x7c) + 1;\r\n          puVar8 = local_1c8;\r\n          bVar3 = bVar2;\r\n          if (bVar9) {\r\n            FUN_142a72e10(*(undefined8 *)(param_1 + 0x96),local_1c8,1);\r\n            puVar8 = local_1c8;\r\n          }\r\n        }\r\nLAB_142a734f1:\r\n        if ((puVar8 != (uint *)0x0) && (FUN_142a728c0(puVar8), !bVar9)) {\r\n          param_1[0x7f] = 1;\r\n        }\r\n        if (bVar3) goto LAB_142a73515;\r\n      }\r\n    }\r\n    uVar5 = 0;\r\n  }\r\n  return uVar5;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\n/* WARNING: Function: _alloca_probe replaced with injection: alloca_probe */\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n\r\nundefined8 FUN_142a73270(undefined4 *param_1,void *param_2,int param_3,longlong param_4)\r\n\r\n{\r\n  uint uVar1;\r\n  bool bVar2;\r\n  bool bVar3;\r\n  int iVar4;\r\n  undefined8 uVar5;\r\n  __time64_t _Var6;\r\n  undefined1 *puVar7;\r\n  uint *puVar8;\r\n  bool bVar9;\r\n  undefined1 auStack_1f8 [32];\r\n  uint **local_1d8;\r\n  uint *local_1c8;\r\n  int local_1c0 [2];\r\n  undefined4 local_1b8 [17];\r\n  int local_174;\r\n  undefined1 local_170 [264];\r\n  undefined1 local_68;\r\n  undefined1 local_67;\r\n  undefined1 local_66;\r\n  undefined1 local_65;\r\n  ulonglong local_58;\r\n  undefined8 uStack_48;\r\n  \r\n  uStack_48 = 0x142a7328f;\r\n  local_58 = g_qwSecurityCookie ^ (ulonglong)auStack_1f8;\r\n  bVar2 = false;\r\n  bVar3 = false;\r\n  local_1c8 = (uint *)0x0;\r\n  if (param_4 - (longlong)param_2 < (longlong)param_3) {\r\nLAB_142a73515:\r\n    uVar5 = 0xffffffff;\r\n  }\r\n  else {\r\n    bVar9 = param_3 != 0;\r\n    local_1d8 = &local_1c8;\r\n    iVar4 = FUN_142a7e940(param_1,param_2,param_3);\r\n    if (iVar4 == -1) {\r\nLAB_142a734e6:\r\n      puVar8 = local_1c8;\r\n      bVar3 = true;\r\n      goto LAB_142a734f1;\r\n    }\r\n    if (iVar4 < 0) {\r\nLAB_142a7363b:\r\n                    /* WARNING: Subroutine does not return */\r\n      abort();\r\n    }\r\n    if (iVar4 < 2) {\r\n      if (!bVar9) goto LAB_142a73484;\r\n      if (local_1c8 != (uint *)0x0) goto LAB_142a73492;\r\n      if ((*(uint *)(*(longlong *)(param_1 + 0x96) + 0x40) & 0x100) == 0) {\r\n        local_1b8[0] = *param_1;\r\n        if (param_3 != 0) {\r\n          local_174 = param_3;\r\n          memcpy(local_170,param_2,(longlong)param_3);\r\n          FUN_1429f08f0(5,0xc,s___ssl_ssl_sess_c_1440bb4c0,0x267);\r\n          local_1c8 = (uint *)FUN_1429ffa70(*(undefined8 *)(*(longlong *)(param_1 + 0x96) + 0x20),\r\n                                            local_1b8);\r\n          if (local_1c8 != (uint *)0x0) {\r\n            local_1d8 = (uint **)CONCAT44(local_1d8._4_4_,0x26b);\r\n            FUN_1429f06c0(local_1c8 + 0x2f,1,0xe,s___ssl_ssl_sess_c_1440bb4d8);\r\n          }\r\n          FUN_1429f08f0(6,0xc,s___ssl_ssl_sess_c_1440bb4f0,0x26d);\r\n          if (local_1c8 != (uint *)0x0) goto LAB_142a73492;\r\n          *(int *)(*(longlong *)(param_1 + 0x96) + 0x78) =\r\n               *(int *)(*(longlong *)(param_1 + 0x96) + 0x78) + 1;\r\n          goto LAB_142a733f2;\r\n        }\r\n      }\r\n      else {\r\nLAB_142a733f2:\r\n        if (*(code **)(*(longlong *)(param_1 + 0x96) + 0x58) != (code *)0x0) {\r\n          local_1c0[0] = 1;\r\n          local_1c8 = (uint *)(**(code **)(*(longlong *)(param_1 + 0x96) + 0x58))\r\n                                        (param_1,param_2,param_3,local_1c0);\r\n          if (local_1c8 != (uint *)0x0) {\r\n            *(int *)(*(longlong *)(param_1 + 0x96) + 0x88) =\r\n                 *(int *)(*(longlong *)(param_1 + 0x96) + 0x88) + 1;\r\n            if (local_1c0[0] != 0) {\r\n              local_1d8 = (uint **)CONCAT44(local_1d8._4_4_,0x281);\r\n              FUN_1429f06c0(local_1c8 + 0x2f,1,0xe,s___ssl_ssl_sess_c_1440bb508);\r\n            }\r\n            if ((*(uint *)(*(longlong *)(param_1 + 0x96) + 0x40) & 0x200) == 0) {\r\n              FUN_142a725d0(*(longlong *)(param_1 + 0x96),local_1c8);\r\n            }\r\n            goto LAB_142a73484;\r\n          }\r\n        }\r\n      }\r\n    }\r\n    else {\r\n      bVar9 = bVar2;\r\n      if (3 < iVar4) goto LAB_142a7363b;\r\nLAB_142a73484:\r\n      if (local_1c8 != (uint *)0x0) {\r\nLAB_142a73492:\r\n        puVar8 = local_1c8;\r\n        uVar1 = param_1[0x42];\r\n        if ((local_1c8[0x1a] == uVar1) &&\r\n           (iVar4 = memcmp(local_1c8 + 0x1b,param_1 + 0x43,(ulonglong)local_1c8[0x1a]), iVar4 == 0))\r\n        {\r\n          if (((*(byte *)(param_1 + 0x50) & 1) != 0) && (uVar1 == 0)) {\r\n            local_1d8 = (uint **)CONCAT44(local_1d8._4_4_,0x2ac);\r\n            FUN_1429f2610(0x14,0xd9,0x115,s___ssl_ssl_sess_c_1440bb520);\r\n            goto LAB_142a734e6;\r\n          }\r\n          if (*(longlong *)(puVar8 + 0x34) == 0) {\r\n            uVar1 = puVar8[0x36];\r\n            puVar7 = &local_66;\r\n            local_65 = (undefined1)uVar1;\r\n            local_68 = (undefined1)(uVar1 >> 0x18);\r\n            local_67 = (undefined1)(uVar1 >> 0x10);\r\n            local_66 = (undefined1)(uVar1 >> 8);\r\n            if ((int)(*puVar8 & 0xffffff00) < 0x300) {\r\n              puVar7 = &local_67;\r\n            }\r\n            uVar5 = FUN_142a77300(param_1,puVar7);\r\n            *(undefined8 *)(local_1c8 + 0x34) = uVar5;\r\n            puVar8 = local_1c8;\r\n            if (*(longlong *)(local_1c8 + 0x34) == 0) goto LAB_142a734f1;\r\n          }\r\n          _Var6 = _time64((__time64_t *)0x0);\r\n          if ((int)((int)_Var6 - local_1c8[0x31]) <= (int)local_1c8[0x30]) {\r\n            *(int *)(*(longlong *)(param_1 + 0x96) + 0x84) =\r\n                 *(int *)(*(longlong *)(param_1 + 0x96) + 0x84) + 1;\r\n            if (*(longlong *)(param_1 + 0x4c) != 0) {\r\n              FUN_142a728c0();\r\n            }\r\n            *(uint **)(param_1 + 0x4c) = local_1c8;\r\n            param_1[0x5f] = local_1c8[0x2e];\r\n            return 1;\r\n          }\r\n          *(int *)(*(longlong *)(param_1 + 0x96) + 0x7c) =\r\n               *(int *)(*(longlong *)(param_1 + 0x96) + 0x7c) + 1;\r\n          puVar8 = local_1c8;\r\n          bVar3 = bVar2;\r\n          if (bVar9) {\r\n            FUN_142a72e10(*(undefined8 *)(param_1 + 0x96),local_1c8,1);\r\n            puVar8 = local_1c8;\r\n          }\r\n        }\r\nLAB_142a734f1:\r\n        if ((puVar8 != (uint *)0x0) && (FUN_142a728c0(puVar8), !bVar9)) {\r\n          param_1[0x7f] = 1;\r\n        }\r\n        if (bVar3) goto LAB_142a73515;\r\n      }\r\n    }\r\n    uVar5 = 0;\r\n  }\r\n  return uVar5;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\n/* WARNING: Function: _alloca_probe replaced with injection: alloca_probe */\r\n\r\nvoid FUN_1429f08f0(undefined4 param_1,int param_2,undefined8 param_3,undefined4 param_4)\r\n\r\n{\r\n  longlong lVar1;\r\n  \r\n  if (param_2 < 0) {\r\n    if (DAT_1443d3888 != (code *)0x0) {\r\n      lVar1 = FUN_1429f0850(param_2);\r\n      if (lVar1 == 0) {\r\n        FUN_1429f0cd0(s__s__d___OpenSSL_internal_error__a_144099338,s___crypto_cryptlib_c_144099280,\r\n                      0x254,s_pointer____NULL_144099270);\r\n        raise(0x16);\r\n                    /* WARNING: Subroutine does not return */\r\n        _exit(3);\r\n      }\r\n      (*DAT_1443d3888)(param_1,lVar1,param_3,param_4);\r\n      FUN_1429f0750(param_2);\r\n    }\r\n  }\r\n  else if (DAT_1443d3860 != (code *)0x0) {\r\n    (*DAT_1443d3860)();\r\n  }\r\n  return;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\n/* WARNING: Function: _alloca_probe replaced with injection: alloca_probe */\r\n\r\nvoid FUN_1429f08f0(undefined4 param_1,int param_2,undefined8 param_3,undefined4 param_4)\r\n\r\n{\r\n  longlong lVar1;\r\n  \r\n  if (param_2 < 0) {\r\n    if (DAT_1443d3888 != (code *)0x0) {\r\n      lVar1 = FUN_1429f0850(param_2);\r\n      if (lVar1 == 0) {\r\n        FUN_1429f0cd0(s__s__d___OpenSSL_internal_error__a_144099338,s___crypto_cryptlib_c_144099280,\r\n                      0x254,s_pointer____NULL_144099270);\r\n        raise(0x16);\r\n                    /* WARNING: Subroutine does not return */\r\n        _exit(3);\r\n      }\r\n      (*DAT_1443d3888)(param_1,lVar1,param_3,param_4);\r\n      FUN_1429f0750(param_2);\r\n    }\r\n  }\r\n  else if (DAT_1443d3860 != (code *)0x0) {\r\n    (*DAT_1443d3860)();\r\n  }\r\n  return;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\n/* WARNING: Function: _alloca_probe replaced with injection: alloca_probe */\r\n\r\nvoid FUN_1429f0fe0(undefined8 param_1,undefined4 param_2,undefined8 param_3)\r\n\r\n{\r\n  FUN_1429f0cd0(s__s__d___OpenSSL_internal_error__a_144099338,param_1,param_2,param_3,0x1429f0fea);\r\n  raise(0x16);\r\n                    /* WARNING: Subroutine does not return */\r\n  _exit(3);\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\n/* WARNING: Function: _alloca_probe replaced with injection: alloca_probe */\r\n\r\nvoid FUN_1429f0fe0(undefined8 param_1,undefined4 param_2,undefined8 param_3)\r\n\r\n{\r\n  FUN_1429f0cd0(s__s__d___OpenSSL_internal_error__a_144099338,param_1,param_2,param_3,0x1429f0fea);\r\n  raise(0x16);\r\n                    /* WARNING: Subroutine does not return */\r\n  _exit(3);\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nvoid __cdecl abort(void)\r\n\r\n{\r\n                    /* WARNING: Could not recover jumptable at 0x00014311c11e. Too many branches */\r\n                    /* WARNING: Subroutine does not return */\r\n                    /* WARNING: Treating indirect jump as call */\r\n  abort();\r\n  return;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nvoid __cdecl abort(void)\r\n\r\n{\r\n                    /* WARNING: Could not recover jumptable at 0x00014311c11e. Too many branches */\r\n                    /* WARNING: Subroutine does not return */\r\n                    /* WARNING: Treating indirect jump as call */\r\n  abort();\r\n  return;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "startup_exit_thunk_assembly": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "14311c11e: JMP qword ptr [0x14322d500] \n"
+            }
+          ],
+          "structuredContent": {
+            "result": "14311c11e: JMP qword ptr [0x14322d500] \n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "14311c1de: JMP qword ptr [0x14322d4e8] \n"
+            }
+          ],
+          "structuredContent": {
+            "result": "14311c1de: JMP qword ptr [0x14322d4e8] \n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "14311c0d0: JMP qword ptr [0x14322d538] \n"
+            }
+          ],
+          "structuredContent": {
+            "result": "14311c0d0: JMP qword ptr [0x14322d538] \n"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "startup_exit_iat_refs": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "From 14049e1bf in FUN_14049e130 [READ]\nFrom 14049e293 in FUN_14049e200 [READ]\nFrom 14311c11e in abort [INDIRECTION]"
+            }
+          ],
+          "structuredContent": {
+            "result": "From 14049e1bf in FUN_14049e130 [READ]\nFrom 14049e293 in FUN_14049e200 [READ]\nFrom 14311c11e in abort [INDIRECTION]"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "From 14311c1de in _exit [INDIRECTION]"
+            }
+          ],
+          "structuredContent": {
+            "result": "From 14311c1de in _exit [INDIRECTION]"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "From 14039c6b2 in FEngineLoop_ValidateProjectName [READ]\nFrom 140dab86c in FUN_140dab5c0 [READ]\nFrom 14311c0d0 in exit [INDIRECTION]"
+            }
+          ],
+          "structuredContent": {
+            "result": "From 14039c6b2 in FEngineLoop_ValidateProjectName [READ]\nFrom 140dab86c in FUN_140dab5c0 [READ]\nFrom 14311c0d0 in exit [INDIRECTION]"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "From 14311a245 in __raise_securityfailure [INDIRECTION]\nFrom 140e0e5ed in FUN_140e0e590 [INDIRECTION]\nFrom 140dfa836 in FUN_140dfa7c0 [READ]\nFrom 140e0edc0 in FUN_140e0ed30 [INDIRECTION]"
+            }
+          ],
+          "structuredContent": {
+            "result": "From 14311a245 in __raise_securityfailure [INDIRECTION]\nFrom 140e0e5ed in FUN_140e0e590 [INDIRECTION]\nFrom 140dfa836 in FUN_140dfa7c0 [READ]\nFrom 140e0edc0 in FUN_140e0ed30 [INDIRECTION]"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "From 142d07f50 in FUN_142d07ea0 [READ]\nFrom 142d10df5 in FUN_142d10d80 [READ]\nFrom 142d091bf in FUN_142d09100 [READ]"
+            }
+          ],
+          "structuredContent": {
+            "result": "From 142d07f50 in FUN_142d07ea0 [READ]\nFrom 142d10df5 in FUN_142d10d80 [READ]\nFrom 142d091bf in FUN_142d09100 [READ]"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "startup_exit_direct_paths": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\n_Facet_base * FUN_14049e130(longlong param_1)\r\n\r\n{\r\n  _Facet_base *p_Var1;\r\n  __uint64 _Var2;\r\n  _Locimp *p_Var3;\r\n  longlong lVar4;\r\n  _Facet_base *p_Var5;\r\n  _Lockit local_res8 [8];\r\n  _Facet_base *local_res10;\r\n  \r\n  std::_Lockit::_Lockit(local_res8,0);\r\n  p_Var1 = DAT_144148b80;\r\n  local_res10 = DAT_144148b80;\r\n  _Var2 = std::locale::id::operator_unsigned___int64((id *)id_exref);\r\n  lVar4 = *(longlong *)(param_1 + 8);\r\n  if (_Var2 < *(ulonglong *)(lVar4 + 0x18)) {\r\n    p_Var5 = *(_Facet_base **)(*(longlong *)(lVar4 + 0x10) + _Var2 * 8);\r\n    if (p_Var5 != (_Facet_base *)0x0) goto LAB_14049e1e3;\r\n  }\r\n  else {\r\n    p_Var5 = (_Facet_base *)0x0;\r\n  }\r\n  if (*(char *)(lVar4 + 0x24) == '\\0') {\r\nLAB_14049e19d:\r\n    if (p_Var5 != (_Facet_base *)0x0) goto LAB_14049e1e3;\r\n  }\r\n  else {\r\n    p_Var3 = std::locale::_Getgloballocale();\r\n    if (_Var2 < *(ulonglong *)(p_Var3 + 0x18)) {\r\n      p_Var5 = *(_Facet_base **)(*(longlong *)(p_Var3 + 0x10) + _Var2 * 8);\r\n      goto LAB_14049e19d;\r\n    }\r\n  }\r\n  p_Var5 = p_Var1;\r\n  if (p_Var1 == (_Facet_base *)0x0) {\r\n    lVar4 = FUN_1404d3fb0(&local_res10,param_1);\r\n    p_Var5 = local_res10;\r\n    if (lVar4 == -1) {\r\n                    /* WARNING: Subroutine does not return */\r\n      abort();\r\n    }\r\n    DAT_144148b80 = local_res10;\r\n    (**(code **)(*(longlong *)local_res10 + 8))(local_res10);\r\n    std::_Facet_Register(p_Var5);\r\n  }\r\nLAB_14049e1e3:\r\n  std::_Lockit::~_Lockit(local_res8);\r\n  return p_Var5;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\n_Facet_base * FUN_14049e130(longlong param_1)\r\n\r\n{\r\n  _Facet_base *p_Var1;\r\n  __uint64 _Var2;\r\n  _Locimp *p_Var3;\r\n  longlong lVar4;\r\n  _Facet_base *p_Var5;\r\n  _Lockit local_res8 [8];\r\n  _Facet_base *local_res10;\r\n  \r\n  std::_Lockit::_Lockit(local_res8,0);\r\n  p_Var1 = DAT_144148b80;\r\n  local_res10 = DAT_144148b80;\r\n  _Var2 = std::locale::id::operator_unsigned___int64((id *)id_exref);\r\n  lVar4 = *(longlong *)(param_1 + 8);\r\n  if (_Var2 < *(ulonglong *)(lVar4 + 0x18)) {\r\n    p_Var5 = *(_Facet_base **)(*(longlong *)(lVar4 + 0x10) + _Var2 * 8);\r\n    if (p_Var5 != (_Facet_base *)0x0) goto LAB_14049e1e3;\r\n  }\r\n  else {\r\n    p_Var5 = (_Facet_base *)0x0;\r\n  }\r\n  if (*(char *)(lVar4 + 0x24) == '\\0') {\r\nLAB_14049e19d:\r\n    if (p_Var5 != (_Facet_base *)0x0) goto LAB_14049e1e3;\r\n  }\r\n  else {\r\n    p_Var3 = std::locale::_Getgloballocale();\r\n    if (_Var2 < *(ulonglong *)(p_Var3 + 0x18)) {\r\n      p_Var5 = *(_Facet_base **)(*(longlong *)(p_Var3 + 0x10) + _Var2 * 8);\r\n      goto LAB_14049e19d;\r\n    }\r\n  }\r\n  p_Var5 = p_Var1;\r\n  if (p_Var1 == (_Facet_base *)0x0) {\r\n    lVar4 = FUN_1404d3fb0(&local_res10,param_1);\r\n    p_Var5 = local_res10;\r\n    if (lVar4 == -1) {\r\n                    /* WARNING: Subroutine does not return */\r\n      abort();\r\n    }\r\n    DAT_144148b80 = local_res10;\r\n    (**(code **)(*(longlong *)local_res10 + 8))(local_res10);\r\n    std::_Facet_Register(p_Var5);\r\n  }\r\nLAB_14049e1e3:\r\n  std::_Lockit::~_Lockit(local_res8);\r\n  return p_Var5;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\n_Facet_base * FUN_14049e200(locale *param_1)\r\n\r\n{\r\n  longlong lVar1;\r\n  __uint64 _Var2;\r\n  _Locimp *p_Var3;\r\n  _Facet_base *p_Var4;\r\n  _Lockit local_res8 [8];\r\n  _Facet_base *local_res10;\r\n  \r\n  std::_Lockit::_Lockit(local_res8,0);\r\n  local_res10 = DAT_144148b78;\r\n  _Var2 = std::locale::id::operator_unsigned___int64((id *)id_exref);\r\n  lVar1 = *(longlong *)(param_1 + 8);\r\n  if (_Var2 < *(ulonglong *)(lVar1 + 0x18)) {\r\n    p_Var4 = *(_Facet_base **)(*(longlong *)(lVar1 + 0x10) + _Var2 * 8);\r\n    if (p_Var4 != (_Facet_base *)0x0) goto LAB_14049e2b7;\r\n  }\r\n  else {\r\n    p_Var4 = (_Facet_base *)0x0;\r\n  }\r\n  if (*(char *)(lVar1 + 0x24) == '\\0') {\r\nLAB_14049e270:\r\n    if (p_Var4 != (_Facet_base *)0x0) goto LAB_14049e2b7;\r\n  }\r\n  else {\r\n    p_Var3 = std::locale::_Getgloballocale();\r\n    if (_Var2 < *(ulonglong *)(p_Var3 + 0x18)) {\r\n      p_Var4 = *(_Facet_base **)(*(longlong *)(p_Var3 + 0x10) + _Var2 * 8);\r\n      goto LAB_14049e270;\r\n    }\r\n  }\r\n  p_Var4 = local_res10;\r\n  if (local_res10 == (_Facet_base *)0x0) {\r\n    _Var2 = std::ctype<char>::_Getcat((facet **)&local_res10,param_1);\r\n    p_Var4 = local_res10;\r\n    if (_Var2 == 0xffffffffffffffff) {\r\n                    /* WARNING: Subroutine does not return */\r\n      abort();\r\n    }\r\n    DAT_144148b78 = local_res10;\r\n    (**(code **)(*(longlong *)local_res10 + 8))(local_res10);\r\n    std::_Facet_Register(p_Var4);\r\n  }\r\nLAB_14049e2b7:\r\n  std::_Lockit::~_Lockit(local_res8);\r\n  return p_Var4;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\n_Facet_base * FUN_14049e200(locale *param_1)\r\n\r\n{\r\n  longlong lVar1;\r\n  __uint64 _Var2;\r\n  _Locimp *p_Var3;\r\n  _Facet_base *p_Var4;\r\n  _Lockit local_res8 [8];\r\n  _Facet_base *local_res10;\r\n  \r\n  std::_Lockit::_Lockit(local_res8,0);\r\n  local_res10 = DAT_144148b78;\r\n  _Var2 = std::locale::id::operator_unsigned___int64((id *)id_exref);\r\n  lVar1 = *(longlong *)(param_1 + 8);\r\n  if (_Var2 < *(ulonglong *)(lVar1 + 0x18)) {\r\n    p_Var4 = *(_Facet_base **)(*(longlong *)(lVar1 + 0x10) + _Var2 * 8);\r\n    if (p_Var4 != (_Facet_base *)0x0) goto LAB_14049e2b7;\r\n  }\r\n  else {\r\n    p_Var4 = (_Facet_base *)0x0;\r\n  }\r\n  if (*(char *)(lVar1 + 0x24) == '\\0') {\r\nLAB_14049e270:\r\n    if (p_Var4 != (_Facet_base *)0x0) goto LAB_14049e2b7;\r\n  }\r\n  else {\r\n    p_Var3 = std::locale::_Getgloballocale();\r\n    if (_Var2 < *(ulonglong *)(p_Var3 + 0x18)) {\r\n      p_Var4 = *(_Facet_base **)(*(longlong *)(p_Var3 + 0x10) + _Var2 * 8);\r\n      goto LAB_14049e270;\r\n    }\r\n  }\r\n  p_Var4 = local_res10;\r\n  if (local_res10 == (_Facet_base *)0x0) {\r\n    _Var2 = std::ctype<char>::_Getcat((facet **)&local_res10,param_1);\r\n    p_Var4 = local_res10;\r\n    if (_Var2 == 0xffffffffffffffff) {\r\n                    /* WARNING: Subroutine does not return */\r\n      abort();\r\n    }\r\n    DAT_144148b78 = local_res10;\r\n    (**(code **)(*(longlong *)local_res10 + 8))(local_res10);\r\n    std::_Facet_Register(p_Var4);\r\n  }\r\nLAB_14049e2b7:\r\n  std::_Lockit::~_Lockit(local_res8);\r\n  return p_Var4;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\n/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */\r\n\r\nvoid FUN_140dab5c0(void)\r\n\r\n{\r\n  int *piVar1;\r\n  int iVar2;\r\n  bool bVar3;\r\n  char cVar4;\r\n  short sVar5;\r\n  short sVar6;\r\n  undefined8 *puVar7;\r\n  longlong *plVar8;\r\n  undefined8 uVar9;\r\n  wchar_t *pwVar10;\r\n  wchar_t *pwVar11;\r\n  longlong lVar12;\r\n  wchar_t *pwVar13;\r\n  ulonglong in_stack_fffffffffffffe88;\r\n  ulonglong uVar14;\r\n  undefined1 local_158 [8];\r\n  longlong *local_150;\r\n  void *local_140 [2];\r\n  void *local_130 [2];\r\n  void *local_120 [2];\r\n  void *local_110 [2];\r\n  void *local_100 [2];\r\n  void *local_f0 [2];\r\n  void *local_e0 [2];\r\n  void *local_d0 [2];\r\n  void *local_c0 [2];\r\n  void *local_b0 [2];\r\n  undefined1 local_a0 [8];\r\n  longlong *local_98;\r\n  undefined1 local_88 [8];\r\n  longlong *local_80;\r\n  undefined4 local_70 [4];\r\n  undefined1 local_60 [24];\r\n  undefined1 local_48;\r\n  undefined1 local_40 [24];\r\n  \r\n  FUN_140dda700();\r\n  g_MainSingletonPtr = FMemory_Malloc(0x60);\r\n  lVar12 = 0;\r\n  if (g_MainSingletonPtr == (undefined8 *)0x0) {\r\n    g_MainSingletonPtr = (undefined8 *)0x0;\r\n  }\r\n  else {\r\n    g_MainSingletonPtr[1] = 0;\r\n    g_MainSingletonPtr[2] = 0;\r\n    g_MainSingletonPtr[5] = 0;\r\n    g_MainSingletonPtr[6] = 0;\r\n    *(undefined4 *)(g_MainSingletonPtr + 7) = 0xffffffff;\r\n    *(undefined4 *)((longlong)g_MainSingletonPtr + 0x3c) = 0;\r\n    g_MainSingletonPtr[9] = 0;\r\n    *(undefined4 *)(g_MainSingletonPtr + 10) = 0;\r\n    *g_MainSingletonPtr = &PTR_FUN_1434d0978;\r\n    *(undefined2 *)(g_MainSingletonPtr + 0xb) = 0;\r\n    *(undefined1 *)((longlong)g_MainSingletonPtr + 0x5a) = 0;\r\n  }\r\n  if (u_SoulcaliburVI_14406e860[0] != L'\\0') {\r\n    do {\r\n      if ((*(short *)((longlong)u_SoulcaliburVI_14406e860 + lVar12) == 0) &&\r\n         (*(short *)((longlong)&DAT_14325b828 + lVar12) == 0)) break;\r\n      if (*(short *)((longlong)u_SoulcaliburVI_14406e860 + lVar12) !=\r\n          *(short *)((longlong)&DAT_14325b828 + lVar12)) {\r\n        sVar5 = (*g_pTowlowerImport)();\r\n        sVar6 = (*g_pTowlowerImport)(*(undefined2 *)((longlong)&DAT_14325b828 + lVar12));\r\n        if (sVar5 != sVar6) goto LAB_140dab68a;\r\n      }\r\n      lVar12 = lVar12 + 2;\r\n    } while( true );\r\n  }\r\nLAB_140dab699:\r\n  bVar3 = false;\r\nLAB_140dab69b:\r\n  if ((!bVar3) || ((DAT_144148430 == '\\0' && (u_SoulcaliburVI_14406e860[0] != L'\\0')))) {\r\n    uVar9 = 0;\r\n  }\r\n  else {\r\n    uVar9 = 1;\r\n  }\r\n  puVar7 = (undefined8 *)FUN_140dc84e0(local_140);\r\n  pwVar13 = L\"\";\r\n  if (*(int *)(puVar7 + 1) == 0) {\r\n    pwVar11 = L\"\";\r\n  }\r\n  else {\r\n    pwVar11 = (wchar_t *)*puVar7;\r\n  }\r\n  pwVar10 = (wchar_t *)(in_stack_fffffffffffffe88 & 0xffffffffffffff00);\r\n  cVar4 = FUN_140dacf70(&g_OnlineSubsystemSteamConfigFile,L\"Engine\",0,uVar9,pwVar10,1,pwVar11);\r\n  if (local_140[0] != (void *)0x0) {\r\n    FMemory_Free(local_140[0]);\r\n  }\r\n  if (((bVar3) && (DAT_144148430 != '\\0')) && (cVar4 == '\\0')) {\r\n    plVar8 = (longlong *)FUN_140d47280();\r\n    puVar7 = (undefined8 *)FUN_140dca0d0(local_120,&g_OnlineSubsystemSteamConfigFile);\r\n    if (*(int *)(puVar7 + 1) == 0) {\r\n      pwVar11 = L\"\";\r\n    }\r\n    else {\r\n      pwVar11 = (wchar_t *)*puVar7;\r\n    }\r\n    uVar9 = (**(code **)(*plVar8 + 0xd8))(plVar8,local_130,pwVar11);\r\n    FUN_140d7efe0(local_a0,uVar9);\r\n    if (local_130[0] != (void *)0x0) {\r\n      FMemory_Free(local_130[0]);\r\n    }\r\n    if (local_120[0] != (void *)0x0) {\r\n      FMemory_Free(local_120[0]);\r\n    }\r\n    local_70[0] = 4;\r\n    FUN_140d61f70(local_60,local_a0);\r\n    local_48 = 1;\r\n    uVar9 = FUN_140d7c850(local_88,L\"\\'{0}\\' must exist and contain a DefaultEngine.ini.\",L\"Core\",\r\n                          L\"FirstCmdArgMustBeGameName\");\r\n    uVar9 = FUN_140d61fe0(local_40,uVar9);\r\n    FUN_140d7d410(local_158,uVar9,local_70);\r\n    if (local_80 != (longlong *)0x0) {\r\n      LOCK();\r\n      plVar8 = local_80 + 1;\r\n      lVar12 = *plVar8;\r\n      *(int *)plVar8 = (int)*plVar8 + -1;\r\n      UNLOCK();\r\n      if ((int)lVar12 == 1) {\r\n        (**(code **)*local_80)(local_80);\r\n        LOCK();\r\n        piVar1 = (int *)((longlong)local_80 + 0xc);\r\n        iVar2 = *piVar1;\r\n        *piVar1 = *piVar1 + -1;\r\n        UNLOCK();\r\n        if (iVar2 == 1) {\r\n          (**(code **)(*local_80 + 8))(local_80,1);\r\n        }\r\n      }\r\n    }\r\n    if (DAT_144197138 == '\\0') {\r\n      FUN_140dd0080(0,local_158,0);\r\n    }\r\n    (*g_pWcsncpyImport)(u_SoulcaliburVI_14406e860,&DAT_1434c461c,0x3f);\r\n    _DAT_14406e8de = 0;\r\n    if (DAT_144197138 == '\\0') {\r\n                    /* WARNING: Subroutine does not return */\r\n      exit(1);\r\n    }\r\n    puVar7 = (undefined8 *)FUN_140d93aa0(local_158);\r\n    if (*(int *)(puVar7 + 1) == 0) {\r\n      pwVar11 = L\"\";\r\n    }\r\n    else {\r\n      pwVar11 = (wchar_t *)*puVar7;\r\n    }\r\n    FMsg_Logf(\"D:\\\\dev\\\\sc6\\\\UE4_Steam\\\\Engine\\\\Source\\\\Runtime\\\\Core\\\\Private\\\\Misc\\\\ConfigCacheIni.cpp\"\r\n              ,0xc33,&DAT_1434c4654,pwVar11);\r\n    puVar7 = (undefined8 *)FUN_140d93aa0(local_158);\r\n    if (*(int *)(puVar7 + 1) == 0) {\r\n      pwVar10 = L\"\";\r\n    }\r\n    else {\r\n      pwVar10 = (wchar_t *)*puVar7;\r\n    }\r\n    FError_Throwf(&DAT_1434c162f,\r\n                  \"D:\\\\dev\\\\sc6\\\\UE4_Steam\\\\Engine\\\\Source\\\\Runtime\\\\Core\\\\Private\\\\Misc\\\\ConfigCacheIni.cpp\"\r\n                  ,0xc33,&DAT_1434c47d4,pwVar10);\r\n    if (local_150 != (longlong *)0x0) {\r\n      LOCK();\r\n      plVar8 = local_150 + 1;\r\n      lVar12 = *plVar8;\r\n      *(int *)plVar8 = (int)*plVar8 + -1;\r\n      UNLOCK();\r\n      if ((int)lVar12 == 1) {\r\n        (**(code **)*local_150)(local_150);\r\n        LOCK();\r\n        piVar1 = (int *)((longlong)local_150 + 0xc);\r\n        iVar2 = *piVar1;\r\n        *piVar1 = *piVar1 + -1;\r\n        UNLOCK();\r\n        if (iVar2 == 1) {\r\n          (**(code **)(*local_150 + 8))(local_150,1);\r\n        }\r\n      }\r\n    }\r\n    if (local_98 != (longlong *)0x0) {\r\n      LOCK();\r\n      plVar8 = local_98 + 1;\r\n      lVar12 = *plVar8;\r\n      *(int *)plVar8 = (int)*plVar8 + -1;\r\n      UNLOCK();\r\n      if ((int)lVar12 == 1) {\r\n        (**(code **)*local_98)(local_98);\r\n        LOCK();\r\n        piVar1 = (int *)((longlong)local_98 + 0xc);\r\n        iVar2 = *piVar1;\r\n        *piVar1 = *piVar1 + -1;\r\n        UNLOCK();\r\n        if (iVar2 == 1) {\r\n          (**(code **)(*local_98 + 8))(local_98,1);\r\n        }\r\n      }\r\n    }\r\n  }\r\n  puVar7 = (undefined8 *)FUN_140dc84e0(local_110);\r\n  if (*(int *)(puVar7 + 1) == 0) {\r\n    pwVar11 = L\"\";\r\n  }\r\n  else {\r\n    pwVar11 = (wchar_t *)*puVar7;\r\n  }\r\n  uVar14 = (ulonglong)pwVar10 & 0xffffffffffffff00;\r\n  FUN_140dacf70(&DAT_1441974f8,L\"Game\",0,0,uVar14,1,pwVar11);\r\n  if (local_110[0] != (void *)0x0) {\r\n    FMemory_Free(local_110[0]);\r\n  }\r\n  puVar7 = (undefined8 *)FUN_140dc84e0(local_100);\r\n  if (*(int *)(puVar7 + 1) == 0) {\r\n    pwVar11 = L\"\";\r\n  }\r\n  else {\r\n    pwVar11 = (wchar_t *)*puVar7;\r\n  }\r\n  uVar14 = uVar14 & 0xffffffffffffff00;\r\n  FUN_140dacf70(&DAT_1441974e8,L\"Input\",0,0,uVar14,1,pwVar11);\r\n  if (local_100[0] != (void *)0x0) {\r\n    FMemory_Free(local_100[0]);\r\n  }\r\n  puVar7 = (undefined8 *)FUN_140dc84e0(local_f0);\r\n  if (*(int *)(puVar7 + 1) == 0) {\r\n    pwVar11 = L\"\";\r\n  }\r\n  else {\r\n    pwVar11 = (wchar_t *)*puVar7;\r\n  }\r\n  uVar14 = uVar14 & 0xffffffffffffff00;\r\n  FUN_140dacf70(&DAT_1441974a8,L\"Compat\",0,0,uVar14,1,pwVar11);\r\n  if (local_f0[0] != (void *)0x0) {\r\n    FMemory_Free(local_f0[0]);\r\n  }\r\n  puVar7 = (undefined8 *)FUN_140dc84e0(local_e0);\r\n  if (*(int *)(puVar7 + 1) == 0) {\r\n    pwVar11 = L\"\";\r\n  }\r\n  else {\r\n    pwVar11 = (wchar_t *)*puVar7;\r\n  }\r\n  uVar14 = uVar14 & 0xffffffffffffff00;\r\n  FUN_140dacf70(&DAT_1441974b8,L\"Lightmass\",0,0,uVar14,1,pwVar11);\r\n  if (local_e0[0] != (void *)0x0) {\r\n    FMemory_Free(local_e0[0]);\r\n  }\r\n  puVar7 = (undefined8 *)FUN_140dc84e0(local_d0);\r\n  if (*(int *)(puVar7 + 1) == 0) {\r\n    pwVar11 = L\"\";\r\n  }\r\n  else {\r\n    pwVar11 = (wchar_t *)*puVar7;\r\n  }\r\n  uVar14 = uVar14 & 0xffffffffffffff00;\r\n  FUN_140dacf70(&DAT_1441974c8,L\"Scalability\",0,0,uVar14,1,pwVar11);\r\n  if (local_d0[0] != (void *)0x0) {\r\n    FMemory_Free(local_d0[0]);\r\n  }\r\n  puVar7 = (undefined8 *)FUN_140dc84e0(local_c0);\r\n  if (*(int *)(puVar7 + 1) == 0) {\r\n    pwVar11 = L\"\";\r\n  }\r\n  else {\r\n    pwVar11 = (wchar_t *)*puVar7;\r\n  }\r\n  uVar14 = uVar14 & 0xffffffffffffff00;\r\n  FUN_140dacf70(&DAT_1441974d8,L\"Hardware\",0,0,uVar14,1,pwVar11);\r\n  if (local_c0[0] != (void *)0x0) {\r\n    FMemory_Free(local_c0[0]);\r\n  }\r\n  puVar7 = (undefined8 *)FUN_140dc84e0(local_b0);\r\n  if (*(int *)(puVar7 + 1) != 0) {\r\n    pwVar13 = (wchar_t *)*puVar7;\r\n  }\r\n  FUN_140dacf70(&DAT_144197508,L\"GameUserSettings\",0,0,uVar14 & 0xffffffffffffff00,1,pwVar13);\r\n  if (local_b0[0] != (void *)0x0) {\r\n    FMemory_Free(local_b0[0]);\r\n  }\r\n  *(undefined1 *)((longlong)g_MainSingletonPtr + 0x59) = 1;\r\n  DispatchEngineCallbackEntriesAndCompact((FCallbackEntryCollection_Partial *)&DAT_144076f10);\r\n  return;\r\nLAB_140dab68a:\r\n  bVar3 = true;\r\n  if (sVar5 != sVar6) goto LAB_140dab69b;\r\n  goto LAB_140dab699;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\n/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */\r\n\r\nvoid FUN_140dab5c0(void)\r\n\r\n{\r\n  int *piVar1;\r\n  int iVar2;\r\n  bool bVar3;\r\n  char cVar4;\r\n  short sVar5;\r\n  short sVar6;\r\n  undefined8 *puVar7;\r\n  longlong *plVar8;\r\n  undefined8 uVar9;\r\n  wchar_t *pwVar10;\r\n  wchar_t *pwVar11;\r\n  longlong lVar12;\r\n  wchar_t *pwVar13;\r\n  ulonglong in_stack_fffffffffffffe88;\r\n  ulonglong uVar14;\r\n  undefined1 local_158 [8];\r\n  longlong *local_150;\r\n  void *local_140 [2];\r\n  void *local_130 [2];\r\n  void *local_120 [2];\r\n  void *local_110 [2];\r\n  void *local_100 [2];\r\n  void *local_f0 [2];\r\n  void *local_e0 [2];\r\n  void *local_d0 [2];\r\n  void *local_c0 [2];\r\n  void *local_b0 [2];\r\n  undefined1 local_a0 [8];\r\n  longlong *local_98;\r\n  undefined1 local_88 [8];\r\n  longlong *local_80;\r\n  undefined4 local_70 [4];\r\n  undefined1 local_60 [24];\r\n  undefined1 local_48;\r\n  undefined1 local_40 [24];\r\n  \r\n  FUN_140dda700();\r\n  g_MainSingletonPtr = FMemory_Malloc(0x60);\r\n  lVar12 = 0;\r\n  if (g_MainSingletonPtr == (undefined8 *)0x0) {\r\n    g_MainSingletonPtr = (undefined8 *)0x0;\r\n  }\r\n  else {\r\n    g_MainSingletonPtr[1] = 0;\r\n    g_MainSingletonPtr[2] = 0;\r\n    g_MainSingletonPtr[5] = 0;\r\n    g_MainSingletonPtr[6] = 0;\r\n    *(undefined4 *)(g_MainSingletonPtr + 7) = 0xffffffff;\r\n    *(undefined4 *)((longlong)g_MainSingletonPtr + 0x3c) = 0;\r\n    g_MainSingletonPtr[9] = 0;\r\n    *(undefined4 *)(g_MainSingletonPtr + 10) = 0;\r\n    *g_MainSingletonPtr = &PTR_FUN_1434d0978;\r\n    *(undefined2 *)(g_MainSingletonPtr + 0xb) = 0;\r\n    *(undefined1 *)((longlong)g_MainSingletonPtr + 0x5a) = 0;\r\n  }\r\n  if (u_SoulcaliburVI_14406e860[0] != L'\\0') {\r\n    do {\r\n      if ((*(short *)((longlong)u_SoulcaliburVI_14406e860 + lVar12) == 0) &&\r\n         (*(short *)((longlong)&DAT_14325b828 + lVar12) == 0)) break;\r\n      if (*(short *)((longlong)u_SoulcaliburVI_14406e860 + lVar12) !=\r\n          *(short *)((longlong)&DAT_14325b828 + lVar12)) {\r\n        sVar5 = (*g_pTowlowerImport)();\r\n        sVar6 = (*g_pTowlowerImport)(*(undefined2 *)((longlong)&DAT_14325b828 + lVar12));\r\n        if (sVar5 != sVar6) goto LAB_140dab68a;\r\n      }\r\n      lVar12 = lVar12 + 2;\r\n    } while( true );\r\n  }\r\nLAB_140dab699:\r\n  bVar3 = false;\r\nLAB_140dab69b:\r\n  if ((!bVar3) || ((DAT_144148430 == '\\0' && (u_SoulcaliburVI_14406e860[0] != L'\\0')))) {\r\n    uVar9 = 0;\r\n  }\r\n  else {\r\n    uVar9 = 1;\r\n  }\r\n  puVar7 = (undefined8 *)FUN_140dc84e0(local_140);\r\n  pwVar13 = L\"\";\r\n  if (*(int *)(puVar7 + 1) == 0) {\r\n    pwVar11 = L\"\";\r\n  }\r\n  else {\r\n    pwVar11 = (wchar_t *)*puVar7;\r\n  }\r\n  pwVar10 = (wchar_t *)(in_stack_fffffffffffffe88 & 0xffffffffffffff00);\r\n  cVar4 = FUN_140dacf70(&g_OnlineSubsystemSteamConfigFile,L\"Engine\",0,uVar9,pwVar10,1,pwVar11);\r\n  if (local_140[0] != (void *)0x0) {\r\n    FMemory_Free(local_140[0]);\r\n  }\r\n  if (((bVar3) && (DAT_144148430 != '\\0')) && (cVar4 == '\\0')) {\r\n    plVar8 = (longlong *)FUN_140d47280();\r\n    puVar7 = (undefined8 *)FUN_140dca0d0(local_120,&g_OnlineSubsystemSteamConfigFile);\r\n    if (*(int *)(puVar7 + 1) == 0) {\r\n      pwVar11 = L\"\";\r\n    }\r\n    else {\r\n      pwVar11 = (wchar_t *)*puVar7;\r\n    }\r\n    uVar9 = (**(code **)(*plVar8 + 0xd8))(plVar8,local_130,pwVar11);\r\n    FUN_140d7efe0(local_a0,uVar9);\r\n    if (local_130[0] != (void *)0x0) {\r\n      FMemory_Free(local_130[0]);\r\n    }\r\n    if (local_120[0] != (void *)0x0) {\r\n      FMemory_Free(local_120[0]);\r\n    }\r\n    local_70[0] = 4;\r\n    FUN_140d61f70(local_60,local_a0);\r\n    local_48 = 1;\r\n    uVar9 = FUN_140d7c850(local_88,L\"\\'{0}\\' must exist and contain a DefaultEngine.ini.\",L\"Core\",\r\n                          L\"FirstCmdArgMustBeGameName\");\r\n    uVar9 = FUN_140d61fe0(local_40,uVar9);\r\n    FUN_140d7d410(local_158,uVar9,local_70);\r\n    if (local_80 != (longlong *)0x0) {\r\n      LOCK();\r\n      plVar8 = local_80 + 1;\r\n      lVar12 = *plVar8;\r\n      *(int *)plVar8 = (int)*plVar8 + -1;\r\n      UNLOCK();\r\n      if ((int)lVar12 == 1) {\r\n        (**(code **)*local_80)(local_80);\r\n        LOCK();\r\n        piVar1 = (int *)((longlong)local_80 + 0xc);\r\n        iVar2 = *piVar1;\r\n        *piVar1 = *piVar1 + -1;\r\n        UNLOCK();\r\n        if (iVar2 == 1) {\r\n          (**(code **)(*local_80 + 8))(local_80,1);\r\n        }\r\n      }\r\n    }\r\n    if (DAT_144197138 == '\\0') {\r\n      FUN_140dd0080(0,local_158,0);\r\n    }\r\n    (*g_pWcsncpyImport)(u_SoulcaliburVI_14406e860,&DAT_1434c461c,0x3f);\r\n    _DAT_14406e8de = 0;\r\n    if (DAT_144197138 == '\\0') {\r\n                    /* WARNING: Subroutine does not return */\r\n      exit(1);\r\n    }\r\n    puVar7 = (undefined8 *)FUN_140d93aa0(local_158);\r\n    if (*(int *)(puVar7 + 1) == 0) {\r\n      pwVar11 = L\"\";\r\n    }\r\n    else {\r\n      pwVar11 = (wchar_t *)*puVar7;\r\n    }\r\n    FMsg_Logf(\"D:\\\\dev\\\\sc6\\\\UE4_Steam\\\\Engine\\\\Source\\\\Runtime\\\\Core\\\\Private\\\\Misc\\\\ConfigCacheIni.cpp\"\r\n              ,0xc33,&DAT_1434c4654,pwVar11);\r\n    puVar7 = (undefined8 *)FUN_140d93aa0(local_158);\r\n    if (*(int *)(puVar7 + 1) == 0) {\r\n      pwVar10 = L\"\";\r\n    }\r\n    else {\r\n      pwVar10 = (wchar_t *)*puVar7;\r\n    }\r\n    FError_Throwf(&DAT_1434c162f,\r\n                  \"D:\\\\dev\\\\sc6\\\\UE4_Steam\\\\Engine\\\\Source\\\\Runtime\\\\Core\\\\Private\\\\Misc\\\\ConfigCacheIni.cpp\"\r\n                  ,0xc33,&DAT_1434c47d4,pwVar10);\r\n    if (local_150 != (longlong *)0x0) {\r\n      LOCK();\r\n      plVar8 = local_150 + 1;\r\n      lVar12 = *plVar8;\r\n      *(int *)plVar8 = (int)*plVar8 + -1;\r\n      UNLOCK();\r\n      if ((int)lVar12 == 1) {\r\n        (**(code **)*local_150)(local_150);\r\n        LOCK();\r\n        piVar1 = (int *)((longlong)local_150 + 0xc);\r\n        iVar2 = *piVar1;\r\n        *piVar1 = *piVar1 + -1;\r\n        UNLOCK();\r\n        if (iVar2 == 1) {\r\n          (**(code **)(*local_150 + 8))(local_150,1);\r\n        }\r\n      }\r\n    }\r\n    if (local_98 != (longlong *)0x0) {\r\n      LOCK();\r\n      plVar8 = local_98 + 1;\r\n      lVar12 = *plVar8;\r\n      *(int *)plVar8 = (int)*plVar8 + -1;\r\n      UNLOCK();\r\n      if ((int)lVar12 == 1) {\r\n        (**(code **)*local_98)(local_98);\r\n        LOCK();\r\n        piVar1 = (int *)((longlong)local_98 + 0xc);\r\n        iVar2 = *piVar1;\r\n        *piVar1 = *piVar1 + -1;\r\n        UNLOCK();\r\n        if (iVar2 == 1) {\r\n          (**(code **)(*local_98 + 8))(local_98,1);\r\n        }\r\n      }\r\n    }\r\n  }\r\n  puVar7 = (undefined8 *)FUN_140dc84e0(local_110);\r\n  if (*(int *)(puVar7 + 1) == 0) {\r\n    pwVar11 = L\"\";\r\n  }\r\n  else {\r\n    pwVar11 = (wchar_t *)*puVar7;\r\n  }\r\n  uVar14 = (ulonglong)pwVar10 & 0xffffffffffffff00;\r\n  FUN_140dacf70(&DAT_1441974f8,L\"Game\",0,0,uVar14,1,pwVar11);\r\n  if (local_110[0] != (void *)0x0) {\r\n    FMemory_Free(local_110[0]);\r\n  }\r\n  puVar7 = (undefined8 *)FUN_140dc84e0(local_100);\r\n  if (*(int *)(puVar7 + 1) == 0) {\r\n    pwVar11 = L\"\";\r\n  }\r\n  else {\r\n    pwVar11 = (wchar_t *)*puVar7;\r\n  }\r\n  uVar14 = uVar14 & 0xffffffffffffff00;\r\n  FUN_140dacf70(&DAT_1441974e8,L\"Input\",0,0,uVar14,1,pwVar11);\r\n  if (local_100[0] != (void *)0x0) {\r\n    FMemory_Free(local_100[0]);\r\n  }\r\n  puVar7 = (undefined8 *)FUN_140dc84e0(local_f0);\r\n  if (*(int *)(puVar7 + 1) == 0) {\r\n    pwVar11 = L\"\";\r\n  }\r\n  else {\r\n    pwVar11 = (wchar_t *)*puVar7;\r\n  }\r\n  uVar14 = uVar14 & 0xffffffffffffff00;\r\n  FUN_140dacf70(&DAT_1441974a8,L\"Compat\",0,0,uVar14,1,pwVar11);\r\n  if (local_f0[0] != (void *)0x0) {\r\n    FMemory_Free(local_f0[0]);\r\n  }\r\n  puVar7 = (undefined8 *)FUN_140dc84e0(local_e0);\r\n  if (*(int *)(puVar7 + 1) == 0) {\r\n    pwVar11 = L\"\";\r\n  }\r\n  else {\r\n    pwVar11 = (wchar_t *)*puVar7;\r\n  }\r\n  uVar14 = uVar14 & 0xffffffffffffff00;\r\n  FUN_140dacf70(&DAT_1441974b8,L\"Lightmass\",0,0,uVar14,1,pwVar11);\r\n  if (local_e0[0] != (void *)0x0) {\r\n    FMemory_Free(local_e0[0]);\r\n  }\r\n  puVar7 = (undefined8 *)FUN_140dc84e0(local_d0);\r\n  if (*(int *)(puVar7 + 1) == 0) {\r\n    pwVar11 = L\"\";\r\n  }\r\n  else {\r\n    pwVar11 = (wchar_t *)*puVar7;\r\n  }\r\n  uVar14 = uVar14 & 0xffffffffffffff00;\r\n  FUN_140dacf70(&DAT_1441974c8,L\"Scalability\",0,0,uVar14,1,pwVar11);\r\n  if (local_d0[0] != (void *)0x0) {\r\n    FMemory_Free(local_d0[0]);\r\n  }\r\n  puVar7 = (undefined8 *)FUN_140dc84e0(local_c0);\r\n  if (*(int *)(puVar7 + 1) == 0) {\r\n    pwVar11 = L\"\";\r\n  }\r\n  else {\r\n    pwVar11 = (wchar_t *)*puVar7;\r\n  }\r\n  uVar14 = uVar14 & 0xffffffffffffff00;\r\n  FUN_140dacf70(&DAT_1441974d8,L\"Hardware\",0,0,uVar14,1,pwVar11);\r\n  if (local_c0[0] != (void *)0x0) {\r\n    FMemory_Free(local_c0[0]);\r\n  }\r\n  puVar7 = (undefined8 *)FUN_140dc84e0(local_b0);\r\n  if (*(int *)(puVar7 + 1) != 0) {\r\n    pwVar13 = (wchar_t *)*puVar7;\r\n  }\r\n  FUN_140dacf70(&DAT_144197508,L\"GameUserSettings\",0,0,uVar14 & 0xffffffffffffff00,1,pwVar13);\r\n  if (local_b0[0] != (void *)0x0) {\r\n    FMemory_Free(local_b0[0]);\r\n  }\r\n  *(undefined1 *)((longlong)g_MainSingletonPtr + 0x59) = 1;\r\n  DispatchEngineCallbackEntriesAndCompact((FCallbackEntryCollection_Partial *)&DAT_144076f10);\r\n  return;\r\nLAB_140dab68a:\r\n  bVar3 = true;\r\n  if (sVar5 != sVar6) goto LAB_140dab69b;\r\n  goto LAB_140dab699;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n\r\nlonglong FUN_142d07ea0(char *param_1,undefined8 param_2,undefined8 param_3,undefined8 param_4,\r\n                      undefined8 param_5,undefined8 param_6,undefined8 param_7)\r\n\r\n{\r\n  int iVar1;\r\n  undefined8 uVar2;\r\n  longlong lVar3;\r\n  char *pcVar4;\r\n  longlong lVar5;\r\n  char *pcVar6;\r\n  undefined1 auStack_f8 [32];\r\n  undefined8 local_d8;\r\n  longlong local_c8;\r\n  int local_c0;\r\n  char *local_b8;\r\n  undefined8 local_b0;\r\n  undefined8 local_a8;\r\n  undefined8 local_a0;\r\n  undefined8 local_98;\r\n  undefined8 local_90;\r\n  undefined8 local_88;\r\n  undefined1 local_78 [80];\r\n  ulonglong local_28;\r\n  \r\n  local_28 = g_qwSecurityCookie ^ (ulonglong)auStack_f8;\r\n  local_a8 = param_5;\r\n  local_88 = param_6;\r\n  local_b0 = param_7;\r\n  local_c0 = 0;\r\n  local_b8 = param_1;\r\n  local_a0 = param_4;\r\n  local_98 = param_3;\r\n  local_90 = param_2;\r\n  local_c8 = FUN_142d0f7c0(1);\r\n  if (local_c8 == 0) {\r\n    return 0;\r\n  }\r\n  *(undefined4 *)(local_c8 + 0x45c) = 1000000;\r\n  *(undefined4 *)(local_c8 + 0x460) = 1000000;\r\n  uVar2 = FUN_142d10f20(local_c8,longjmp,0x100);\r\n  iVar1 = __intrinsic_setjmp(uVar2,auStack_f8);\r\n  if (iVar1 != 0) {\r\n                    /* WARNING: Subroutine does not return */\r\n    ExitProcess(0);\r\n  }\r\n  FUN_142d0f9e0(local_c8,local_a8,local_88,local_b0);\r\n  FUN_142d10f00(local_c8,local_90,local_98,local_a0);\r\n  if (local_b8 != (char *)0x0) {\r\n    lVar5 = 0;\r\n    pcVar6 = local_b8;\r\n    do {\r\n      lVar3 = FUN_142d07a20(0);\r\n      if (pcVar6[lVar5] != *(char *)(lVar3 + lVar5)) {\r\n        *(uint *)(local_c8 + 0x158) = *(uint *)(local_c8 + 0x158) | 0x20000;\r\n        pcVar6 = local_b8;\r\n      }\r\n      lVar3 = FUN_142d07a20(0);\r\n      pcVar4 = (char *)(lVar3 + lVar5);\r\n      lVar5 = lVar5 + 1;\r\n    } while (*pcVar4 != '\\0');\r\n  }\r\n  pcVar6 = local_b8;\r\n  if ((*(uint *)(local_c8 + 0x158) & 0x20000) != 0) {\r\n    if (local_b8 != (char *)0x0) {\r\n      pcVar4 = (char *)FUN_142d07a20(0);\r\n      if (((*pcVar6 == *pcVar4) &&\r\n          ((*pcVar6 != '1' || (lVar5 = FUN_142d07a20(0), pcVar6[2] == *(char *)(lVar5 + 2))))) &&\r\n         ((*pcVar6 != '0' || ('8' < pcVar6[2])))) goto LAB_142d0804b;\r\n      if (pcVar6 != (char *)0x0) {\r\n        local_d8 = FUN_142d07a20(0);\r\n        FUN_1429ec890(local_78,0x50,\"Application built with libpng-%.20s but running with %.20s\",\r\n                      pcVar6);\r\n        FUN_142d10f40(local_c8,local_78);\r\n      }\r\n    }\r\n    local_c0 = 1;\r\n  }\r\nLAB_142d0804b:\r\n  *(undefined4 *)(local_c8 + 0x1c0) = 0x2000;\r\n  if (local_c0 == 0) {\r\n    uVar2 = FUN_142d0f960(local_c8,*(undefined4 *)(local_c8 + 0x1c0));\r\n    *(undefined8 *)(local_c8 + 0x1b8) = uVar2;\r\n    if (*(longlong *)(local_c8 + 0x1b8) == 0) {\r\n      local_c0 = 1;\r\n    }\r\n  }\r\n  if (local_c0 != 0) {\r\n    FUN_142d0f8d0(local_c8,*(undefined8 *)(local_c8 + 0x1b8));\r\n    *(undefined8 *)(local_c8 + 0x1b8) = 0;\r\n    FUN_142d0f860(local_c8,local_b0,local_a8);\r\n    return 0;\r\n  }\r\n  FUN_142d0f5b0(local_c8,0,0,0);\r\n  FUN_142d08200(local_c8);\r\n  return local_c8;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n\r\nlonglong FUN_142d07ea0(char *param_1,undefined8 param_2,undefined8 param_3,undefined8 param_4,\r\n                      undefined8 param_5,undefined8 param_6,undefined8 param_7)\r\n\r\n{\r\n  int iVar1;\r\n  undefined8 uVar2;\r\n  longlong lVar3;\r\n  char *pcVar4;\r\n  longlong lVar5;\r\n  char *pcVar6;\r\n  undefined1 auStack_f8 [32];\r\n  undefined8 local_d8;\r\n  longlong local_c8;\r\n  int local_c0;\r\n  char *local_b8;\r\n  undefined8 local_b0;\r\n  undefined8 local_a8;\r\n  undefined8 local_a0;\r\n  undefined8 local_98;\r\n  undefined8 local_90;\r\n  undefined8 local_88;\r\n  undefined1 local_78 [80];\r\n  ulonglong local_28;\r\n  \r\n  local_28 = g_qwSecurityCookie ^ (ulonglong)auStack_f8;\r\n  local_a8 = param_5;\r\n  local_88 = param_6;\r\n  local_b0 = param_7;\r\n  local_c0 = 0;\r\n  local_b8 = param_1;\r\n  local_a0 = param_4;\r\n  local_98 = param_3;\r\n  local_90 = param_2;\r\n  local_c8 = FUN_142d0f7c0(1);\r\n  if (local_c8 == 0) {\r\n    return 0;\r\n  }\r\n  *(undefined4 *)(local_c8 + 0x45c) = 1000000;\r\n  *(undefined4 *)(local_c8 + 0x460) = 1000000;\r\n  uVar2 = FUN_142d10f20(local_c8,longjmp,0x100);\r\n  iVar1 = __intrinsic_setjmp(uVar2,auStack_f8);\r\n  if (iVar1 != 0) {\r\n                    /* WARNING: Subroutine does not return */\r\n    ExitProcess(0);\r\n  }\r\n  FUN_142d0f9e0(local_c8,local_a8,local_88,local_b0);\r\n  FUN_142d10f00(local_c8,local_90,local_98,local_a0);\r\n  if (local_b8 != (char *)0x0) {\r\n    lVar5 = 0;\r\n    pcVar6 = local_b8;\r\n    do {\r\n      lVar3 = FUN_142d07a20(0);\r\n      if (pcVar6[lVar5] != *(char *)(lVar3 + lVar5)) {\r\n        *(uint *)(local_c8 + 0x158) = *(uint *)(local_c8 + 0x158) | 0x20000;\r\n        pcVar6 = local_b8;\r\n      }\r\n      lVar3 = FUN_142d07a20(0);\r\n      pcVar4 = (char *)(lVar3 + lVar5);\r\n      lVar5 = lVar5 + 1;\r\n    } while (*pcVar4 != '\\0');\r\n  }\r\n  pcVar6 = local_b8;\r\n  if ((*(uint *)(local_c8 + 0x158) & 0x20000) != 0) {\r\n    if (local_b8 != (char *)0x0) {\r\n      pcVar4 = (char *)FUN_142d07a20(0);\r\n      if (((*pcVar6 == *pcVar4) &&\r\n          ((*pcVar6 != '1' || (lVar5 = FUN_142d07a20(0), pcVar6[2] == *(char *)(lVar5 + 2))))) &&\r\n         ((*pcVar6 != '0' || ('8' < pcVar6[2])))) goto LAB_142d0804b;\r\n      if (pcVar6 != (char *)0x0) {\r\n        local_d8 = FUN_142d07a20(0);\r\n        FUN_1429ec890(local_78,0x50,\"Application built with libpng-%.20s but running with %.20s\",\r\n                      pcVar6);\r\n        FUN_142d10f40(local_c8,local_78);\r\n      }\r\n    }\r\n    local_c0 = 1;\r\n  }\r\nLAB_142d0804b:\r\n  *(undefined4 *)(local_c8 + 0x1c0) = 0x2000;\r\n  if (local_c0 == 0) {\r\n    uVar2 = FUN_142d0f960(local_c8,*(undefined4 *)(local_c8 + 0x1c0));\r\n    *(undefined8 *)(local_c8 + 0x1b8) = uVar2;\r\n    if (*(longlong *)(local_c8 + 0x1b8) == 0) {\r\n      local_c0 = 1;\r\n    }\r\n  }\r\n  if (local_c0 != 0) {\r\n    FUN_142d0f8d0(local_c8,*(undefined8 *)(local_c8 + 0x1b8));\r\n    *(undefined8 *)(local_c8 + 0x1b8) = 0;\r\n    FUN_142d0f860(local_c8,local_b0,local_a8);\r\n    return 0;\r\n  }\r\n  FUN_142d0f5b0(local_c8,0,0,0);\r\n  FUN_142d08200(local_c8);\r\n  return local_c8;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nvoid FUN_140e0e590(char param_1)\r\n\r\n{\r\n  longlong lVar1;\r\n  longlong *plVar2;\r\n  HANDLE hProcess;\r\n  bool bVar3;\r\n  \r\n  DispatchEngineCallbackEntriesAndCompact((FCallbackEntryCollection_Partial *)&DAT_144076340);\r\n  if (param_1 != '\\0') {\r\n    lVar1 = thunk_FUN_140dc85e0();\r\n    if (lVar1 != 0) {\r\n      plVar2 = (longlong *)thunk_FUN_140dc85e0();\r\n      (**(code **)(*plVar2 + 0x60))(plVar2);\r\n      plVar2 = (longlong *)thunk_FUN_140dc85e0();\r\n      (**(code **)(*plVar2 + 0x20))(plVar2);\r\n    }\r\n    bVar3 = DAT_144197135 != '\\0';\r\n    hProcess = GetCurrentProcess();\r\n                    /* WARNING: Could not recover jumptable at 0x000140e0e5ed. Too many branches */\r\n                    /* WARNING: Treating indirect jump as call */\r\n    TerminateProcess(hProcess,-(uint)bVar3 & 3);\r\n    return;\r\n  }\r\n  PostQuitMessage(0);\r\n  GIsRequestingExit = 1;\r\n  return;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nvoid FUN_140e0e590(char param_1)\r\n\r\n{\r\n  longlong lVar1;\r\n  longlong *plVar2;\r\n  HANDLE hProcess;\r\n  bool bVar3;\r\n  \r\n  DispatchEngineCallbackEntriesAndCompact((FCallbackEntryCollection_Partial *)&DAT_144076340);\r\n  if (param_1 != '\\0') {\r\n    lVar1 = thunk_FUN_140dc85e0();\r\n    if (lVar1 != 0) {\r\n      plVar2 = (longlong *)thunk_FUN_140dc85e0();\r\n      (**(code **)(*plVar2 + 0x60))(plVar2);\r\n      plVar2 = (longlong *)thunk_FUN_140dc85e0();\r\n      (**(code **)(*plVar2 + 0x20))(plVar2);\r\n    }\r\n    bVar3 = DAT_144197135 != '\\0';\r\n    hProcess = GetCurrentProcess();\r\n                    /* WARNING: Could not recover jumptable at 0x000140e0e5ed. Too many branches */\r\n                    /* WARNING: Treating indirect jump as call */\r\n    TerminateProcess(hProcess,-(uint)bVar3 & 3);\r\n    return;\r\n  }\r\n  PostQuitMessage(0);\r\n  GIsRequestingExit = 1;\r\n  return;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nundefined8 FUN_140dfa7c0(void)\r\n\r\n{\r\n  longlong lVar1;\r\n  longlong *plVar2;\r\n  HANDLE hProcess;\r\n  \r\n  lVar1 = thunk_FUN_140dc85e0();\r\n  if (lVar1 != 0) {\r\n    plVar2 = (longlong *)thunk_FUN_140dc85e0();\r\n    (**(code **)(*plVar2 + 0x18))(plVar2);\r\n  }\r\n  if (DAT_14418b120 != (longlong *)0x0) {\r\n    (**(code **)(*DAT_14418b120 + 0x18))();\r\n  }\r\n  if (DAT_14418b118 != (longlong *)0x0) {\r\n    (**(code **)(*DAT_14418b118 + 0x18))();\r\n  }\r\n  if ((GIsRequestingExit == '\\0') && (DAT_14418b12f == '\\0')) {\r\n    PostQuitMessage(0);\r\n    GIsRequestingExit = 1;\r\n    return 1;\r\n  }\r\n  hProcess = GetCurrentProcess();\r\n  TerminateProcess(hProcess,0);\r\n  return 1;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nundefined8 FUN_140dfa7c0(void)\r\n\r\n{\r\n  longlong lVar1;\r\n  longlong *plVar2;\r\n  HANDLE hProcess;\r\n  \r\n  lVar1 = thunk_FUN_140dc85e0();\r\n  if (lVar1 != 0) {\r\n    plVar2 = (longlong *)thunk_FUN_140dc85e0();\r\n    (**(code **)(*plVar2 + 0x18))(plVar2);\r\n  }\r\n  if (DAT_14418b120 != (longlong *)0x0) {\r\n    (**(code **)(*DAT_14418b120 + 0x18))();\r\n  }\r\n  if (DAT_14418b118 != (longlong *)0x0) {\r\n    (**(code **)(*DAT_14418b118 + 0x18))();\r\n  }\r\n  if ((GIsRequestingExit == '\\0') && (DAT_14418b12f == '\\0')) {\r\n    PostQuitMessage(0);\r\n    GIsRequestingExit = 1;\r\n    return 1;\r\n  }\r\n  hProcess = GetCurrentProcess();\r\n  TerminateProcess(hProcess,0);\r\n  return 1;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nvoid FUN_140e0ed30(longlong *param_1)\r\n\r\n{\r\n  longlong lVar1;\r\n  longlong *plVar2;\r\n  HANDLE hProcess;\r\n  bool bVar3;\r\n  \r\n  if (DAT_144197135 == '\\0') {\r\n    GetLastError();\r\n    DAT_144197135 = '\\x01';\r\n  }\r\n  if (g_bInGuardedMain != '\\0') {\r\n    FUN_140e0cdd0(1);\r\n    return;\r\n  }\r\n  (**(code **)(*param_1 + 0x40))(param_1);\r\n  DispatchEngineCallbackEntriesAndCompact((FCallbackEntryCollection_Partial *)&DAT_144076340);\r\n  lVar1 = thunk_FUN_140dc85e0();\r\n  if (lVar1 != 0) {\r\n    plVar2 = (longlong *)thunk_FUN_140dc85e0();\r\n    (**(code **)(*plVar2 + 0x60))(plVar2);\r\n    plVar2 = (longlong *)thunk_FUN_140dc85e0();\r\n    (**(code **)(*plVar2 + 0x20))(plVar2);\r\n  }\r\n  bVar3 = DAT_144197135 != '\\0';\r\n  hProcess = GetCurrentProcess();\r\n                    /* WARNING: Could not recover jumptable at 0x000140e0edc0. Too many branches */\r\n                    /* WARNING: Treating indirect jump as call */\r\n  TerminateProcess(hProcess,-(uint)bVar3 & 3);\r\n  return;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nvoid FUN_140e0ed30(longlong *param_1)\r\n\r\n{\r\n  longlong lVar1;\r\n  longlong *plVar2;\r\n  HANDLE hProcess;\r\n  bool bVar3;\r\n  \r\n  if (DAT_144197135 == '\\0') {\r\n    GetLastError();\r\n    DAT_144197135 = '\\x01';\r\n  }\r\n  if (g_bInGuardedMain != '\\0') {\r\n    FUN_140e0cdd0(1);\r\n    return;\r\n  }\r\n  (**(code **)(*param_1 + 0x40))(param_1);\r\n  DispatchEngineCallbackEntriesAndCompact((FCallbackEntryCollection_Partial *)&DAT_144076340);\r\n  lVar1 = thunk_FUN_140dc85e0();\r\n  if (lVar1 != 0) {\r\n    plVar2 = (longlong *)thunk_FUN_140dc85e0();\r\n    (**(code **)(*plVar2 + 0x60))(plVar2);\r\n    plVar2 = (longlong *)thunk_FUN_140dc85e0();\r\n    (**(code **)(*plVar2 + 0x20))(plVar2);\r\n  }\r\n  bVar3 = DAT_144197135 != '\\0';\r\n  hProcess = GetCurrentProcess();\r\n                    /* WARNING: Could not recover jumptable at 0x000140e0edc0. Too many branches */\r\n                    /* WARNING: Treating indirect jump as call */\r\n  TerminateProcess(hProcess,-(uint)bVar3 & 3);\r\n  return;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "startup_fatal_route_refs": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "From 14490b99c [DATA]\nFrom 1434ebaa8 [DATA]"
+            }
+          ],
+          "structuredContent": {
+            "result": "From 14490b99c [DATA]\nFrom 1434ebaa8 [DATA]"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "From 14490b8c4 [DATA]\nFrom 140d17865 in FUN_140d177c0 [UNCONDITIONAL_CALL]\nFrom 140d17884 in FUN_140d177c0 [UNCONDITIONAL_CALL]\nFrom 1403965da in FEngineLoop_Tick [UNCONDITIONAL_CALL]\nFrom 14039f4ae in FEngineLoop_Init [UNCONDITIONAL_CALL]\nFrom 1415ddd3a in FUN_1415ddc80 [UNCONDITIONAL_CALL]\nFrom 1415defd6 in FUN_1415dec00 [UNCONDITIONAL_CALL]\nFrom 1415df087 in FUN_1415dec00 [UNCONDITIONAL_CALL]\nFrom 1420a42e8 in FUN_1420a3ea0 [UNCONDITIONAL_CALL]\nFrom 140d1ce73 in FUN_140d1ce30 [UNCONDITIONAL_CALL]\nFrom 140d29e11 in FUN_140d29d20 [UNCONDITIONAL_CALL]\nFrom 140d2eaa5 in FUN_140d2e9b0 [UNCONDITIONAL_CALL]\nFrom 140d2eb37 in FUN_140d2e9b0 [UNCONDITIONAL_CALL]\nFrom 141210f8e in FUN_141210ea0 [UNCONDITIONAL_CALL]\nFrom 14121085a in FUN_141210750 [UNCONDITIONAL_CALL]\nFrom 141210c43 in FUN_141210b40 [UNCONDITIONAL_CALL]\nFrom 14125b988 in FUN_14125b8a0 [UNCONDITIONAL_CALL]\nFrom 14125b5b0 in FUN_14125b4b0 [UNCONDITIONAL_CALL]\nFrom 141256853 in FUN_141256700 [UNCONDITIONAL_CALL]\nFrom 141ae7ba6 in FUN_141ae7ba0 [UNCONDITIONAL_CALL]\nFrom 141aecca3 in FUN_141aecc30 [UNCONDITIONAL_CALL]\nFrom 141e2e3df in FUN_141e2df60 [UNCONDITIONAL_CALL]\nFrom 141e3908e in UGameEngine_Tick [UNCONDITIONAL_CALL]\nFrom 141e65b81 in FUN_141e656d0 [UNCONDITIONAL_CALL]\nFrom 141e65e59 in FUN_141e656d0 [UNCONDITIONAL_CALL]\nFrom 141e65f6c in FUN_141e656d0 [UNCONDITIONAL_CALL]\nFrom 1429ce1c5 in FUN_1429ce000 [UNCONDITIONAL_CALL]\nFrom 1429e2562 in FUN_1429e2540 [UNCONDITIONAL_CALL]\nFrom 1430d0743 in FUN_1430d0310 [UNCONDITIONAL_CALL]\nFrom 141258ddb in FUN_141258d20 [UNCONDITIONAL_CALL]\nFrom 141e3132f in FUN_141e31320 [UNCONDITIONAL_CALL]\nFrom 1429be462 [UNCONDITIONAL_CALL]"
+            }
+          ],
+          "structuredContent": {
+            "result": "From 14490b8c4 [DATA]\nFrom 140d17865 in FUN_140d177c0 [UNCONDITIONAL_CALL]\nFrom 140d17884 in FUN_140d177c0 [UNCONDITIONAL_CALL]\nFrom 1403965da in FEngineLoop_Tick [UNCONDITIONAL_CALL]\nFrom 14039f4ae in FEngineLoop_Init [UNCONDITIONAL_CALL]\nFrom 1415ddd3a in FUN_1415ddc80 [UNCONDITIONAL_CALL]\nFrom 1415defd6 in FUN_1415dec00 [UNCONDITIONAL_CALL]\nFrom 1415df087 in FUN_1415dec00 [UNCONDITIONAL_CALL]\nFrom 1420a42e8 in FUN_1420a3ea0 [UNCONDITIONAL_CALL]\nFrom 140d1ce73 in FUN_140d1ce30 [UNCONDITIONAL_CALL]\nFrom 140d29e11 in FUN_140d29d20 [UNCONDITIONAL_CALL]\nFrom 140d2eaa5 in FUN_140d2e9b0 [UNCONDITIONAL_CALL]\nFrom 140d2eb37 in FUN_140d2e9b0 [UNCONDITIONAL_CALL]\nFrom 141210f8e in FUN_141210ea0 [UNCONDITIONAL_CALL]\nFrom 14121085a in FUN_141210750 [UNCONDITIONAL_CALL]\nFrom 141210c43 in FUN_141210b40 [UNCONDITIONAL_CALL]\nFrom 14125b988 in FUN_14125b8a0 [UNCONDITIONAL_CALL]\nFrom 14125b5b0 in FUN_14125b4b0 [UNCONDITIONAL_CALL]\nFrom 141256853 in FUN_141256700 [UNCONDITIONAL_CALL]\nFrom 141ae7ba6 in FUN_141ae7ba0 [UNCONDITIONAL_CALL]\nFrom 141aecca3 in FUN_141aecc30 [UNCONDITIONAL_CALL]\nFrom 141e2e3df in FUN_141e2df60 [UNCONDITIONAL_CALL]\nFrom 141e3908e in UGameEngine_Tick [UNCONDITIONAL_CALL]\nFrom 141e65b81 in FUN_141e656d0 [UNCONDITIONAL_CALL]\nFrom 141e65e59 in FUN_141e656d0 [UNCONDITIONAL_CALL]\nFrom 141e65f6c in FUN_141e656d0 [UNCONDITIONAL_CALL]\nFrom 1429ce1c5 in FUN_1429ce000 [UNCONDITIONAL_CALL]\nFrom 1429e2562 in FUN_1429e2540 [UNCONDITIONAL_CALL]\nFrom 1430d0743 in FUN_1430d0310 [UNCONDITIONAL_CALL]\nFrom 141258ddb in FUN_141258d20 [UNCONDITIONAL_CALL]\nFrom 141e3132f in FUN_141e31320 [UNCONDITIONAL_CALL]\nFrom 1429be462 [UNCONDITIONAL_CALL]"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "From 140e0e5cf in FUN_140e0e590 [READ]\nFrom 140d9d459 in FError_Throwf [READ]\nFrom 1415e9e71 in FUN_1415e9e30 [WRITE]\nFrom 1415e9ed8 in FUN_1415e9e30 [READ]\nFrom 1420a1f8d in FUN_1420a1f10 [WRITE]\nFrom 1420a3c8f in FUN_1420a3c80 [WRITE]\nFrom 140f7b8f3 in FUN_140f7b8d0 [READ]\nFrom 1415e8424 in FUN_1415e8410 [READ]\nFrom 140e04efc in FUN_140e04ee0 [WRITE]\nFrom 140e0ebaf in FUN_140e0eb30 [READ]\nFrom 140e0ed36 in FUN_140e0ed30 [READ]\nFrom 140e0ed48 in FUN_140e0ed30 [WRITE]\nFrom 140e0eda2 in FUN_140e0ed30 [READ]\nFrom 1415e71c6 in FUN_1415e71c0 [READ]\nFrom 1415e8752 in FUN_1415e8730 [READ]\nFrom 1415ebd48 in FUN_1415ebcf0 [READ]\nFrom 1415ebc78 in FUN_1415ebc20 [READ]\nFrom 1415e86dc in FUN_1415e86b0 [READ]\nFrom 14321364b in FUN_1432135f0 [READ]\nFrom 14321370f in FUN_1432136c0 [READ]\nFrom 1432137af in FUN_143213760 [READ]\nFrom 143213841 in FUN_143213800 [READ]\nFrom 1432138d1 in FUN_143213890 [READ]"
+            }
+          ],
+          "structuredContent": {
+            "result": "From 140e0e5cf in FUN_140e0e590 [READ]\nFrom 140d9d459 in FError_Throwf [READ]\nFrom 1415e9e71 in FUN_1415e9e30 [WRITE]\nFrom 1415e9ed8 in FUN_1415e9e30 [READ]\nFrom 1420a1f8d in FUN_1420a1f10 [WRITE]\nFrom 1420a3c8f in FUN_1420a3c80 [WRITE]\nFrom 140f7b8f3 in FUN_140f7b8d0 [READ]\nFrom 1415e8424 in FUN_1415e8410 [READ]\nFrom 140e04efc in FUN_140e04ee0 [WRITE]\nFrom 140e0ebaf in FUN_140e0eb30 [READ]\nFrom 140e0ed36 in FUN_140e0ed30 [READ]\nFrom 140e0ed48 in FUN_140e0ed30 [WRITE]\nFrom 140e0eda2 in FUN_140e0ed30 [READ]\nFrom 1415e71c6 in FUN_1415e71c0 [READ]\nFrom 1415e8752 in FUN_1415e8730 [READ]\nFrom 1415ebd48 in FUN_1415ebcf0 [READ]\nFrom 1415ebc78 in FUN_1415ebc20 [READ]\nFrom 1415e86dc in FUN_1415e86b0 [READ]\nFrom 14321364b in FUN_1432135f0 [READ]\nFrom 14321370f in FUN_1432136c0 [READ]\nFrom 1432137af in FUN_143213760 [READ]\nFrom 143213841 in FUN_143213800 [READ]\nFrom 1432138d1 in FUN_143213890 [READ]"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "From 142d07f50 in FUN_142d07ea0 [READ]\nFrom 142d10df5 in FUN_142d10d80 [READ]\nFrom 142d091bf in FUN_142d09100 [READ]"
+            }
+          ],
+          "structuredContent": {
+            "result": "From 142d07f50 in FUN_142d07ea0 [READ]\nFrom 142d10df5 in FUN_142d10d80 [READ]\nFrom 142d091bf in FUN_142d09100 [READ]"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "startup_fatal_signatures": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"address\":\"140e0ed30\",\"length\":32,\"data\":[64,83,72,131,236,32,128,61,248,131,56,3,0,72,139,217,117,13,255,21,120,215,65,2,198,5,230,131,56,3,1,128],\"hex\":\"40534883ec20803df883380300488bd9750dff1578d74102c605e68338030180\"}"
+            }
+          ],
+          "structuredContent": {
+            "result": "{\"address\":\"140e0ed30\",\"length\":32,\"data\":[64,83,72,131,236,32,128,61,248,131,56,3,0,72,139,217,117,13,255,21,120,215,65,2,198,5,230,131,56,3,1,128],\"hex\":\"40534883ec20803df883380300488bd9750dff1578d74102c605e68338030180\"}"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"address\":\"140e0e590\",\"length\":32,\"data\":[64,83,72,131,236,32,15,182,217,72,141,13,160,125,38,3,232,27,180,88,255,132,219,116,75,232,18,182,251,255,72,133],\"hex\":\"40534883ec200fb6d9488d0da07d2603e81bb458ff84db744be812b6fbff4885\"}"
+            }
+          ],
+          "structuredContent": {
+            "result": "{\"address\":\"140e0e590\",\"length\":32,\"data\":[64,83,72,131,236,32,15,182,217,72,141,13,160,125,38,3,232,27,180,88,255,132,219,116,75,232,18,182,251,255,72,133],\"hex\":\"40534883ec200fb6d9488d0da07d2603e81bb458ff84db744be812b6fbff4885\"}"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "startup_error_thread_paths": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */\r\n\r\nvoid FUN_140e0eb30(longlong *param_1,short *param_2,char param_3,undefined8 param_4,double param_5)\r\n\r\n{\r\n  bool bVar1;\r\n  undefined8 *puVar2;\r\n  wchar_t *pwVar3;\r\n  longlong lVar4;\r\n  undefined1 auStackY_898 [32];\r\n  DWORD local_868 [2];\r\n  void *local_860 [3];\r\n  short local_848 [1024];\r\n  ulonglong local_48;\r\n  \r\n  local_48 = g_qwSecurityCookie ^ (ulonglong)auStackY_898;\r\n  if (param_1[4] != 0) {\r\n    if (param_5 == g_dLuxorDefaultPeerHandshakeDelay) {\r\n      (*g_pQueryPerformanceCounterIat)(local_868);\r\n    }\r\n    if ((DAT_144197135 == '\\0') || (DAT_144298e74 != '\\0')) {\r\n      if (param_3 == '@') {\r\n        FUN_140e0ee00(param_1,param_2);\r\n        *(bool *)(param_1 + 5) = DAT_1434df834 != *param_2;\r\n      }\r\n      else {\r\n        bVar1 = false;\r\n        if (((char)param_1[5] == '\\0') && ((param_3 == '\\x02' || (param_3 == '\\x03')))) {\r\n          FUN_140e0ee00(param_1);\r\n          bVar1 = true;\r\n        }\r\n        memset(local_848,0,0x800);\r\n        puVar2 = (undefined8 *)FUN_140dc6730(local_860,param_3,param_4,param_2);\r\n        if (*(int *)(puVar2 + 1) == 0) {\r\n          pwVar3 = L\"\";\r\n        }\r\n        else {\r\n          pwVar3 = (wchar_t *)*puVar2;\r\n        }\r\n        FUN_140db8e40(local_848,L\"%s%s\",pwVar3,&DAT_1434e5264);\r\n        if (local_860[0] != (void *)0x0) {\r\n          FMemory_Free(local_860[0]);\r\n        }\r\n        lVar4 = -1;\r\n        do {\r\n          lVar4 = lVar4 + 1;\r\n        } while (local_848[lVar4] != 0);\r\n        WriteConsoleW((HANDLE)param_1[4],local_848,(DWORD)lVar4,local_868,(LPVOID)0x0);\r\n        if (bVar1) {\r\n          FUN_140e0ee00(param_1,&DAT_1434df834);\r\n        }\r\n      }\r\n    }\r\n    else {\r\n      DAT_144298e74 = 1;\r\n      (**(code **)(*param_1 + 0x10))(param_1,param_2,param_3,param_4);\r\n      DAT_144298e74 = '\\0';\r\n    }\r\n  }\r\n  return;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */\r\n\r\nvoid FUN_140e0eb30(longlong *param_1,short *param_2,char param_3,undefined8 param_4,double param_5)\r\n\r\n{\r\n  bool bVar1;\r\n  undefined8 *puVar2;\r\n  wchar_t *pwVar3;\r\n  longlong lVar4;\r\n  undefined1 auStackY_898 [32];\r\n  DWORD local_868 [2];\r\n  void *local_860 [3];\r\n  short local_848 [1024];\r\n  ulonglong local_48;\r\n  \r\n  local_48 = g_qwSecurityCookie ^ (ulonglong)auStackY_898;\r\n  if (param_1[4] != 0) {\r\n    if (param_5 == g_dLuxorDefaultPeerHandshakeDelay) {\r\n      (*g_pQueryPerformanceCounterIat)(local_868);\r\n    }\r\n    if ((DAT_144197135 == '\\0') || (DAT_144298e74 != '\\0')) {\r\n      if (param_3 == '@') {\r\n        FUN_140e0ee00(param_1,param_2);\r\n        *(bool *)(param_1 + 5) = DAT_1434df834 != *param_2;\r\n      }\r\n      else {\r\n        bVar1 = false;\r\n        if (((char)param_1[5] == '\\0') && ((param_3 == '\\x02' || (param_3 == '\\x03')))) {\r\n          FUN_140e0ee00(param_1);\r\n          bVar1 = true;\r\n        }\r\n        memset(local_848,0,0x800);\r\n        puVar2 = (undefined8 *)FUN_140dc6730(local_860,param_3,param_4,param_2);\r\n        if (*(int *)(puVar2 + 1) == 0) {\r\n          pwVar3 = L\"\";\r\n        }\r\n        else {\r\n          pwVar3 = (wchar_t *)*puVar2;\r\n        }\r\n        FUN_140db8e40(local_848,L\"%s%s\",pwVar3,&DAT_1434e5264);\r\n        if (local_860[0] != (void *)0x0) {\r\n          FMemory_Free(local_860[0]);\r\n        }\r\n        lVar4 = -1;\r\n        do {\r\n          lVar4 = lVar4 + 1;\r\n        } while (local_848[lVar4] != 0);\r\n        WriteConsoleW((HANDLE)param_1[4],local_848,(DWORD)lVar4,local_868,(LPVOID)0x0);\r\n        if (bVar1) {\r\n          FUN_140e0ee00(param_1,&DAT_1434df834);\r\n        }\r\n      }\r\n    }\r\n    else {\r\n      DAT_144298e74 = 1;\r\n      (**(code **)(*param_1 + 0x10))(param_1,param_2,param_3,param_4);\r\n      DAT_144298e74 = '\\0';\r\n    }\r\n  }\r\n  return;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nlonglong *\r\nFUN_140d40dd0(longlong *param_1,undefined8 param_2,undefined4 param_3,undefined4 param_4,\r\n             undefined8 param_5)\r\n\r\n{\r\n  bool bVar1;\r\n  char cVar2;\r\n  longlong *plVar3;\r\n  longlong lVar4;\r\n  void *pvVar5;\r\n  \r\n  bVar1 = SupportsNativeMultithreading();\r\n  if (bVar1) {\r\n    plVar3 = (longlong *)FUN_140e16560();\r\n    if (plVar3 == (longlong *)0x0) {\r\n      return (longlong *)0x0;\r\n    }\r\n    cVar2 = (**(code **)(*plVar3 + 0x28))(plVar3,param_1,param_2,param_3,param_4,param_5);\r\n    if (cVar2 != '\\0') {\r\n      return plVar3;\r\n    }\r\n    (**(code **)(*plVar3 + 0x20))(plVar3,1);\r\n  }\r\n  else {\r\n    lVar4 = (**(code **)(*param_1 + 0x20))(param_1);\r\n    if (lVar4 != 0) {\r\n      pvVar5 = FMemory_Malloc(0x58);\r\n      if (pvVar5 == (void *)0x0) {\r\n        plVar3 = (longlong *)0x0;\r\n      }\r\n      else {\r\n        plVar3 = (longlong *)FUN_140d3a070(pvVar5);\r\n      }\r\n      cVar2 = (**(code **)(*plVar3 + 0x28))(plVar3,param_1,param_2,param_3,param_4,0);\r\n      if (cVar2 != '\\0') {\r\n        return plVar3;\r\n      }\r\n      (**(code **)(*plVar3 + 0x20))(plVar3,1);\r\n    }\r\n  }\r\n  return (longlong *)0x0;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nlonglong *\r\nFUN_140d40dd0(longlong *param_1,undefined8 param_2,undefined4 param_3,undefined4 param_4,\r\n             undefined8 param_5)\r\n\r\n{\r\n  bool bVar1;\r\n  char cVar2;\r\n  longlong *plVar3;\r\n  longlong lVar4;\r\n  void *pvVar5;\r\n  \r\n  bVar1 = SupportsNativeMultithreading();\r\n  if (bVar1) {\r\n    plVar3 = (longlong *)FUN_140e16560();\r\n    if (plVar3 == (longlong *)0x0) {\r\n      return (longlong *)0x0;\r\n    }\r\n    cVar2 = (**(code **)(*plVar3 + 0x28))(plVar3,param_1,param_2,param_3,param_4,param_5);\r\n    if (cVar2 != '\\0') {\r\n      return plVar3;\r\n    }\r\n    (**(code **)(*plVar3 + 0x20))(plVar3,1);\r\n  }\r\n  else {\r\n    lVar4 = (**(code **)(*param_1 + 0x20))(param_1);\r\n    if (lVar4 != 0) {\r\n      pvVar5 = FMemory_Malloc(0x58);\r\n      if (pvVar5 == (void *)0x0) {\r\n        plVar3 = (longlong *)0x0;\r\n      }\r\n      else {\r\n        plVar3 = (longlong *)FUN_140d3a070(pvVar5);\r\n      }\r\n      cVar2 = (**(code **)(*plVar3 + 0x28))(plVar3,param_1,param_2,param_3,param_4,0);\r\n      if (cVar2 != '\\0') {\r\n        return plVar3;\r\n      }\r\n      (**(code **)(*plVar3 + 0x20))(plVar3,1);\r\n    }\r\n  }\r\n  return (longlong *)0x0;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nvoid FUN_1415e9e30(void)\r\n\r\n{\r\n  uint uVar1;\r\n  longlong *plVar2;\r\n  wchar_t *pwVar3;\r\n  \r\n  if (DAT_144090834 == '\\0') {\r\n    DAT_14418b130 = 0;\r\n    pwVar3 = L\"\";\r\n    if (DAT_144351888 != 0) {\r\n      pwVar3 = DAT_144351880;\r\n    }\r\n    DAT_144197135 = '\\0';\r\n    FMsg_Logf(\"D:\\\\dev\\\\sc6\\\\UE4_Steam\\\\Engine\\\\Source\\\\Runtime\\\\RenderCore\\\\Private\\\\RenderingThread.cpp\"\r\n              ,0x32b,L\"Rendering thread exception:\\r\\n%s\",pwVar3);\r\n    pwVar3 = L\"\";\r\n    if (DAT_144351888 != 0) {\r\n      pwVar3 = DAT_144351880;\r\n    }\r\n    FError_Throwf(&DAT_1436b93f7,\r\n                  \"D:\\\\dev\\\\sc6\\\\UE4_Steam\\\\Engine\\\\Source\\\\Runtime\\\\RenderCore\\\\Private\\\\RenderingThread.cpp\"\r\n                  ,0x32b,L\"Rendering thread exception:\\r\\n%s\",pwVar3);\r\n  }\r\n  if (g_bGameThreadIdInitialized != false) {\r\n    uVar1 = (*g_pfnGetCurrentThreadId)();\r\n    if (uVar1 != g_dwGameThreadId) {\r\n      return;\r\n    }\r\n  }\r\n  if (DAT_144197135 == '\\0') {\r\n    plVar2 = (longlong *)thunk_FUN_140dc85e0();\r\n    (**(code **)(*plVar2 + 0x40))();\r\n  }\r\n  HandleWindowsMessageQueue(0);\r\n  return;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nvoid FUN_1415e9e30(void)\r\n\r\n{\r\n  uint uVar1;\r\n  longlong *plVar2;\r\n  wchar_t *pwVar3;\r\n  \r\n  if (DAT_144090834 == '\\0') {\r\n    DAT_14418b130 = 0;\r\n    pwVar3 = L\"\";\r\n    if (DAT_144351888 != 0) {\r\n      pwVar3 = DAT_144351880;\r\n    }\r\n    DAT_144197135 = '\\0';\r\n    FMsg_Logf(\"D:\\\\dev\\\\sc6\\\\UE4_Steam\\\\Engine\\\\Source\\\\Runtime\\\\RenderCore\\\\Private\\\\RenderingThread.cpp\"\r\n              ,0x32b,L\"Rendering thread exception:\\r\\n%s\",pwVar3);\r\n    pwVar3 = L\"\";\r\n    if (DAT_144351888 != 0) {\r\n      pwVar3 = DAT_144351880;\r\n    }\r\n    FError_Throwf(&DAT_1436b93f7,\r\n                  \"D:\\\\dev\\\\sc6\\\\UE4_Steam\\\\Engine\\\\Source\\\\Runtime\\\\RenderCore\\\\Private\\\\RenderingThread.cpp\"\r\n                  ,0x32b,L\"Rendering thread exception:\\r\\n%s\",pwVar3);\r\n  }\r\n  if (g_bGameThreadIdInitialized != false) {\r\n    uVar1 = (*g_pfnGetCurrentThreadId)();\r\n    if (uVar1 != g_dwGameThreadId) {\r\n      return;\r\n    }\r\n  }\r\n  if (DAT_144197135 == '\\0') {\r\n    plVar2 = (longlong *)thunk_FUN_140dc85e0();\r\n    (**(code **)(*plVar2 + 0x40))();\r\n  }\r\n  HandleWindowsMessageQueue(0);\r\n  return;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n\r\nvoid FUN_1420a1f10(longlong param_1,longlong *param_2,undefined8 param_3)\r\n\r\n{\r\n  void *pvVar1;\r\n  float fVar2;\r\n  longlong *plVar3;\r\n  bool bVar4;\r\n  int iVar5;\r\n  undefined7 extraout_var;\r\n  longlong lVar6;\r\n  uint *puVar7;\r\n  ulonglong uVar8;\r\n  uint *puVar9;\r\n  uint *puVar10;\r\n  uint *puVar11;\r\n  undefined4 *puVar12;\r\n  wchar_t *pwVar13;\r\n  uint uVar14;\r\n  longlong lVar15;\r\n  uint uVar16;\r\n  uint *puVar17;\r\n  uint *puVar18;\r\n  undefined1 auStack_138 [32];\r\n  wchar_t *local_118;\r\n  uint local_108;\r\n  int local_104;\r\n  undefined1 local_100 [8];\r\n  longlong *local_f8;\r\n  undefined8 local_f0;\r\n  longlong local_e8;\r\n  uint *local_e0;\r\n  longlong local_d8;\r\n  longlong local_d0;\r\n  uint local_c8;\r\n  undefined1 local_c4;\r\n  undefined1 local_c3;\r\n  undefined1 local_c2;\r\n  TArrayHeader local_c0;\r\n  undefined4 local_b0;\r\n  void *local_a8;\r\n  undefined8 local_a0;\r\n  void *local_88;\r\n  undefined8 local_80;\r\n  undefined4 local_78;\r\n  undefined4 local_74;\r\n  void *local_68;\r\n  undefined4 local_60;\r\n  ulonglong local_58;\r\n  \r\n  fVar2 = g_flConstant0p01;\r\n  local_58 = g_qwSecurityCookie ^ (ulonglong)auStack_138;\r\n  local_f8 = param_2;\r\n  local_f0 = param_3;\r\n  local_d0 = param_1;\r\n  if (*(char *)(param_1 + 0x101) != '\\0') {\r\n    lVar6 = param_1 + 0x70;\r\n    puVar18 = (uint *)0x0;\r\n    local_d8 = lVar6;\r\n    do {\r\n      lVar15 = *(longlong *)(param_1 + 0xe8);\r\n      if (*(char *)(lVar15 + 0x28) != '\\0') {\r\n        DAT_144197135 = 0;\r\n        if (*(int *)(lVar15 + 0x20) == 0) {\r\n          pwVar13 = L\"\";\r\n        }\r\n        else {\r\n          pwVar13 = *(wchar_t **)(lVar15 + 0x18);\r\n        }\r\n        FMsg_Logf(\"D:\\\\dev\\\\sc6\\\\UE4_Steam\\\\Engine\\\\Source\\\\Runtime\\\\Engine\\\\Private\\\\ShaderCompiler\\\\ShaderCompiler.cpp\"\r\n                  ,0x38d,L\"Shader Compiling thread exception:\\r\\n%s\",pwVar13);\r\n        if (*(int *)(lVar15 + 0x20) == 0) {\r\n          local_118 = L\"\";\r\n        }\r\n        else {\r\n          local_118 = *(wchar_t **)(lVar15 + 0x18);\r\n        }\r\n        FError_Throwf(\"\",\r\n                      \"D:\\\\dev\\\\sc6\\\\UE4_Steam\\\\Engine\\\\Source\\\\Runtime\\\\Engine\\\\Private\\\\ShaderCompiler\\\\ShaderCompiler.cpp\"\r\n                      ,0x38d,L\"Shader Compiling thread exception:\\r\\n%s\");\r\n      }\r\n      local_108 = 0;\r\n      bVar4 = (*g_pfnTryEnterCriticalSection)();\r\n      if ((int)CONCAT71(extraout_var,bVar4) == 0) {\r\n        (*g_pfnEnterCriticalSection)();\r\n      }\r\n      local_104 = 0;\r\n      puVar10 = puVar18;\r\n      lVar15 = param_1;\r\n      puVar11 = puVar18;\r\n      uVar14 = 0;\r\n      if (0 < (int)param_2[1]) {\r\n        do {\r\n          puVar7 = puVar18;\r\n          if ((*(int *)(param_1 + 0x20) != *(int *)(param_1 + 0x4c)) &&\r\n             (iVar5 = *(int *)(((ulonglong)(*(longlong *)(param_1 + 0x58) != 0) - 1 &\r\n                                param_1 + 0x50U | *(ulonglong *)(param_1 + 0x58)) +\r\n                              (longlong)\r\n                              (int)(*(int *)(param_1 + 0x60) - 1U &\r\n                                   *(uint *)((longlong)puVar10 + *param_2)) * 4), iVar5 != -1)) {\r\n            lVar6 = *(longlong *)(param_1 + 0x18);\r\n            do {\r\n              if (*(uint *)(lVar6 + (longlong)iVar5 * 0x28) ==\r\n                  *(uint *)((longlong)puVar10 + *param_2)) {\r\n                if (iVar5 != -1) {\r\n                  puVar7 = (uint *)(lVar6 + (longlong)iVar5 * 0x28);\r\n                }\r\n                break;\r\n              }\r\n              iVar5 = *(int *)(lVar6 + 0x20 + (longlong)iVar5 * 0x28);\r\n            } while (iVar5 != -1);\r\n          }\r\n          puVar9 = puVar7 + 2;\r\n          if (puVar7 == (uint *)0x0) {\r\n            puVar9 = puVar18;\r\n          }\r\n          if (puVar9 != (uint *)0x0) {\r\n            puVar11 = puVar18;\r\n            puVar7 = puVar18;\r\n            puVar17 = puVar18;\r\n            uVar14 = 0;\r\n            if (0 < (int)puVar9[4]) {\r\n              do {\r\n                lVar6 = (**(code **)(**(longlong **)((longlong)puVar11 + *(longlong *)(puVar9 + 2))\r\n                                    + 0x20))();\r\n                if (lVar6 == 0) {\r\n                  iVar5 = 1;\r\n                }\r\n                else {\r\n                  iVar5 = *(int *)(lVar6 + 0x20);\r\n                }\r\n                uVar14 = (int)puVar7 + iVar5;\r\n                uVar16 = (int)puVar17 + 1;\r\n                param_2 = local_f8;\r\n                puVar11 = puVar11 + 2;\r\n                puVar7 = (uint *)(ulonglong)uVar14;\r\n                puVar17 = (uint *)(ulonglong)uVar16;\r\n              } while ((int)uVar16 < (int)puVar9[4]);\r\n            }\r\n            uVar16 = *puVar9;\r\n            if (uVar14 == uVar16) {\r\n              local_c0.nNum = puVar9[4];\r\n              lVar6 = (longlong)local_c0.nNum;\r\n              local_c4 = (undefined1)puVar9[1];\r\n              local_c3 = *(undefined1 *)((longlong)puVar9 + 5);\r\n              local_c2 = *(undefined1 *)((longlong)puVar9 + 6);\r\n              pvVar1 = *(void **)(puVar9 + 2);\r\n              local_c0.Data = (undefined *)0x0;\r\n              local_c8 = uVar16;\r\n              if (local_c0.nNum == 0) {\r\n                local_c0.nMax = 0;\r\n              }\r\n              else {\r\n                SetTArrayAllocationCapacity8(&local_c0,local_c0.nNum,0);\r\n                memcpy(local_c0.Data,pvVar1,lVar6 << 3);\r\n              }\r\n              param_2 = local_f8;\r\n              local_b0 = 0;\r\n              local_a8 = (void *)0x0;\r\n              local_a0 = 0;\r\n              local_88 = (void *)0x0;\r\n              local_80 = 0;\r\n              local_e8 = *local_f8 + (longlong)local_104 * 4;\r\n              local_78 = 0xffffffff;\r\n              local_e0 = &local_c8;\r\n              local_74 = 0;\r\n              local_68 = (void *)0x0;\r\n              local_60 = 0;\r\n              FUN_142099950(local_f0,local_100,&local_e8,0);\r\n              local_60 = 0;\r\n              if (local_68 != (void *)0x0) {\r\n                FMemory_Free(local_68);\r\n              }\r\n              FUN_140716430(&local_a8,0);\r\n              if (local_88 != (void *)0x0) {\r\n                FMemory_Free(local_88);\r\n              }\r\n              if (local_a8 != (void *)0x0) {\r\n                FMemory_Free(local_a8);\r\n              }\r\n              if (local_c0.Data != (undefined *)0x0) {\r\n                FMemory_Free(local_c0.Data);\r\n              }\r\n              if (*(int *)(param_1 + 0x20) != *(int *)(param_1 + 0x4c)) {\r\n                lVar6 = (longlong)\r\n                        (int)(*(int *)(param_1 + 0x60) - 1U &\r\n                             *(uint *)((longlong)puVar10 + *param_2));\r\n                uVar8 = (ulonglong)(*(longlong *)(param_1 + 0x58) != 0) - 1 & param_1 + 0x50U |\r\n                        *(ulonglong *)(param_1 + 0x58);\r\n                iVar5 = *(int *)(uVar8 + lVar6 * 4);\r\n                puVar12 = (undefined4 *)(uVar8 + lVar6 * 4);\r\n                if (iVar5 != -1) {\r\n                  lVar6 = *(longlong *)(param_1 + 0x18);\r\n                  do {\r\n                    if (*(uint *)(lVar6 + (longlong)iVar5 * 0x28) ==\r\n                        *(uint *)((longlong)puVar10 + *param_2)) {\r\n                      FUN_1420b9c50(param_1 + 0x18,*puVar12);\r\n                      break;\r\n                    }\r\n                    lVar15 = (longlong)iVar5 * 5 + 4;\r\n                    iVar5 = *(int *)(lVar6 + lVar15 * 8);\r\n                    puVar12 = (undefined4 *)(lVar6 + lVar15 * 8);\r\n                  } while (iVar5 != -1);\r\n                }\r\n              }\r\n              puVar11 = (uint *)(ulonglong)local_108;\r\n            }\r\n            else {\r\n              local_108 = local_108 + uVar16;\r\n              puVar11 = (uint *)(ulonglong)local_108;\r\n            }\r\n          }\r\n          uVar14 = (uint)puVar11;\r\n          local_104 = local_104 + 1;\r\n          lVar6 = local_d8;\r\n          puVar10 = puVar10 + 1;\r\n          lVar15 = local_d0;\r\n        } while (local_104 < (int)param_2[1]);\r\n      }\r\n      (*g_pfnLeaveCriticalSection)(lVar6);\r\n      if ((int)uVar14 < 1) {\r\n        return;\r\n      }\r\n      FUN_140e1fa80(fVar2);\r\n      param_1 = lVar15;\r\n    } while( true );\r\n  }\r\n  do {\r\n    iVar5 = (**(code **)(**(longlong **)(param_1 + 0xe8) + 0x30))();\r\n    plVar3 = local_f8;\r\n  } while (0 < iVar5);\r\n  puVar18 = (uint *)0x0;\r\n  if (0 < (int)param_2[1]) {\r\n    puVar10 = puVar18;\r\n    puVar11 = puVar18;\r\n    do {\r\n      puVar7 = puVar18;\r\n      if ((*(int *)(param_1 + 0x20) != *(int *)(param_1 + 0x4c)) &&\r\n         (iVar5 = *(int *)(((ulonglong)(*(longlong *)(param_1 + 0x58) != 0) - 1 & param_1 + 0x50U |\r\n                           *(ulonglong *)(param_1 + 0x58)) +\r\n                          (longlong)\r\n                          (int)(*(int *)(param_1 + 0x60) - 1U &\r\n                               *(uint *)((longlong)puVar10 + *plVar3)) * 4), iVar5 != -1)) {\r\n        lVar6 = *(longlong *)(param_1 + 0x18);\r\n        do {\r\n          if (*(uint *)(lVar6 + (longlong)iVar5 * 0x28) == *(uint *)((longlong)puVar10 + *plVar3)) {\r\n            if (iVar5 != -1) {\r\n              puVar7 = (uint *)(lVar6 + (longlong)iVar5 * 0x28);\r\n            }\r\n            break;\r\n          }\r\n          iVar5 = *(int *)(lVar6 + 0x20 + (longlong)iVar5 * 0x28);\r\n        } while (iVar5 != -1);\r\n      }\r\n      puVar9 = puVar7 + 2;\r\n      if (puVar7 == (uint *)0x0) {\r\n        puVar9 = puVar18;\r\n      }\r\n      if (puVar9 != (uint *)0x0) {\r\n        local_c8 = *puVar9;\r\n        local_c0.nNum = puVar9[4];\r\n        lVar6 = (longlong)local_c0.nNum;\r\n        pvVar1 = *(void **)(puVar9 + 2);\r\n        local_c4 = (undefined1)puVar9[1];\r\n        local_c3 = *(undefined1 *)((longlong)puVar9 + 5);\r\n        local_c2 = *(undefined1 *)((longlong)puVar9 + 6);\r\n        local_c0.Data = (undefined *)0x0;\r\n        if (local_c0.nNum == 0) {\r\n          local_c0.nMax = 0;\r\n        }\r\n        else {\r\n          SetTArrayAllocationCapacity8(&local_c0,local_c0.nNum,0);\r\n          memcpy(local_c0.Data,pvVar1,lVar6 << 3);\r\n        }\r\n        local_b0 = 0;\r\n        local_a8 = (void *)0x0;\r\n        local_a0 = 0;\r\n        local_e8 = *plVar3 + (longlong)(int)puVar11 * 4;\r\n        local_88 = (void *)0x0;\r\n        local_e0 = &local_c8;\r\n        local_80 = 0;\r\n        local_78 = 0xffffffff;\r\n        local_74 = 0;\r\n        local_68 = (void *)0x0;\r\n        local_60 = 0;\r\n        FUN_142099950(local_f0,local_100,&local_e8,0);\r\n        local_60 = 0;\r\n        if (local_68 != (void *)0x0) {\r\n          FMemory_Free(local_68);\r\n        }\r\n        FUN_140716430(&local_a8,0);\r\n        if (local_88 != (void *)0x0) {\r\n          FMemory_Free(local_88);\r\n        }\r\n        if (local_a8 != (void *)0x0) {\r\n          FMemory_Free(local_a8);\r\n        }\r\n        if (local_c0.Data != (undefined *)0x0) {\r\n          FMemory_Free(local_c0.Data);\r\n        }\r\n        FUN_1420b9bc0((longlong *)(param_1 + 0x18),*(undefined4 *)((longlong)puVar10 + *plVar3));\r\n      }\r\n      uVar14 = (int)puVar11 + 1;\r\n      puVar11 = (uint *)(ulonglong)uVar14;\r\n      puVar10 = puVar10 + 1;\r\n    } while ((int)uVar14 < (int)plVar3[1]);\r\n  }\r\n  return;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n\r\nvoid FUN_1420a1f10(longlong param_1,longlong *param_2,undefined8 param_3)\r\n\r\n{\r\n  void *pvVar1;\r\n  float fVar2;\r\n  longlong *plVar3;\r\n  bool bVar4;\r\n  int iVar5;\r\n  undefined7 extraout_var;\r\n  longlong lVar6;\r\n  uint *puVar7;\r\n  ulonglong uVar8;\r\n  uint *puVar9;\r\n  uint *puVar10;\r\n  uint *puVar11;\r\n  undefined4 *puVar12;\r\n  wchar_t *pwVar13;\r\n  uint uVar14;\r\n  longlong lVar15;\r\n  uint uVar16;\r\n  uint *puVar17;\r\n  uint *puVar18;\r\n  undefined1 auStack_138 [32];\r\n  wchar_t *local_118;\r\n  uint local_108;\r\n  int local_104;\r\n  undefined1 local_100 [8];\r\n  longlong *local_f8;\r\n  undefined8 local_f0;\r\n  longlong local_e8;\r\n  uint *local_e0;\r\n  longlong local_d8;\r\n  longlong local_d0;\r\n  uint local_c8;\r\n  undefined1 local_c4;\r\n  undefined1 local_c3;\r\n  undefined1 local_c2;\r\n  TArrayHeader local_c0;\r\n  undefined4 local_b0;\r\n  void *local_a8;\r\n  undefined8 local_a0;\r\n  void *local_88;\r\n  undefined8 local_80;\r\n  undefined4 local_78;\r\n  undefined4 local_74;\r\n  void *local_68;\r\n  undefined4 local_60;\r\n  ulonglong local_58;\r\n  \r\n  fVar2 = g_flConstant0p01;\r\n  local_58 = g_qwSecurityCookie ^ (ulonglong)auStack_138;\r\n  local_f8 = param_2;\r\n  local_f0 = param_3;\r\n  local_d0 = param_1;\r\n  if (*(char *)(param_1 + 0x101) != '\\0') {\r\n    lVar6 = param_1 + 0x70;\r\n    puVar18 = (uint *)0x0;\r\n    local_d8 = lVar6;\r\n    do {\r\n      lVar15 = *(longlong *)(param_1 + 0xe8);\r\n      if (*(char *)(lVar15 + 0x28) != '\\0') {\r\n        DAT_144197135 = 0;\r\n        if (*(int *)(lVar15 + 0x20) == 0) {\r\n          pwVar13 = L\"\";\r\n        }\r\n        else {\r\n          pwVar13 = *(wchar_t **)(lVar15 + 0x18);\r\n        }\r\n        FMsg_Logf(\"D:\\\\dev\\\\sc6\\\\UE4_Steam\\\\Engine\\\\Source\\\\Runtime\\\\Engine\\\\Private\\\\ShaderCompiler\\\\ShaderCompiler.cpp\"\r\n                  ,0x38d,L\"Shader Compiling thread exception:\\r\\n%s\",pwVar13);\r\n        if (*(int *)(lVar15 + 0x20) == 0) {\r\n          local_118 = L\"\";\r\n        }\r\n        else {\r\n          local_118 = *(wchar_t **)(lVar15 + 0x18);\r\n        }\r\n        FError_Throwf(\"\",\r\n                      \"D:\\\\dev\\\\sc6\\\\UE4_Steam\\\\Engine\\\\Source\\\\Runtime\\\\Engine\\\\Private\\\\ShaderCompiler\\\\ShaderCompiler.cpp\"\r\n                      ,0x38d,L\"Shader Compiling thread exception:\\r\\n%s\");\r\n      }\r\n      local_108 = 0;\r\n      bVar4 = (*g_pfnTryEnterCriticalSection)();\r\n      if ((int)CONCAT71(extraout_var,bVar4) == 0) {\r\n        (*g_pfnEnterCriticalSection)();\r\n      }\r\n      local_104 = 0;\r\n      puVar10 = puVar18;\r\n      lVar15 = param_1;\r\n      puVar11 = puVar18;\r\n      uVar14 = 0;\r\n      if (0 < (int)param_2[1]) {\r\n        do {\r\n          puVar7 = puVar18;\r\n          if ((*(int *)(param_1 + 0x20) != *(int *)(param_1 + 0x4c)) &&\r\n             (iVar5 = *(int *)(((ulonglong)(*(longlong *)(param_1 + 0x58) != 0) - 1 &\r\n                                param_1 + 0x50U | *(ulonglong *)(param_1 + 0x58)) +\r\n                              (longlong)\r\n                              (int)(*(int *)(param_1 + 0x60) - 1U &\r\n                                   *(uint *)((longlong)puVar10 + *param_2)) * 4), iVar5 != -1)) {\r\n            lVar6 = *(longlong *)(param_1 + 0x18);\r\n            do {\r\n              if (*(uint *)(lVar6 + (longlong)iVar5 * 0x28) ==\r\n                  *(uint *)((longlong)puVar10 + *param_2)) {\r\n                if (iVar5 != -1) {\r\n                  puVar7 = (uint *)(lVar6 + (longlong)iVar5 * 0x28);\r\n                }\r\n                break;\r\n              }\r\n              iVar5 = *(int *)(lVar6 + 0x20 + (longlong)iVar5 * 0x28);\r\n            } while (iVar5 != -1);\r\n          }\r\n          puVar9 = puVar7 + 2;\r\n          if (puVar7 == (uint *)0x0) {\r\n            puVar9 = puVar18;\r\n          }\r\n          if (puVar9 != (uint *)0x0) {\r\n            puVar11 = puVar18;\r\n            puVar7 = puVar18;\r\n            puVar17 = puVar18;\r\n            uVar14 = 0;\r\n            if (0 < (int)puVar9[4]) {\r\n              do {\r\n                lVar6 = (**(code **)(**(longlong **)((longlong)puVar11 + *(longlong *)(puVar9 + 2))\r\n                                    + 0x20))();\r\n                if (lVar6 == 0) {\r\n                  iVar5 = 1;\r\n                }\r\n                else {\r\n                  iVar5 = *(int *)(lVar6 + 0x20);\r\n                }\r\n                uVar14 = (int)puVar7 + iVar5;\r\n                uVar16 = (int)puVar17 + 1;\r\n                param_2 = local_f8;\r\n                puVar11 = puVar11 + 2;\r\n                puVar7 = (uint *)(ulonglong)uVar14;\r\n                puVar17 = (uint *)(ulonglong)uVar16;\r\n              } while ((int)uVar16 < (int)puVar9[4]);\r\n            }\r\n            uVar16 = *puVar9;\r\n            if (uVar14 == uVar16) {\r\n              local_c0.nNum = puVar9[4];\r\n              lVar6 = (longlong)local_c0.nNum;\r\n              local_c4 = (undefined1)puVar9[1];\r\n              local_c3 = *(undefined1 *)((longlong)puVar9 + 5);\r\n              local_c2 = *(undefined1 *)((longlong)puVar9 + 6);\r\n              pvVar1 = *(void **)(puVar9 + 2);\r\n              local_c0.Data = (undefined *)0x0;\r\n              local_c8 = uVar16;\r\n              if (local_c0.nNum == 0) {\r\n                local_c0.nMax = 0;\r\n              }\r\n              else {\r\n                SetTArrayAllocationCapacity8(&local_c0,local_c0.nNum,0);\r\n                memcpy(local_c0.Data,pvVar1,lVar6 << 3);\r\n              }\r\n              param_2 = local_f8;\r\n              local_b0 = 0;\r\n              local_a8 = (void *)0x0;\r\n              local_a0 = 0;\r\n              local_88 = (void *)0x0;\r\n              local_80 = 0;\r\n              local_e8 = *local_f8 + (longlong)local_104 * 4;\r\n              local_78 = 0xffffffff;\r\n              local_e0 = &local_c8;\r\n              local_74 = 0;\r\n              local_68 = (void *)0x0;\r\n              local_60 = 0;\r\n              FUN_142099950(local_f0,local_100,&local_e8,0);\r\n              local_60 = 0;\r\n              if (local_68 != (void *)0x0) {\r\n                FMemory_Free(local_68);\r\n              }\r\n              FUN_140716430(&local_a8,0);\r\n              if (local_88 != (void *)0x0) {\r\n                FMemory_Free(local_88);\r\n              }\r\n              if (local_a8 != (void *)0x0) {\r\n                FMemory_Free(local_a8);\r\n              }\r\n              if (local_c0.Data != (undefined *)0x0) {\r\n                FMemory_Free(local_c0.Data);\r\n              }\r\n              if (*(int *)(param_1 + 0x20) != *(int *)(param_1 + 0x4c)) {\r\n                lVar6 = (longlong)\r\n                        (int)(*(int *)(param_1 + 0x60) - 1U &\r\n                             *(uint *)((longlong)puVar10 + *param_2));\r\n                uVar8 = (ulonglong)(*(longlong *)(param_1 + 0x58) != 0) - 1 & param_1 + 0x50U |\r\n                        *(ulonglong *)(param_1 + 0x58);\r\n                iVar5 = *(int *)(uVar8 + lVar6 * 4);\r\n                puVar12 = (undefined4 *)(uVar8 + lVar6 * 4);\r\n                if (iVar5 != -1) {\r\n                  lVar6 = *(longlong *)(param_1 + 0x18);\r\n                  do {\r\n                    if (*(uint *)(lVar6 + (longlong)iVar5 * 0x28) ==\r\n                        *(uint *)((longlong)puVar10 + *param_2)) {\r\n                      FUN_1420b9c50(param_1 + 0x18,*puVar12);\r\n                      break;\r\n                    }\r\n                    lVar15 = (longlong)iVar5 * 5 + 4;\r\n                    iVar5 = *(int *)(lVar6 + lVar15 * 8);\r\n                    puVar12 = (undefined4 *)(lVar6 + lVar15 * 8);\r\n                  } while (iVar5 != -1);\r\n                }\r\n              }\r\n              puVar11 = (uint *)(ulonglong)local_108;\r\n            }\r\n            else {\r\n              local_108 = local_108 + uVar16;\r\n              puVar11 = (uint *)(ulonglong)local_108;\r\n            }\r\n          }\r\n          uVar14 = (uint)puVar11;\r\n          local_104 = local_104 + 1;\r\n          lVar6 = local_d8;\r\n          puVar10 = puVar10 + 1;\r\n          lVar15 = local_d0;\r\n        } while (local_104 < (int)param_2[1]);\r\n      }\r\n      (*g_pfnLeaveCriticalSection)(lVar6);\r\n      if ((int)uVar14 < 1) {\r\n        return;\r\n      }\r\n      FUN_140e1fa80(fVar2);\r\n      param_1 = lVar15;\r\n    } while( true );\r\n  }\r\n  do {\r\n    iVar5 = (**(code **)(**(longlong **)(param_1 + 0xe8) + 0x30))();\r\n    plVar3 = local_f8;\r\n  } while (0 < iVar5);\r\n  puVar18 = (uint *)0x0;\r\n  if (0 < (int)param_2[1]) {\r\n    puVar10 = puVar18;\r\n    puVar11 = puVar18;\r\n    do {\r\n      puVar7 = puVar18;\r\n      if ((*(int *)(param_1 + 0x20) != *(int *)(param_1 + 0x4c)) &&\r\n         (iVar5 = *(int *)(((ulonglong)(*(longlong *)(param_1 + 0x58) != 0) - 1 & param_1 + 0x50U |\r\n                           *(ulonglong *)(param_1 + 0x58)) +\r\n                          (longlong)\r\n                          (int)(*(int *)(param_1 + 0x60) - 1U &\r\n                               *(uint *)((longlong)puVar10 + *plVar3)) * 4), iVar5 != -1)) {\r\n        lVar6 = *(longlong *)(param_1 + 0x18);\r\n        do {\r\n          if (*(uint *)(lVar6 + (longlong)iVar5 * 0x28) == *(uint *)((longlong)puVar10 + *plVar3)) {\r\n            if (iVar5 != -1) {\r\n              puVar7 = (uint *)(lVar6 + (longlong)iVar5 * 0x28);\r\n            }\r\n            break;\r\n          }\r\n          iVar5 = *(int *)(lVar6 + 0x20 + (longlong)iVar5 * 0x28);\r\n        } while (iVar5 != -1);\r\n      }\r\n      puVar9 = puVar7 + 2;\r\n      if (puVar7 == (uint *)0x0) {\r\n        puVar9 = puVar18;\r\n      }\r\n      if (puVar9 != (uint *)0x0) {\r\n        local_c8 = *puVar9;\r\n        local_c0.nNum = puVar9[4];\r\n        lVar6 = (longlong)local_c0.nNum;\r\n        pvVar1 = *(void **)(puVar9 + 2);\r\n        local_c4 = (undefined1)puVar9[1];\r\n        local_c3 = *(undefined1 *)((longlong)puVar9 + 5);\r\n        local_c2 = *(undefined1 *)((longlong)puVar9 + 6);\r\n        local_c0.Data = (undefined *)0x0;\r\n        if (local_c0.nNum == 0) {\r\n          local_c0.nMax = 0;\r\n        }\r\n        else {\r\n          SetTArrayAllocationCapacity8(&local_c0,local_c0.nNum,0);\r\n          memcpy(local_c0.Data,pvVar1,lVar6 << 3);\r\n        }\r\n        local_b0 = 0;\r\n        local_a8 = (void *)0x0;\r\n        local_a0 = 0;\r\n        local_e8 = *plVar3 + (longlong)(int)puVar11 * 4;\r\n        local_88 = (void *)0x0;\r\n        local_e0 = &local_c8;\r\n        local_80 = 0;\r\n        local_78 = 0xffffffff;\r\n        local_74 = 0;\r\n        local_68 = (void *)0x0;\r\n        local_60 = 0;\r\n        FUN_142099950(local_f0,local_100,&local_e8,0);\r\n        local_60 = 0;\r\n        if (local_68 != (void *)0x0) {\r\n          FMemory_Free(local_68);\r\n        }\r\n        FUN_140716430(&local_a8,0);\r\n        if (local_88 != (void *)0x0) {\r\n          FMemory_Free(local_88);\r\n        }\r\n        if (local_a8 != (void *)0x0) {\r\n          FMemory_Free(local_a8);\r\n        }\r\n        if (local_c0.Data != (undefined *)0x0) {\r\n          FMemory_Free(local_c0.Data);\r\n        }\r\n        FUN_1420b9bc0((longlong *)(param_1 + 0x18),*(undefined4 *)((longlong)puVar10 + *plVar3));\r\n      }\r\n      uVar14 = (int)puVar11 + 1;\r\n      puVar11 = (uint *)(ulonglong)uVar14;\r\n      puVar10 = puVar10 + 1;\r\n    } while ((int)uVar14 < (int)plVar3[1]);\r\n  }\r\n  return;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "startup_fatal_abi_asm": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "140e0ed30: PUSH RBX \n140e0ed32: SUB RSP,0x20 \n140e0ed36: CMP byte ptr [0x144197135],0x0 \n140e0ed3d: MOV RBX,RCX \n140e0ed40: JNZ 0x140e0ed4f \n140e0ed42: CALL qword ptr [0x14322c4c0] \n140e0ed48: MOV byte ptr [0x144197135],0x1 \n140e0ed4f: CMP byte ptr [0x14419713c],0x0 \n140e0ed56: JZ 0x140e0ed67 \n140e0ed58: MOV ECX,0x1 \n140e0ed5d: ADD RSP,0x20 \n140e0ed61: POP RBX \n140e0ed62: JMP 0x140e0cdd0 \n140e0ed67: MOV RAX,qword ptr [RBX] \n140e0ed6a: MOV RCX,RBX \n140e0ed6d: CALL qword ptr [RAX + 0x40] \n140e0ed70: LEA RCX,[0x144076340] \n140e0ed77: CALL 0x1403999c0 \n140e0ed7c: CALL 0x140dc9bc0 \n140e0ed81: TEST RAX,RAX \n140e0ed84: JZ 0x140e0eda2 \n140e0ed86: CALL 0x140dc9bc0 \n140e0ed8b: MOV RCX,RAX \n140e0ed8e: MOV RDX,qword ptr [RAX] \n140e0ed91: CALL qword ptr [RDX + 0x60] \n140e0ed94: CALL 0x140dc9bc0 \n140e0ed99: MOV RCX,RAX \n140e0ed9c: MOV RDX,qword ptr [RAX] \n140e0ed9f: CALL qword ptr [RDX + 0x20] \n140e0eda2: MOVZX EAX,byte ptr [0x144197135] \n140e0eda9: NEG AL \n140e0edab: SBB EBX,EBX \n140e0edad: AND EBX,0x3 \n140e0edb0: CALL qword ptr [0x14322c370] \n140e0edb6: MOV RCX,RAX \n140e0edb9: MOV EDX,EBX \n140e0edbb: ADD RSP,0x20 \n140e0edbf: POP RBX \n140e0edc0: JMP qword ptr [0x14322c380] \n"
+            }
+          ],
+          "structuredContent": {
+            "result": "140e0ed30: PUSH RBX \n140e0ed32: SUB RSP,0x20 \n140e0ed36: CMP byte ptr [0x144197135],0x0 \n140e0ed3d: MOV RBX,RCX \n140e0ed40: JNZ 0x140e0ed4f \n140e0ed42: CALL qword ptr [0x14322c4c0] \n140e0ed48: MOV byte ptr [0x144197135],0x1 \n140e0ed4f: CMP byte ptr [0x14419713c],0x0 \n140e0ed56: JZ 0x140e0ed67 \n140e0ed58: MOV ECX,0x1 \n140e0ed5d: ADD RSP,0x20 \n140e0ed61: POP RBX \n140e0ed62: JMP 0x140e0cdd0 \n140e0ed67: MOV RAX,qword ptr [RBX] \n140e0ed6a: MOV RCX,RBX \n140e0ed6d: CALL qword ptr [RAX + 0x40] \n140e0ed70: LEA RCX,[0x144076340] \n140e0ed77: CALL 0x1403999c0 \n140e0ed7c: CALL 0x140dc9bc0 \n140e0ed81: TEST RAX,RAX \n140e0ed84: JZ 0x140e0eda2 \n140e0ed86: CALL 0x140dc9bc0 \n140e0ed8b: MOV RCX,RAX \n140e0ed8e: MOV RDX,qword ptr [RAX] \n140e0ed91: CALL qword ptr [RDX + 0x60] \n140e0ed94: CALL 0x140dc9bc0 \n140e0ed99: MOV RCX,RAX \n140e0ed9c: MOV RDX,qword ptr [RAX] \n140e0ed9f: CALL qword ptr [RDX + 0x20] \n140e0eda2: MOVZX EAX,byte ptr [0x144197135] \n140e0eda9: NEG AL \n140e0edab: SBB EBX,EBX \n140e0edad: AND EBX,0x3 \n140e0edb0: CALL qword ptr [0x14322c370] \n140e0edb6: MOV RCX,RAX \n140e0edb9: MOV EDX,EBX \n140e0edbb: ADD RSP,0x20 \n140e0edbf: POP RBX \n140e0edc0: JMP qword ptr [0x14322c380] \n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "140e0e590: PUSH RBX \n140e0e592: SUB RSP,0x20 \n140e0e596: MOVZX EBX,CL \n140e0e599: LEA RCX,[0x144076340] \n140e0e5a0: CALL 0x1403999c0 \n140e0e5a5: TEST BL,BL \n140e0e5a7: JZ 0x140e0e5f4 \n140e0e5a9: CALL 0x140dc9bc0 \n140e0e5ae: TEST RAX,RAX \n140e0e5b1: JZ 0x140e0e5cf \n140e0e5b3: CALL 0x140dc9bc0 \n140e0e5b8: MOV RCX,RAX \n140e0e5bb: MOV RDX,qword ptr [RAX] \n140e0e5be: CALL qword ptr [RDX + 0x60] \n140e0e5c1: CALL 0x140dc9bc0 \n140e0e5c6: MOV RCX,RAX \n140e0e5c9: MOV RDX,qword ptr [RAX] \n140e0e5cc: CALL qword ptr [RDX + 0x20] \n140e0e5cf: MOVZX EAX,byte ptr [0x144197135] \n140e0e5d6: NEG AL \n140e0e5d8: SBB EBX,EBX \n140e0e5da: AND EBX,0x3 \n140e0e5dd: CALL qword ptr [0x14322c370] \n140e0e5e3: MOV RCX,RAX \n140e0e5e6: MOV EDX,EBX \n140e0e5e8: ADD RSP,0x20 \n140e0e5ec: POP RBX \n140e0e5ed: JMP qword ptr [0x14322c380] \n140e0e5f4: XOR ECX,ECX \n140e0e5f6: CALL qword ptr [0x14322cdd8] \n140e0e5fc: MOV byte ptr [0x14419713d],0x1 \n140e0e603: ADD RSP,0x20 \n140e0e607: POP RBX \n140e0e608: RET \n"
+            }
+          ],
+          "structuredContent": {
+            "result": "140e0e590: PUSH RBX \n140e0e592: SUB RSP,0x20 \n140e0e596: MOVZX EBX,CL \n140e0e599: LEA RCX,[0x144076340] \n140e0e5a0: CALL 0x1403999c0 \n140e0e5a5: TEST BL,BL \n140e0e5a7: JZ 0x140e0e5f4 \n140e0e5a9: CALL 0x140dc9bc0 \n140e0e5ae: TEST RAX,RAX \n140e0e5b1: JZ 0x140e0e5cf \n140e0e5b3: CALL 0x140dc9bc0 \n140e0e5b8: MOV RCX,RAX \n140e0e5bb: MOV RDX,qword ptr [RAX] \n140e0e5be: CALL qword ptr [RDX + 0x60] \n140e0e5c1: CALL 0x140dc9bc0 \n140e0e5c6: MOV RCX,RAX \n140e0e5c9: MOV RDX,qword ptr [RAX] \n140e0e5cc: CALL qword ptr [RDX + 0x20] \n140e0e5cf: MOVZX EAX,byte ptr [0x144197135] \n140e0e5d6: NEG AL \n140e0e5d8: SBB EBX,EBX \n140e0e5da: AND EBX,0x3 \n140e0e5dd: CALL qword ptr [0x14322c370] \n140e0e5e3: MOV RCX,RAX \n140e0e5e6: MOV EDX,EBX \n140e0e5e8: ADD RSP,0x20 \n140e0e5ec: POP RBX \n140e0e5ed: JMP qword ptr [0x14322c380] \n140e0e5f4: XOR ECX,ECX \n140e0e5f6: CALL qword ptr [0x14322cdd8] \n140e0e5fc: MOV byte ptr [0x14419713d],0x1 \n140e0e603: ADD RSP,0x20 \n140e0e607: POP RBX \n140e0e608: RET \n"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "startup_fatal_text": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\n/* WARNING: Function: _alloca_probe replaced with injection: alloca_probe */\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n\r\nvoid FError_Throwf(longlong param_1,longlong param_2,undefined4 param_3,undefined8 param_4)\r\n\r\n{\r\n  ulonglong *puVar1;\r\n  longlong lVar2;\r\n  longlong lVar3;\r\n  undefined1 auStack_2988 [32];\r\n  undefined8 local_2968;\r\n  undefined1 *local_2960;\r\n  undefined1 local_2958 [256];\r\n  void *local_2858;\r\n  undefined8 local_2850;\r\n  undefined4 local_2848;\r\n  undefined1 local_2838 [2048];\r\n  undefined1 local_2038 [8192];\r\n  ulonglong local_38;\r\n  \r\n  local_38 = g_qwSecurityCookie ^ (ulonglong)auStack_2988;\r\n  if (DAT_144197135 == '\\0') {\r\n    DAT_14416a940 = 1;\r\n    puVar1 = __local_stdio_printf_options();\r\n    local_2968 = 0;\r\n    local_2960 = &stack0x00000028;\r\n    __stdio_common_vswprintf(*puVar1 | 1,local_2038,0xfff,param_4);\r\n    lVar2 = -1;\r\n    local_2858 = (void *)0x0;\r\n    if (param_1 == 0) {\r\n      local_2850 = 0;\r\n      local_2848 = 0;\r\n    }\r\n    else {\r\n      lVar3 = -1;\r\n      do {\r\n        lVar3 = lVar3 + 1;\r\n      } while (*(char *)(lVar3 + param_1) != '\\0');\r\n      FUN_1404c3c40(local_2958,param_1,lVar3,1);\r\n    }\r\n    FUN_140db8e40(local_2838,L\"Assertion failed: %s\",local_2850);\r\n    if (local_2858 != (void *)0x0) {\r\n      FMemory_Free(local_2858);\r\n    }\r\n    local_2858 = (void *)0x0;\r\n    if (param_2 == 0) {\r\n      local_2850 = 0;\r\n      local_2848 = 0;\r\n    }\r\n    else {\r\n      do {\r\n        lVar2 = lVar2 + 1;\r\n      } while (*(char *)(param_2 + lVar2) != '\\0');\r\n      FUN_1404c3c40(local_2958,param_2,lVar2,1);\r\n    }\r\n    local_2960 = local_2038;\r\n    local_2968 = CONCAT44(local_2968._4_4_,param_3);\r\n    FUN_140dcddc0(DAT_14418b118,L\"Assertion failed: %s [File:%s] [Line: %i] \\n%s\\n\",local_2838,\r\n                  local_2850);\r\n    if (local_2858 != (void *)0x0) {\r\n      FMemory_Free(local_2858);\r\n    }\r\n  }\r\n  return;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\n/* WARNING: Function: _alloca_probe replaced with injection: alloca_probe */\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n\r\nvoid FError_Throwf(longlong param_1,longlong param_2,undefined4 param_3,undefined8 param_4)\r\n\r\n{\r\n  ulonglong *puVar1;\r\n  longlong lVar2;\r\n  longlong lVar3;\r\n  undefined1 auStack_2988 [32];\r\n  undefined8 local_2968;\r\n  undefined1 *local_2960;\r\n  undefined1 local_2958 [256];\r\n  void *local_2858;\r\n  undefined8 local_2850;\r\n  undefined4 local_2848;\r\n  undefined1 local_2838 [2048];\r\n  undefined1 local_2038 [8192];\r\n  ulonglong local_38;\r\n  \r\n  local_38 = g_qwSecurityCookie ^ (ulonglong)auStack_2988;\r\n  if (DAT_144197135 == '\\0') {\r\n    DAT_14416a940 = 1;\r\n    puVar1 = __local_stdio_printf_options();\r\n    local_2968 = 0;\r\n    local_2960 = &stack0x00000028;\r\n    __stdio_common_vswprintf(*puVar1 | 1,local_2038,0xfff,param_4);\r\n    lVar2 = -1;\r\n    local_2858 = (void *)0x0;\r\n    if (param_1 == 0) {\r\n      local_2850 = 0;\r\n      local_2848 = 0;\r\n    }\r\n    else {\r\n      lVar3 = -1;\r\n      do {\r\n        lVar3 = lVar3 + 1;\r\n      } while (*(char *)(lVar3 + param_1) != '\\0');\r\n      FUN_1404c3c40(local_2958,param_1,lVar3,1);\r\n    }\r\n    FUN_140db8e40(local_2838,L\"Assertion failed: %s\",local_2850);\r\n    if (local_2858 != (void *)0x0) {\r\n      FMemory_Free(local_2858);\r\n    }\r\n    local_2858 = (void *)0x0;\r\n    if (param_2 == 0) {\r\n      local_2850 = 0;\r\n      local_2848 = 0;\r\n    }\r\n    else {\r\n      do {\r\n        lVar2 = lVar2 + 1;\r\n      } while (*(char *)(param_2 + lVar2) != '\\0');\r\n      FUN_1404c3c40(local_2958,param_2,lVar2,1);\r\n    }\r\n    local_2960 = local_2038;\r\n    local_2968 = CONCAT44(local_2968._4_4_,param_3);\r\n    FUN_140dcddc0(DAT_14418b118,L\"Assertion failed: %s [File:%s] [Line: %i] \\n%s\\n\",local_2838,\r\n                  local_2850);\r\n    if (local_2858 != (void *)0x0) {\r\n      FMemory_Free(local_2858);\r\n    }\r\n  }\r\n  return;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\n/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */\r\n\r\nvoid FUN_140e0cdd0(DWORD param_1)\r\n\r\n{\r\n  undefined8 *puVar1;\r\n  undefined1 local_88 [128];\r\n  \r\n  puVar1 = (undefined8 *)FUN_140e033e0(local_88);\r\n  _DAT_144165df0 = *puVar1;\r\n  _DAT_144165df8 = puVar1[1];\r\n  _DAT_144165e00 = puVar1[2];\r\n  _DAT_144165e08 = puVar1[3];\r\n  _DAT_144165e10 = puVar1[4];\r\n  _DAT_144165e18 = puVar1[5];\r\n  _DAT_144165e20 = puVar1[6];\r\n  _DAT_144165e28 = puVar1[7];\r\n  DAT_144165e30 = puVar1[8];\r\n  DAT_144165e38 = puVar1[9];\r\n  DAT_144165e40 = puVar1[10];\r\n  DAT_144165e48 = puVar1[0xb];\r\n  DAT_144165e50._0_4_ = *(undefined4 *)(puVar1 + 0xc);\r\n  DAT_144165e50._4_4_ = *(undefined4 *)((longlong)puVar1 + 100);\r\n  DAT_144165e58._0_4_ = *(undefined4 *)(puVar1 + 0xd);\r\n  DAT_144165e58._4_4_ = *(undefined4 *)((longlong)puVar1 + 0x6c);\r\n  _DAT_144165e60 = puVar1[0xe];\r\n                    /* WARNING: Could not recover jumptable at 0x000140e0ce50. Too many branches */\r\n                    /* WARNING: Treating indirect jump as call */\r\n  RaiseException(param_1,0,0,(ULONG_PTR *)0x0);\r\n  return;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\n/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */\r\n\r\nvoid FUN_140e0cdd0(DWORD param_1)\r\n\r\n{\r\n  undefined8 *puVar1;\r\n  undefined1 local_88 [128];\r\n  \r\n  puVar1 = (undefined8 *)FUN_140e033e0(local_88);\r\n  _DAT_144165df0 = *puVar1;\r\n  _DAT_144165df8 = puVar1[1];\r\n  _DAT_144165e00 = puVar1[2];\r\n  _DAT_144165e08 = puVar1[3];\r\n  _DAT_144165e10 = puVar1[4];\r\n  _DAT_144165e18 = puVar1[5];\r\n  _DAT_144165e20 = puVar1[6];\r\n  _DAT_144165e28 = puVar1[7];\r\n  DAT_144165e30 = puVar1[8];\r\n  DAT_144165e38 = puVar1[9];\r\n  DAT_144165e40 = puVar1[10];\r\n  DAT_144165e48 = puVar1[0xb];\r\n  DAT_144165e50._0_4_ = *(undefined4 *)(puVar1 + 0xc);\r\n  DAT_144165e50._4_4_ = *(undefined4 *)((longlong)puVar1 + 100);\r\n  DAT_144165e58._0_4_ = *(undefined4 *)(puVar1 + 0xd);\r\n  DAT_144165e58._4_4_ = *(undefined4 *)((longlong)puVar1 + 0x6c);\r\n  _DAT_144165e60 = puVar1[0xe];\r\n                    /* WARNING: Could not recover jumptable at 0x000140e0ce50. Too many branches */\r\n                    /* WARNING: Treating indirect jump as call */\r\n  RaiseException(param_1,0,0,(ULONG_PTR *)0x0);\r\n  return;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "startup_error_buffer_routes": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\n/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */\r\n\r\nvoid FUN_140e04ee0(void)\r\n\r\n{\r\n  int iVar1;\r\n  longlong *plVar2;\r\n  \r\n  iVar1 = DAT_144298e54;\r\n  LOCK();\r\n  DAT_144298e54 = DAT_144298e54 + 1;\r\n  UNLOCK();\r\n  if (iVar1 == 0) {\r\n    DAT_144197135 = 1;\r\n    g_bInGuardedMain = 0;\r\n    DAT_14418b110 = 0;\r\n    _DAT_14419312e = 0;\r\n    GIsRunning = 0;\r\n    DispatchEngineCallbackEntriesAndCompact((FCallbackEntryCollection_Partial *)&DAT_144075b60);\r\n    plVar2 = (longlong *)thunk_FUN_140dc85e0();\r\n    (**(code **)(*plVar2 + 0x48))(plVar2);\r\n    do {\r\n      iVar1 = ShowCursor(1);\r\n    } while (iVar1 < 0);\r\n    ReleaseCapture();\r\n    ClipCursor((RECT *)0x0);\r\n    FUN_140df9d50(&DAT_14418b130);\r\n    FUN_140e11ce0(&DAT_14418b130,0);\r\n    DispatchEngineCallbackEntriesAndCompact((FCallbackEntryCollection_Partial *)&DAT_144075c40);\r\n    return;\r\n  }\r\n  return;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\n/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */\r\n\r\nvoid FUN_140e04ee0(void)\r\n\r\n{\r\n  int iVar1;\r\n  longlong *plVar2;\r\n  \r\n  iVar1 = DAT_144298e54;\r\n  LOCK();\r\n  DAT_144298e54 = DAT_144298e54 + 1;\r\n  UNLOCK();\r\n  if (iVar1 == 0) {\r\n    DAT_144197135 = 1;\r\n    g_bInGuardedMain = 0;\r\n    DAT_14418b110 = 0;\r\n    _DAT_14419312e = 0;\r\n    GIsRunning = 0;\r\n    DispatchEngineCallbackEntriesAndCompact((FCallbackEntryCollection_Partial *)&DAT_144075b60);\r\n    plVar2 = (longlong *)thunk_FUN_140dc85e0();\r\n    (**(code **)(*plVar2 + 0x48))(plVar2);\r\n    do {\r\n      iVar1 = ShowCursor(1);\r\n    } while (iVar1 < 0);\r\n    ReleaseCapture();\r\n    ClipCursor((RECT *)0x0);\r\n    FUN_140df9d50(&DAT_14418b130);\r\n    FUN_140e11ce0(&DAT_14418b130,0);\r\n    DispatchEngineCallbackEntriesAndCompact((FCallbackEntryCollection_Partial *)&DAT_144075c40);\r\n    return;\r\n  }\r\n  return;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n\r\nvoid FUN_140dcddc0(longlong *param_1,undefined8 param_2,undefined8 param_3,undefined8 param_4)\r\n\r\n{\r\n  undefined1 *puVar1;\r\n  uint uVar2;\r\n  undefined1 *puVar3;\r\n  ulonglong *puVar4;\r\n  undefined1 *puVar5;\r\n  int iVar6;\r\n  undefined1 *puVar7;\r\n  undefined8 local_res18;\r\n  undefined8 local_res20;\r\n  undefined1 auStack_488 [32];\r\n  undefined8 local_468;\r\n  undefined8 *local_460;\r\n  undefined1 local_458 [1024];\r\n  ulonglong local_58;\r\n  \r\n  local_58 = g_qwSecurityCookie ^ (ulonglong)auStack_488;\r\n  local_res18 = param_3;\r\n  local_res20 = param_4;\r\n  puVar3 = (undefined1 *)FUN_140d82740();\r\n  puVar7 = (undefined1 *)0x0;\r\n  puVar5 = local_458;\r\n  iVar6 = 0x400;\r\n  puVar4 = __local_stdio_printf_options();\r\n  local_468 = 0;\r\n  local_460 = &local_res18;\r\n  uVar2 = __stdio_common_vswprintf(*puVar4 | 1,local_458,0x1ff,param_2);\r\n  if ((int)uVar2 < 0) {\r\n    uVar2 = 0xffffffff;\r\n  }\r\n  puVar1 = (undefined1 *)0x0;\r\n  if (0x1ff < uVar2) goto LAB_140dcde60;\r\n  while (puVar7 = puVar1, uVar2 == 0xffffffff) {\r\nLAB_140dcde60:\r\n    (*g_pfnCrtFree)(puVar7);\r\n    puVar5 = (undefined1 *)(*g_pMallocImport)((longlong)iVar6 * 2);\r\n    local_460 = &local_res18;\r\n    local_468 = 0;\r\n    uVar2 = __stdio_common_vswprintf(*puVar4 | 1,puVar5,(longlong)(iVar6 + -1),param_2);\r\n    if ((int)uVar2 < 0) {\r\n      uVar2 = 0xffffffff;\r\n    }\r\n    if (iVar6 <= (int)uVar2) {\r\n      uVar2 = 0xffffffff;\r\n    }\r\n    iVar6 = iVar6 * 2;\r\n    puVar1 = puVar5;\r\n  }\r\n  *(undefined2 *)(puVar5 + (longlong)(int)uVar2 * 2) = 0;\r\n  (**(code **)(*param_1 + 0x10))(param_1,puVar5,*puVar3,puVar3 + 8);\r\n  (*g_pfnCrtFree)(puVar7);\r\n  return;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n\r\nvoid FUN_140dcddc0(longlong *param_1,undefined8 param_2,undefined8 param_3,undefined8 param_4)\r\n\r\n{\r\n  undefined1 *puVar1;\r\n  uint uVar2;\r\n  undefined1 *puVar3;\r\n  ulonglong *puVar4;\r\n  undefined1 *puVar5;\r\n  int iVar6;\r\n  undefined1 *puVar7;\r\n  undefined8 local_res18;\r\n  undefined8 local_res20;\r\n  undefined1 auStack_488 [32];\r\n  undefined8 local_468;\r\n  undefined8 *local_460;\r\n  undefined1 local_458 [1024];\r\n  ulonglong local_58;\r\n  \r\n  local_58 = g_qwSecurityCookie ^ (ulonglong)auStack_488;\r\n  local_res18 = param_3;\r\n  local_res20 = param_4;\r\n  puVar3 = (undefined1 *)FUN_140d82740();\r\n  puVar7 = (undefined1 *)0x0;\r\n  puVar5 = local_458;\r\n  iVar6 = 0x400;\r\n  puVar4 = __local_stdio_printf_options();\r\n  local_468 = 0;\r\n  local_460 = &local_res18;\r\n  uVar2 = __stdio_common_vswprintf(*puVar4 | 1,local_458,0x1ff,param_2);\r\n  if ((int)uVar2 < 0) {\r\n    uVar2 = 0xffffffff;\r\n  }\r\n  puVar1 = (undefined1 *)0x0;\r\n  if (0x1ff < uVar2) goto LAB_140dcde60;\r\n  while (puVar7 = puVar1, uVar2 == 0xffffffff) {\r\nLAB_140dcde60:\r\n    (*g_pfnCrtFree)(puVar7);\r\n    puVar5 = (undefined1 *)(*g_pMallocImport)((longlong)iVar6 * 2);\r\n    local_460 = &local_res18;\r\n    local_468 = 0;\r\n    uVar2 = __stdio_common_vswprintf(*puVar4 | 1,puVar5,(longlong)(iVar6 + -1),param_2);\r\n    if ((int)uVar2 < 0) {\r\n      uVar2 = 0xffffffff;\r\n    }\r\n    if (iVar6 <= (int)uVar2) {\r\n      uVar2 = 0xffffffff;\r\n    }\r\n    iVar6 = iVar6 * 2;\r\n    puVar1 = puVar5;\r\n  }\r\n  *(undefined2 *)(puVar5 + (longlong)(int)uVar2 * 2) = 0;\r\n  (**(code **)(*param_1 + 0x10))(param_1,puVar5,*puVar3,puVar3 + 8);\r\n  (*g_pfnCrtFree)(puVar7);\r\n  return;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nvoid FUN_14191ad70(longlong *param_1)\r\n\r\n{\r\n                    /* WARNING: Could not recover jumptable at 0x00014191ad73. Too many branches */\r\n                    /* WARNING: Treating indirect jump as call */\r\n  (**(code **)(*param_1 + 0x10))();\r\n  return;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nvoid FUN_14191ad70(longlong *param_1)\r\n\r\n{\r\n                    /* WARNING: Could not recover jumptable at 0x00014191ad73. Too many branches */\r\n                    /* WARNING: Treating indirect jump as call */\r\n  (**(code **)(*param_1 + 0x10))();\r\n  return;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "startup_error_text_refs_owner_search": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "From 1415e9e56 in FUN_1415e9e30 [WRITE]\nFrom 140e0e382 in FUN_140e0d390 [READ]\nFrom 140db9476 in FUN_140db9300 [DATA]\nFrom 140db9483 in FUN_140db9300 [PARAM]\nFrom 140db94a3 in FUN_140db9300 [DATA]\nFrom 1403994f8 in FEngineLoop_AppPreInit [WRITE]\nFrom 140e0e393 in FUN_140e0d390 [DATA]\nFrom 140e0e3a3 in FUN_140e0d390 [DATA]\nFrom 140e0e3c4 in FUN_140e0d390 [PARAM]\nFrom 140e04d7d in FUN_140e04c90 [DATA]\nFrom 140e04da3 in FUN_140e04c90 [DATA]\nFrom 140e04de3 in FUN_140e04c90 [DATA]\nFrom 140e04e43 in FUN_140e04c90 [DATA]\nFrom 140e04f5d in FUN_140e04ee0 [DATA]\nFrom 140e04f6b in FUN_140e04ee0 [DATA]"
+            }
+          ],
+          "structuredContent": {
+            "result": "From 1415e9e56 in FUN_1415e9e30 [WRITE]\nFrom 140e0e382 in FUN_140e0d390 [READ]\nFrom 140db9476 in FUN_140db9300 [DATA]\nFrom 140db9483 in FUN_140db9300 [PARAM]\nFrom 140db94a3 in FUN_140db9300 [DATA]\nFrom 1403994f8 in FEngineLoop_AppPreInit [WRITE]\nFrom 140e0e393 in FUN_140e0d390 [DATA]\nFrom 140e0e3a3 in FUN_140e0d390 [DATA]\nFrom 140e0e3c4 in FUN_140e0d390 [PARAM]\nFrom 140e04d7d in FUN_140e04c90 [DATA]\nFrom 140e04da3 in FUN_140e04c90 [DATA]\nFrom 140e04de3 in FUN_140e04c90 [DATA]\nFrom 140e04e43 in FUN_140e04c90 [DATA]\nFrom 140e04f5d in FUN_140e04ee0 [DATA]\nFrom 140e04f6b in FUN_140e04ee0 [DATA]"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nvoid FUN_140df9d50(short *param_1)\r\n\r\n{\r\n  short sVar1;\r\n  BOOL BVar2;\r\n  DWORD DVar3;\r\n  HWND hWndNewOwner;\r\n  HGLOBAL hMem;\r\n  HANDLE pvVar4;\r\n  longlong local_50;\r\n  short *local_48;\r\n  short *local_38;\r\n  \r\n  hWndNewOwner = GetActiveWindow();\r\n  BVar2 = OpenClipboard(hWndNewOwner);\r\n  if (BVar2 != 0) {\r\n    EmptyClipboard();\r\n    local_50 = -1;\r\n    do {\r\n      local_50 = local_50 + 1;\r\n    } while (param_1[local_50] != 0);\r\n    hMem = GlobalAlloc(2,(longlong)((int)local_50 + 1) << 1);\r\n    local_48 = GlobalLock(hMem);\r\n    local_38 = param_1;\r\n    do {\r\n      sVar1 = *local_38;\r\n      *local_48 = sVar1;\r\n      local_38 = local_38 + 1;\r\n      local_48 = local_48 + 1;\r\n    } while (sVar1 != 0);\r\n    GlobalUnlock(hMem);\r\n    pvVar4 = SetClipboardData(0xd,hMem);\r\n    if (pvVar4 == (HANDLE)0x0) {\r\n      DVar3 = GetLastError();\r\n      FMsg_Logf(\"D:\\\\dev\\\\sc6\\\\UE4_Steam\\\\Engine\\\\Source\\\\Runtime\\\\Core\\\\Private\\\\Windows\\\\WindowsPlatformMisc.cpp\"\r\n                ,0x4e3,L\"SetClipboardData failed with error code %i\",DVar3);\r\n      DVar3 = GetLastError();\r\n      FError_Throwf(&DAT_1434df517,\r\n                    \"D:\\\\dev\\\\sc6\\\\UE4_Steam\\\\Engine\\\\Source\\\\Runtime\\\\Core\\\\Private\\\\Windows\\\\WindowsPlatformMisc.cpp\"\r\n                    ,0x4e3,L\"SetClipboardData failed with error code %i\",DVar3);\r\n    }\r\n    CloseClipboard();\r\n  }\r\n  return;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nvoid FUN_140df9d50(short *param_1)\r\n\r\n{\r\n  short sVar1;\r\n  BOOL BVar2;\r\n  DWORD DVar3;\r\n  HWND hWndNewOwner;\r\n  HGLOBAL hMem;\r\n  HANDLE pvVar4;\r\n  longlong local_50;\r\n  short *local_48;\r\n  short *local_38;\r\n  \r\n  hWndNewOwner = GetActiveWindow();\r\n  BVar2 = OpenClipboard(hWndNewOwner);\r\n  if (BVar2 != 0) {\r\n    EmptyClipboard();\r\n    local_50 = -1;\r\n    do {\r\n      local_50 = local_50 + 1;\r\n    } while (param_1[local_50] != 0);\r\n    hMem = GlobalAlloc(2,(longlong)((int)local_50 + 1) << 1);\r\n    local_48 = GlobalLock(hMem);\r\n    local_38 = param_1;\r\n    do {\r\n      sVar1 = *local_38;\r\n      *local_48 = sVar1;\r\n      local_38 = local_38 + 1;\r\n      local_48 = local_48 + 1;\r\n    } while (sVar1 != 0);\r\n    GlobalUnlock(hMem);\r\n    pvVar4 = SetClipboardData(0xd,hMem);\r\n    if (pvVar4 == (HANDLE)0x0) {\r\n      DVar3 = GetLastError();\r\n      FMsg_Logf(\"D:\\\\dev\\\\sc6\\\\UE4_Steam\\\\Engine\\\\Source\\\\Runtime\\\\Core\\\\Private\\\\Windows\\\\WindowsPlatformMisc.cpp\"\r\n                ,0x4e3,L\"SetClipboardData failed with error code %i\",DVar3);\r\n      DVar3 = GetLastError();\r\n      FError_Throwf(&DAT_1434df517,\r\n                    \"D:\\\\dev\\\\sc6\\\\UE4_Steam\\\\Engine\\\\Source\\\\Runtime\\\\Core\\\\Private\\\\Windows\\\\WindowsPlatformMisc.cpp\"\r\n                    ,0x4e3,L\"SetClipboardData failed with error code %i\",DVar3);\r\n    }\r\n    CloseClipboard();\r\n  }\r\n  return;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "chunk_id": "52b8ec",
+          "wall_time_seconds": 0.2105962,
+          "exit_code": 0,
+          "original_token_count": 88,
+          "output": "HorseMod\\horselib\\deterministic\\Sc6ReplayHost.Application.inl:202:        EngineNative(image_base_, 0xe0e590, false);\r\nHorseMod\\horselib\\deterministic\\Sc6ReplayHost.Engine.inl:28:        EngineNative(image_base_, 0xe0e590, false);\r\nHorseMod\\horselib\\deterministic\\Sc6ReplayTaskGroup.cpp:395:        if (!pool) __fastfail(FAST_FAIL_FATAL_APP_EXIT);\r\n"
+        }
+      }
+    ],
+    "startup_fatal_text_writers": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n\r\nvoid FUN_140e04c90(longlong param_1)\r\n\r\n{\r\n  int iVar1;\r\n  longlong *plVar2;\r\n  undefined1 *puVar3;\r\n  int iVar4;\r\n  longlong lVar5;\r\n  longlong lVar6;\r\n  undefined1 auStack_1b8 [32];\r\n  undefined1 local_198;\r\n  undefined **local_188;\r\n  undefined1 local_180;\r\n  void *local_178;\r\n  undefined1 local_158 [256];\r\n  void *local_58;\r\n  undefined8 local_50;\r\n  ulonglong local_38;\r\n  \r\n  local_38 = g_qwSecurityCookie ^ (ulonglong)auStack_1b8;\r\n  plVar2 = (longlong *)FUN_140d470f0();\r\n  (**(code **)(*plVar2 + 0x10))(plVar2);\r\n  plVar2 = (longlong *)thunk_FUN_140dc85e0();\r\n  (**(code **)(*plVar2 + 0x48))(plVar2);\r\n  FUN_140d17770(&local_188);\r\n  local_188 = &PTR_FUN_1434eb608;\r\n  local_180 = 0;\r\n  if (g_bAutoReporterEnabled == '\\0') {\r\n    FUN_140d32ce0(&local_188);\r\n    FUN_140e13170(&local_188,&DAT_144167820,*(undefined8 *)(param_1 + 0x20),0);\r\n  }\r\n  else {\r\n    local_198 = 0;\r\n    FUN_140e0d390(&local_188,*(undefined8 *)(param_1 + 0x20),&DAT_144195130,0);\r\n  }\r\n  DispatchEngineCallbackEntriesAndCompact((FCallbackEntryCollection_Partial *)&DAT_144075b60);\r\n  puVar3 = (undefined1 *)(*g_pGMalloc->pVtable->pReserved10)(g_pGMalloc,0xffff,0);\r\n  *puVar3 = 0;\r\n  FUN_140e1ff10(puVar3,0xffff,0,*(undefined8 *)(*(longlong *)(param_1 + 0x20) + 8));\r\n  lVar6 = -1;\r\n  if (*(int *)**(undefined8 **)(param_1 + 0x20) != 1) {\r\n    FUN_140dfa9b0();\r\n    lVar5 = -1;\r\n    do {\r\n      lVar5 = lVar5 + 1;\r\n    } while ((&DAT_14418b130)[lVar5] != 0);\r\n    iVar4 = (int)lVar5;\r\n    iVar1 = 0x4000 - iVar4;\r\n    if (0 < iVar1) {\r\n      (*g_pWcsncpyImport)(&DAT_14418b130 + iVar4,&DAT_144193130,(longlong)iVar1 + -1);\r\n      *(undefined2 *)(&DAT_14418b12e + (longlong)iVar1 * 2 + (longlong)iVar4 * 2) = 0;\r\n    }\r\n    lVar5 = -1;\r\n    do {\r\n      lVar5 = lVar5 + 1;\r\n    } while ((&DAT_14418b130)[lVar5] != 0);\r\n    iVar4 = (int)lVar5;\r\n    iVar1 = 0x4000 - iVar4;\r\n    if (0 < iVar1) {\r\n      (*g_pWcsncpyImport)(&DAT_14418b130 + iVar4,L\"\\r\\n\\r\\n\",(longlong)iVar1 + -1);\r\n      *(undefined2 *)(&DAT_14418b12e + (longlong)iVar1 * 2 + (longlong)iVar4 * 2) = 0;\r\n    }\r\n  }\r\n  local_58 = (void *)0x0;\r\n  lVar5 = -1;\r\n  do {\r\n    lVar5 = lVar5 + 1;\r\n  } while (puVar3[lVar5] != '\\0');\r\n  FUN_1404c3c40(local_158,puVar3,lVar5,1);\r\n  do {\r\n    lVar6 = lVar6 + 1;\r\n  } while ((&DAT_14418b130)[lVar6] != 0);\r\n  iVar4 = (int)lVar6;\r\n  iVar1 = 0x4000 - iVar4;\r\n  if (0 < iVar1) {\r\n    (*g_pWcsncpyImport)(&DAT_14418b130 + iVar4,local_50,(longlong)iVar1 + -1);\r\n    *(undefined2 *)(&DAT_14418b12e + (longlong)iVar1 * 2 + (longlong)iVar4 * 2) = 0;\r\n  }\r\n  if (local_58 != (void *)0x0) {\r\n    FMemory_Free(local_58);\r\n  }\r\n  (*g_pGMalloc->pVtable->pFree)(g_pGMalloc,puVar3);\r\n  local_188 = &PTR_FUN_1434b2380;\r\n  if (local_178 != (void *)0x0) {\r\n    FMemory_Free(local_178);\r\n  }\r\n  return;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n\r\nvoid FUN_140e04c90(longlong param_1)\r\n\r\n{\r\n  int iVar1;\r\n  longlong *plVar2;\r\n  undefined1 *puVar3;\r\n  int iVar4;\r\n  longlong lVar5;\r\n  longlong lVar6;\r\n  undefined1 auStack_1b8 [32];\r\n  undefined1 local_198;\r\n  undefined **local_188;\r\n  undefined1 local_180;\r\n  void *local_178;\r\n  undefined1 local_158 [256];\r\n  void *local_58;\r\n  undefined8 local_50;\r\n  ulonglong local_38;\r\n  \r\n  local_38 = g_qwSecurityCookie ^ (ulonglong)auStack_1b8;\r\n  plVar2 = (longlong *)FUN_140d470f0();\r\n  (**(code **)(*plVar2 + 0x10))(plVar2);\r\n  plVar2 = (longlong *)thunk_FUN_140dc85e0();\r\n  (**(code **)(*plVar2 + 0x48))(plVar2);\r\n  FUN_140d17770(&local_188);\r\n  local_188 = &PTR_FUN_1434eb608;\r\n  local_180 = 0;\r\n  if (g_bAutoReporterEnabled == '\\0') {\r\n    FUN_140d32ce0(&local_188);\r\n    FUN_140e13170(&local_188,&DAT_144167820,*(undefined8 *)(param_1 + 0x20),0);\r\n  }\r\n  else {\r\n    local_198 = 0;\r\n    FUN_140e0d390(&local_188,*(undefined8 *)(param_1 + 0x20),&DAT_144195130,0);\r\n  }\r\n  DispatchEngineCallbackEntriesAndCompact((FCallbackEntryCollection_Partial *)&DAT_144075b60);\r\n  puVar3 = (undefined1 *)(*g_pGMalloc->pVtable->pReserved10)(g_pGMalloc,0xffff,0);\r\n  *puVar3 = 0;\r\n  FUN_140e1ff10(puVar3,0xffff,0,*(undefined8 *)(*(longlong *)(param_1 + 0x20) + 8));\r\n  lVar6 = -1;\r\n  if (*(int *)**(undefined8 **)(param_1 + 0x20) != 1) {\r\n    FUN_140dfa9b0();\r\n    lVar5 = -1;\r\n    do {\r\n      lVar5 = lVar5 + 1;\r\n    } while ((&DAT_14418b130)[lVar5] != 0);\r\n    iVar4 = (int)lVar5;\r\n    iVar1 = 0x4000 - iVar4;\r\n    if (0 < iVar1) {\r\n      (*g_pWcsncpyImport)(&DAT_14418b130 + iVar4,&DAT_144193130,(longlong)iVar1 + -1);\r\n      *(undefined2 *)(&DAT_14418b12e + (longlong)iVar1 * 2 + (longlong)iVar4 * 2) = 0;\r\n    }\r\n    lVar5 = -1;\r\n    do {\r\n      lVar5 = lVar5 + 1;\r\n    } while ((&DAT_14418b130)[lVar5] != 0);\r\n    iVar4 = (int)lVar5;\r\n    iVar1 = 0x4000 - iVar4;\r\n    if (0 < iVar1) {\r\n      (*g_pWcsncpyImport)(&DAT_14418b130 + iVar4,L\"\\r\\n\\r\\n\",(longlong)iVar1 + -1);\r\n      *(undefined2 *)(&DAT_14418b12e + (longlong)iVar1 * 2 + (longlong)iVar4 * 2) = 0;\r\n    }\r\n  }\r\n  local_58 = (void *)0x0;\r\n  lVar5 = -1;\r\n  do {\r\n    lVar5 = lVar5 + 1;\r\n  } while (puVar3[lVar5] != '\\0');\r\n  FUN_1404c3c40(local_158,puVar3,lVar5,1);\r\n  do {\r\n    lVar6 = lVar6 + 1;\r\n  } while ((&DAT_14418b130)[lVar6] != 0);\r\n  iVar4 = (int)lVar6;\r\n  iVar1 = 0x4000 - iVar4;\r\n  if (0 < iVar1) {\r\n    (*g_pWcsncpyImport)(&DAT_14418b130 + iVar4,local_50,(longlong)iVar1 + -1);\r\n    *(undefined2 *)(&DAT_14418b12e + (longlong)iVar1 * 2 + (longlong)iVar4 * 2) = 0;\r\n  }\r\n  if (local_58 != (void *)0x0) {\r\n    FMemory_Free(local_58);\r\n  }\r\n  (*g_pGMalloc->pVtable->pFree)(g_pGMalloc,puVar3);\r\n  local_188 = &PTR_FUN_1434b2380;\r\n  if (local_178 != (void *)0x0) {\r\n    FMemory_Free(local_178);\r\n  }\r\n  return;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */\r\n\r\nvoid FUN_140db9300(undefined8 param_1,longlong param_2,undefined4 param_3,undefined8 param_4,\r\n                  char param_5)\r\n\r\n{\r\n  bool bVar1;\r\n  int iVar2;\r\n  longlong *plVar3;\r\n  undefined7 extraout_var;\r\n  int iVar4;\r\n  longlong lVar5;\r\n  longlong lVar6;\r\n  undefined1 auStack_1a8 [32];\r\n  undefined8 local_188;\r\n  undefined4 local_180;\r\n  undefined8 local_178;\r\n  undefined1 local_168 [256];\r\n  void *local_68;\r\n  undefined8 local_60;\r\n  undefined4 local_58;\r\n  ulonglong local_48;\r\n  \r\n  local_48 = g_qwSecurityCookie ^ (ulonglong)auStack_1a8;\r\n  if (DAT_14418a9f0 != (code *)0x0) {\r\n    (*DAT_14418a9f0)();\r\n  }\r\n  if (param_5 == '\\0') {\r\n    plVar3 = (longlong *)thunk_FUN_140dc85e0();\r\n    (**(code **)(*plVar3 + 0x48))(plVar3);\r\n  }\r\n  bVar1 = (*g_pfnTryEnterCriticalSection)(&DAT_14418aba8);\r\n  if ((int)CONCAT71(extraout_var,bVar1) == 0) {\r\n    (*g_pfnEnterCriticalSection)(&DAT_14418aba8);\r\n  }\r\n  lVar5 = -1;\r\n  local_68 = (void *)0x0;\r\n  if (param_2 == 0) {\r\n    local_60 = 0;\r\n    local_58 = 0;\r\n  }\r\n  else {\r\n    lVar6 = -1;\r\n    do {\r\n      lVar6 = lVar6 + 1;\r\n    } while (*(char *)(param_2 + lVar6) != '\\0');\r\n    FUN_1404c3c40(local_168,param_2,lVar6,1);\r\n  }\r\n  local_188 = param_4;\r\n  FUN_140d29b60(L\"%s [File:%s] [Line: %i] \\n%s\\n\",param_1,local_60,param_3);\r\n  if (local_68 != (void *)0x0) {\r\n    FMemory_Free(local_68);\r\n  }\r\n  local_68 = (void *)0x0;\r\n  if (param_2 == 0) {\r\n    local_58 = 0;\r\n    local_60 = 0;\r\n  }\r\n  else {\r\n    lVar6 = -1;\r\n    do {\r\n      lVar6 = lVar6 + 1;\r\n    } while (*(char *)(param_2 + lVar6) != '\\0');\r\n    FUN_1404c3c40(local_168,param_2,lVar6,1);\r\n  }\r\n  local_188 = local_60;\r\n  local_180 = param_3;\r\n  local_178 = param_4;\r\n  CRT_vswprintf_s_impl(&DAT_144195130,0x1000,L\"%s [File:%s] [Line: %i] \\n%s\\n\",param_1);\r\n  if (local_68 != (void *)0x0) {\r\n    FMemory_Free(local_68);\r\n  }\r\n  (*g_pWcsncpyImport)(&DAT_14418b130,&DAT_144195130,0x3fff);\r\n  _DAT_14419312e = 0;\r\n  do {\r\n    lVar5 = lVar5 + 1;\r\n  } while ((&DAT_14418b130)[lVar5] != 0);\r\n  iVar4 = (int)lVar5;\r\n  iVar2 = 0x4000 - iVar4;\r\n  if (0 < iVar2) {\r\n    (*g_pWcsncpyImport)(&DAT_14418b130 + iVar4,L\"\\r\\n\\r\\n\",(longlong)iVar2 + -1);\r\n    *(undefined2 *)(&DAT_14418b12e + (longlong)iVar2 * 2 + (longlong)iVar4 * 2) = 0;\r\n  }\r\n  (*g_pfnLeaveCriticalSection)(&DAT_14418aba8);\r\n  return;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */\r\n\r\nvoid FUN_140db9300(undefined8 param_1,longlong param_2,undefined4 param_3,undefined8 param_4,\r\n                  char param_5)\r\n\r\n{\r\n  bool bVar1;\r\n  int iVar2;\r\n  longlong *plVar3;\r\n  undefined7 extraout_var;\r\n  int iVar4;\r\n  longlong lVar5;\r\n  longlong lVar6;\r\n  undefined1 auStack_1a8 [32];\r\n  undefined8 local_188;\r\n  undefined4 local_180;\r\n  undefined8 local_178;\r\n  undefined1 local_168 [256];\r\n  void *local_68;\r\n  undefined8 local_60;\r\n  undefined4 local_58;\r\n  ulonglong local_48;\r\n  \r\n  local_48 = g_qwSecurityCookie ^ (ulonglong)auStack_1a8;\r\n  if (DAT_14418a9f0 != (code *)0x0) {\r\n    (*DAT_14418a9f0)();\r\n  }\r\n  if (param_5 == '\\0') {\r\n    plVar3 = (longlong *)thunk_FUN_140dc85e0();\r\n    (**(code **)(*plVar3 + 0x48))(plVar3);\r\n  }\r\n  bVar1 = (*g_pfnTryEnterCriticalSection)(&DAT_14418aba8);\r\n  if ((int)CONCAT71(extraout_var,bVar1) == 0) {\r\n    (*g_pfnEnterCriticalSection)(&DAT_14418aba8);\r\n  }\r\n  lVar5 = -1;\r\n  local_68 = (void *)0x0;\r\n  if (param_2 == 0) {\r\n    local_60 = 0;\r\n    local_58 = 0;\r\n  }\r\n  else {\r\n    lVar6 = -1;\r\n    do {\r\n      lVar6 = lVar6 + 1;\r\n    } while (*(char *)(param_2 + lVar6) != '\\0');\r\n    FUN_1404c3c40(local_168,param_2,lVar6,1);\r\n  }\r\n  local_188 = param_4;\r\n  FUN_140d29b60(L\"%s [File:%s] [Line: %i] \\n%s\\n\",param_1,local_60,param_3);\r\n  if (local_68 != (void *)0x0) {\r\n    FMemory_Free(local_68);\r\n  }\r\n  local_68 = (void *)0x0;\r\n  if (param_2 == 0) {\r\n    local_58 = 0;\r\n    local_60 = 0;\r\n  }\r\n  else {\r\n    lVar6 = -1;\r\n    do {\r\n      lVar6 = lVar6 + 1;\r\n    } while (*(char *)(param_2 + lVar6) != '\\0');\r\n    FUN_1404c3c40(local_168,param_2,lVar6,1);\r\n  }\r\n  local_188 = local_60;\r\n  local_180 = param_3;\r\n  local_178 = param_4;\r\n  CRT_vswprintf_s_impl(&DAT_144195130,0x1000,L\"%s [File:%s] [Line: %i] \\n%s\\n\",param_1);\r\n  if (local_68 != (void *)0x0) {\r\n    FMemory_Free(local_68);\r\n  }\r\n  (*g_pWcsncpyImport)(&DAT_14418b130,&DAT_144195130,0x3fff);\r\n  _DAT_14419312e = 0;\r\n  do {\r\n    lVar5 = lVar5 + 1;\r\n  } while ((&DAT_14418b130)[lVar5] != 0);\r\n  iVar4 = (int)lVar5;\r\n  iVar2 = 0x4000 - iVar4;\r\n  if (0 < iVar2) {\r\n    (*g_pWcsncpyImport)(&DAT_14418b130 + iVar4,L\"\\r\\n\\r\\n\",(longlong)iVar2 + -1);\r\n    *(undefined2 *)(&DAT_14418b12e + (longlong)iVar2 * 2 + (longlong)iVar4 * 2) = 0;\r\n  }\r\n  (*g_pfnLeaveCriticalSection)(&DAT_14418aba8);\r\n  return;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      }
+    ]
+  }
+}

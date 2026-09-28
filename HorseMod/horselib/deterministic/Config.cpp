@@ -76,6 +76,7 @@ ConfigLoadResult LoadConfig(const std::filesystem::path& path)
         else if (key == "rollback_window") valid = parse_u32(value, result.config.rollback_window);
         else if (key == "input_delay") valid = parse_u32(value, result.config.input_delay);
         else if (key == "trace") valid = parse_bool(value, result.config.trace);
+        else if (key == "replay_seeking") valid = parse_bool(value, result.config.replay_seeking);
         else if (key == "correction_probe")
             valid = parse_bool(value, result.config.correction_probe);
         else if (key == "forced_depth7_qualification")

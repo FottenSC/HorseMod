@@ -46,14 +46,10 @@ Status PlanReplaySeek(
         return Status::failure(FailureCode::IdentityMismatch);
     }
 
-    // A batch-entry checkpoint and a completed-coordinate landing may share
-    // the same coordinate without representing the same execution boundary.
-    // The entry image includes the preceding outer tick's post-fencepost tail;
-    // a seek runs from the completed-coordinate fencepost and lets the live
-    // outer tick execute that tail after this request returns.  Therefore an
-    // exact batch-entry image is only a reconstruction base, never an exact
-    // landing.  Re-enter the batch that produced the target and capture its
-    // fencepost instead.
+    // A coordinate identifies a simulation fencepost, not a native return
+    // boundary. Reconstruct its producing batch from an earlier entry. The
+    // caller must separately establish the phase it can release to the engine;
+    // restoring an interior fencepost after the outer call returns loses work.
     if (target.frame == 0)
     {
         output.failure_stage = 3;

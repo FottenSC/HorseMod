@@ -1,0 +1,65 @@
+{
+  "report_schema": 1,
+  "kind": "baseline_pair_field_comparison",
+  "certifying": true,
+  "result": "pass",
+  "source_commit": "190ea03481ffff6843eca80dae502a0edfac06f5",
+  "horsemod_dll_sha256": "0ce44e20782b81cb33f65d6ecfbbb0178af59c39fc7b9962372feffbdf70f25e",
+  "display_map_name": "Silver Wolves' Haven",
+  "case_id": "astaroth-raphael-silver-wolves-haven",
+  "inputs": {
+    "baseline_a_report_sha256": "ad9bfee95fd4d40ffdfd52fa165dee9b0d55ae3ef0c4a5996a022e63a9d54e40",
+    "baseline_b_report_sha256": "a8d3aefd955d0d378d67c5eaa5f6f4f2487e8e53c755e144cfd09d62c46eb8db",
+    "baseline_a_log_sha256": "c907ebf955dcfad9cdbc85956ff7c26c57605a5f303fd61aec459f5231415d86",
+    "baseline_b_log_sha256": "79c1c2933a1d6e6ccb4aff6760a43e3c54f4cba83a78d036c2ce6d46024288cb"
+  },
+  "terminal_comparison": {
+    "baseline_a_count": 2617,
+    "baseline_b_count": 2617,
+    "fields_compared": [
+      "batch",
+      "index",
+      "operation",
+      "owner_domain",
+      "owner_index",
+      "owner_scope",
+      "logical_playback_id",
+      "cue_sheet_identity",
+      "cue_id",
+      "value",
+      "source_return_rva"
+    ],
+    "canonical_field_differences": 0,
+    "raw_cue_sheet_slot_differences": 0,
+    "character_cue_route": {
+      "source_return_rva": "0x519a6d",
+      "owner_8_1_0": {
+        "authored_family_identity": "0x80000007",
+        "raw_slot_a": 6,
+        "raw_slot_b": 6,
+        "events": 23
+      },
+      "owner_8_2_0": {
+        "authored_family_identity": "0x80000008",
+        "raw_slot_a": 7,
+        "raw_slot_b": 7,
+        "events": 24
+      }
+    }
+  },
+  "aggregate_comparison": {
+    "final_canonical_sha256": "1f683a33b24f1f51f7bf7c85eca0c0869330e85b544df1b491620ab51d8b9ed5",
+    "audio_events": 3463,
+    "audio_identity": "0xdd2ce32909e4ff60",
+    "order_events": 4178,
+    "order_identity": "0x82d6b413e56b54ef",
+    "camera_batches": 1508,
+    "camera_identity": "0x7604d996a6ff9b8c",
+    "unknown_rng_callers": 0,
+    "capacity_failures": 0,
+    "timeline_accounting_failures": 0,
+    "presentation_failures": 0,
+    "authored_round_winners": [1, 0, 0, 0],
+    "authored_match_winner": 0
+  }
+}

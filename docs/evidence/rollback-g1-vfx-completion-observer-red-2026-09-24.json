@@ -1,0 +1,15 @@
+{
+  "created_utc": "2026-09-24T06:04:50.645109+00:00",
+  "stage": "RED",
+  "focused_command": "PYTHONPATH=tools python -m pytest -q -x tools/deterministic_qualification/tests/test_vfx_completion_observation.py::test_vfx_completion_observes_true_entries_without_changing_native_calls",
+  "exit_code": 1,
+  "observed_failure": "Native registration and both dispatches forwarded; child exit126 with hooks=0 started=0. First failure only.",
+  "source_archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8fa829a430d11639fe4e2b14ca9bca06255b9fa49697789d8496cc84c771c412.zip",
+  "source_sha256": "8fa829a430d11639fe4e2b14ca9bca06255b9fa49697789d8496cc84c771c412",
+  "raw_log": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\3384b64b1f99e4a5458a414e35da4f9e825ea00917132f6022092acd7c1c7bc6.log",
+  "raw_log_sha256": "3384b64b1f99e4a5458a414e35da4f9e825ea00917132f6022092acd7c1c7bc6",
+  "source_files": {
+    "tools/deterministic_qualification/tests/test_vfx_completion_observation.py": "9f859709431bdd17d93a3e99dd9bd96aeea40ddb9c5b743b81f0af937e4ae0e7",
+    "tools/replay_vfx_completion_observation_selftest.cpp": "6474458c235cf1bb403695b3020ea6ede8bdc0661c837d0b50281fbc6745a323"
+  }
+}

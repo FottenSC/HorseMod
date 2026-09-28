@@ -1,0 +1,144 @@
+{
+  "red": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\234a1ae5f8c1e68153f5dcfc288508d15a54df1b3c3c6fe9078cb8a5b417bef6.log",
+    "sha256": "234a1ae5f8c1e68153f5dcfc288508d15a54df1b3c3c6fe9078cb8a5b417bef6",
+    "bytes": 1084
+  },
+  "source": {
+    "tools/deterministic_qualification/replay_diagnostics.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\eaa9ed2340ec6b9322bd63594681bf0783cc987a81fa011f67760c99ae967935.py",
+      "sha256": "eaa9ed2340ec6b9322bd63594681bf0783cc987a81fa011f67760c99ae967935",
+      "bytes": 2895
+    },
+    "tools/deterministic_qualification/replay_reporting.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9f8ef0609c8f9e894c0e9895aec3879c7b4b8301e38b8511cb1d29c54178e693.py",
+      "sha256": "9f8ef0609c8f9e894c0e9895aec3879c7b4b8301e38b8511cb1d29c54178e693",
+      "bytes": 26959
+    },
+    "tools/deterministic_qualification/tests/test_replay_reporting.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\281643dc5dbb710150cdf0ca5e7499db00440fe585901d2fda073094e4afa33c.py",
+      "sha256": "281643dc5dbb710150cdf0ca5e7499db00440fe585901d2fda073094e4afa33c",
+      "bytes": 29836
+    }
+  },
+  "defect": "Compact reporter selects zero-failure CTest summary and ignores terminal ground update rejection.",
+  "abort_red": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f11e2ae9e44d7e8f05941b7fc9dd38233ae079e2555c7302aca7975b6349d7b8.log",
+    "sha256": "f11e2ae9e44d7e8f05941b7fc9dd38233ae079e2555c7302aca7975b6349d7b8",
+    "bytes": 1989
+  },
+  "abort_red_sources": {
+    "tools/deterministic_qualification/replay_control.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\cc5f55eb4128b2df2376e7088b14f2644fa0cbcb02db54d3da3595c0e036097a.py",
+      "sha256": "cc5f55eb4128b2df2376e7088b14f2644fa0cbcb02db54d3da3595c0e036097a",
+      "bytes": 61172
+    },
+    "tools/deterministic_qualification/replay_diagnostics.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\21c05b4fc0e37667b60e8833e8a8a74407ff7804f7f3a521d333bb10a6b1d539.py",
+      "sha256": "21c05b4fc0e37667b60e8833e8a8a74407ff7804f7f3a521d333bb10a6b1d539",
+      "bytes": 3186
+    },
+    "tools/deterministic_qualification/tests/test_replay_run.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6e8a5f7b0d6633c76efd15148b4e99487bed45e1fe0bb51c3c72d7834bab61ac.py",
+      "sha256": "6e8a5f7b0d6633c76efd15148b4e99487bed45e1fe0bb51c3c72d7834bab61ac",
+      "bytes": 491558
+    }
+  },
+  "reporting_green": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0e2594475c5d65c852dd6f9beffaa6d67b8220d990706f083aee55ac6a804c9a.log",
+    "sha256": "0e2594475c5d65c852dd6f9beffaa6d67b8220d990706f083aee55ac6a804c9a",
+    "bytes": 101
+  },
+  "green": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\910c5a8ae133bc125cd8ce79142406e7b7a901368b6d91c9ed1633522e1b78e7.log",
+    "sha256": "910c5a8ae133bc125cd8ce79142406e7b7a901368b6d91c9ed1633522e1b78e7",
+    "bytes": 102
+  },
+  "green_source": {
+    "base": {
+      "manifest_sha256": "22e57eb72765641e1954dd8ed4ef38ed4f4fdbc346cace528d7ab3ee39e78053",
+      "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-22e57eb72765641e1954dd8ed4ef38ed4f4fdbc346cace528d7ab3ee39e78053.zip",
+      "archive_sha256": "a5de90f9d50003c57c4fc77842cce45be3761ded3baadaad04f81496c6ea3366",
+      "files": 16571,
+      "uncompressed_bytes": 92352187,
+      "reconstructible": true
+    },
+    "replacements": {
+      "workspace/HorseMod/horselib/deterministic/DeterministicHookSet.PresentationTerminals.inl": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9c1c667b621b48a1d1ae18cc4f34dd66caa5ed19da5411b0ebae6309f27d1d35.inl",
+        "sha256": "9c1c667b621b48a1d1ae18cc4f34dd66caa5ed19da5411b0ebae6309f27d1d35",
+        "bytes": 60846
+      },
+      "workspace/HorseMod/horselib/deterministic/Sc6ReplayHost.GroundDebris.inl": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\edc82e59ed92ae4de031ae287b9dbbaa694730ff2d13bffe703c18422cb30889.inl",
+        "sha256": "edc82e59ed92ae4de031ae287b9dbbaa694730ff2d13bffe703c18422cb30889",
+        "bytes": 87527
+      },
+      "workspace/tools/deterministic_qualification/replay_control.py": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1f994dff08c2efbb01245e7f7558355f08aca5c5624a4934163bd7165e714c99.py",
+        "sha256": "1f994dff08c2efbb01245e7f7558355f08aca5c5624a4934163bd7165e714c99",
+        "bytes": 61598
+      },
+      "workspace/tools/deterministic_qualification/replay_diagnostics.py": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\21c05b4fc0e37667b60e8833e8a8a74407ff7804f7f3a521d333bb10a6b1d539.py",
+        "sha256": "21c05b4fc0e37667b60e8833e8a8a74407ff7804f7f3a521d333bb10a6b1d539",
+        "bytes": 3186
+      },
+      "workspace/tools/deterministic_qualification/replay_profiles/changed-rolling407-ground-rng.json": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\abdbfb4b684deafb4f2b1b9bc0136e74d421bb8a086127e271f7ac96285d7da0.json",
+        "sha256": "abdbfb4b684deafb4f2b1b9bc0136e74d421bb8a086127e271f7ac96285d7da0",
+        "bytes": 3131
+      },
+      "workspace/tools/deterministic_qualification/tests/test_replay_reporting.py": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\281643dc5dbb710150cdf0ca5e7499db00440fe585901d2fda073094e4afa33c.py",
+        "sha256": "281643dc5dbb710150cdf0ca5e7499db00440fe585901d2fda073094e4afa33c",
+        "bytes": 29836
+      },
+      "workspace/tools/deterministic_qualification/tests/test_replay_run.py": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6e8a5f7b0d6633c76efd15148b4e99487bed45e1fe0bb51c3c72d7834bab61ac.py",
+        "sha256": "6e8a5f7b0d6633c76efd15148b4e99487bed45e1fe0bb51c3c72d7834bab61ac",
+        "bytes": 491558
+      },
+      "workspace/tools/replay_ground_capture_selftest.cpp": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1ba736fb72d41464fb1ca25ea5dd11da71b928cc59b69ad6be3657d8cff78c59.cpp",
+        "sha256": "1ba736fb72d41464fb1ca25ea5dd11da71b928cc59b69ad6be3657d8cff78c59",
+        "bytes": 23794
+      },
+      "workspace/tools/replay_ucrt_draw_observer_selftest.cpp": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\30c94940a8d937d92dd0865dafbea2aaf556569f56a988bd316888eeb5d75868.cpp",
+        "sha256": "30c94940a8d937d92dd0865dafbea2aaf556569f56a988bd316888eeb5d75868",
+        "bytes": 3951
+      }
+    },
+    "deleted": [],
+    "scope": "All workspace input membership and bytes compared against the retained base; replacements contain full changed bytes."
+  },
+  "scope": "65 targeted regressions pass, including current-run abort and stale-run rejection isolation. Detailed production predicate preserves prior acceptance. Required build/native and live validation pending.",
+  "required_build": {
+    "ground-admission-diagnostic-build-20260922.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\25718f505597da5b2ff7440a325a22afea9d09b04d88a6a0cc7f80b2ee01a355.log",
+      "sha256": "25718f505597da5b2ff7440a325a22afea9d09b04d88a6a0cc7f80b2ee01a355",
+      "bytes": 335
+    },
+    "build-stage.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\853a47ae355e3f4c92650613660119e868eb9e6684cf5d790867fd95d676ea50.json",
+      "sha256": "853a47ae355e3f4c92650613660119e868eb9e6684cf5d790867fd95d676ea50",
+      "bytes": 6239
+    },
+    "build-provenance.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\fa70a83c4ee78f51aaf89a99f5ebdd9381635625ec6018127e24d19c20b9008f.json",
+      "sha256": "fa70a83c4ee78f51aaf89a99f5ebdd9381635625ec6018127e24d19c20b9008f",
+      "bytes": 2373
+    },
+    "local-regressions.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\63d3c9ec470999e92108cb204ce6d64ae85558b2f6f3b5bb4b3f59f46c7d1c15.json",
+      "sha256": "63d3c9ec470999e92108cb204ce6d64ae85558b2f6f3b5bb4b3f59f46c7d1c15",
+      "bytes": 2141
+    },
+    "local-regressions.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\24fff091926bf1f4eea5fda902092fbc7aebb99f5a2afef38ae52efca5a9d9a3.log",
+      "sha256": "24fff091926bf1f4eea5fda902092fbc7aebb99f5a2afef38ae52efca5a9d9a3",
+      "bytes": 4316
+    }
+  }
+}

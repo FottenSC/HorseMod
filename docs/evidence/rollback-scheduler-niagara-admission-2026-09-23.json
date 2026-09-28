@@ -1,0 +1,611 @@
+{
+  "scope": "G1 scheduler Niagara admission; RED before production fix",
+  "red": {
+    "HorseMod/horselib/deterministic/Sc6ReplaySchedulerState.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\dd0bf3ccb422068d91d150825ca62536511999e32802aa3de11bc5fc913425e6.cpp",
+      "sha256": "dd0bf3ccb422068d91d150825ca62536511999e32802aa3de11bc5fc913425e6",
+      "bytes": 30874
+    },
+    "tools/replay_scheduler_consumer_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0d1a11cedf270bddfbf93f210c02be84c58444aefce41b5775f74a337430064d.cpp",
+      "sha256": "0d1a11cedf270bddfbf93f210c02be84c58444aefce41b5775f74a337430064d",
+      "bytes": 4419
+    },
+    "tools/deterministic_qualification/tests/test_replay_run.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\be0653bd0bd056d05fa65f4953f5e51490fcddcd89221e7b4148e3f7bcef58e1.py",
+      "sha256": "be0653bd0bd056d05fa65f4953f5e51490fcddcd89221e7b4148e3f7bcef58e1",
+      "bytes": 504782
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/scheduler-niagara-red-20260923.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\3331430f9973d23dc49a3be7ab52081b624bf44deb1026d5027bd18728b88ff8.log",
+      "sha256": "3331430f9973d23dc49a3be7ab52081b624bf44deb1026d5027bd18728b88ff8",
+      "bytes": 2609
+    }
+  },
+  "revisit_red": {
+    "HorseMod/horselib/deterministic/Sc6ReplaySchedulerState.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8f68ed320f3d639d17fb29b054c13050fe5d45e6f4efbe633c65ed5a0e717551.cpp",
+      "sha256": "8f68ed320f3d639d17fb29b054c13050fe5d45e6f4efbe633c65ed5a0e717551",
+      "bytes": 31956
+    },
+    "tools/replay_scheduler_consumer_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b66454da777f7bbb1fb0e58af90af908e9de8aa3655c0f4ec26e57b0c831fab2.cpp",
+      "sha256": "b66454da777f7bbb1fb0e58af90af908e9de8aa3655c0f4ec26e57b0c831fab2",
+      "bytes": 4478
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/scheduler-niagara-revisit-red-20260923.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\50baa9dcb7e6206020530a9e8685b784ce405bfcab9ee15cc26163c5a23e9946.log",
+      "sha256": "50baa9dcb7e6206020530a9e8685b784ce405bfcab9ee15cc26163c5a23e9946",
+      "bytes": 2609
+    }
+  },
+  "green": {
+    "HorseMod/horselib/deterministic/Sc6ReplaySchedulerState.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\605769a0835949e5bec83eba548f8724b348ba9bf634cf4de5015b1922780ee5.cpp",
+      "sha256": "605769a0835949e5bec83eba548f8724b348ba9bf634cf4de5015b1922780ee5",
+      "bytes": 32222
+    },
+    "tools/replay_scheduler_consumer_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b66454da777f7bbb1fb0e58af90af908e9de8aa3655c0f4ec26e57b0c831fab2.cpp",
+      "sha256": "b66454da777f7bbb1fb0e58af90af908e9de8aa3655c0f4ec26e57b0c831fab2",
+      "bytes": 4478
+    },
+    "tools/deterministic_qualification/tests/test_replay_run.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\be0653bd0bd056d05fa65f4953f5e51490fcddcd89221e7b4148e3f7bcef58e1.py",
+      "sha256": "be0653bd0bd056d05fa65f4953f5e51490fcddcd89221e7b4148e3f7bcef58e1",
+      "bytes": 504782
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/scheduler-niagara-green-final-20260923.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6ee205020061602f046adea0b6061cbcac755f4eec8abc622d33ac3d7bde3ade.log",
+      "sha256": "6ee205020061602f046adea0b6061cbcac755f4eec8abc622d33ac3d7bde3ade",
+      "bytes": 116
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/scheduler-niagara-build-20260923.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1a34b9c8c0b0b24ce407e5a16994fce1b56529c8f13e2911792a3ae35ae5e1a7.log",
+      "sha256": "1a34b9c8c0b0b24ce407e5a16994fce1b56529c8f13e2911792a3ae35ae5e1a7",
+      "bytes": 336
+    }
+  },
+  "required_build": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8991c40ef5b13e670b040e1c7c09dd519118a0ce6786f253559aad37aac9edfd.json",
+    "sha256": "8991c40ef5b13e670b040e1c7c09dd519118a0ce6786f253559aad37aac9edfd",
+    "bytes": 6240
+  },
+  "finding": "RED exit61: generic component scheduler capture accepted Niagara dispatch. RED exit67: duplicate CaptureTick bypassed dispatch admission. Capture, duplicate capture and ValidateBindings now reject concrete Niagara owner table or tick method, including inactive/null-system owners, with no native callback suppression.",
+  "native": {
+    "component_tick": "141BCDB90",
+    "component_vtable": "1437FA218",
+    "dispatch_slot": "1437FA518",
+    "constructor": "141BAF920",
+    "generic_dispatch": "141D43230 ->141D2CAC0 ->owner+300",
+    "annotation": "TickNiagaraComponent void(void*,float), parameters verified RCX/XMM1; comment read back, decompilation verified and SoulcaliburVI.exe saved; EBOOT.elf not edited",
+    "score": 83.84068737769795,
+    "limitations": "No complete component struct inferred; generic pointer and ABI stack allocation scoring deductions remain."
+  },
+  "scope_limits": [
+    "Checkpoint and publication admission only; not mid-application cancellation or G1 closure.",
+    "No Niagara mutable state restoration is implemented. No active Niagara in qualification match claimed.",
+    "No motion exclusion, no changed A617 publication, no408 or600 run.",
+    "Unknown new consumers need before-consumption enforcement; arbitrary native stacks cannot use the specific manager-task suspension owner."
+  ],
+  "required_build_manifest": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\c95dc5f0a842bde0e04b53f3bbc1e5d379bf14365f9c691b3a5ca8253d32d6f8.json",
+    "sha256": "c95dc5f0a842bde0e04b53f3bbc1e5d379bf14365f9c691b3a5ca8253d32d6f8",
+    "bytes": 6434,
+    "summary": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\2c45af01ac06a4ea2ac01cf3513e7712766f651c9fd59ab5271cdb71a3eb54ed.md",
+      "sha256": "2c45af01ac06a4ea2ac01cf3513e7712766f651c9fd59ab5271cdb71a3eb54ed",
+      "bytes": 533
+    }
+  },
+  "binary_identities": {
+    "runtime": "5b13df9ac9e2627511e295b21586eea1b4f5a577aec8ca17e3a8ebacc6c3619e",
+    "observer": "e85beb671caf21829cb4a6a96fc39bb9ea4d9ce811ef2675bd96c30f1eda9c30",
+    "framework": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6"
+  },
+  "recovery_diagnostic": {
+    "result": "pass",
+    "retained_evidence": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\4f826004843edd37c079dcd96f21acd2e9c7e9963ac500e9915b50152b9b9b8f.json",
+      "sha256": "4f826004843edd37c079dcd96f21acd2e9c7e9963ac500e9915b50152b9b9b8f",
+      "bytes": 40374,
+      "summary": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\88aac2e189b1c96bfee608fd0b7482d5d9dd4bcf79425ec5c9c2fae3db77ed43.md",
+        "sha256": "88aac2e189b1c96bfee608fd0b7482d5d9dd4bcf79425ec5c9c2fae3db77ed43",
+        "bytes": 534
+      }
+    },
+    "continuation_ticks": 120,
+    "native_callbacks_compared": 480,
+    "cancellation": "after",
+    "simulation_correctness": {
+      "result": "pass",
+      "continuation_ticks": 120,
+      "changed_inputs": {
+        "result": "not_exercised"
+      },
+      "scene_vector_fields": {
+        "result": "pass",
+        "policy": "reject_nonempty_v1",
+        "slots": 0,
+        "scope": "empty registry at capture/publication admission; active fields unsupported"
+      },
+      "callback_admission": {
+        "result": "pass",
+        "policy": "quiescent_streamable_v2",
+        "capture_registration_stamps": [
+          [
+            0,
+            0
+          ],
+          [
+            0,
+            0
+          ]
+        ],
+        "domain_identity": 14695981039346656037,
+        "pending_streamable_loads_rejected": true,
+        "final_registration_stamp": [
+          0,
+          0
+        ],
+        "active_loading_owned": false,
+        "registration_invalidation_exercised": false
+      },
+      "mt": {
+        "result": "compared",
+        "bytes": 5008,
+        "distinct_suffix_states": 1,
+        "scope": "complete native state comparison; consumption coverage requires a state transition"
+      },
+      "widget_clock": {
+        "result": "pass",
+        "policy": "fixed60_application_widget_v1",
+        "calls": [
+          14412,
+          17314
+        ],
+        "scope": "admitted native widget calls keep native skip/callback semantics; fixed delta and independently witnessed nonlinear player transitions; continuation compared separately",
+        "independent_continuation": {
+          "result": "pass",
+          "active_player_updates": 13,
+          "first_tick": 218,
+          "last_tick": 230,
+          "instance_identity": "unobserved",
+          "scope": "independent ordered widget-class/player clock observations with exact multiplicity; not per-widget identity, complete widget state or pixel proof"
+        }
+      }
+    },
+    "visual_coherence": {
+      "result": "incomplete",
+      "native_poses": {
+        "result": "pass",
+        "prefix_ticks": 20,
+        "continuation_ticks": 120,
+        "scope": "complete Lux animation-proxy outputs; not downstream native rendering proof"
+      },
+      "captures": {
+        "result": "not_requested"
+      },
+      "held_output_ownership": {
+        "result": "pass",
+        "original_window": true,
+        "held_ticks": [
+          217
+        ],
+        "backbuffer_restored": true,
+        "gpu_retired": true,
+        "scope": "original-window ownership and completed copy receipts; scene coherence and displayed FPS require separate evidence"
+      },
+      "missing_coverage": [
+        "actor/effect presence",
+        "HUD freshness",
+        "persistent visual corruption"
+      ]
+    },
+    "experiments": [
+      {
+        "result": "pass",
+        "resume_performance": {
+          "native_ticks": 120,
+          "elapsed_us": 1997761,
+          "viewport_frames": 120,
+          "max_observation_gap_us": 17498,
+          "gaps_over_20ms": 0,
+          "tick_rate_milli": 60067,
+          "viewport_fps_milli": 60067,
+          "result": "pass"
+        },
+        "seek_performance": {
+          "result": "not_measured",
+          "readiness_result": "not_measured",
+          "scope": "completed application and retirement required; request-to-ready is reported separately",
+          "ceiling_us": 500000,
+          "rollback_cost_measured": false,
+          "desktop_capture_timing_perturbed": false,
+          "diagnostic_gpu_readbacks": false
+        },
+        "identities": {
+          "config": "26a017d28e1e3d1c9175fe94712258c816976fbb092a5e0dc6bc7eb13a18eac4",
+          "framework": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6",
+          "game": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553",
+          "observer": "e85beb671caf21829cb4a6a96fc39bb9ea4d9ce811ef2675bd96c30f1eda9c30",
+          "physx": "c3c7bd6e13260ee5f850552b6e9a15f69e58e0b41cd4f4bcb48e1b419719b5a2",
+          "replay": "95e12e394d35c13d5e0dd3dce692f9e0a4022e2a84205a9ec75f2fa6726d7879",
+          "runtime": "5b13df9ac9e2627511e295b21586eea1b4f5a577aec8ca17e3a8ebacc6c3619e",
+          "ucrt": "5e7709a6b71bb818260b6f05c5bb3b6ca0c3ca9bc2f58c6242c1cd9d826d0079"
+        },
+        "native_control_dependencies": {
+          "config": "26a017d28e1e3d1c9175fe94712258c816976fbb092a5e0dc6bc7eb13a18eac4",
+          "framework": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6",
+          "game": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553",
+          "observer": "e85beb671caf21829cb4a6a96fc39bb9ea4d9ce811ef2675bd96c30f1eda9c30",
+          "physx": "c3c7bd6e13260ee5f850552b6e9a15f69e58e0b41cd4f4bcb48e1b419719b5a2",
+          "replay": "95e12e394d35c13d5e0dd3dce692f9e0a4022e2a84205a9ec75f2fa6726d7879",
+          "ucrt": "5e7709a6b71bb818260b6f05c5bb3b6ca0c3ca9bc2f58c6242c1cd9d826d0079"
+        },
+        "target_tick": 210,
+        "advanced_tick": 217,
+        "particle_topology": "births",
+        "particle_birth_reproduction": {
+          "result": "missing_coverage",
+          "scope": "fixed tick210 birth witness is outside this checkpoint window"
+        },
+        "continuation_ticks": 120,
+        "native_callbacks_compared": 480,
+        "resume_timing": {
+          "native_ticks": 120,
+          "elapsed_us": 1997761,
+          "viewport_frames": 120,
+          "max_observation_gap_us": 17498,
+          "gaps_over_20ms": 0,
+          "tick_rate_milli": 60067,
+          "viewport_fps_milli": 60067,
+          "result": "pass"
+        },
+        "cancellation": "after",
+        "resumed_tick": 217,
+        "advance_prefix_ticks": 0,
+        "exact_advance": {
+          "result": "pass",
+          "target_presentation": "unproven",
+          "single_step": false,
+          "ui_step": {
+            "result": "not_exercised"
+          },
+          "completed_application": {
+            "result": "not_exercised"
+          }
+        },
+        "simulation_correctness": {
+          "result": "pass",
+          "continuation_ticks": 120,
+          "changed_inputs": {
+            "result": "not_exercised"
+          },
+          "scene_vector_fields": {
+            "result": "pass",
+            "policy": "reject_nonempty_v1",
+            "slots": 0,
+            "scope": "empty registry at capture/publication admission; active fields unsupported"
+          },
+          "callback_admission": {
+            "result": "pass",
+            "policy": "quiescent_streamable_v2",
+            "capture_registration_stamps": [
+              [
+                0,
+                0
+              ],
+              [
+                0,
+                0
+              ]
+            ],
+            "domain_identity": 14695981039346656037,
+            "pending_streamable_loads_rejected": true,
+            "final_registration_stamp": [
+              0,
+              0
+            ],
+            "active_loading_owned": false,
+            "registration_invalidation_exercised": false
+          },
+          "mt": {
+            "result": "compared",
+            "bytes": 5008,
+            "distinct_suffix_states": 1,
+            "scope": "complete native state comparison; consumption coverage requires a state transition"
+          },
+          "widget_clock": {
+            "result": "pass",
+            "policy": "fixed60_application_widget_v1",
+            "calls": [
+              14412,
+              17314
+            ],
+            "scope": "admitted native widget calls keep native skip/callback semantics; fixed delta and independently witnessed nonlinear player transitions; continuation compared separately",
+            "independent_continuation": {
+              "result": "pass",
+              "active_player_updates": 13,
+              "first_tick": 218,
+              "last_tick": 230,
+              "instance_identity": "unobserved",
+              "scope": "independent ordered widget-class/player clock observations with exact multiplicity; not per-widget identity, complete widget state or pixel proof"
+            }
+          }
+        },
+        "visual_coherence": {
+          "result": "incomplete",
+          "native_poses": {
+            "result": "pass",
+            "prefix_ticks": 20,
+            "continuation_ticks": 120,
+            "scope": "complete Lux animation-proxy outputs; not downstream native rendering proof"
+          },
+          "captures": {
+            "result": "not_requested"
+          },
+          "held_output_ownership": {
+            "result": "pass",
+            "original_window": true,
+            "held_ticks": [
+              217
+            ],
+            "backbuffer_restored": true,
+            "gpu_retired": true,
+            "scope": "original-window ownership and completed copy receipts; scene coherence and displayed FPS require separate evidence"
+          },
+          "missing_coverage": [
+            "actor/effect presence",
+            "HUD freshness",
+            "persistent visual corruption"
+          ]
+        },
+        "pixel_diagnostics": {
+          "result": "not_run",
+          "required": false,
+          "gpu_readbacks": false
+        },
+        "capture_owner": {
+          "result": "pass",
+          "tick": 210,
+          "request_to_ready_us": 96553,
+          "owned_bytes": 217151215,
+          "immutable_handle": true,
+          "gpu_completion_before_ready": true,
+          "cancellation_coverage": false,
+          "multiple_capture_coverage": false
+        },
+        "restore_owner": {
+          "result": "pass",
+          "image_and_B_preparation": "host_owned",
+          "conflicting_requests_rejected": true,
+          "owned_bytes_at_prepared": 294420427,
+          "preparation_failure_coverage": false,
+          "cancellation_while_preparing_coverage": false,
+          "multiple_retained_checkpoint_selection": false
+        },
+        "seek_request": {
+          "result": "pass",
+          "requested_target": 217,
+          "cancelled_at": "after",
+          "recovered_tick": 217,
+          "repeated_backward_seek": false,
+          "repeated_forward_seek": false,
+          "cancellation_coverage": true,
+          "failed_wrapper_recovery": {
+            "result": "not_exercised"
+          },
+          "index_complete": false,
+          "release": {
+            "completed_release_after_retirement": true,
+            "retirement_tick": 217
+          },
+          "unpaced_applications": 0,
+          "application_clock_policy": "physical_clock_fixed60_seek_v1"
+        },
+        "costs": {
+          "capture": {
+            "run_id": "replay-f9684a1063704c71a82f04fa6134f9e4",
+            "elapsed_us": "97520",
+            "gpu_bytes": "149042344",
+            "diagnostic_gpu_readbacks": "false",
+            "transaction_readback_maps": "0",
+            "readback_scope": "observer_and_transaction"
+          },
+          "restore": {
+            "run_id": "replay-f9684a1063704c71a82f04fa6134f9e4",
+            "elapsed_us": "120847",
+            "owned_bytes": "327975411",
+            "diagnostic_gpu_readbacks": "false",
+            "transaction_readback_maps": "0",
+            "readback_scope": "observer_and_transaction",
+            "includes_B_undo": "true",
+            "includes_image_reopen": "true",
+            "request_origin": "held_B",
+            "owned_bytes_kind": "conservative_reservation"
+          },
+          "restore_plus_resimulation": {
+            "result": "not_measured",
+            "reason": "cancelled transaction; completed C work and recovery are reported separately"
+          },
+          "application_calls": {
+            "result": "not_measured"
+          }
+        },
+        "native_display_boundaries": [
+          120,
+          120
+        ],
+        "completion_repeat": {
+          "result": "not_run"
+        },
+        "native_poses": {
+          "result": "pass",
+          "prefix_ticks": 20,
+          "continuation_ticks": 120,
+          "scope": "complete Lux animation-proxy outputs; not downstream native rendering proof"
+        },
+        "scope": "bounded independent gameplay, native callback and pose comparison under the recorded input policy; visual coherence and general seeking remain incomplete",
+        "milestone_complete": false
+      }
+    ]
+  },
+  "recovery_cleanup": {
+    "journal": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b3f6aa7a65f8597e49200d47690a15c7bcc0a3c0d13cdcae328f0dd1ca7c6e40.json",
+      "sha256": "b3f6aa7a65f8597e49200d47690a15c7bcc0a3c0d13cdcae328f0dd1ca7c6e40",
+      "bytes": 4431
+    },
+    "state": "clean",
+    "files": [
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll",
+        "expected": "b583b65388616e4fc6bbac841a1de6bc7d87467e67132a0983c69eb5d0c40c2b",
+        "actual": "b583b65388616e4fc6bbac841a1de6bc7d87467e67132a0983c69eb5d0c40c2b",
+        "restored": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\UE4SS.dll",
+        "expected": "df9e6e9a2280972b1c28ce590700feacc752b447204f8baadeb95f5776957055",
+        "actual": "df9e6e9a2280972b1c28ce590700feacc752b447204f8baadeb95f5776957055",
+        "restored": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\rollback.ini",
+        "expected": "22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514",
+        "actual": "22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514",
+        "restored": true
+      },
+      {
+        "path": "C:\\Users\\prest\\AppData\\Local\\HorseMod\\Qualification\\replay_diagnostics.ini",
+        "expected": null,
+        "actual": null,
+        "restored": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\dlls\\main.dll",
+        "expected": null,
+        "actual": null,
+        "restored": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\enabled.txt",
+        "expected": null,
+        "actual": null,
+        "restored": true
+      }
+    ]
+  },
+  "integration": {
+    "bytes": 1487,
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4f5aa0dcf650fa7ab58e7955456383eeb10ab4561275d0751267996da59c1bac.json",
+    "sha256": "4f5aa0dcf650fa7ab58e7955456383eeb10ab4561275d0751267996da59c1bac"
+  },
+  "integration_count": 628,
+  "rolling30": {
+    "result": "pass",
+    "retained_evidence": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\48d283088705f34b2e8181c1d8e6a1e303f3f7227898f32c0e00f5f73659f6ec.json",
+      "sha256": "48d283088705f34b2e8181c1d8e6a1e303f3f7227898f32c0e00f5f73659f6ec",
+      "bytes": 56762,
+      "summary": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\c2da100262470a651799f34c05d3b7085b2e1852919304d7e7b82729b2ddc01f.md",
+        "sha256": "c2da100262470a651799f34c05d3b7085b2e1852919304d7e7b82729b2ddc01f",
+        "bytes": 518
+      }
+    },
+    "rolling_cycles": 30,
+    "native_callbacks_compared": 2300,
+    "continuation_ticks": 120,
+    "independent_controls": {
+      "0": {
+        "run_id": "replay-9205c1af45064c48bb665e7a74f17855",
+        "reuse": null
+      },
+      "1": {
+        "run_id": "replay-7ca0e5ff0e82457092ab7ac74bb39902",
+        "reuse": null
+      },
+      "2": {
+        "run_id": "replay-b273e10e2951458e8837267bbf2404a6",
+        "reuse": null
+      },
+      "3": {
+        "run_id": "replay-c3197c635d564f60be78da28730cb029",
+        "reuse": null
+      }
+    },
+    "acceptance_results": {
+      "observer_validity": "pass",
+      "simulation": "pass"
+    }
+  },
+  "mid_application_boundary": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\be6955dff9cd0242042e70388476df0c108b4000ef8b648e59881a9ed807eadf.json",
+    "sha256": "be6955dff9cd0242042e70388476df0c108b4000ef8b648e59881a9ed807eadf",
+    "bytes": 10505
+  },
+  "control_compatibility": "Runner control-side identities include observer identity; the newly built observer changed. Four matching native controls were required by the existing cache, not selected by agreement. Prior full627/30 remain valid only for their recorded inputs.",
+  "final_cleanup": {
+    "time": "2026-09-23T09:18:25.846227+00:00",
+    "journal": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\05e5e7b9817cc849843b4e4d27f7219d30d4094b2ff9ab8696839267d8ac5923.json",
+      "sha256": "05e5e7b9817cc849843b4e4d27f7219d30d4094b2ff9ab8696839267d8ac5923",
+      "bytes": 4432
+    },
+    "state": "clean",
+    "files": [
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll",
+        "expected": "b583b65388616e4fc6bbac841a1de6bc7d87467e67132a0983c69eb5d0c40c2b",
+        "actual": "b583b65388616e4fc6bbac841a1de6bc7d87467e67132a0983c69eb5d0c40c2b",
+        "restored": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\UE4SS.dll",
+        "expected": "df9e6e9a2280972b1c28ce590700feacc752b447204f8baadeb95f5776957055",
+        "actual": "df9e6e9a2280972b1c28ce590700feacc752b447204f8baadeb95f5776957055",
+        "restored": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\rollback.ini",
+        "expected": "22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514",
+        "actual": "22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514",
+        "restored": true
+      },
+      {
+        "path": "C:\\Users\\prest\\AppData\\Local\\HorseMod\\Qualification\\replay_diagnostics.ini",
+        "expected": null,
+        "actual": null,
+        "restored": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\dlls\\main.dll",
+        "expected": null,
+        "actual": null,
+        "restored": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\enabled.txt",
+        "expected": null,
+        "actual": null,
+        "restored": true
+      }
+    ],
+    "games": [],
+    "steam": [
+      {
+        "name": "steam.exe",
+        "pid": 98544
+      }
+    ]
+  },
+  "final_console": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6fe3dd3d01e454bf1e6805afe7343da0e456ff2a58221ee205f25d829cd941c4.log",
+    "sha256": "6fe3dd3d01e454bf1e6805afe7343da0e456ff2a58221ee205f25d829cd941c4",
+    "bytes": 663
+  },
+  "next_required_work": "G1 before-consumption enforcement at native initialization/rebinding, collision/transform and callback boundaries, with explicit ownership of active native work and B recovery. Checkpoint rejection is insufficient. Keep motion Unresolved; G2 publication unchanged."
+}

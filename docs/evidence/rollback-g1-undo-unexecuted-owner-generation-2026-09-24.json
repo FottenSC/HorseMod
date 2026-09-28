@@ -1,0 +1,56 @@
+{
+  "scope": "A210/B217 consumer-mutation retry with second recovery failure witness and empty-sidecar cleanup fix",
+  "run_id": "replay-21d639e77b19472cb2dbeaad1ebacd27",
+  "evidence": {
+    "build_manifest": {
+      "path": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/manifests/82fab4bfa23ec1e3f557869853e09a7260fd245010bd9339283e3467c900de94.json",
+      "sha256": "82fab4bfa23ec1e3f557869853e09a7260fd245010bd9339283e3467c900de94",
+      "bytes": 6433
+    },
+    "run_manifest": {
+      "path": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/manifests/d4800db54b215bf1ff188bdc9de4ed3f7d69159d6cf5a7a3398ad106fa4d0525.json",
+      "sha256": "d4800db54b215bf1ff188bdc9de4ed3f7d69159d6cf5a7a3398ad106fa4d0525",
+      "bytes": 17196
+    },
+    "raw_log": {
+      "path": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/932cffd049d76390e05c7e10cb2a5bf86b7ff97d03e7508e66247f0e5ded3b43.log",
+      "sha256": "932cffd049d76390e05c7e10cb2a5bf86b7ff97d03e7508e66247f0e5ded3b43",
+      "bytes": 2480172
+    },
+    "run_report": {
+      "path": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/e246c3be93582de0839199022b616cc73cd6245a9378814b1db5dd9a5ceccff5.json",
+      "sha256": "e246c3be93582de0839199022b616cc73cd6245a9378814b1db5dd9a5ceccff5",
+      "bytes": 10125
+    },
+    "diagnostic_red": "docs/evidence/rollback-g1-recovery-diagnostic-red-2026-09-24.json",
+    "diagnostic_green": "docs/evidence/rollback-g1-recovery-diagnostic-green-2026-09-24.json"
+  },
+  "checks": "Four focused RED/GREEN regressions passed after fixes; required build/native and two CTests passed. Initial preflight disk gate blocked before deployment; hash-preserving NTFS compression of generated build PDB/OBJ files restored headroom, then preflight was ready.",
+  "first_failure": {
+    "tick": 211,
+    "observer_reason": "consumer_mutation_recovery_failed",
+    "production_consumer": "native prerequisite removal injected, selected task completed, corrected application completed, B retained",
+    "recovery_witness": {
+      "seek_failure": 7,
+      "restore_failure": 7,
+      "failure_name": "GenerationMismatch",
+      "participant": "undo_unexecuted_owner_retirement",
+      "restore_phase": 8,
+      "ownership_phase": 9,
+      "original_recovered": false,
+      "restore_pending": false,
+      "seek_pending": true,
+      "commit_decided": false,
+      "B_tick": 217,
+      "current_tick": 217,
+      "executed_intervals": 1,
+      "pending_task": "0x0",
+      "application_idle": true
+    },
+    "last_successful_stage": "render recovery Complete GPU_completed=true while B_retained=true"
+  },
+  "source_boundary": "Sc6ReplayHost.Restore.inl:1778 invokes RetirePreparedFreshParticles after CPU/GPU undo. Sc6ReplayHost.ParticleOwners.inl:335-382 returns GenerationMismatch only from the slots_installed lease/header/count comparison or per-slot expected GPU-owner pointer comparison. The exact predicate is not identified by this run.",
+  "cleanup": "Runner handled its zero-byte diagnostic sidecar; journal clean, all eight previous deployment file hashes/absence independently match, no game or replay runner remains. Steam untouched.",
+  "gates": "Observer validity, simulation, coherence, recovery and performance not measured after first failure. Complete B and 120 independent matching continuation ticks unproven. G1/G2 open; debris exact/Unresolved; no408 or600 retry.",
+  "next_resolving_test": "Astra high adds bounded production-boundary diagnostics distinguishing lease/header/count from individual slot mismatches with RED/GREEN, then investigates the verified mutation source and fixes it without weakening ownership; required build/native checks precede one shortest live retry."
+}

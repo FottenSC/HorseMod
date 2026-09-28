@@ -1,0 +1,837 @@
+{
+  "created_utc": "2026-09-08T20:34:32.0990999Z",
+  "scope": "Static source fingerprint inventory; not a claim of per-file review or test execution",
+  "runtime_changed_by_review": false,
+  "tests_run": false,
+  "builds_run": false,
+  "files": [
+    {
+      "path": "HorseMod/horselib/deterministic/AudioPresentation.cpp",
+      "bytes": 7775,
+      "last_write_utc": "2026-08-27T05:19:52.1360011Z",
+      "sha256": "4f3342cd6e3052bb0ceef557477390367e7ad3b58567316df8a3874bc3b5efaf"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/AudioPresentation.hpp",
+      "bytes": 14604,
+      "last_write_utc": "2026-09-01T16:28:10.1476233Z",
+      "sha256": "439a9554543b2f9172761a01d5e2a47975100c1f324a973d2bdc6922c9555658"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/BattleAudioSelectorState.cpp",
+      "bytes": 6552,
+      "last_write_utc": "2026-08-25T06:39:08.3691885Z",
+      "sha256": "2e5efa4b85b776960d68e2d4263ed615cac21f80d3de3bb355548613ae9583c3"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/BattleAudioSelectorState.hpp",
+      "bytes": 2090,
+      "last_write_utc": "2026-08-25T06:38:32.6122245Z",
+      "sha256": "4838fb424721ca77d91fc8dd15150580453fa8e9c85166038c1a64facfc4e347"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/CallbackTopology.cpp",
+      "bytes": 7276,
+      "last_write_utc": "2026-08-28T17:40:54.1642551Z",
+      "sha256": "342d9122d442be31238e3cd938c4ada45013643b7d7471c2af782140ca072802"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/CallbackTopology.hpp",
+      "bytes": 1619,
+      "last_write_utc": "2026-08-24T07:19:25.8634486Z",
+      "sha256": "1cc96f59f06b9b7bf2dfaeb9ae7c6ed45cb49a068376996c9cad780956dc6e62"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/CandidateCheckpoint.cpp",
+      "bytes": 50259,
+      "last_write_utc": "2026-09-07T21:23:17.1716067Z",
+      "sha256": "f1037246b3493338dd36f7868694f1be3a9370a6b4ef348414d8527f63ec839d"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/CandidateCheckpoint.hpp",
+      "bytes": 3303,
+      "last_write_utc": "2026-09-05T21:38:30.1053546Z",
+      "sha256": "570324b7c85041b01a7a721ed9c5914a966b6c9affbf948c216e615bec55f571"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/CandidateGameStateAdapter.cpp",
+      "bytes": 35746,
+      "last_write_utc": "2026-09-07T21:55:41.0117808Z",
+      "sha256": "8379d376759a2b34926aaed5bc4aea18b16c8f2571c580219ea75e742d4376f6"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/CandidateGameStateAdapter.hpp",
+      "bytes": 11488,
+      "last_write_utc": "2026-09-05T21:38:30.1068717Z",
+      "sha256": "968ef8b0698b6ce8b404fe6bc07fd2c7778f9d32edf278b13d97d2b28a0e539e"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/CanonicalHashTimeline.cpp",
+      "bytes": 7257,
+      "last_write_utc": "2026-09-07T17:38:20.8984502Z",
+      "sha256": "bae6e541d19e5b694de64a03359a019a8f4e584747f87d52a80ae67b45280dc3"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/CanonicalHashTimeline.hpp",
+      "bytes": 2608,
+      "last_write_utc": "2026-09-04T23:55:09.1910338Z",
+      "sha256": "07d3c95ba07e2feda619fbbfc463a23b45fc582c3852400a7e7dcec205f36bdf"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/CharaAnimationState.cpp",
+      "bytes": 28970,
+      "last_write_utc": "2026-09-07T21:58:20.2085253Z",
+      "sha256": "6e9e3d31cc57322da73936e911a1bfe969b5728b2e66ffcd93728efcca0b4385"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/CharaAnimationState.hpp",
+      "bytes": 7053,
+      "last_write_utc": "2026-09-06T15:24:45.9347205Z",
+      "sha256": "e3e5a4be0089e64d118a5cf8594d0f5a8fa6540175577ccf8d7bef318a5eb84e"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Config.cpp",
+      "bytes": 4118,
+      "last_write_utc": "2026-08-28T12:57:37.9858065Z",
+      "sha256": "c6a9a32e3adc72889339f02ed149401d9cdc861df790ec500f7aac73983c1a4f"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Config.hpp",
+      "bytes": 1204,
+      "last_write_utc": "2026-08-28T12:57:37.9842833Z",
+      "sha256": "d2a736c48af1f8ee443160e27d17ff6a1b6ec93d6534158c239ccc38930a560f"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/DeterministicHookSet.Audio.inl",
+      "bytes": 55890,
+      "last_write_utc": "2026-08-30T10:04:46.09053Z",
+      "sha256": "2513f1944166a15ddbda9ec16c6a0700e33d830f6bbe80f752a603a100077764"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/DeterministicHookSet.cpp",
+      "bytes": 53938,
+      "last_write_utc": "2026-09-05T18:30:03.0462785Z",
+      "sha256": "6dd2498991f36b58de44978d93c944b85efe3e0665e0a32d0af4705055021284"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/DeterministicHookSet.FrameAndStage.inl",
+      "bytes": 94529,
+      "last_write_utc": "2026-09-07T17:33:56.8986576Z",
+      "sha256": "a379be792a8e1ac39d3ae5c617564246288f984724d9ea7ab1fa6f3d6d53c12e"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/DeterministicHookSet.hpp",
+      "bytes": 46783,
+      "last_write_utc": "2026-09-07T17:33:56.8986576Z",
+      "sha256": "a7e12433e2276fa7f49a45263566b7e106933571cc20eb0564c89b19ae324c4f"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/DeterministicHookSet.LifecycleAndJournal.inl",
+      "bytes": 68048,
+      "last_write_utc": "2026-09-06T08:51:17.7707787Z",
+      "sha256": "582a1600c7719b87d019795c4b15a7aa5ae102063723d102135f85ce32c05712"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/DeterministicHookSet.PresentationTerminals.inl",
+      "bytes": 58630,
+      "last_write_utc": "2026-09-07T00:33:59.602264Z",
+      "sha256": "5aa3f2bf3c0ecd2cab888fbf904489112456dc9aa54e261d6d193f50ef202486"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/FloatingPointEnvironment.cpp",
+      "bytes": 2424,
+      "last_write_utc": "2026-08-24T07:54:00.2491806Z",
+      "sha256": "900ac867fd069b5106a52858a02daa0713bc774db7e18e71585e15f1ab9cf620"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/FloatingPointEnvironment.hpp",
+      "bytes": 1446,
+      "last_write_utc": "2026-08-24T07:54:00.2491806Z",
+      "sha256": "8aa548aa0b633f2e99f106334264c0cbb480b950615587ed0b11a73f39016c42"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/HgCpuCoverageProbe.cpp",
+      "bytes": 6194,
+      "last_write_utc": "2026-08-24T03:28:43.0494213Z",
+      "sha256": "3760ebc6275b907dcef279f3955f2be33e4987f09859d3beb3d9a2262871b307"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/HgCpuCoverageProbe.hpp",
+      "bytes": 2279,
+      "last_write_utc": "2026-08-24T03:28:43.0494213Z",
+      "sha256": "7c40e9027a3f15b74313c36ebab3fdace334f0d4eddc8cf2df38090630113b99"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/HgCpuRuntimeDiagnostics.cpp",
+      "bytes": 7203,
+      "last_write_utc": "2026-08-24T11:44:46.8995024Z",
+      "sha256": "77f899ec860ba9795d65482bd93677c3d8131e9b5ef8a8d720f39f95dddced54"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/HgCpuRuntimeDiagnostics.hpp",
+      "bytes": 1569,
+      "last_write_utc": "2026-08-24T03:28:43.0494213Z",
+      "sha256": "76515ead4989a832b565ebaa2d7d5cd2c2213626526af17e141f5fd87bdc1250"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/HgCpuStream.cpp",
+      "bytes": 7668,
+      "last_write_utc": "2026-08-24T17:03:56.3913733Z",
+      "sha256": "c216af0bf6a9e66e80e100e9cccac8596f77c57014da6a58fc4c7cbe98725c3b"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/HgCpuStream.hpp",
+      "bytes": 2849,
+      "last_write_utc": "2026-08-24T21:12:28.5831731Z",
+      "sha256": "1102a3ca1583387bcf2c27ff14ac61f240f387a6380ad739c5d4d39d3866d827"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/InputProducer.hpp",
+      "bytes": 2686,
+      "last_write_utc": "2026-09-06T00:05:50.5401823Z",
+      "sha256": "e49378d7c76dc5a00ff3014fceec4c46a4f1ad3cb78a036bfe3b6c0df4323204"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/InputTimeline.cpp",
+      "bytes": 5517,
+      "last_write_utc": "2026-09-07T17:38:20.8974446Z",
+      "sha256": "46345d49b4b09601e704d73d196ec7ec1c621ed9920f6d92ddeaa2cb055902c2"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/InputTimeline.hpp",
+      "bytes": 1519,
+      "last_write_utc": "2026-09-04T01:01:22.5199833Z",
+      "sha256": "95f8b164a91d8585fc8d669fdaa566c047842455e33ee59a0c3d164ac0ee52c5"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Interfaces.hpp",
+      "bytes": 4142,
+      "last_write_utc": "2026-09-02T17:09:11.8790733Z",
+      "sha256": "eeb7c8a75f43870d1322d19d88a308372137827d35a708e2131838b5625a5123"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/LocalImageChecksum.hpp",
+      "bytes": 2395,
+      "last_write_utc": "2026-08-24T17:03:56.3898528Z",
+      "sha256": "85a6b204203c40e0668268a55115622b5ac0d4664ea04f2699b010abb483bd31"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/MotionBankSnapshot.cpp",
+      "bytes": 22919,
+      "last_write_utc": "2026-09-07T21:40:34.8130653Z",
+      "sha256": "b161e29000bdb00615b93f05581884e4322db90cdbc1462f6501e1cf9bf3b184"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/MotionBankSnapshot.hpp",
+      "bytes": 3418,
+      "last_write_utc": "2026-09-07T21:40:34.8130653Z",
+      "sha256": "7aa678e51e70e29b5c03bd00c67626414592835cbdcff96ac763a1d2b80ef5a6"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/MoveDispatchState.cpp",
+      "bytes": 23725,
+      "last_write_utc": "2026-09-05T10:24:41.7108291Z",
+      "sha256": "ad8b54b28f4b807b772aefbe4ab04fbd858d9c5eae6d61590817d96f0bf2c843"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/MoveDispatchState.hpp",
+      "bytes": 5344,
+      "last_write_utc": "2026-09-05T10:22:43.9840105Z",
+      "sha256": "f153a5ff5adf8da66ff39ed20c9eaad6c0efc1a8b31adb1280c855a2d9d79484"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativeAudioPresentationController.cpp",
+      "bytes": 4938,
+      "last_write_utc": "2026-09-01T16:27:50.9258965Z",
+      "sha256": "2d1dc051ba93ee8edc3fb3e1a1c1457891819e9d19be5e4dbcb7fdc3ffdef805"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativeAudioPresentationController.hpp",
+      "bytes": 1595,
+      "last_write_utc": "2026-09-04T20:53:36.5168977Z",
+      "sha256": "09e4975cd4a9b8b03586a6c09ae5985e2786f5d2fc82897bf2aed6b283ab5498"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativeBatchTimeline.cpp",
+      "bytes": 27439,
+      "last_write_utc": "2026-09-07T17:38:20.8989552Z",
+      "sha256": "64381b3473850df66fc61678098db8efc5077074356919c1daffdbb5a73d90cd"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativeBatchTimeline.hpp",
+      "bytes": 16942,
+      "last_write_utc": "2026-09-05T18:25:41.9091866Z",
+      "sha256": "983c37bac99447fc93b100474abc005d0dbe4e2d895757ac5c7b2dcca356c477"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativeCandidateRegions.cpp",
+      "bytes": 126970,
+      "last_write_utc": "2026-09-05T01:16:58.0018953Z",
+      "sha256": "0f4196dcfcdb7e4f8f43f7a1fc07660d8bee2f4217cca32687e1274ded8f5228"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativeCandidateRegions.hpp",
+      "bytes": 20644,
+      "last_write_utc": "2026-09-05T01:16:58.0034161Z",
+      "sha256": "091187eb836a18388220425f55f01d7ac75c0ccc60ce5659623edc401345d25f"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativePresentationJournal.cpp",
+      "bytes": 10361,
+      "last_write_utc": "2026-08-27T06:04:49.1946012Z",
+      "sha256": "e84c53ad43000daad5c59d3d5447b44a2c5f1a9f035510f79209d0b3dc75ca17"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativePresentationJournal.hpp",
+      "bytes": 652,
+      "last_write_utc": "2026-08-27T05:37:04.3425301Z",
+      "sha256": "4b39d528acf1397c67ba203049af04e44fa226ea9b23269f386c6d4db94a04c4"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativeReplayMaterializer.cpp",
+      "bytes": 5256,
+      "last_write_utc": "2026-08-24T00:09:15.5596026Z",
+      "sha256": "ac7f5be2a145bb584d59605c9b1419918d741c0899114af4c4ed9942536142de"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativeReplayMaterializer.hpp",
+      "bytes": 1925,
+      "last_write_utc": "2026-08-24T00:09:15.5578335Z",
+      "sha256": "981027b969dbe670c8283b2fd83695212bacaafb34370824b58172aadf6d16b9"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativeReplayRendering.hpp",
+      "bytes": 13556,
+      "last_write_utc": "2026-09-08T13:29:56.3716257Z",
+      "sha256": "da72adc95aa4e14d396226ef6a3f9ff5adaaf9082196adf5e50930f55362a4b0"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativeWindConstruction.hpp",
+      "bytes": 2850,
+      "last_write_utc": "2026-09-08T04:35:04.5358695Z",
+      "sha256": "18b7759431b003676c7a9aad9e810664c953d63d07cf31fbe48c71ae5d09534d"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/OnlineContractTypes.hpp",
+      "bytes": 1689,
+      "last_write_utc": "2026-09-04T21:31:46.6831366Z",
+      "sha256": "a8f4a6f30b9eba297e2fedc93e6cf3144ecc726c7fc05e682a43bd496d4300ba"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ParticlePresentation.cpp",
+      "bytes": 6401,
+      "last_write_utc": "2026-08-26T10:30:46.6265784Z",
+      "sha256": "6fa30f546885d388b65a1d9650f2a477808558ee7467123e77ac976392f510f1"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ParticlePresentation.hpp",
+      "bytes": 1530,
+      "last_write_utc": "2026-08-26T10:30:46.6260658Z",
+      "sha256": "b9d451b8c79bd69eb12a35f8ce0f76751627f9119330d6b9f647d33f8ac208cd"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/PresentationJournal.cpp",
+      "bytes": 15443,
+      "last_write_utc": "2026-09-04T21:02:42.8218225Z",
+      "sha256": "198eed28132bc367b52b512c712935a96a4080f03875851ce050886f6c53dd71"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/PresentationJournal.hpp",
+      "bytes": 5071,
+      "last_write_utc": "2026-09-04T21:02:42.821306Z",
+      "sha256": "55ad6fb0aee90ab9dcd11ee5c8679b7e11defb6da22c261df1c1d77329e79182"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ReplayCoordinator.cpp",
+      "bytes": 7626,
+      "last_write_utc": "2026-08-23T23:58:59.6331655Z",
+      "sha256": "470b3a645d596bc81083a8fa7ab3ef27c3ea507889c11a5ab7085f39e48295d1"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ReplayCoordinator.hpp",
+      "bytes": 2181,
+      "last_write_utc": "2026-08-23T23:55:33.7881615Z",
+      "sha256": "ad6c2fcc1c5a2ef6a5d24e1bb9aa87e4e1e24e096df1cae614c1fae235449071"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ReplayGpuCompletion.hpp",
+      "bytes": 4483,
+      "last_write_utc": "2026-09-08T14:31:36.2402724Z",
+      "sha256": "4ed1dda0214fd62c004d7f7aa0798c64010f6650fa0b1d401266fc8d60e87a0c"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ReplayRenderState.hpp",
+      "bytes": 470,
+      "last_write_utc": "2026-09-08T05:22:51.1359208Z",
+      "sha256": "a2a226b1d249057b96326ade2dc2c1968dd5c76ac04d949381f226c68a58bf12"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ReplaySeekPlanner.cpp",
+      "bytes": 8277,
+      "last_write_utc": "2026-09-05T00:26:14.4961294Z",
+      "sha256": "566cdb7bbcbd1b6fe663662dd346fd9f6cfa572476b16b4e302d499409096d25"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ReplaySeekPlanner.hpp",
+      "bytes": 1688,
+      "last_write_utc": "2026-09-04T02:46:17.329518Z",
+      "sha256": "df9a9f2b8afd08db8c5aa520b3e199da52aea59064094ba7b35edead9caee5a4"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ReplaySourceState.hpp",
+      "bytes": 1165,
+      "last_write_utc": "2026-09-06T15:02:06.8914787Z",
+      "sha256": "979a1702584c4a9d3c0448ce24a3cb1579ca9931a84f70fed4f27ad8c6147a2b"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6BattleSyncOwnerHook.hpp",
+      "bytes": 4973,
+      "last_write_utc": "2026-09-02T15:00:07.3474727Z",
+      "sha256": "3de923ce594e3810e63d11d385e3d4a6bf174b7085fd5b30100c895895636c63"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6CandidateCheckpointCapture.cpp",
+      "bytes": 60470,
+      "last_write_utc": "2026-09-07T21:43:44.9959941Z",
+      "sha256": "383c9e5250c2a3a09822e64fdcb466f1306d8943de2750d415d7cc0332ff51fe"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6CandidateCheckpointCapture.hpp",
+      "bytes": 15855,
+      "last_write_utc": "2026-09-06T23:49:34.2492523Z",
+      "sha256": "5890e079c70b01d7430aae6f7f7979d48d8bf5e7db7c9d8d193da67d5dae38e0"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6HookLayout.hpp",
+      "bytes": 3019,
+      "last_write_utc": "2026-09-05T18:30:03.0462785Z",
+      "sha256": "f210b584320cf377be0e316f5c08010fcef95aa1fd3fa96c040cd95293b6926a"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6OnlineContractObserver.cpp",
+      "bytes": 28959,
+      "last_write_utc": "2026-09-02T17:23:38.9020689Z",
+      "sha256": "ae8b1c14d30fa72d1d1f89f4e4da601a78e6243529b213467a4521556224a1a0"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6OnlineContractObserver.hpp",
+      "bytes": 6135,
+      "last_write_utc": "2026-09-02T17:23:38.901564Z",
+      "sha256": "c056eff648c8c81e48c8c703da3e65df70d863792129d9ba4d6620ecce7c061f"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6PresentationSink.cpp",
+      "bytes": 1182,
+      "last_write_utc": "2026-08-27T05:39:54.9514908Z",
+      "sha256": "ea58f941260a50019475774dbfab1cb1a6e77655252fe4b49fa834547843c6e7"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6PresentationSink.hpp",
+      "bytes": 467,
+      "last_write_utc": "2026-08-27T05:10:59.3160673Z",
+      "sha256": "edf0ff6fcb4c53af8a628015c81544050b7d185f3139c36d1a4f7a535957f906"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayCpuEmitterState.cpp",
+      "bytes": 34951,
+      "last_write_utc": "2026-09-08T06:53:06.5517114Z",
+      "sha256": "842fd699e0fdf1e2368490914519d441361ad4675e86f7d8be212472cff70f63"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayCpuEmitterState.hpp",
+      "bytes": 6018,
+      "last_write_utc": "2026-09-08T06:53:06.5512082Z",
+      "sha256": "377da2e6b8ccf5532a35215e0e3116d739ab96d9f7d16e2bee16039dcae81f5b"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayExecutor.cpp",
+      "bytes": 17840,
+      "last_write_utc": "2026-09-07T15:38:09.5512182Z",
+      "sha256": "15cae0b361d2c54e7be67d95d41295d775510046f138bf169a6fa59571438b9a"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayExecutor.hpp",
+      "bytes": 3445,
+      "last_write_utc": "2026-09-07T15:38:09.5431845Z",
+      "sha256": "833775e7d19e86598f8b1a7c2c61640a977b231870870a29b96ffba68a845f18"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayHost.Application.inl",
+      "bytes": 17019,
+      "last_write_utc": "2026-09-08T13:29:56.7943649Z",
+      "sha256": "dcde6b56ef07f5a0eb77111116b192a73718ea2be0835d69fcc414fb327f746f"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayHost.Checkpoint.inl",
+      "bytes": 24596,
+      "last_write_utc": "2026-09-08T16:05:31.8554937Z",
+      "sha256": "554f2b9bf79f8ca350ed548adce9303cfe1ec5dab941dc6b12da27664cd80c4f"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayHost.cpp",
+      "bytes": 11684,
+      "last_write_utc": "2026-09-08T16:05:31.8539787Z",
+      "sha256": "6d805eedeb709417cd8007cf3a0d7b804d4b0919491b52990f32a9a924b132d3"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayHost.Engine.inl",
+      "bytes": 11459,
+      "last_write_utc": "2026-09-06T14:11:16.2306267Z",
+      "sha256": "071cbe13d3e7299f141fa027272cc6a6f56e0e5020c65f278397336acf4fe05a"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayHost.hpp",
+      "bytes": 12762,
+      "last_write_utc": "2026-09-08T16:05:31.8539787Z",
+      "sha256": "450c099b5d1bb7194c7dddd0281f17a1dd9b49abc8390b4a16619dcfed526430"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayHost.Interior.inl",
+      "bytes": 12087,
+      "last_write_utc": "2026-09-07T16:43:12.8332328Z",
+      "sha256": "237051724a5d75fd093d2ffad2b1cad6eca6f58d96832ba649004a774b45566a"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayHost.Restore.inl",
+      "bytes": 44398,
+      "last_write_utc": "2026-09-08T16:06:39.1223848Z",
+      "sha256": "a428ce0b508198cf3e01cb3bc7035f50a476bc074090ea7b1a8124f126e8effb"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayHost.Surface.inl",
+      "bytes": 13576,
+      "last_write_utc": "2026-09-08T15:28:13.8905206Z",
+      "sha256": "ced85a48d789ed6d5e3f4d536e8eb8a189e85aa1400e5a92f2f792c7e0e91807"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayHudState.hpp",
+      "bytes": 12715,
+      "last_write_utc": "2026-09-08T08:18:05.6197187Z",
+      "sha256": "78e9c212bb35c98958b64e718d54ff560a84232fa9130560c8b1cc10bf96f0ef"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayNativeBridge.cpp",
+      "bytes": 13121,
+      "last_write_utc": "2026-09-06T15:02:06.8929944Z",
+      "sha256": "7c459cd959c0c796beb95ea078d6cf71e4bdbe82a20ffa3ef01a684b1ab502c6"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayNativeBridge.hpp",
+      "bytes": 2252,
+      "last_write_utc": "2026-09-06T15:02:06.8914787Z",
+      "sha256": "9f4951bbbf855cb7e3a55a37bb1e609c5568c0b88628aaec5e2c6c279a288387"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayObjectLease.cpp",
+      "bytes": 11367,
+      "last_write_utc": "2026-09-07T11:50:09.9477982Z",
+      "sha256": "f683aaa79c8dea0b174b4ec5f8a8b7c26326e23ae111e325b03aa67914c0d7f6"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayObjectLease.hpp",
+      "bytes": 1095,
+      "last_write_utc": "2026-09-07T11:50:09.9462861Z",
+      "sha256": "aeff1ab6a2f552e08fc9f48ff978e3b2f2352602433ef70ed81683b89d37703d"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayParticleCopy.cpp",
+      "bytes": 56307,
+      "last_write_utc": "2026-09-08T15:29:42.775266Z",
+      "sha256": "1cfb5a517cfc854a3b02f18e09796c66eed9f3ae968d5950768260f6ed90e5b5"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayParticleCopy.hpp",
+      "bytes": 11892,
+      "last_write_utc": "2026-09-08T15:29:42.775266Z",
+      "sha256": "27a7b2d3b8242e0f857c45f0c4faa04d1f9f34b61c897dc63dd8cd5db0f7bcdc"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayParticleCopy.Lighting.inl",
+      "bytes": 23805,
+      "last_write_utc": "2026-09-08T13:16:23.7401021Z",
+      "sha256": "59cb9d66ae9e0ac7843479050c6610a95ee09511bef5001c28a79ad3c7a8b995"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayParticleCopy.Visibility.inl",
+      "bytes": 26939,
+      "last_write_utc": "2026-09-08T13:16:23.7401021Z",
+      "sha256": "325a314c7c026fe7142d68c99cf70834ccf1b0cc94786a09325c80cd7bd11015"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayParticleObjects.hpp",
+      "bytes": 5475,
+      "last_write_utc": "2026-09-08T06:48:35.2414217Z",
+      "sha256": "48bd8358cb91e7ddaeaf7ae49037ba4077bd85d59886e7b339c7f82057aef633"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.Correction.inl",
+      "bytes": 56393,
+      "last_write_utc": "2026-09-05T18:32:54.0783171Z",
+      "sha256": "32e51f0dc5ef3a295cc728e6877170d9feb0b8950814adf6f7f31f267cdfb891"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.cpp",
+      "bytes": 15717,
+      "last_write_utc": "2026-09-01T22:04:04.9246697Z",
+      "sha256": "10e37bc4ce59f2d95e8f4b921e5357381cec2f1a273ff2aea9f3546f52527199"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.hpp",
+      "bytes": 46018,
+      "last_write_utc": "2026-09-05T18:32:10.6733939Z",
+      "sha256": "8bc605bc5fe610c9b263fe068f1e798460df1ad806f1017f5ff573f5593d6920"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.Observation.inl",
+      "bytes": 85630,
+      "last_write_utc": "2026-09-05T18:25:42.287681Z",
+      "sha256": "3db6d3c578f1640c6c621f5c89350e12dd8a68b04052cf111f7a7125f2580281"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.PresentationAndSeek.inl",
+      "bytes": 78440,
+      "last_write_utc": "2026-09-05T18:32:10.6749147Z",
+      "sha256": "c1460b20f6cecbdbbf11e3645d2649c3fc7669626971eaff6b52871fbb47753a"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplaySchedulerState.cpp",
+      "bytes": 16970,
+      "last_write_utc": "2026-09-07T05:08:10.6413155Z",
+      "sha256": "6ea5e982d5767e0c710c4c92a6a3ef312c008472ae2d399eb8ba45adb2962013"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplaySchedulerState.hpp",
+      "bytes": 8496,
+      "last_write_utc": "2026-09-07T20:03:10.1501878Z",
+      "sha256": "1cc4ac6f67abe947548abca4a5ad290de721157fb8dcff9b68ec6a9f6c25744f"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplaySchedulerState.Storage.cpp",
+      "bytes": 44387,
+      "last_write_utc": "2026-09-07T20:04:42.5127389Z",
+      "sha256": "d084e953692c854f497d6e0e1ff7a8337504ace8072792f1c56100cdb199f303"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayTaskGroup.cpp",
+      "bytes": 16847,
+      "last_write_utc": "2026-09-06T12:38:14.5550785Z",
+      "sha256": "d3f803c43ebc11dc51df0d13b1a40f012b6fb6356a7c7af5a512be2fc0355311"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayTaskGroup.hpp",
+      "bytes": 2983,
+      "last_write_utc": "2026-09-06T13:57:31.3977685Z",
+      "sha256": "e8f0529d91d66d76cc1c3ff30ad8a8d10aa01779d6cdcb2370695c3195b8c866"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayTraceState.hpp",
+      "bytes": 16095,
+      "last_write_utc": "2026-09-08T16:08:05.2974469Z",
+      "sha256": "33bc5fdab9f2172c067bb6a60068f72f55163cdd0eeb10392851a8a3a2ee72fb"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayVfxState.cpp",
+      "bytes": 107951,
+      "last_write_utc": "2026-09-08T06:57:02.5185614Z",
+      "sha256": "5659cc850943ffe4fb9e91a85ff6aaa1e9f2389b32a737235914dd397a2e7cc0"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayVfxState.hpp",
+      "bytes": 17597,
+      "last_write_utc": "2026-09-08T06:57:02.5195654Z",
+      "sha256": "3f02146431dec2760861f0a7d8393715d8e9abc583a13737e074d172ee3d6f01"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayWorld.cpp",
+      "bytes": 17309,
+      "last_write_utc": "2026-09-06T12:45:44.3875788Z",
+      "sha256": "d027d7eb837f009ab4b1d7c4c57a52e845d5e51cf680189fed19a817482e8417"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayWorld.hpp",
+      "bytes": 3559,
+      "last_write_utc": "2026-09-06T12:45:44.3875788Z",
+      "sha256": "a1904b24aca315affc6ec15f3c1e242f55c4c289da9b36b64c96a70a6af00476"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayWorldState.cpp",
+      "bytes": 74986,
+      "last_write_utc": "2026-09-08T12:59:54.9171468Z",
+      "sha256": "1376a5135745244957086bb86f2a523a49a0dc800afb8767ba8cc5973fa13ccc"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayWorldState.hpp",
+      "bytes": 13582,
+      "last_write_utc": "2026-09-08T12:59:54.9156371Z",
+      "sha256": "13f619cc6ccc92536f726c96b3f64a1b66de184aac581bd16674bdb9abd6624e"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayWorldState.Render.inl",
+      "bytes": 15722,
+      "last_write_utc": "2026-09-07T19:37:31.0962038Z",
+      "sha256": "175e0a86902f0fc84fcc825cac2f34bc155645e145a301b6d2d8fe260c7cda1e"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6StageCatalog.cpp",
+      "bytes": 472,
+      "last_write_utc": "2026-08-28T12:43:45.6867308Z",
+      "sha256": "36ba7136138abd82131ab6f4367f8d59e5612c6e0d0f4196a0e929329e85fdcf"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6StageCatalog.hpp",
+      "bytes": 1142,
+      "last_write_utc": "2026-08-28T12:43:45.6862226Z",
+      "sha256": "bdb3218212e3ced5f2eafd45bffe67904a54389ae72225315dd1037ee147ebab"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Schema.hpp",
+      "bytes": 23876,
+      "last_write_utc": "2026-09-07T00:33:59.6037792Z",
+      "sha256": "568d6474b8e147cb6f4c506667450389b0bbc94043a04e4ece348fc1ba3c2314"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/SecondaryEventState.cpp",
+      "bytes": 10269,
+      "last_write_utc": "2026-08-24T21:35:02.4130281Z",
+      "sha256": "2120e095984a6773ddc19dd2d4e1879bc834493fdf4799a1d47334747893ca82"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/SecondaryEventState.hpp",
+      "bytes": 2406,
+      "last_write_utc": "2026-08-24T21:35:02.4125188Z",
+      "sha256": "5d3e63e15ee2e060a96b46578f83d29fe8c3dc739627bc86d0d469596d951b29"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/SimulationSession.cpp",
+      "bytes": 8982,
+      "last_write_utc": "2026-08-23T23:54:50.1168698Z",
+      "sha256": "dbb1d3bfb2ec7ce1b9a72739ea711c720e8fff6c10274d828d3acf79d6f6a20e"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/SimulationSession.hpp",
+      "bytes": 1746,
+      "last_write_utc": "2026-08-23T23:54:50.1168698Z",
+      "sha256": "0aaf0a372ac4296951799bea9ff12ea932326286bdfc5cf167501453d445f7ff"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/SnapshotStore.cpp",
+      "bytes": 28423,
+      "last_write_utc": "2026-09-05T15:10:36.9678416Z",
+      "sha256": "a206f861855f5bf729618b450fb714e24b0c23216e1aec6fbc11a8725f932004"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/SnapshotStore.hpp",
+      "bytes": 6285,
+      "last_write_utc": "2026-09-05T15:10:36.9678416Z",
+      "sha256": "190d4227b3635d40325709c77ed2e98efb18e798bf0f80feeac10d5d2816f521"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/StageBreakListenerDiagnostics.cpp",
+      "bytes": 19157,
+      "last_write_utc": "2026-08-26T14:09:06.1891711Z",
+      "sha256": "fa1cf9fd3c2dc5a6b008e23b1791dbd0bf882d8cdefd7761471ba318562bbb9f"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/StageBreakListenerDiagnostics.hpp",
+      "bytes": 6418,
+      "last_write_utc": "2026-08-26T14:09:06.1876624Z",
+      "sha256": "9ac86b2df3bd6b9c0eb5da8fd589d5adc19f77fc8d66dd396e153e2dbc02ee94"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/StageBreakPresentationIdentity.cpp",
+      "bytes": 14823,
+      "last_write_utc": "2026-08-27T05:30:42.8042734Z",
+      "sha256": "2a99efcb7c4dc81c5475b86c69bc3721d69670182303e38bf2d161fbbeb5ebd9"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/StageBreakPresentationIdentity.hpp",
+      "bytes": 3404,
+      "last_write_utc": "2026-08-27T05:30:42.8019715Z",
+      "sha256": "74b2aac17c7fdbb4682ee5584798ecad713ee4fbb931f8642ca47995bebf7eae"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/StagePresentation.cpp",
+      "bytes": 7598,
+      "last_write_utc": "2026-08-27T05:35:07.7212564Z",
+      "sha256": "cf031b6882d9722ac19b85a9b4900c51e46f65cfe642eb067dea45be5992c43d"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/StagePresentation.hpp",
+      "bytes": 1333,
+      "last_write_utc": "2026-08-27T05:34:42.8605738Z",
+      "sha256": "c07537bfde2e52a5dae57c48781af516c82d99ab3b53fde1b57054fad143ca6b"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/StageWindGraphTransaction.cpp",
+      "bytes": 10525,
+      "last_write_utc": "2026-08-30T09:33:19.5547341Z",
+      "sha256": "f315f979eba893e754c095817506038cd101433fdf75eface0a27cd6efecd95c"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/StageWindGraphTransaction.hpp",
+      "bytes": 885,
+      "last_write_utc": "2026-08-27T09:12:37.2476173Z",
+      "sha256": "495c3866c204decae95a958db22953c0baf3c48dd5ff90c4d970858668fe2080"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/StageWindTopology.cpp",
+      "bytes": 16669,
+      "last_write_utc": "2026-09-01T00:35:54.2584604Z",
+      "sha256": "bfd4c4201784468dd9af1eeed880a219612849d0a08cbcbb2861612d93ebc473"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/StageWindTopology.hpp",
+      "bytes": 8572,
+      "last_write_utc": "2026-08-30T09:33:19.5542311Z",
+      "sha256": "922d7d3094bc1b413b07de8b06d57bb48e9e8622c820c3a404060b2d29d7e287"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/TutorialConsumer.hpp",
+      "bytes": 3675,
+      "last_write_utc": "2026-09-05T10:24:41.7041415Z",
+      "sha256": "884969e57ab99ee3417e8eea3d43340b8d60851e44e01dfc292365e56b845ab2"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Types.hpp",
+      "bytes": 12324,
+      "last_write_utc": "2026-09-07T01:22:08.2642716Z",
+      "sha256": "7758cf4f476f14fd397c5241742f582dc11ff5b7689db5b2ef413bb9ca35ad23"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/UcrtRandBroker.cpp",
+      "bytes": 8704,
+      "last_write_utc": "2026-09-07T00:44:06.1839116Z",
+      "sha256": "2ef4230a4bb0bafc87b3e8033925c4e32d1b0c19a308fe8077658e3e9851883d"
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/UcrtRandBroker.hpp",
+      "bytes": 2383,
+      "last_write_utc": "2026-09-07T00:39:10.2092546Z",
+      "sha256": "300c0617add65622656195b388f89bc6692f76d69695a5a932ddca0d6215bb6e"
+    },
+    {
+      "path": "HorseMod/horselib/GameImGui/PresentHook.hpp",
+      "bytes": 56483,
+      "last_write_utc": "2026-09-08T14:19:05.1502456Z",
+      "sha256": "b574f4fa9b70bc537efddb1600e98cce6ca13169b908b42eb3d3aab99d8b3172"
+    },
+    {
+      "path": "HorseMod/horselib/GameImGui/WndProcHook.hpp",
+      "bytes": 13417,
+      "last_write_utc": "2026-09-06T23:16:46.2323981Z",
+      "sha256": "837d16cfcb87a4af64974587a84da25965de82c822dcdb29be54e7a809d05097"
+    },
+    {
+      "path": "tools/replay_qualification_mod/ReplayBoundaryObserver.hpp",
+      "bytes": 15978,
+      "last_write_utc": "2026-09-08T15:23:10.9439078Z",
+      "sha256": "6c960785dda93a7b3df56c41d3fd413f5d20b869a5dc80e04ce830f5a1e7642d"
+    },
+    {
+      "path": "tools/replay_test.py",
+      "bytes": 115611,
+      "last_write_utc": "2026-09-08T16:10:38.7047564Z",
+      "sha256": "b21002a52816364932ad6478d9e62910c49ecd88a481e0d03d8962ccaf121835"
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "red": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\35e50d3a3af23de425f3f3035028e121b6cded239d4ea5eb4bfd482ce37ce424.log",
+    "sha256": "35e50d3a3af23de425f3f3035028e121b6cded239d4ea5eb4bfd482ce37ce424",
+    "bytes": 3660
+  },
+  "red_files": {
+    "tools/replay_ground_capture_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f5ee9968624374d565c87b035005afdb548ac8ac9dd762388c796f8a747a6a4e.cpp",
+      "sha256": "f5ee9968624374d565c87b035005afdb548ac8ac9dd762388c796f8a747a6a4e",
+      "bytes": 28520
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayHost.GroundDebris.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6c69a5e885418f68cb1b8182e0462a501d75b908c720016747a1fd8f903b59d7.inl",
+      "sha256": "6c69a5e885418f68cb1b8182e0462a501d75b908c720016747a1fd8f903b59d7",
+      "bytes": 89323
+    }
+  },
+  "base": "rollback-ground-callback-census-2026-09-22.json required_build source archive; apply red_files as full replacements",
+  "scope": "Three targeted tests, required build/native, 407 diagnostic, full617 integration and affected30 pass. Native callbacks are preserved. Exact paired raw vehicle registrations, handles, scene-owner sparse membership, zero vehicle count and recursion required. Entry admission alone is not complete mid-update enforcement.",
+  "green": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\892be4525107a51a0b86764d72239e195f7e082c1c4d501a6c3959b1b01b65e1.log",
+    "sha256": "892be4525107a51a0b86764d72239e195f7e082c1c4d501a6c3959b1b01b65e1",
+    "bytes": 100
+  },
+  "green_files": {
+    "tools/replay_ground_capture_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9b69744eb8c7e4500b04e9e7932cd87f5badf63aae4cde7cfb4f1fbd89d6d9e2.cpp",
+      "sha256": "9b69744eb8c7e4500b04e9e7932cd87f5badf63aae4cde7cfb4f1fbd89d6d9e2",
+      "bytes": 29554
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayHost.GroundDebris.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\85646410184ff99315a52daf81b9a175935a6badee645ae363d28ffad40e738e.inl",
+      "sha256": "85646410184ff99315a52daf81b9a175935a6badee645ae363d28ffad40e738e",
+      "bytes": 92403
+    }
+  },
+  "required_build": {
+    "ground-vehicle-callback-build-20260922.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b5af6c5570e7d45edb118486dd3715d1b1d1631f3434c0ea535c442a816f78b9.log",
+      "sha256": "b5af6c5570e7d45edb118486dd3715d1b1d1631f3434c0ea535c442a816f78b9",
+      "bytes": 336
+    },
+    "build-stage.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\fddf673585a191dac303dbaffa0f244817fed31fc7f97d38fb6bbcad17675b03.json",
+      "sha256": "fddf673585a191dac303dbaffa0f244817fed31fc7f97d38fb6bbcad17675b03",
+      "bytes": 6240
+    },
+    "build-provenance.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9201965ed284129724577fe788287b55907406e1eefeb657be04feda6a4adee4.json",
+      "sha256": "9201965ed284129724577fe788287b55907406e1eefeb657be04feda6a4adee4",
+      "bytes": 2373
+    },
+    "local-regressions.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\bd6bd1ed79a8f90d046554d487bee20c293b61a57d2611a51054cbd90be448ae.json",
+      "sha256": "bd6bd1ed79a8f90d046554d487bee20c293b61a57d2611a51054cbd90be448ae",
+      "bytes": 2141
+    },
+    "local-regressions.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\19b7bc01993efa7b1020508038d3b0fe78a2f77ee725952fbfbe7a2ad3caf646.log",
+      "sha256": "19b7bc01993efa7b1020508038d3b0fe78a2f77ee725952fbfbe7a2ad3caf646",
+      "bytes": 4316
+    }
+  },
+  "integration": {
+    "console": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1a4f140a3e04505a514081570a9c1dfa01d41cea8cecc2dcf6798b4b70a7c288.log",
+      "sha256": "1a4f140a3e04505a514081570a9c1dfa01d41cea8cecc2dcf6798b4b70a7c288",
+      "bytes": 1057
+    },
+    "receipt": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\59c2c88b4e02d1337d905ab6c819dedbdf14123822284a651dbca0bc62d7d834.json",
+      "sha256": "59c2c88b4e02d1337d905ab6c819dedbdf14123822284a651dbca0bc62d7d834",
+      "bytes": 1342
+    },
+    "tests": 617,
+    "seconds": 269.97
+  },
+  "live_407": "rollback-ground-vehicle-callback-live-407-2026-09-22.json",
+  "live_30": "rollback-ground-vehicle-callback-live-30-2026-09-22.json"
+}

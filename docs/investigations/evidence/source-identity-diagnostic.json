@@ -1,0 +1,1032 @@
+{
+  "build_command": "cmake --build E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64 --config Shipping --target HorseMod ReplayQualificationMod",
+  "build_directory": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64",
+  "created_utc": "2026-08-28T14:51:59.787527+00:00",
+  "deterministic_inputs": [
+    {
+      "path": "CMakeLists.txt",
+      "sha256": "0ee3de61f39d1362738ce9a1973c4522ceccf2807936fbcce2fbc89f3489464a",
+      "size": 5011
+    },
+    {
+      "path": "HorseMod/CMakeLists.txt",
+      "sha256": "7b3e8d2bb4f272ba4839c2e443f5c44cf1f593c4ff5885583a1f073b267f1c91",
+      "size": 19380
+    },
+    {
+      "path": "HorseMod/dllmain.cpp",
+      "sha256": "099a0428c9f06de082409fe7ccecccd240665c49366bea6b15e5cb500d34bee2",
+      "size": 587808
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/AudioPresentation.cpp",
+      "sha256": "4f3342cd6e3052bb0ceef557477390367e7ad3b58567316df8a3874bc3b5efaf",
+      "size": 7775
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/AudioPresentation.hpp",
+      "sha256": "5d5234fb60120cd358d55f8b9ee93466ecb70725b9630ad3d8423c7d12d2813c",
+      "size": 13216
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/AuthoritativeInputGate.hpp",
+      "sha256": "09bdfe232abeb92c913341ba5217b1456627a0962716b86b396451669f2420b4",
+      "size": 2787
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/BattleAudioSelectorState.cpp",
+      "sha256": "2e5efa4b85b776960d68e2d4263ed615cac21f80d3de3bb355548613ae9583c3",
+      "size": 6552
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/BattleAudioSelectorState.hpp",
+      "sha256": "4838fb424721ca77d91fc8dd15150580453fa8e9c85166038c1a64facfc4e347",
+      "size": 2090
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/CallbackTopology.cpp",
+      "sha256": "ee120ac89c69588cc30fc4ba000e19540ddbbb1de60d5e0e14ebc4a7870863cf",
+      "size": 6407
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/CallbackTopology.hpp",
+      "sha256": "1cc96f59f06b9b7bf2dfaeb9ae7c6ed45cb49a068376996c9cad780956dc6e62",
+      "size": 1619
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/CandidateCheckpoint.cpp",
+      "sha256": "11f1b2ea2241f83e9bc1753c8793d0e302ec1038fd7413e04b705f9bd5cc59e1",
+      "size": 40395
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/CandidateCheckpoint.hpp",
+      "sha256": "d5b4e71c515114e1c3dd9e1e366edfabf7432dc5dba604bc47417e9ccfd35f5f",
+      "size": 2647
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/CandidateGameStateAdapter.cpp",
+      "sha256": "7b9be528bf7e4167e5f861692a3afa32e1862eac56b4812f216adca8a71e2e9e",
+      "size": 29512
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/CandidateGameStateAdapter.hpp",
+      "sha256": "1382bd94ed83d3630da9f6cfb3bffbb8385eb53b7ff0915768e1ff50d5f670e7",
+      "size": 9476
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/CanonicalHashTimeline.cpp",
+      "sha256": "26259f9ed9827d381b6e2e893828a3bec6ea6c2093cf11722342dcc10959bf60",
+      "size": 4556
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/CanonicalHashTimeline.hpp",
+      "sha256": "c1183e53aa74a084da337a528ec7076a775f2785de3e424b91c684d36be265c6",
+      "size": 1819
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/CharaAnimationState.cpp",
+      "sha256": "8451badf13d5d2bbe75067fe87285c7dd0fd632cc6c70e701912a7173ad61af5",
+      "size": 24367
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/CharaAnimationState.hpp",
+      "sha256": "f110e66a17f4f7fcd0c33e4b6f1da1ada8c84de2af0ed091f553978467d61cb1",
+      "size": 5727
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Config.cpp",
+      "sha256": "c6a9a32e3adc72889339f02ed149401d9cdc861df790ec500f7aac73983c1a4f",
+      "size": 4118
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Config.hpp",
+      "sha256": "d2a736c48af1f8ee443160e27d17ff6a1b6ec93d6534158c239ccc38930a560f",
+      "size": 1204
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/DeterministicHookSet.cpp",
+      "sha256": "fff1329293e032489feb1418f3906e015e70cbb690248d78866545a4650c735a",
+      "size": 276889
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/DeterministicHookSet.hpp",
+      "sha256": "d8fe0d0da997c1f7d274e216c293fe94594702ffbfccf76b4f942354913717c8",
+      "size": 30834
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/FloatingPointEnvironment.cpp",
+      "sha256": "900ac867fd069b5106a52858a02daa0713bc774db7e18e71585e15f1ab9cf620",
+      "size": 2424
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/FloatingPointEnvironment.hpp",
+      "sha256": "8aa548aa0b633f2e99f106334264c0cbb480b950615587ed0b11a73f39016c42",
+      "size": 1446
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/GekkoRollbackSession.cpp",
+      "sha256": "94ebb25d87c1eaf030c1703840e577ea32702833f275d311b615061921d1bbf8",
+      "size": 12412
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/GekkoRollbackSession.hpp",
+      "sha256": "e3591d792f51d38159324e682eb96ec0fa9cd76c1f0808a437a66fbfc09cd67f",
+      "size": 3288
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/HgCpuCoverageProbe.cpp",
+      "sha256": "3760ebc6275b907dcef279f3955f2be33e4987f09859d3beb3d9a2262871b307",
+      "size": 6194
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/HgCpuCoverageProbe.hpp",
+      "sha256": "7c40e9027a3f15b74313c36ebab3fdace334f0d4eddc8cf2df38090630113b99",
+      "size": 2279
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/HgCpuRuntimeDiagnostics.cpp",
+      "sha256": "77f899ec860ba9795d65482bd93677c3d8131e9b5ef8a8d720f39f95dddced54",
+      "size": 7203
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/HgCpuRuntimeDiagnostics.hpp",
+      "sha256": "76515ead4989a832b565ebaa2d7d5cd2c2213626526af17e141f5fd87bdc1250",
+      "size": 1569
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/HgCpuStream.cpp",
+      "sha256": "c216af0bf6a9e66e80e100e9cccac8596f77c57014da6a58fc4c7cbe98725c3b",
+      "size": 7668
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/HgCpuStream.hpp",
+      "sha256": "1102a3ca1583387bcf2c27ff14ac61f240f387a6380ad739c5d4d39d3866d827",
+      "size": 2849
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/InputTimeline.cpp",
+      "sha256": "e668751f8db9a431b39da180986ae266052cf887203f0d2234d7ce3509be6605",
+      "size": 4771
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/InputTimeline.hpp",
+      "sha256": "d7e17a6736595020296dd2324feac2d4fa9368b6e99c2718a2c16691d45e1cb7",
+      "size": 1334
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Interfaces.hpp",
+      "sha256": "eeb7c8a75f43870d1322d19d88a308372137827d35a708e2131838b5625a5123",
+      "size": 4142
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/LocalImageChecksum.hpp",
+      "sha256": "85a6b204203c40e0668268a55115622b5ac0d4664ea04f2699b010abb483bd31",
+      "size": 2395
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/MotionBankSnapshot.cpp",
+      "sha256": "8eb4f369b98100a400c9be405ac285f43d9ce4a7fd2792bdab00b3e483e0a216",
+      "size": 10442
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/MotionBankSnapshot.hpp",
+      "sha256": "d932b7d53b14eaa1c04a77073753ce43b664e45cb54977c246be0cec28f09e67",
+      "size": 2259
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/MoveDispatchState.cpp",
+      "sha256": "f0a63436f502914f2f9d644331f6f4acfd9a67ff86ecddbf22e77f98487c6481",
+      "size": 18098
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/MoveDispatchState.hpp",
+      "sha256": "4c50c35445a6bce7bedeea014e488c521b0be4e3ae69adc1c01c3b1b275c6e3a",
+      "size": 4348
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativeAudioPresentationController.cpp",
+      "sha256": "4825dc469229ceda311fa0ecf5e7f267c31d9c02f933d03a791a5c818a5892c1",
+      "size": 4546
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativeAudioPresentationController.hpp",
+      "sha256": "ddc1e16b1c90d18cd7924609e4ada0b9b9a79d9bbc4d9077d0a1dff6bebb7105",
+      "size": 1216
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativeBatchTimeline.cpp",
+      "sha256": "796ac67c6f5fe701213fadbf8b9f53e6c7e343a5cf7714e5f814aeaabe810fad",
+      "size": 18449
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativeBatchTimeline.hpp",
+      "sha256": "72013e771261e289138b3fea3fba34a20f2d7b5b72b80b6ff97a4bc6a4e6294d",
+      "size": 12286
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativeCandidateRegions.cpp",
+      "sha256": "65ff6572864cb1a09825a5dc4bc616d77aa1168a95e7f93d3252b052b271b2b8",
+      "size": 118684
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativeCandidateRegions.hpp",
+      "sha256": "55abfa054f8c648a7fe9ebffa1c21102444ebc6930ec94db40435fe550d87149",
+      "size": 18955
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativePresentationJournal.cpp",
+      "sha256": "e84c53ad43000daad5c59d3d5447b44a2c5f1a9f035510f79209d0b3dc75ca17",
+      "size": 10361
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativePresentationJournal.hpp",
+      "sha256": "4b39d528acf1397c67ba203049af04e44fa226ea9b23269f386c6d4db94a04c4",
+      "size": 652
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativeReplayMaterializer.cpp",
+      "sha256": "ac7f5be2a145bb584d59605c9b1419918d741c0899114af4c4ed9942536142de",
+      "size": 5256
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativeReplayMaterializer.hpp",
+      "sha256": "981027b969dbe670c8283b2fd83695212bacaafb34370824b58172aadf6d16b9",
+      "size": 1925
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/OnlineContractTypes.hpp",
+      "sha256": "cc8b9f97d8d8e6f259f2320e9a667c5887c783bae7053d64212025e1532fd827",
+      "size": 1551
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/OnlineCoordinator.cpp",
+      "sha256": "46f8d02345106fd012d1c7231be52b73cd0d4dd7d01cac54efd0b8c66222303f",
+      "size": 42031
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/OnlineCoordinator.hpp",
+      "sha256": "cd63814b855e3b89faf990c5b72823dd6339598a2ae0e42f0a90bf5a9bfc058e",
+      "size": 7196
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/OnlineLifecycle.hpp",
+      "sha256": "41f38ed5f201974e679aefa5395e964e9d23ddea4eca792cb7731b99b3eb8f63",
+      "size": 3322
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ParticlePresentation.cpp",
+      "sha256": "6fa30f546885d388b65a1d9650f2a477808558ee7467123e77ac976392f510f1",
+      "size": 6401
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ParticlePresentation.hpp",
+      "sha256": "b9d451b8c79bd69eb12a35f8ce0f76751627f9119330d6b9f647d33f8ac208cd",
+      "size": 1530
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/PresentationJournal.cpp",
+      "sha256": "7de94f32110e0e6946ff9a26c5c5858bbae8a26336453130068648712f479990",
+      "size": 11681
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/PresentationJournal.hpp",
+      "sha256": "817d12a65355ceea2c03447d7a9f0993928faefe2b4635f3ab9f4e180e1b3962",
+      "size": 3520
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ProductionOnlineAllowlist.cpp",
+      "sha256": "1255e566c1431e161295f91a586393ba69b8202114de74660784968dbaff36b0",
+      "size": 4124
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ProductionOnlineAllowlist.hpp",
+      "sha256": "a010f8c22128a394c1a684f1cff0d3b8bb40c1e9db177dfa8c2b65b024ba60e8",
+      "size": 2029
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ProductionReleaseLoader.cpp",
+      "sha256": "d91ce662c385fb834e8f29960c01a53418e510f88d1b54258a038578c8c2cd14",
+      "size": 12417
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ProductionReleaseLoader.hpp",
+      "sha256": "7566c423c667aa82411d60f20a015666d2471f169a1baab54c752d78b9e59ec6",
+      "size": 742
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ReplayCoordinator.cpp",
+      "sha256": "470b3a645d596bc81083a8fa7ab3ef27c3ea507889c11a5ab7085f39e48295d1",
+      "size": 7626
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ReplayCoordinator.hpp",
+      "sha256": "ad6c2fcc1c5a2ef6a5d24e1bb9aa87e4e1e24e096df1cae614c1fae235449071",
+      "size": 2181
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ReplaySeekPlanner.cpp",
+      "sha256": "e2c230e8c03604a523293bd20677b148fac84b2f2a41804f0e73c85784c0ffb9",
+      "size": 6678
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ReplaySeekPlanner.hpp",
+      "sha256": "8f6d60dbe7aa60e5da4c620ebd4362347debe2fc7e82652e83735390875d4777",
+      "size": 1267
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6CandidateCheckpointCapture.cpp",
+      "sha256": "cd885e4234800dc49c9a9ee3210a8d1b3742e5eb362d0ae2cd3012f745542f2d",
+      "size": 38265
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6CandidateCheckpointCapture.hpp",
+      "sha256": "cdd1e90337fe3a0e4d1b1b97999764cec7a4a7d2f0c8200a20a0f2043c2f9342",
+      "size": 9440
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6OnlineContractObserver.cpp",
+      "sha256": "e404c9e014c1789b8657dce295522b8eaefacda3348d3e6f0373c71f75f19264",
+      "size": 23720
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6OnlineContractObserver.hpp",
+      "sha256": "f899588ba72f59c89f2afe7b4c7aff188c3a53391686d81ebdd26b8eeac7f233",
+      "size": 3823
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6OnlineObserverProbe.cpp",
+      "sha256": "18cc2466a38d3b22835c037cde527b105844ca4e95696cac5178ab321966877a",
+      "size": 7487
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6OnlineObserverProbe.hpp",
+      "sha256": "7f298bbad83700dbbd18142ae2dc6df61fe16a54f6ab7575924f43bebabc215a",
+      "size": 3698
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6PresentationSink.cpp",
+      "sha256": "ea58f941260a50019475774dbfab1cb1a6e77655252fe4b49fa834547843c6e7",
+      "size": 1182
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6PresentationSink.hpp",
+      "sha256": "edf0ff6fcb4c53af8a628015c81544050b7d185f3139c36d1a4f7a535957f906",
+      "size": 467
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayNativeBridge.cpp",
+      "sha256": "d46d856b364b506d897c803e71af7a72314c998269f5358c58cf85d231779d0b",
+      "size": 10344
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayNativeBridge.hpp",
+      "sha256": "d08c16c7b255467ed5c7af022aaa6cdb6566785d09053617181af12bbab22502",
+      "size": 1914
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.cpp",
+      "sha256": "3c05499d153f43423ca06d74915020a9f23ded48dc13fb73500e19ae4b517f30",
+      "size": 152207
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.hpp",
+      "sha256": "bd8e664ecf1dfe3b21ec77a16919982278fd9072e9fa399ede1067ce8b630696",
+      "size": 24812
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6StageCatalog.cpp",
+      "sha256": "36ba7136138abd82131ab6f4367f8d59e5612c6e0d0f4196a0e929329e85fdcf",
+      "size": 472
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6StageCatalog.hpp",
+      "sha256": "bdb3218212e3ced5f2eafd45bffe67904a54389ae72225315dd1037ee147ebab",
+      "size": 1142
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Schema.hpp",
+      "sha256": "29c9de023afa07e17512abe351d056fbdc22501c85378e671abfb14b3b930395",
+      "size": 19156
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/SecondaryEventState.cpp",
+      "sha256": "2120e095984a6773ddc19dd2d4e1879bc834493fdf4799a1d47334747893ca82",
+      "size": 10269
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/SecondaryEventState.hpp",
+      "sha256": "5d3e63e15ee2e060a96b46578f83d29fe8c3dc739627bc86d0d469596d951b29",
+      "size": 2406
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/SimulationSession.cpp",
+      "sha256": "dbb1d3bfb2ec7ce1b9a72739ea711c720e8fff6c10274d828d3acf79d6f6a20e",
+      "size": 8982
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/SimulationSession.hpp",
+      "sha256": "0aaf0a372ac4296951799bea9ff12ea932326286bdfc5cf167501453d445f7ff",
+      "size": 1746
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/SnapshotStore.cpp",
+      "sha256": "a6e143bdcf3d31e3bfdf5b29f458d125c4f4b94032cb3ada37d893b1612e9848",
+      "size": 9721
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/SnapshotStore.hpp",
+      "sha256": "0184b6bbcc1c85499bebd59645f7be24b03573f42c1b0946fd90a80a43a4e150",
+      "size": 2490
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/StageBreakListenerDiagnostics.cpp",
+      "sha256": "fa1cf9fd3c2dc5a6b008e23b1791dbd0bf882d8cdefd7761471ba318562bbb9f",
+      "size": 19157
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/StageBreakListenerDiagnostics.hpp",
+      "sha256": "9ac86b2df3bd6b9c0eb5da8fd589d5adc19f77fc8d66dd396e153e2dbc02ee94",
+      "size": 6418
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/StageBreakPresentationIdentity.cpp",
+      "sha256": "2a99efcb7c4dc81c5475b86c69bc3721d69670182303e38bf2d161fbbeb5ebd9",
+      "size": 14823
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/StageBreakPresentationIdentity.hpp",
+      "sha256": "74b2aac17c7fdbb4682ee5584798ecad713ee4fbb931f8642ca47995bebf7eae",
+      "size": 3404
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/StagePresentation.cpp",
+      "sha256": "cf031b6882d9722ac19b85a9b4900c51e46f65cfe642eb067dea45be5992c43d",
+      "size": 7598
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/StagePresentation.hpp",
+      "sha256": "c07537bfde2e52a5dae57c48781af516c82d99ab3b53fde1b57054fad143ca6b",
+      "size": 1333
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/StageWindGraphTransaction.cpp",
+      "sha256": "1f1df0751b9821a11745bdaf551a6971e084f3fd70d171583893df0ef67c2144",
+      "size": 10414
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/StageWindGraphTransaction.hpp",
+      "sha256": "495c3866c204decae95a958db22953c0baf3c48dd5ff90c4d970858668fe2080",
+      "size": 885
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/StageWindTopology.cpp",
+      "sha256": "d3bc15d732345ac65de6e8ce4f5bb35e75be78eb13055e9da4c10b4b3ce0ee72",
+      "size": 14141
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/StageWindTopology.hpp",
+      "sha256": "fdb1147b0fe9496cb167ff47a839d33f5cbb51193707e6b0aa8e776c31a73703",
+      "size": 8490
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/SteamP2PTransport.cpp",
+      "sha256": "a85b264f278c78b02e4793de7b68969960aee65d802cd1482fd36dc6c41bb4c4",
+      "size": 25435
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/SteamP2PTransport.hpp",
+      "sha256": "2670e8c78e9d8d2ec69c4b0a539b8e4e1f8fefa56478c595ac5f286bd16426f0",
+      "size": 6525
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Types.hpp",
+      "sha256": "8e176a9824e5f353ac239e70812f09f35701c0718193c27973bd530e5ad8fc59",
+      "size": 10433
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/UcrtRandBroker.cpp",
+      "sha256": "bd5431311f4b8a7ca8bd66f68cc0e70cabe8cf02df4df671bacb7866c6c90654",
+      "size": 4363
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/UcrtRandBroker.hpp",
+      "sha256": "307f215aaaa2ca9add9bc8e62d333cec840d39f1f4a5211caf149a4997725641",
+      "size": 1915
+    },
+    {
+      "path": "docs/investigations/deterministic-production-candidate-manifest.json",
+      "sha256": "8593e270e71bec76fdb7fbe5aea5d848e90f669d1388f2b08efd8ec9ce95bbe1",
+      "size": 2420
+    },
+    {
+      "path": "docs/investigations/deterministic-production-region-manifest.json",
+      "sha256": "64728cd2de30310ab75cbceefecb0bf77c358acebad4fb5b6b9c4b78173e8715",
+      "size": 11017
+    },
+    {
+      "path": "docs/investigations/deterministic-tira-qualification-manifest.json",
+      "sha256": "15aed9aaea33f3de8cb57e7035e1e443d1811a0cb53305793d653f87bbeb6012",
+      "size": 792
+    },
+    {
+      "path": "tools/deterministic_core_selftest.cpp",
+      "sha256": "6305087f51f1ef4b79b18d8122edd17c19f3f9447ebd989eef590eafba8311c1",
+      "size": 80194
+    },
+    {
+      "path": "tools/deterministic_qualification.py",
+      "sha256": "7722d89b24cd3ff1c377bbbc96dd711a36afb93e819f986d24cd1dfe04997702",
+      "size": 110
+    },
+    {
+      "path": "tools/deterministic_qualification/__init__.py",
+      "sha256": "17b7b701f8753af2779a08a65245389862295ffcb90c9f7fe700c6da3a27e312",
+      "size": 79
+    },
+    {
+      "path": "tools/deterministic_qualification/artifacts.py",
+      "sha256": "07d97a40224c88537788b5a6d1c73f1df8a8df1651741c9d04068457ac3a364d",
+      "size": 3383
+    },
+    {
+      "path": "tools/deterministic_qualification/configuration.py",
+      "sha256": "93cfde2657938303a167e9ad046c68e3ecdab37e2816b641b8933a1b6174ed0b",
+      "size": 2612
+    },
+    {
+      "path": "tools/deterministic_qualification/observer_pair.py",
+      "sha256": "5976526ccdd8c30b4ff50db6502f066c74c2d679ba67590f5e28fbdb64d70063",
+      "size": 15954
+    },
+    {
+      "path": "tools/deterministic_qualification/offline_campaign.py",
+      "sha256": "93d6c03aa45dbd5a47d933ccaa0da371044f4a0762efb86f4dd60b825af6cc49",
+      "size": 7821
+    },
+    {
+      "path": "tools/deterministic_qualification/offline_matrix.py",
+      "sha256": "e74b7299f5dfa6ee7a3c67feaaec896791ae4590b9fa4086c2ab30ecb8210029",
+      "size": 7678
+    },
+    {
+      "path": "tools/deterministic_qualification/paired_online.py",
+      "sha256": "4dcfa448c2fedbab28336d8aaf87dfa6238eb476de3e694c6bef219099b7cd65",
+      "size": 15639
+    },
+    {
+      "path": "tools/deterministic_qualification/process_control.py",
+      "sha256": "78b41a058bc003bb105101cc31bbd637751e5b22325d9e1b45503d58a8a7ff73",
+      "size": 5604
+    },
+    {
+      "path": "tools/deterministic_qualification/replay_entry.py",
+      "sha256": "f8248153b411a2b9ce00c040ca2f3e0f217165fae189f4db3a9cc3c8612e6209",
+      "size": 6833
+    },
+    {
+      "path": "tools/deterministic_qualification/report.py",
+      "sha256": "4d4572fb3a0e521817c2adaab7d27e918b940eb11372b3770380be9e8b09700e",
+      "size": 408
+    },
+    {
+      "path": "tools/deterministic_qualification/runner.py",
+      "sha256": "686df03ad771bbed50acd84ed68d127d2bfbdbd8fd0ea67956c4376716f2d6b9",
+      "size": 43724
+    },
+    {
+      "path": "tools/deterministic_qualification/sandboxie_pair.py",
+      "sha256": "cdb25acc83b0d047629429aba522f384e3fbdaf52dca6ab6414dc9f668b979c6",
+      "size": 3927
+    },
+    {
+      "path": "tools/deterministic_qualification/tests/test_configuration.py",
+      "sha256": "28ef716d4fcbdc43ac84845afa250905cc136bfcea8d8402266c7b2d30c930ae",
+      "size": 1157
+    },
+    {
+      "path": "tools/deterministic_qualification/tests/test_observer_pair.py",
+      "sha256": "76a0d58d6f5fae4fc6417babc3240a5dd05c53b0582b0e06f3d50a61bb585720",
+      "size": 2672
+    },
+    {
+      "path": "tools/deterministic_qualification/tests/test_offline_matrix.py",
+      "sha256": "ebee9b263a9057cec7cadbad48d7d2e34676e47e5d190c98ac53054298342d74",
+      "size": 2134
+    },
+    {
+      "path": "tools/deterministic_qualification/tests/test_replay_entry_request.py",
+      "sha256": "bcb131a45b03bfe8c21faafa664720444ca649ab9ec4f30e3ca742720b74249d",
+      "size": 3196
+    },
+    {
+      "path": "tools/deterministic_qualification/tests/test_sandboxie_pair.py",
+      "sha256": "c9838f425d1dc2c0413b787f2cb1d2f58de00742e1e53d6aa76ddb62f42ba21b",
+      "size": 2018
+    },
+    {
+      "path": "tools/deterministic_qualification/tests/test_tira_campaign.py",
+      "sha256": "f3376df55678cbe5e137c438f8c755a5a660161d039c8d9b295aa538651a069f",
+      "size": 2979
+    },
+    {
+      "path": "tools/deterministic_qualification/tests/test_trace_parser.py",
+      "sha256": "8d61f8cf5ed35a336f7a983766be6dda169246ad60c05a89d3b145010f72d592",
+      "size": 10365
+    },
+    {
+      "path": "tools/deterministic_qualification/tira_campaign.py",
+      "sha256": "b3dcc8063cc09eb6716a0b00fb84d726ef39080c05c49d22cc68d35a83fbf9a0",
+      "size": 9230
+    },
+    {
+      "path": "tools/deterministic_qualification/trace_parser.py",
+      "sha256": "3f1c35ddf42c231ed40711470752eaf079ddae67fc3de18cec794e6599b940ef",
+      "size": 27393
+    },
+    {
+      "path": "tools/deterministic_schema_exporter.cpp",
+      "sha256": "38cd937680adb509a3f953a245686e6a6bb5b9d955b7826481b9711d68f1f24c",
+      "size": 5626
+    },
+    {
+      "path": "tools/gekko_rollback_session_selftest.cpp",
+      "sha256": "1e06229ca791b24a27573547cbe4b7d9293f2acde1d26db49fd7398e28b0b000",
+      "size": 14010
+    },
+    {
+      "path": "tools/generate_compiled_release_identities.py",
+      "sha256": "5074bdaccaaaf89cb9f2baafd9f349bc2485ea54e2c6a6d7cdfa798725e56601",
+      "size": 1881
+    },
+    {
+      "path": "tools/generate_production_candidate_manifest.py",
+      "sha256": "cc766c1fef86f0b60b1326b53b57b7d340fd6eaed8e6616f9cc470dcf2740ed7",
+      "size": 2863
+    },
+    {
+      "path": "tools/generate_production_regions.py",
+      "sha256": "c9fa3d3221a3fa667e9546123b1335b89bdd7a4daeba780eb8b1ba3ec80ed88f",
+      "size": 2475
+    },
+    {
+      "path": "tools/native_candidate_regions_selftest.cpp",
+      "sha256": "e8e7c035c5cb8ff670deb1048831e94667c964354f0fdad75ed8ed59c7d9b2f4",
+      "size": 128258
+    },
+    {
+      "path": "tools/online_coordinator_selftest.cpp",
+      "sha256": "0331547b7c589414ca72b96a81e21f4ee96d588fdb8ecbe8c7b2e9bc96ae43e8",
+      "size": 30665
+    },
+    {
+      "path": "tools/production_release_loader_selftest.cpp",
+      "sha256": "f8a81717876a1a382f6838a308c07e216b57df8555a291ae08cc9f1e5eff95fa",
+      "size": 6370
+    },
+    {
+      "path": "tools/replay_qualification_mod/OnlineRoomAutomation.cpp",
+      "sha256": "4fa5223931289dce54e47e3fe04f388e956645ab8516a44d7d4649c793ae681a",
+      "size": 27764
+    },
+    {
+      "path": "tools/replay_qualification_mod/OnlineRoomAutomation.hpp",
+      "sha256": "71956bcdad47cebf6c5134b0ad4c45e298174d1bb84652d736b81ff6415857d8",
+      "size": 1080
+    },
+    {
+      "path": "tools/replay_qualification_mod/ReplayPayloadImporter.cpp",
+      "sha256": "6e44b28bf8444c90ab11e6be4882056a329c54810105c885e9c89cd2eda9e5f6",
+      "size": 18077
+    },
+    {
+      "path": "tools/replay_qualification_mod/ReplayPayloadImporter.hpp",
+      "sha256": "d40bd6969269b7ef65b24c86cb40eea02d2f3a6744ad00792d7e0ea742c44e78",
+      "size": 2580
+    },
+    {
+      "path": "tools/replay_qualification_mod/ReplayQualificationMod.cpp",
+      "sha256": "94ebb711187f1f06baafaaffde130aa9899036e1f2cd6862961e6c5912b9eb36",
+      "size": 73577
+    },
+    {
+      "path": "tools/replay_qualification_mod/ReplaySceneNavigator.cpp",
+      "sha256": "ff524dff97152d0d084158ee08b43b3df3285053b829c328e22878503a733568",
+      "size": 12413
+    },
+    {
+      "path": "tools/replay_qualification_mod/ReplaySceneNavigator.hpp",
+      "sha256": "f6b9706f49ba75c95aba9cc703d13c797e15414e9b89be1a891dadb6622b528c",
+      "size": 515
+    },
+    {
+      "path": "tools/sc6_online_contract_observer_selftest.cpp",
+      "sha256": "e1cd2f15508ec2b4d47f0be5b3968435313a89247d77a93bfb9fc96d0406198e",
+      "size": 4473
+    },
+    {
+      "path": "tools/sc6_online_observer_probe_selftest.cpp",
+      "sha256": "d6400b0c535347490c7591d1aa6b970b4800b8215666386081403b13958784ec",
+      "size": 3804
+    },
+    {
+      "path": "tools/steam_p2p_transport_selftest.cpp",
+      "sha256": "4a6da0bfd5fcf318ad5c04a01da73d129ac5e639e2af0e98f4d9468a61deb846",
+      "size": 11527
+    }
+  ],
+  "recursive_submodules": [
+    " f21698d85367c8d97585cf7610897316c873681c third_party/GekkoNet (v20260629200724-02c447c-6-gf21698d)",
+    " 6b3fd8a175f1e164eb1bd1be6f766f48b980f7c0 tools/BlueprintToCpp (heads/codex/pre-rollback-rewrite-snapshot-20260823)",
+    " 75f3878b7a348cbda3927048b142a0a6923e79c0 tools/BlueprintToCpp/CUE4Parse (v1.2.2-719-g75f3878b)",
+    " 414689d5cff4286a7898487a46dc5e48005d38da tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl (v2.1.0)",
+    " 0d98dba29d66e93259db7daa53a9327df767a415 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/benchmark (v1.6.1)",
+    " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/catch2 (v2.13.7)",
+    " d7982f2b2524feeb322f424b29cf43df30b5d5b7 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm (v2.2.0)",
+    " 0d98dba29d66e93259db7daa53a9327df767a415 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm/external/benchmark (v1.6.1)",
+    " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm/external/catch2 (v2.13.7)",
+    " 54b3985e8ccc5efb5f24dabf0b4b802a996366e6 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/sjson-cpp (v0.9.0)",
+    " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/sjson-cpp/external/catch2 (v2.13.7)"
+  ],
+  "schema_version": 1,
+  "status_porcelain_v2_z": [
+    "1 .M N... 100644 100644 100644 6aeb380d508b0b37f91bfe895671b526f76f939e 6aeb380d508b0b37f91bfe895671b526f76f939e HorseMod/CMakeLists.txt",
+    "1 .M N... 100644 100644 100644 9b58ac64872e44fe3df8a881de40a378759254ff 9b58ac64872e44fe3df8a881de40a378759254ff HorseMod/dllmain.cpp",
+    "1 .M N... 100644 100644 100644 c9111cfc4c3708e06e516906d94e1fbca33715ea c9111cfc4c3708e06e516906d94e1fbca33715ea HorseMod/horselib/deterministic/CandidateGameStateAdapter.cpp",
+    "1 .M N... 100644 100644 100644 0ff6fa5076b802860f3e7acba0021b955ada855a 0ff6fa5076b802860f3e7acba0021b955ada855a HorseMod/horselib/deterministic/CandidateGameStateAdapter.hpp",
+    "1 .M N... 100644 100644 100644 794504ac168680665e8bd2d4d0755c78cde4746b 794504ac168680665e8bd2d4d0755c78cde4746b HorseMod/horselib/deterministic/Config.cpp",
+    "1 .M N... 100644 100644 100644 95ea1d2c55ce6ff31e7c9d3696c8097d9a2bfda5 95ea1d2c55ce6ff31e7c9d3696c8097d9a2bfda5 HorseMod/horselib/deterministic/Config.hpp",
+    "1 .M N... 100644 100644 100644 20dd5174d09dedfd84baa26d4d30c1c5f2803481 20dd5174d09dedfd84baa26d4d30c1c5f2803481 HorseMod/horselib/deterministic/DeterministicHookSet.cpp",
+    "1 .M N... 100644 100644 100644 c718d8baa18c25239b699bdd5055efcf42ea4320 c718d8baa18c25239b699bdd5055efcf42ea4320 HorseMod/horselib/deterministic/DeterministicHookSet.hpp",
+    "1 .M N... 100644 100644 100644 aa149ffa447a217b1a609cb03333e639bdcb4c06 aa149ffa447a217b1a609cb03333e639bdcb4c06 HorseMod/horselib/deterministic/Interfaces.hpp",
+    "1 .M N... 100644 100644 100644 2685f5164becacd9f144ab92440cfd630679bcda 2685f5164becacd9f144ab92440cfd630679bcda HorseMod/horselib/deterministic/NativeAudioPresentationController.cpp",
+    "1 .M N... 100644 100644 100644 99953e018764faf0acf42d368a22d568c925fd2a 99953e018764faf0acf42d368a22d568c925fd2a HorseMod/horselib/deterministic/NativeBatchTimeline.hpp",
+    "1 .M N... 100644 100644 100644 fe1b93654af1653691490a152cf030cb9abd0a3e fe1b93654af1653691490a152cf030cb9abd0a3e HorseMod/horselib/deterministic/NativeCandidateRegions.cpp",
+    "1 .M N... 100644 100644 100644 c32713669dbb7451d003252c25bc075a8b97d38c c32713669dbb7451d003252c25bc075a8b97d38c HorseMod/horselib/deterministic/NativeCandidateRegions.hpp",
+    "1 .M N... 100644 100644 100644 de72ccbc3a49082f30f93aee86f13061b6b4de58 de72ccbc3a49082f30f93aee86f13061b6b4de58 HorseMod/horselib/deterministic/OnlineCoordinator.cpp",
+    "1 .M N... 100644 100644 100644 b582759ab3ea129a2f35bd60f650ea32cf8a8f4c b582759ab3ea129a2f35bd60f650ea32cf8a8f4c HorseMod/horselib/deterministic/OnlineCoordinator.hpp",
+    "1 .M N... 100644 100644 100644 92e7f3f3f6d46afb9ca3521f1de63eb8c0224e97 92e7f3f3f6d46afb9ca3521f1de63eb8c0224e97 HorseMod/horselib/deterministic/PresentationJournal.cpp",
+    "1 .M N... 100644 100644 100644 17096122ed9afce90d7fd1000b1e7b8493e54b3a 17096122ed9afce90d7fd1000b1e7b8493e54b3a HorseMod/horselib/deterministic/PresentationJournal.hpp",
+    "1 .M N... 100644 100644 100644 9fbe7a0dfa89b4904bf423dbd1e7019068738ea7 9fbe7a0dfa89b4904bf423dbd1e7019068738ea7 HorseMod/horselib/deterministic/Sc6CandidateCheckpointCapture.cpp",
+    "1 .M N... 100644 100644 100644 eaa345cc47ef2a6ce2c079e082418467278b4512 eaa345cc47ef2a6ce2c079e082418467278b4512 HorseMod/horselib/deterministic/Sc6CandidateCheckpointCapture.hpp",
+    "1 .M N... 100644 100644 100644 29505126347a19487dbc830a3ed08e22b8031b9c 29505126347a19487dbc830a3ed08e22b8031b9c HorseMod/horselib/deterministic/Sc6ReplayRuntime.cpp",
+    "1 .M N... 100644 100644 100644 855edd6fcd6b49ab561c49edf5b78bbe563eebe0 855edd6fcd6b49ab561c49edf5b78bbe563eebe0 HorseMod/horselib/deterministic/Sc6ReplayRuntime.hpp",
+    "1 .M N... 100644 100644 100644 e902d3aa02cfb8b43c06f14abfd4e3fd3f5372bb e902d3aa02cfb8b43c06f14abfd4e3fd3f5372bb HorseMod/horselib/deterministic/Schema.hpp",
+    "1 .M N... 100644 100644 100644 4fb2dca0bdf725377c6690d0279a8e9520750fd3 4fb2dca0bdf725377c6690d0279a8e9520750fd3 HorseMod/horselib/deterministic/SteamP2PTransport.cpp",
+    "1 .M N... 100644 100644 100644 465cbb47619689f8835dc3bc7be446e177023a59 465cbb47619689f8835dc3bc7be446e177023a59 HorseMod/horselib/deterministic/SteamP2PTransport.hpp",
+    "1 .M N... 100644 100644 100644 8253e38a93a1e49c75716d7f6a9fea2c3aa8392f 8253e38a93a1e49c75716d7f6a9fea2c3aa8392f HorseMod/horselib/deterministic/Types.hpp",
+    "1 .M N... 100644 100644 100644 628ebb588d19274028b5aa4b94b82b0e840b30c5 628ebb588d19274028b5aa4b94b82b0e840b30c5 tools/deterministic_core_selftest.cpp",
+    "1 .M N... 100644 100644 100644 d0222564c2ea42847a0b56f3b30393d7d0ddfa2a d0222564c2ea42847a0b56f3b30393d7d0ddfa2a tools/deterministic_qualification/artifacts.py",
+    "1 .M N... 100644 100644 100644 92999579ebe099316231466b1e33d704cf5d113b 92999579ebe099316231466b1e33d704cf5d113b tools/deterministic_qualification/process_control.py",
+    "1 .M N... 100644 100644 100644 d9c2794c943ee2e5e5ddd3f56992397d15cb62d6 d9c2794c943ee2e5e5ddd3f56992397d15cb62d6 tools/deterministic_qualification/replay_entry.py",
+    "1 .M N... 100644 100644 100644 0144010c2dc2db20246dd5f172cb2ced4707b225 0144010c2dc2db20246dd5f172cb2ced4707b225 tools/deterministic_qualification/runner.py",
+    "1 .M N... 100644 100644 100644 4f7e59e4de7fd56ba405f7a8df9d8a95bf60b2fd 4f7e59e4de7fd56ba405f7a8df9d8a95bf60b2fd tools/deterministic_qualification/sandboxie_pair.py",
+    "1 .M N... 100644 100644 100644 9cd3905e64786d78aa1491888505bb4ee8dde277 9cd3905e64786d78aa1491888505bb4ee8dde277 tools/deterministic_qualification/tests/test_replay_entry_request.py",
+    "1 .M N... 100644 100644 100644 2bc59abb298fbceec86877c990df4cbb9b9f8e39 2bc59abb298fbceec86877c990df4cbb9b9f8e39 tools/deterministic_qualification/tests/test_sandboxie_pair.py",
+    "1 .M N... 100644 100644 100644 f3d8cf356f40276b9d6255c6f505ceb9e2b498fe f3d8cf356f40276b9d6255c6f505ceb9e2b498fe tools/deterministic_qualification/tests/test_trace_parser.py",
+    "1 .M N... 100644 100644 100644 17d17c114bb269de35a72745a07023ac7f92e455 17d17c114bb269de35a72745a07023ac7f92e455 tools/deterministic_qualification/trace_parser.py",
+    "1 .M N... 100644 100644 100644 e07fe431d627ca4d813995123e4331b6ad40337c e07fe431d627ca4d813995123e4331b6ad40337c tools/deterministic_schema_exporter.cpp",
+    "1 .M N... 100644 100644 100644 5aa03bf902d21b7e2d1898bf7e8a225b1c26e162 5aa03bf902d21b7e2d1898bf7e8a225b1c26e162 tools/online_coordinator_selftest.cpp",
+    "1 .M N... 100644 100644 100644 a3efbe51a6eea3fb9bcd596ac64d90f080450f96 a3efbe51a6eea3fb9bcd596ac64d90f080450f96 tools/replay_qualification_mod/ReplayPayloadImporter.cpp",
+    "1 .M N... 100644 100644 100644 d68f0c05c1b788868401460d78c3b1b5923648dc d68f0c05c1b788868401460d78c3b1b5923648dc tools/replay_qualification_mod/ReplayPayloadImporter.hpp",
+    "1 .M N... 100644 100644 100644 6b105af5172b9df9bd66c72b06f6148e1cf9067c 6b105af5172b9df9bd66c72b06f6148e1cf9067c tools/replay_qualification_mod/ReplayQualificationMod.cpp",
+    "1 .M N... 100644 100644 100644 2e199017c30e009acfcbf75f2e492befd3ad86af 2e199017c30e009acfcbf75f2e492befd3ad86af tools/steam_p2p_transport_selftest.cpp",
+    "? HorseMod/horselib/deterministic/AuthoritativeInputGate.hpp",
+    "? HorseMod/horselib/deterministic/GekkoRollbackSession.cpp",
+    "? HorseMod/horselib/deterministic/GekkoRollbackSession.hpp",
+    "? HorseMod/horselib/deterministic/OnlineContractTypes.hpp",
+    "? HorseMod/horselib/deterministic/OnlineLifecycle.hpp",
+    "? HorseMod/horselib/deterministic/ProductionOnlineAllowlist.cpp",
+    "? HorseMod/horselib/deterministic/ProductionOnlineAllowlist.hpp",
+    "? HorseMod/horselib/deterministic/ProductionReleaseLoader.cpp",
+    "? HorseMod/horselib/deterministic/ProductionReleaseLoader.hpp",
+    "? HorseMod/horselib/deterministic/Sc6OnlineContractObserver.cpp",
+    "? HorseMod/horselib/deterministic/Sc6OnlineContractObserver.hpp",
+    "? HorseMod/horselib/deterministic/Sc6OnlineObserverProbe.cpp",
+    "? HorseMod/horselib/deterministic/Sc6OnlineObserverProbe.hpp",
+    "? HorseMod/horselib/deterministic/Sc6StageCatalog.cpp",
+    "? HorseMod/horselib/deterministic/Sc6StageCatalog.hpp",
+    "? docs/investigations/deterministic-production-candidate-manifest.json",
+    "? docs/investigations/deterministic-production-region-manifest.json",
+    "? docs/investigations/deterministic-tira-qualification-manifest.json",
+    "? tools/deterministic_qualification/configuration.py",
+    "? tools/deterministic_qualification/observer_pair.py",
+    "? tools/deterministic_qualification/offline_campaign.py",
+    "? tools/deterministic_qualification/offline_matrix.py",
+    "? tools/deterministic_qualification/paired_online.py",
+    "? tools/deterministic_qualification/tests/test_configuration.py",
+    "? tools/deterministic_qualification/tests/test_observer_pair.py",
+    "? tools/deterministic_qualification/tests/test_offline_matrix.py",
+    "? tools/deterministic_qualification/tests/test_tira_campaign.py",
+    "? tools/deterministic_qualification/tira_campaign.py",
+    "? tools/gekko_rollback_session_selftest.cpp",
+    "? tools/generate_compiled_release_identities.py",
+    "? tools/generate_production_candidate_manifest.py",
+    "? tools/generate_production_regions.py",
+    "? tools/production_release_loader_selftest.cpp",
+    "? tools/replay_qualification_mod/OnlineRoomAutomation.cpp",
+    "? tools/replay_qualification_mod/OnlineRoomAutomation.hpp",
+    "? tools/sc6_online_contract_observer_selftest.cpp",
+    "? tools/sc6_online_observer_probe_selftest.cpp"
+  ],
+  "superproject_head": "c70b60ffbca1ab53b176d0d658f7c487e2d378a9",
+  "toolchain": {
+    "cmake_path": "C:\\Program Files\\CMake\\bin\\cmake.exe",
+    "cmake_sha256": "f05482595d42888f2befe209d8aa4848560c8a05356411043241a15e7d3f86a7",
+    "cmake_version": "cmake version 4.3.1\n\nCMake suite maintained and supported by Kitware (kitware.com/cmake).",
+    "cxx_compiler_path": "E:\\ProgramFiles\\vsStudioCommunity\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+    "cxx_compiler_sha256": "194ddf4aafcb74452218a982309a97de30e0adb33edf4af02904ee107213e782",
+    "cxx_compiler_version": ""
+  },
+  "tracked_binary_patch": {
+    "path": "source-identity-diagnostic.tracked.patch",
+    "sha256": "19f47da9669356c0f117d33f19ee93103091bb9c924ae571c47f2781321205a6",
+    "size": 427022
+  },
+  "untracked_deterministic_inputs": [
+    {
+      "path": "HorseMod/horselib/deterministic/AuthoritativeInputGate.hpp",
+      "sha256": "09bdfe232abeb92c913341ba5217b1456627a0962716b86b396451669f2420b4",
+      "size": 2787
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/GekkoRollbackSession.cpp",
+      "sha256": "94ebb25d87c1eaf030c1703840e577ea32702833f275d311b615061921d1bbf8",
+      "size": 12412
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/GekkoRollbackSession.hpp",
+      "sha256": "e3591d792f51d38159324e682eb96ec0fa9cd76c1f0808a437a66fbfc09cd67f",
+      "size": 3288
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/OnlineContractTypes.hpp",
+      "sha256": "cc8b9f97d8d8e6f259f2320e9a667c5887c783bae7053d64212025e1532fd827",
+      "size": 1551
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/OnlineLifecycle.hpp",
+      "sha256": "41f38ed5f201974e679aefa5395e964e9d23ddea4eca792cb7731b99b3eb8f63",
+      "size": 3322
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ProductionOnlineAllowlist.cpp",
+      "sha256": "1255e566c1431e161295f91a586393ba69b8202114de74660784968dbaff36b0",
+      "size": 4124
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ProductionOnlineAllowlist.hpp",
+      "sha256": "a010f8c22128a394c1a684f1cff0d3b8bb40c1e9db177dfa8c2b65b024ba60e8",
+      "size": 2029
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ProductionReleaseLoader.cpp",
+      "sha256": "d91ce662c385fb834e8f29960c01a53418e510f88d1b54258a038578c8c2cd14",
+      "size": 12417
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ProductionReleaseLoader.hpp",
+      "sha256": "7566c423c667aa82411d60f20a015666d2471f169a1baab54c752d78b9e59ec6",
+      "size": 742
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6OnlineContractObserver.cpp",
+      "sha256": "e404c9e014c1789b8657dce295522b8eaefacda3348d3e6f0373c71f75f19264",
+      "size": 23720
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6OnlineContractObserver.hpp",
+      "sha256": "f899588ba72f59c89f2afe7b4c7aff188c3a53391686d81ebdd26b8eeac7f233",
+      "size": 3823
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6OnlineObserverProbe.cpp",
+      "sha256": "18cc2466a38d3b22835c037cde527b105844ca4e95696cac5178ab321966877a",
+      "size": 7487
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6OnlineObserverProbe.hpp",
+      "sha256": "7f298bbad83700dbbd18142ae2dc6df61fe16a54f6ab7575924f43bebabc215a",
+      "size": 3698
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6StageCatalog.cpp",
+      "sha256": "36ba7136138abd82131ab6f4367f8d59e5612c6e0d0f4196a0e929329e85fdcf",
+      "size": 472
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6StageCatalog.hpp",
+      "sha256": "bdb3218212e3ced5f2eafd45bffe67904a54389ae72225315dd1037ee147ebab",
+      "size": 1142
+    },
+    {
+      "path": "docs/investigations/deterministic-production-candidate-manifest.json",
+      "sha256": "8593e270e71bec76fdb7fbe5aea5d848e90f669d1388f2b08efd8ec9ce95bbe1",
+      "size": 2420
+    },
+    {
+      "path": "docs/investigations/deterministic-production-region-manifest.json",
+      "sha256": "64728cd2de30310ab75cbceefecb0bf77c358acebad4fb5b6b9c4b78173e8715",
+      "size": 11017
+    },
+    {
+      "path": "docs/investigations/deterministic-tira-qualification-manifest.json",
+      "sha256": "15aed9aaea33f3de8cb57e7035e1e443d1811a0cb53305793d653f87bbeb6012",
+      "size": 792
+    },
+    {
+      "path": "tools/deterministic_qualification/configuration.py",
+      "sha256": "93cfde2657938303a167e9ad046c68e3ecdab37e2816b641b8933a1b6174ed0b",
+      "size": 2612
+    },
+    {
+      "path": "tools/deterministic_qualification/observer_pair.py",
+      "sha256": "5976526ccdd8c30b4ff50db6502f066c74c2d679ba67590f5e28fbdb64d70063",
+      "size": 15954
+    },
+    {
+      "path": "tools/deterministic_qualification/offline_campaign.py",
+      "sha256": "93d6c03aa45dbd5a47d933ccaa0da371044f4a0762efb86f4dd60b825af6cc49",
+      "size": 7821
+    },
+    {
+      "path": "tools/deterministic_qualification/offline_matrix.py",
+      "sha256": "e74b7299f5dfa6ee7a3c67feaaec896791ae4590b9fa4086c2ab30ecb8210029",
+      "size": 7678
+    },
+    {
+      "path": "tools/deterministic_qualification/paired_online.py",
+      "sha256": "4dcfa448c2fedbab28336d8aaf87dfa6238eb476de3e694c6bef219099b7cd65",
+      "size": 15639
+    },
+    {
+      "path": "tools/deterministic_qualification/tests/test_configuration.py",
+      "sha256": "28ef716d4fcbdc43ac84845afa250905cc136bfcea8d8402266c7b2d30c930ae",
+      "size": 1157
+    },
+    {
+      "path": "tools/deterministic_qualification/tests/test_observer_pair.py",
+      "sha256": "76a0d58d6f5fae4fc6417babc3240a5dd05c53b0582b0e06f3d50a61bb585720",
+      "size": 2672
+    },
+    {
+      "path": "tools/deterministic_qualification/tests/test_offline_matrix.py",
+      "sha256": "ebee9b263a9057cec7cadbad48d7d2e34676e47e5d190c98ac53054298342d74",
+      "size": 2134
+    },
+    {
+      "path": "tools/deterministic_qualification/tests/test_tira_campaign.py",
+      "sha256": "f3376df55678cbe5e137c438f8c755a5a660161d039c8d9b295aa538651a069f",
+      "size": 2979
+    },
+    {
+      "path": "tools/deterministic_qualification/tira_campaign.py",
+      "sha256": "b3dcc8063cc09eb6716a0b00fb84d726ef39080c05c49d22cc68d35a83fbf9a0",
+      "size": 9230
+    },
+    {
+      "path": "tools/gekko_rollback_session_selftest.cpp",
+      "sha256": "1e06229ca791b24a27573547cbe4b7d9293f2acde1d26db49fd7398e28b0b000",
+      "size": 14010
+    },
+    {
+      "path": "tools/generate_compiled_release_identities.py",
+      "sha256": "5074bdaccaaaf89cb9f2baafd9f349bc2485ea54e2c6a6d7cdfa798725e56601",
+      "size": 1881
+    },
+    {
+      "path": "tools/generate_production_candidate_manifest.py",
+      "sha256": "cc766c1fef86f0b60b1326b53b57b7d340fd6eaed8e6616f9cc470dcf2740ed7",
+      "size": 2863
+    },
+    {
+      "path": "tools/generate_production_regions.py",
+      "sha256": "c9fa3d3221a3fa667e9546123b1335b89bdd7a4daeba780eb8b1ba3ec80ed88f",
+      "size": 2475
+    },
+    {
+      "path": "tools/production_release_loader_selftest.cpp",
+      "sha256": "f8a81717876a1a382f6838a308c07e216b57df8555a291ae08cc9f1e5eff95fa",
+      "size": 6370
+    },
+    {
+      "path": "tools/replay_qualification_mod/OnlineRoomAutomation.cpp",
+      "sha256": "4fa5223931289dce54e47e3fe04f388e956645ab8516a44d7d4649c793ae681a",
+      "size": 27764
+    },
+    {
+      "path": "tools/replay_qualification_mod/OnlineRoomAutomation.hpp",
+      "sha256": "71956bcdad47cebf6c5134b0ad4c45e298174d1bb84652d736b81ff6415857d8",
+      "size": 1080
+    },
+    {
+      "path": "tools/sc6_online_contract_observer_selftest.cpp",
+      "sha256": "e1cd2f15508ec2b4d47f0be5b3968435313a89247d77a93bfb9fc96d0406198e",
+      "size": 4473
+    },
+    {
+      "path": "tools/sc6_online_observer_probe_selftest.cpp",
+      "sha256": "d6400b0c535347490c7591d1aa6b970b4800b8215666386081403b13958784ec",
+      "size": 3804
+    }
+  ]
+}

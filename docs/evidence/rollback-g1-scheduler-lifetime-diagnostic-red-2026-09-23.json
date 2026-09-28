@@ -1,0 +1,28 @@
+{
+  "scope": "Observer predicate-reporting defect only; does not identify the retained live failure predicate",
+  "exit_code": 81,
+  "stdout": "",
+  "stderr": "",
+  "files": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1ba76f7041c149d4ed7587ee577865654831e76b2eab5664ca56585ebdddcd4d.cpp",
+      "sha256": "1ba76f7041c149d4ed7587ee577865654831e76b2eab5664ca56585ebdddcd4d",
+      "bytes": 3904
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\dc0226ea81478ea8c8dbab1196d548abee8971ad26a1ac37a77249496da087a2.exe",
+      "sha256": "dc0226ea81478ea8c8dbab1196d548abee8971ad26a1ac37a77249496da087a2",
+      "bytes": 142336
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\3adb29e9858747535fcd1757dcff28fb48c65eb14e162fa45a5042eba3709faa.cpp",
+      "sha256": "3adb29e9858747535fcd1757dcff28fb48c65eb14e162fa45a5042eba3709faa",
+      "bytes": 523972
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\84a54cf0b6d70243a56f6f41f06ebd124a741735bcdb9d2978736260670257ff.py",
+      "sha256": "84a54cf0b6d70243a56f6f41f06ebd124a741735bcdb9d2978736260670257ff",
+      "bytes": 49232
+    }
+  ]
+}

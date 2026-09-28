@@ -1,0 +1,25 @@
+{
+  "result": "RED native_launch_options omits requested ONETHREAD; expected3options actual2",
+  "files": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\819aa789e29f53a3963e127a2f736b3bab604262daada50de8c0fc801a0ddc92.py",
+      "sha256": "819aa789e29f53a3963e127a2f736b3bab604262daada50de8c0fc801a0ddc92",
+      "bytes": 64871
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1ea4f1a25e560109e86ae3077cb2672b1c5514a2edfeba9b12a9c321af042a5c.py",
+      "sha256": "1ea4f1a25e560109e86ae3077cb2672b1c5514a2edfeba9b12a9c321af042a5c",
+      "bytes": 8438
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\3e5c1facf1ad31f2cce11eafa9d94be0fbae63da8cddb1336d9a835a03a2cfeb.py",
+      "sha256": "3e5c1facf1ad31f2cce11eafa9d94be0fbae63da8cddb1336d9a835a03a2cfeb",
+      "bytes": 419576
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e7d0de386a8f16550a2385697fc3fb67bbde8bbdb5aff1b930428eb4b3a2f5fa.py",
+      "sha256": "e7d0de386a8f16550a2385697fc3fb67bbde8bbdb5aff1b930428eb4b3a2f5fa",
+      "bytes": 34507
+    }
+  ]
+}

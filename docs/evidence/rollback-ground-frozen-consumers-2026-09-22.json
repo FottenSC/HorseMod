@@ -1,0 +1,53 @@
+{
+  "scope": "Actual ValidateFrozen admits a changed child transform consumer after capture. No motion exclusion.",
+  "scaffold_failure": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\650bd0d24cfad193a1a66e5f043130459331956fe9419289dfcbca32046c4ca4.log",
+    "sha256": "650bd0d24cfad193a1a66e5f043130459331956fe9419289dfcbca32046c4ca4",
+    "bytes": 6034
+  },
+  "scaffold_source": {
+    "manifest_sha256": "0344c5169dbddc340e4153d7235cf1f5c8e3768418bfff3aa5f9daab3e21e227",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-0344c5169dbddc340e4153d7235cf1f5c8e3768418bfff3aa5f9daab3e21e227.zip",
+    "archive_sha256": "5c3c8f8265ba8d14990701adf4239050d84a29dad37576c1095d8b04716ea8dc",
+    "files": 16570,
+    "uncompressed_bytes": 92319679,
+    "reconstructible": true
+  },
+  "red": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\eede48ff84553fcf76b6258a9000bc2873f320a98bdf8212b85670f17ed5b649.log",
+    "sha256": "eede48ff84553fcf76b6258a9000bc2873f320a98bdf8212b85670f17ed5b649",
+    "bytes": 3229
+  },
+  "red_source": {
+    "manifest_sha256": "1324c16da46397051e20a868649f1c12ce7465d3470cd557de3e7b6326bee272",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-1324c16da46397051e20a868649f1c12ce7465d3470cd557de3e7b6326bee272.zip",
+    "archive_sha256": "4793b5a122f063e3a6b21c351cd4b65e305c367d68dfd9049b7fbabd759d21a9",
+    "files": 16570,
+    "uncompressed_bytes": 92319736,
+    "reconstructible": true
+  },
+  "green": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\2666c398832dc91b0ce4bcf19b52e474c2942ebe094e98db3a906eb1f7151a15.log",
+    "sha256": "2666c398832dc91b0ce4bcf19b52e474c2942ebe094e98db3a906eb1f7151a15",
+    "bytes": 100
+  },
+  "implementation": "Capture and ValidateFrozen reuse bounded allocation-free child consumer admission. Weak identity and original ring binding are checked again. No pose or comparison relaxation.",
+  "remaining": "Continuous corrected-update/continuation enforcement and reflected/direct generic readers remain unclosed; no motion exclusion.",
+  "required_build_native": {
+    "ground-frozen-consumers-build-20260922.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\069c42cf5be71212a8b6900bd13e9e21155162ca8afa1c9c902de174bdd837a2.log",
+      "sha256": "069c42cf5be71212a8b6900bd13e9e21155162ca8afa1c9c902de174bdd837a2",
+      "bytes": 333
+    },
+    "build-stage.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\708d297c3c8c20b2e303d1c9da967db0e6a0db8a35e27f1b0206de5201b21c4b.json",
+      "sha256": "708d297c3c8c20b2e303d1c9da967db0e6a0db8a35e27f1b0206de5201b21c4b",
+      "bytes": 6237
+    },
+    "build-provenance.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\3c29261f17806c30327257f91733c01b24245e9441017c74ac2e83137c1a5f8d.json",
+      "sha256": "3c29261f17806c30327257f91733c01b24245e9441017c74ac2e83137c1a5f8d",
+      "bytes": 2373
+    }
+  }
+}

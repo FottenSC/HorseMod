@@ -1,0 +1,32 @@
+{
+  "case_id": "astaroth-raphael-silver-wolves-haven",
+  "certifying": false,
+  "cleanup": {
+    "diagnostic_flags_restored_false": {
+      "correction_probe": true,
+      "forced_depth7_qualification": true,
+      "trace": true
+    },
+    "process_absent": true
+  },
+  "created_utc": "2026-08-30T10:48:51.296069+00:00",
+  "display_map_name": "Silver Wolves' Haven",
+  "failure": {
+    "bounded_log": "E:\\myMods\\docs\\investigations\\evidence\\iteration-smoke-silver-wolves-fp-window.failure.log",
+    "bounded_log_lines": 0,
+    "field_or_mask": null,
+    "fields": {},
+    "first_failing_frame": null,
+    "first_failure_line": "",
+    "graph_provenance": null,
+    "owner_pointer": null,
+    "owner_selector": null,
+    "return_rva": null
+  },
+  "kind": "replay_entry_failure",
+  "reason": "native replay entry failed: horsemod_fail_fast_health",
+  "report_schema": 2,
+  "result": "fail",
+  "row_id": "dirty-development-smoke-fp-window",
+  "stage_package_root": "/Game/DLC/07/Stage/STG011_R"
+}

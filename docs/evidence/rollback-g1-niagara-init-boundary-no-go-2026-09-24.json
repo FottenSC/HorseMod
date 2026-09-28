@@ -1,0 +1,25 @@
+{
+  "result": "NO-GO safe initialization disposition not established",
+  "production_changes": false,
+  "tests_added": false,
+  "game_launched": false,
+  "build_run": false,
+  "ghidra_mutated": false,
+  "source_identities": {
+    "HorseMod/horselib/deterministic/ReplayComponentTickConsumer.hpp": "564f93e4e33cb2832f032e06cce832b1660880c350d05f5cd2955192595bb3b4",
+    "HorseMod/horselib/deterministic/Sc6ReplayTaskGroup.cpp": "d04d374055bf203b8aa4eda999d08b5eaace207b84b3297581efe9cfea9a2d2f",
+    "HorseMod/horselib/deterministic/Sc6ReplaySchedulerState.cpp": "2a5f89f46519976af102fe1a2415822300f49c3dd9ea2574c5d7d741d21a9c9b",
+    "HorseMod/horselib/deterministic/NativeReplayTraceTaskGuard.Signatures.inl": "1a66a13b9b64d6e89eea0f98c8306e499dd1dc8cc4cdffe3530da547f7702fda",
+    "HorseMod/horselib/deterministic/NativeReplayPrerequisiteGuard.hpp": "421612a7a88506bf9f9a850709fdb40ab1fe6f8a46c7c877f20c8b8f88931833"
+  },
+  "analysis": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6e67de8d4649f0370b1e61a55724bd286d1e20f18483d8ecce6990ae85d5b3ed.json",
+    "sha256": "6e67de8d4649f0370b1e61a55724bd286d1e20f18483d8ecce6990ae85d5b3ed",
+    "bytes": 4360
+  },
+  "native": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\bc27546c78ed6bb6420ed11e064e23832f001a77f16ea6310621cbb768e744ad.json",
+    "sha256": "bc27546c78ed6bb6420ed11e064e23832f001a77f16ea6310621cbb768e744ad",
+    "bytes": 7687
+  }
+}

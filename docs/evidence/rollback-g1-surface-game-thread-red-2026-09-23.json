@@ -1,0 +1,36 @@
+{
+  "result": "RED exit61 existing QueueSurface rejects native game-thread rendering profile",
+  "scope": "Production routing fixture only; no native event or GPU ownership simulated as evidence",
+  "files": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4bafd17067d6d29c4982f81b771cda31541b6b38191bd7336af2808f3223bfd0.inl",
+      "sha256": "4bafd17067d6d29c4982f81b771cda31541b6b38191bd7336af2808f3223bfd0",
+      "bytes": 27630
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e611352c79b7dc785754d843cff8ef05157190468d0df8a01b060067260b24f1.py",
+      "sha256": "e611352c79b7dc785754d843cff8ef05157190468d0df8a01b060067260b24f1",
+      "bytes": 29470
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\fda255e6dd33e95d154f1660ab244feba93e77832e02d819da588602031e78d0.cmd",
+      "sha256": "fda255e6dd33e95d154f1660ab244feba93e77832e02d819da588602031e78d0",
+      "bytes": 268
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a87a73ee762255f2d89295db0901d55f05ff76f02ed3a4c5f4fe4aea9b4f884f.exe",
+      "sha256": "a87a73ee762255f2d89295db0901d55f05ff76f02ed3a4c5f4fe4aea9b4f884f",
+      "bytes": 123904
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\73cbee5cfec2b6d4f64743eefed73f201cf509acaac50e29c5626efcb2cb3404.obj",
+      "sha256": "73cbee5cfec2b6d4f64743eefed73f201cf509acaac50e29c5626efcb2cb3404",
+      "bytes": 54913
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c58150016345ba1e30c8849b5069420c26d0927e0f279be5e10e34eb7d518bca.cpp",
+      "sha256": "c58150016345ba1e30c8849b5069420c26d0927e0f279be5e10e34eb7d518bca",
+      "bytes": 4811
+    }
+  ]
+}

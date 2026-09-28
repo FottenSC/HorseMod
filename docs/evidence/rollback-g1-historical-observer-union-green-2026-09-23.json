@@ -1,0 +1,41 @@
+{
+  "result": "PASS: current registered+dormant values captured; historical values unchanged; stale ownership rejected",
+  "scope": "Local production Capture union and observer call; native/live continuation pending",
+  "files": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6fb4e7f7daee3899148278fff60618d5ab0664a77665ca8e55559f0d7336ceb0.cmd",
+      "sha256": "6fb4e7f7daee3899148278fff60618d5ab0664a77665ca8e55559f0d7336ceb0",
+      "bytes": 163
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\169b86b91a2e163e9f939ecbe3391126fd4a85ad8704b7e615d906e1165593d7.exe",
+      "sha256": "169b86b91a2e163e9f939ecbe3391126fd4a85ad8704b7e615d906e1165593d7",
+      "bytes": 142848
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e446c2a999f422324ab30d6c8cb944495313613c4163b1274c7c425a03445a02.cpp",
+      "sha256": "e446c2a999f422324ab30d6c8cb944495313613c4163b1274c7c425a03445a02",
+      "bytes": 5761
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\2b790d0ec383b4d35b491f26ee1bebe5b121b8dc79756783d982556a75c855ba.obj",
+      "sha256": "2b790d0ec383b4d35b491f26ee1bebe5b121b8dc79756783d982556a75c855ba",
+      "bytes": 228479
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\911c4e9f547b017c16d58c2aa7b31659a342fe5fcb95b22c864245ac46a5ec76.cpp",
+      "sha256": "911c4e9f547b017c16d58c2aa7b31659a342fe5fcb95b22c864245ac46a5ec76",
+      "bytes": 520303
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\49ef3e939942017aa357ead419e983744a6642df698e3348b57d301ce3724c00.py",
+      "sha256": "49ef3e939942017aa357ead419e983744a6642df698e3348b57d301ce3724c00",
+      "bytes": 40257
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\839a64f85928e1325203aaf478a60bf0237c8897c5ff455bfe3c34086636335f.cpp",
+      "sha256": "839a64f85928e1325203aaf478a60bf0237c8897c5ff455bfe3c34086636335f",
+      "bytes": 31697
+    }
+  ]
+}

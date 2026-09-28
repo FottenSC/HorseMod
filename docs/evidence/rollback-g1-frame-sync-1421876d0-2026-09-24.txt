@@ -1,0 +1,54 @@
+
+/* Summary: Advances the two-slot end-of-frame render-fence pipeline.
+   
+   Parameters:
+   pState: two fence slots plus a 0/1 cursor.
+   fAllowOneFrameLag: when true, flip the cursor before waiting.
+   
+   Returns:
+   No value; begins one fence, optionally flips the cursor, and waits the selected slot.
+   
+   Algorithm:
+   1. Begin a fence in slots[cursor] with RHI/GPU synchronization allowed.
+   2. Query whether the game thread is already processing tasks; drain it when idle.
+   3. If one-frame lag is allowed, toggle cursor modulo two.
+   4. Wait slots[cursor], permitting task processing only when the game thread was idle.
+   
+   Latency Relevance:
+   False waits the just-enqueued fence and removes GT/RT overlap. True waits the opposite older
+   fence and leaves the new fence in flight for one frame.
+   
+   Special Cases:
+   The signed modulo sequence is MSVC's 0/1 toggle idiom.
+   The task-graph interface pointer is a register-only decompiler temporary.
+   
+   Source:
+   SoulcaliburVI.exe 0x1421876D0 and calls to FRenderCommandFence_BeginFence/Wait. */
+
+void FFrameEndSync_AdvanceTwoSlot(FFrameEndSync_State *pState,bool fAllowOneFrameLag)
+
+{
+  bool fGameThreadBusy;
+  uint uVar1;
+  longlong *plVar2;
+  
+                    /* Begin current slot, optionally switch slots, then wait the selected fence. */
+  FRenderCommandFence_BeginFence(pState->pFences + pState->nCursor,true);
+  plVar2 = (longlong *)FUN_140d24400();
+  fGameThreadBusy = (bool)(**(code **)(*plVar2 + 0x20))(plVar2,2);
+  if (fGameThreadBusy == false) {
+    plVar2 = (longlong *)FUN_140d24400();
+    (**(code **)(*plVar2 + 0x30))(plVar2,2);
+  }
+  if (fAllowOneFrameLag) {
+    uVar1 = pState->nCursor + 1U & 0x80000001;
+    if ((int)uVar1 < 0) {
+      uVar1 = (uVar1 - 1 | 0xfffffffe) + 1;
+    }
+    pState->nCursor = uVar1;
+  }
+  FRenderCommandFence_Wait(pState->pFences + pState->nCursor,fGameThreadBusy == false);
+  return;
+}
+
+

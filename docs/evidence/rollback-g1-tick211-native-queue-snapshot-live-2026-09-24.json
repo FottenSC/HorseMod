@@ -1,0 +1,56 @@
+{
+  "scope": "A210/B217 consumer-mutation retry after rejection-only native queue snapshot instrumentation",
+  "run_id": "replay-28ae3d8820e34fd482c4ef39fd0c5eb3",
+  "evidence": {
+    "build_manifest": {
+      "path": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/manifests/537d63483693e414e458e547cd578f92606b788ea10a7df5150024205c1ecee1.json",
+      "sha256": "537d63483693e414e458e547cd578f92606b788ea10a7df5150024205c1ecee1",
+      "bytes": 6433
+    },
+    "run_manifest": {
+      "path": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/manifests/8c88ec2e20a2252fcc5a609cf7afa563d39d2554956a11358bbf507b2f236c8c.json",
+      "sha256": "8c88ec2e20a2252fcc5a609cf7afa563d39d2554956a11358bbf507b2f236c8c",
+      "bytes": 21915
+    },
+    "failure_sidecar": {
+      "path": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/b2057ffafe305112495dfa7bcca6dd28c0454acd43babfef281aa1be177a0a7d.json",
+      "sha256": "b2057ffafe305112495dfa7bcca6dd28c0454acd43babfef281aa1be177a0a7d",
+      "bytes": 515
+    },
+    "matching_dump": {
+      "path": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/cceb7cac93a0ec35d15c23ebef080993d082960bbe91d6ca8f3e3513074ccd9b.dmp",
+      "sha256": "cceb7cac93a0ec35d15c23ebef080993d082960bbe91d6ca8f3e3513074ccd9b",
+      "bytes": 80148660
+    },
+    "instrumentation_red": "docs/evidence/rollback-g1-native-queue-snapshot-red-2026-09-24.json",
+    "instrumentation_green": "docs/evidence/rollback-g1-native-queue-snapshot-green-2026-09-24.json"
+  },
+  "checks": "Required build/native checks and two CTests pass; focused RED/GREEN snapshot regressions pass; preflight ready before live deployment.",
+  "first_failure": {
+    "process": "owned PID64968 terminated 0xc0000409",
+    "site": "NativeQueueSnapshot at guarded native queue pop 140D2B9F0 before original entry",
+    "tick": 211,
+    "epoch": 2328,
+    "transaction_phase": 2,
+    "protocol_phase": 4,
+    "native_queue_argument": 2446927421816,
+    "named_thread": 2446927421760,
+    "snapshot_reason": 0,
+    "queue_head_and_tail": "0x1de9800db19, identical on reread",
+    "head_next": "0x110000000, identical on reread",
+    "queue_consistency_mask": 15,
+    "candidate_task_payload": 0,
+    "native_pump_depth": 1,
+    "cleanup_events": {
+      "count": 6,
+      "capacity": 24,
+      "sampled": 6,
+      "nonnull_mask": 63,
+      "complete_mask": 31
+    }
+  },
+  "interpretation": "The first-priority queue snapshot has equal head/tail low26 node indices and a zero next low26 node index, matching the native pop's empty branch at that instant. Five of six retained cleanup events sampled complete; the sixth was incomplete. Rereads do not authorize a later native dequeue, identify the pending event's producer, or prove a B recovery.",
+  "cleanup": "Deployment journal clean, all eight prior file states independently match SHA256/absence, zero owned game or runner processes; Steam untouched.",
+  "gates": "Observer validity, simulation, coherence, recovery and performance not measured by this terminated diagnostic. Mutation reached selected protocol completion, but complete-B recovery and 120 independent continuation ticks remain unproven. G1/G2 open; debris exact/Unresolved; no408 or600 retry.",
+  "next_resolving_test": "Astra high code owner identifies the incomplete sequencer cleanup event and second-priority queue disposition from native/source evidence, then adds a precise production-boundary fix or bounded diagnostic with RED/GREEN and required build/native checks before another shortest live test."
+}

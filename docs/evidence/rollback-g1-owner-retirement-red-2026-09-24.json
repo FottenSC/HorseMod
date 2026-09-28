@@ -1,0 +1,21 @@
+{
+  "stage": "RED",
+  "source_retention": {
+    "manifest_sha256": "1cbf64301042d7317007b04b0089498fc67c1ff58dba79a24a082ce23b3b8cd5",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-1cbf64301042d7317007b04b0089498fc67c1ff58dba79a24a082ce23b3b8cd5.zip",
+    "archive_sha256": "b53b1052f3b95a06c5a5c4fbaa4305b3a8037671be0f1e7910206c86111a4cf2",
+    "files": 16607,
+    "uncompressed_bytes": 92829798,
+    "reconstructible": true
+  },
+  "log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\005497437c0135f9e77424f4439fb453b644d6bb4d19362a8217c12e8f668349.json",
+    "sha256": "005497437c0135f9e77424f4439fb453b644d6bb4d19362a8217c12e8f668349",
+    "bytes": 2985
+  },
+  "results": [
+    "actual Finish resets execution flag and publishes Released; production gate wrongly reenters private retirement: exit81",
+    "same extracted fixture slots mode: exit82 missing exact predicate witness"
+  ],
+  "live_manifest": "d4800db54b215bf1ff188bdc9de4ed3f7d69159d6cf5a7a3398ad106fa4d0525"
+}

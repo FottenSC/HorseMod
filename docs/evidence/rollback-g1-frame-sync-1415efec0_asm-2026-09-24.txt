@@ -1,0 +1,38 @@
+1415efec0: MOV qword ptr [RSP + 0x8],RBX 
+1415efec5: PUSH RDI 
+1415efec6: SUB RSP,0x20 
+1415efeca: CMP byte ptr [0x144351840],0x0 
+1415efed1: MOVZX EDI,DL 
+1415efed4: MOV RBX,RCX 
+1415efed7: JZ 0x1415eff30 
+1415efed9: CALL 0x1415e9e30 
+1415efede: MOV RCX,qword ptr [RBX] 
+1415efee1: XOR EDX,EDX 
+1415efee3: TEST RCX,RCX 
+1415efee6: JZ 0x1415eff13 
+1415efee8: XOR EAX,EAX 
+1415efeea: CMPXCHG.LOCK qword ptr [RCX + 0x8],RDX 
+1415efef0: SHR RAX,0x1a 
+1415efef4: TEST AL,0x1 
+1415efef6: JNZ 0x1415eff13 
+1415efef8: CALL 0x1415ef6f0 
+1415efefd: MOVZX EDX,DIL 
+1415eff01: MOV RCX,RBX 
+1415eff04: MOV RBX,qword ptr [RSP + 0x30] 
+1415eff09: ADD RSP,0x20 
+1415eff0d: POP RDI 
+1415eff0e: JMP 0x1415ed580 
+1415eff13: MOV RCX,qword ptr [RBX] 
+1415eff16: MOV qword ptr [RBX],RDX 
+1415eff19: TEST RCX,RCX 
+1415eff1c: JZ 0x1415eff30 
+1415eff1e: OR EAX,0xffffffff 
+1415eff21: XADD.LOCK dword ptr [RCX + 0x48],EAX 
+1415eff26: CMP EAX,0x1 
+1415eff29: JNZ 0x1415eff30 
+1415eff2b: CALL 0x140d2ebe0 
+1415eff30: MOV RBX,qword ptr [RSP + 0x30] 
+1415eff35: ADD RSP,0x20 
+1415eff39: POP RDI 
+1415eff3a: RET 
+

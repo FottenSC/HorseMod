@@ -1,0 +1,18 @@
+{
+  "result": "expected RED exit81: actual World StartTasks reaches native unowned wait with retained cleanup events",
+  "scope": "Production world StartTasks branch; external native boundary rejects unowned wait. No native task lifecycle granted by fixture.",
+  "log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f699465da9945ab65b48d8c3e774fa0ae9494322bf9d6e8cb3e6557db030f8d4.json",
+    "sha256": "f699465da9945ab65b48d8c3e774fa0ae9494322bf9d6e8cb3e6557db030f8d4",
+    "bytes": 2576
+  },
+  "source_retention": {
+    "manifest_sha256": "ed76a9c926f70e8a9836ac1680c954f461875ec8abecaa109e1d81065f5ff681",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-ed76a9c926f70e8a9836ac1680c954f461875ec8abecaa109e1d81065f5ff681.zip",
+    "archive_sha256": "f7aae59b4e5d6eb619289f278b9c3fa62b3c8e1459b587bb07b682794ff448f5",
+    "files": 16602,
+    "uncompressed_bytes": 92787056,
+    "reconstructible": true
+  },
+  "native_live": "docs/evidence/rollback-g1-tick211-native-queue-snapshot-live-2026-09-24.json"
+}

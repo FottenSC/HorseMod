@@ -1,0 +1,68 @@
+{
+  "red": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\83e02c0ce422267b576381f14132a03b2b262de48bcd7e0a1bf58758c7d99dcd.log",
+    "sha256": "83e02c0ce422267b576381f14132a03b2b262de48bcd7e0a1bf58758c7d99dcd",
+    "bytes": 2604
+  },
+  "red_files": {
+    "tools/deterministic_qualification/replay_control.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1f994dff08c2efbb01245e7f7558355f08aca5c5624a4934163bd7165e714c99.py",
+      "sha256": "1f994dff08c2efbb01245e7f7558355f08aca5c5624a4934163bd7165e714c99",
+      "bytes": 61598
+    },
+    "tools/deterministic_qualification/replay_diagnostics.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\21c05b4fc0e37667b60e8833e8a8a74407ff7804f7f3a521d333bb10a6b1d539.py",
+      "sha256": "21c05b4fc0e37667b60e8833e8a8a74407ff7804f7f3a521d333bb10a6b1d539",
+      "bytes": 3186
+    },
+    "tools/deterministic_qualification/tests/test_replay_run.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\049da64d035d1e4f1849ca5ffec4db563186b79d0b88d7d9b5f3902337d7d782.py",
+      "sha256": "049da64d035d1e4f1849ca5ffec4db563186b79d0b88d7d9b5f3902337d7d782",
+      "bytes": 492407
+    }
+  },
+  "base": "rollback-ground-vehicle-callback-live-30-2026-09-22.json retained source",
+  "failure": "current-run marker ages out of64KiB tail; expected first-failure abort does not occur",
+  "green": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\622a0ce090d74e4b8c583344e9b030555447b545bfa52b28034235b0091bb6fe.log",
+    "sha256": "622a0ce090d74e4b8c583344e9b030555447b545bfa52b28034235b0091bb6fe",
+    "bytes": 116
+  },
+  "green_files": {
+    "tools/deterministic_qualification/replay_control.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\58ed6574aa5652fc99753dd58689476d7f1d9b01d90ba432c69c39e6ce7de442.py",
+      "sha256": "58ed6574aa5652fc99753dd58689476d7f1d9b01d90ba432c69c39e6ce7de442",
+      "bytes": 61501
+    },
+    "tools/deterministic_qualification/replay_diagnostics.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\09543943ef6e5816ea857c4383f6eab0c48b9bde877a5822ab82e763a956d20e.py",
+      "sha256": "09543943ef6e5816ea857c4383f6eab0c48b9bde877a5822ab82e763a956d20e",
+      "bytes": 4969
+    },
+    "tools/deterministic_qualification/tests/test_replay_run.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9a09c0facf5f86e1ea52aed1a504ddbdead1be92e5556d4118002218b81bca5b.py",
+      "sha256": "9a09c0facf5f86e1ea52aed1a504ddbdead1be92e5556d4118002218b81bca5b",
+      "bytes": 494266
+    }
+  },
+  "required_build": "rollback-ucrt-independent-boundary-2026-09-22.json",
+  "bounded_reader": {
+    "cursor_witness_bytes": 64,
+    "prefix_bytes": 256,
+    "max_line_bytes": 65536,
+    "retained_407_max_line_bytes": 9080,
+    "retained_407_lines": 293686,
+    "scope": "Complete appended lines only; log replacement/truncation resets run attribution. Long lines fail explicitly. Native simulation is unchanged."
+  },
+  "integration_first_failure": {
+    "receipt": "build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/40de0f56489f808e2e9fd137f3b261f9c96162948851659cbde25cb79e24eeca.json",
+    "console": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\764253d52bd6444a3ee39c3a19a6966eece6ed9b1500816516ae0bb59401c3c0.log",
+      "sha256": "764253d52bd6444a3ee39c3a19a6966eece6ed9b1500816516ae0bb59401c3c0",
+      "bytes": 2268
+    },
+    "failure": "test_native_failed_receipt_stops_current_run_immediately extracts guard body without package/cursor enclosing context; KeyError __name__ at import",
+    "tests": "1 failed,108 passed; stopped at first failure",
+    "fix": "Supply real package identity and fresh diagnostic cursor to this existing extracted-body fixture; production unchanged."
+  }
+}

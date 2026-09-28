@@ -1,0 +1,40 @@
+{
+  "run_id": "replay-10a823483c174911b4d25e066c0b7757",
+  "first_failure": "ground update admission rejected check=update_physics_callbacks tick=0 roots=0 meshes=0 before_native_application=true",
+  "raw_log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\84253756f15986749324cfb91d5757ef86cb96c03982ecd8d176320e18312c0d.log",
+    "sha256": "84253756f15986749324cfb91d5757ef86cb96c03982ecd8d176320e18312c0d",
+    "bytes": 123394
+  },
+  "journal_before": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\5039e65fefe072cda461ed28a52969818eee6bece24912e68a4c935bc0c647c2.json",
+    "sha256": "5039e65fefe072cda461ed28a52969818eee6bece24912e68a4c935bc0c647c2",
+    "bytes": 5155
+  },
+  "action": "Stop only verified journal-owned game; active runner retains restoration/cleanup.",
+  "stage": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\79e2c94a77cc26429f8945358acb6fe127fca587274aebcda61cd955c9089ce1.json",
+    "sha256": "79e2c94a77cc26429f8945358acb6fe127fca587274aebcda61cd955c9089ce1",
+    "bytes": 19810
+  },
+  "console": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\47d09d5cc048fa222d93c33f99cd9078a2c673b63d449dc3b90047fde1c88532.log",
+    "sha256": "47d09d5cc048fa222d93c33f99cd9078a2c673b63d449dc3b90047fde1c88532",
+    "bytes": 998
+  },
+  "retained_evidence": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\2a0e26380f1b69282a1931e45ec992f51b6daeb5d05535bcbb9c740a7e0213ed.json",
+    "sha256": "2a0e26380f1b69282a1931e45ec992f51b6daeb5d05535bcbb9c740a7e0213ed",
+    "bytes": 30315,
+    "summary": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\80a4997522fb99192565c131d16d4721a9e38cc417d54e90419d28ee2283fbbe.md",
+      "sha256": "80a4997522fb99192565c131d16d4721a9e38cc417d54e90419d28ee2283fbbe",
+      "bytes": 690
+    }
+  },
+  "cleanup": {
+    "complete": true,
+    "games_remaining": 0
+  },
+  "notes": "Owned game52044 was force-closed by existing cleanup helper after graceful close timed out8 seconds; active runner restored files/configuration. No B recovery or qualification claimed. Compact reporter misselected zero-failure CTest summary; raw log is authoritative. No controls started."
+}

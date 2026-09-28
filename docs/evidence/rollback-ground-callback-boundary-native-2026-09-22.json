@@ -1,0 +1,99 @@
+{
+  "scope": "Native callback dependency proof for the admitted trace attachment. Production capture currently lacks a dispatch guard; no broader gate or motion exclusion is claimed.",
+  "chain": "Ground1408A4860 -> manager14089F5F0 -> manager+388 -> trace native1408D3F20 -> attachment vslot238 ->141D41870; predicate278 ->141D7FBB0; tick setter308 ->141D5DBE0. Deactivation clears active bit40000 and dispatches/prunes1B8. Existing SceneTransform admission requires delegates1A8/1B8 empty, owns active/tick flags, but does not pin attachment type or these virtual slots.",
+  "native": [
+    {
+      "status": "fulfilled",
+      "value": {
+        "content": [
+          {
+            "type": "text",
+            "text": "\r\n/* Deactivates an actor component when its virtual ShouldActivate predicate is false.\r\n   \r\n   Algorithm:\r\n   1. Invoke virtual +0x278 (ShouldActivate).\r\n   2. If it returns false, invoke virtual +0x308 with false (SetComponentTickEnabled).\r\n   3. Clear the inherited active flag bit at component +0x188.\r\n   4. Broadcast/prune the inherited OnComponentDeactivated weak delegate array at +0x1B8.\r\n   \r\n   Parameters:\r\n   pComponent: UActorComponent-derived instance.\r\n   \r\n   Returns:\r\n   void.\r\n   \r\n   Rollback relevance:\r\n   ULuxTraceComponent_OnActiveTraceVFxFinished reaches this function through the\r\n   LuxTraceAttachComponent virtual slot +0x238. Completion therefore changes component\r\n   tick/active/delegate state and is lifecycle-semantic, not a visual leaf.\r\n   \r\n   Source:\r\n   SoulcaliburVI.exe 0x141D41870; behavior matches the native UActorComponent deactivation path. */\r\n\r\nvoid UActorComponent_Deactivate(UObject_Partial *pComponent)\r\n\r\n{\r\n  char cVar1;\r\n  UObject_Partial *local_res8 [4];\r\n  \r\n  cVar1 = (**(code **)((longlong)pComponent->pVirtualTable + 0x278))();\r\n  if (cVar1 == '\\0') {\r\n    (**(code **)((longlong)pComponent->pVirtualTable + 0x308))(pComponent,0);\r\n    *(uint *)&pComponent[9].pOuterPrivate = *(uint *)&pComponent[9].pOuterPrivate & 0xfffbffff;\r\n    local_res8[0] = pComponent;\r\n    DispatchMulticastScriptDelegateAndPruneInvalidEntries\r\n              ((FLuxTArrayHeader *)(pComponent + 0xb),local_res8);\r\n  }\r\n  return;\r\n}\r\n\r\n"
+          }
+        ],
+        "structuredContent": {
+          "result": "\r\n/* Deactivates an actor component when its virtual ShouldActivate predicate is false.\r\n   \r\n   Algorithm:\r\n   1. Invoke virtual +0x278 (ShouldActivate).\r\n   2. If it returns false, invoke virtual +0x308 with false (SetComponentTickEnabled).\r\n   3. Clear the inherited active flag bit at component +0x188.\r\n   4. Broadcast/prune the inherited OnComponentDeactivated weak delegate array at +0x1B8.\r\n   \r\n   Parameters:\r\n   pComponent: UActorComponent-derived instance.\r\n   \r\n   Returns:\r\n   void.\r\n   \r\n   Rollback relevance:\r\n   ULuxTraceComponent_OnActiveTraceVFxFinished reaches this function through the\r\n   LuxTraceAttachComponent virtual slot +0x238. Completion therefore changes component\r\n   tick/active/delegate state and is lifecycle-semantic, not a visual leaf.\r\n   \r\n   Source:\r\n   SoulcaliburVI.exe 0x141D41870; behavior matches the native UActorComponent deactivation path. */\r\n\r\nvoid UActorComponent_Deactivate(UObject_Partial *pComponent)\r\n\r\n{\r\n  char cVar1;\r\n  UObject_Partial *local_res8 [4];\r\n  \r\n  cVar1 = (**(code **)((longlong)pComponent->pVirtualTable + 0x278))();\r\n  if (cVar1 == '\\0') {\r\n    (**(code **)((longlong)pComponent->pVirtualTable + 0x308))(pComponent,0);\r\n    *(uint *)&pComponent[9].pOuterPrivate = *(uint *)&pComponent[9].pOuterPrivate & 0xfffbffff;\r\n    local_res8[0] = pComponent;\r\n    DispatchMulticastScriptDelegateAndPruneInvalidEntries\r\n              ((FLuxTArrayHeader *)(pComponent + 0xb),local_res8);\r\n  }\r\n  return;\r\n}\r\n\r\n"
+        },
+        "isError": false
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "content": [
+          {
+            "type": "text",
+            "text": "\r\n/* Summary: Default inherited ShouldActivate implementation.\r\n   Source: SoulcaliburVI.exe static decompilation.\r\n   \r\n   Returns the inverse of +0x188 active bit 0x40000, so a non-reset activation is admitted only\r\n   while inactive. */\r\n\r\nbool UActorComponent_ShouldActivate(USceneComponent_WorldTransformOverlay *pComponent)\r\n\r\n{\r\n  return (bool)(~(byte)(*(uint *)&(pComponent->actorComponentBase).field_0x188 >> 0x12) & 1);\r\n}\r\n\r\n"
+          }
+        ],
+        "structuredContent": {
+          "result": "\r\n/* Summary: Default inherited ShouldActivate implementation.\r\n   Source: SoulcaliburVI.exe static decompilation.\r\n   \r\n   Returns the inverse of +0x188 active bit 0x40000, so a non-reset activation is admitted only\r\n   while inactive. */\r\n\r\nbool UActorComponent_ShouldActivate(USceneComponent_WorldTransformOverlay *pComponent)\r\n\r\n{\r\n  return (bool)(~(byte)(*(uint *)&(pComponent->actorComponentBase).field_0x188 >> 0x12) & 1);\r\n}\r\n\r\n"
+        },
+        "isError": false
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "content": [
+          {
+            "type": "text",
+            "text": "\r\n/* Summary: Enables or disables the component primary tick function.\r\n   Source: SoulcaliburVI.exe static decompilation.\r\n   \r\n   When +0x11C bit 1 marks a registered tick function, it checks tick-function eligibility and\r\n   updates the tick function at +0x110. This is part of activation/deactivation state and must\r\n   remain coherent with +0x188. */\r\n\r\nvoid UActorComponent_SetComponentTickEnabled\r\n               (USceneComponent_WorldTransformOverlay *pComponent,bool fEnabled)\r\n\r\n{\r\n  char cVar1;\r\n  \r\n  if (((pComponent->actorComponentBase).field_0x11c & 2) != 0) {\r\n    cVar1 = FUN_140f86b60(pComponent,0x30);\r\n    if (cVar1 == '\\0') {\r\n      SetTickFunctionEnabled\r\n                ((FTickFunction_Partial *)&(pComponent->actorComponentBase).field_0x110,fEnabled);\r\n    }\r\n  }\r\n  return;\r\n}\r\n\r\n"
+          }
+        ],
+        "structuredContent": {
+          "result": "\r\n/* Summary: Enables or disables the component primary tick function.\r\n   Source: SoulcaliburVI.exe static decompilation.\r\n   \r\n   When +0x11C bit 1 marks a registered tick function, it checks tick-function eligibility and\r\n   updates the tick function at +0x110. This is part of activation/deactivation state and must\r\n   remain coherent with +0x188. */\r\n\r\nvoid UActorComponent_SetComponentTickEnabled\r\n               (USceneComponent_WorldTransformOverlay *pComponent,bool fEnabled)\r\n\r\n{\r\n  char cVar1;\r\n  \r\n  if (((pComponent->actorComponentBase).field_0x11c & 2) != 0) {\r\n    cVar1 = FUN_140f86b60(pComponent,0x30);\r\n    if (cVar1 == '\\0') {\r\n      SetTickFunctionEnabled\r\n                ((FTickFunction_Partial *)&(pComponent->actorComponentBase).field_0x110,fEnabled);\r\n    }\r\n  }\r\n  return;\r\n}\r\n\r\n"
+        },
+        "isError": false
+      }
+    }
+  ],
+  "slots": [
+    {
+      "status": "fulfilled",
+      "value": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"address\":\"1433605a8\",\"length\":8,\"data\":[112,24,212,65,1,0,0,0],\"hex\":\"7018d44101000000\"}"
+          }
+        ],
+        "structuredContent": {
+          "result": "{\"address\":\"1433605a8\",\"length\":8,\"data\":[112,24,212,65,1,0,0,0],\"hex\":\"7018d44101000000\"}"
+        },
+        "isError": false
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"address\":\"1433605e8\",\"length\":8,\"data\":[176,251,215,65,1,0,0,0],\"hex\":\"b0fbd74101000000\"}"
+          }
+        ],
+        "structuredContent": {
+          "result": "{\"address\":\"1433605e8\",\"length\":8,\"data\":[176,251,215,65,1,0,0,0],\"hex\":\"b0fbd74101000000\"}"
+        },
+        "isError": false
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"address\":\"143360678\",\"length\":8,\"data\":[224,219,213,65,1,0,0,0],\"hex\":\"e0dbd54101000000\"}"
+          }
+        ],
+        "structuredContent": {
+          "result": "{\"address\":\"143360678\",\"length\":8,\"data\":[224,219,213,65,1,0,0,0],\"hex\":\"e0dbd54101000000\"}"
+        },
+        "isError": false
+      }
+    }
+  ],
+  "remaining": "Add a failing production-method regression and capture/binding validation. This closes the audited callback target selection only. Continuous collision/transform-reader closure, motion perturbation, fullA617/C624, lifecycle variants and other readiness gates remain open."
+}

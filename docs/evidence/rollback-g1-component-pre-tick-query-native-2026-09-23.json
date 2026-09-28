@@ -1,0 +1,80 @@
+{
+  "program": "SoulcaliburVI.exe",
+  "date": "2026-09-23",
+  "scope": "Base component pre-tick virtual350 and census correction",
+  "findings": [
+    "Base primary vtable143865FB0 slot350 (143866300) is1402D9BF0. Exact code33c0c3 returns zero with no side effects.",
+    "141D2CAC0 discards virtual350 return and then reads component+188 bit0. Calling virtual350 IsRegistered is incorrect. Any override requires independent audit or exact slot admission.",
+    "For levelTick1 without component special flag, helper may call owner actor virtual420 before component virtual300; this is another intervening virtual call requiring supported-path closure.",
+    "Existing ReplayBoundaryObserver.hpp::TickTask hooks14215ED20 before forwarding and logs generic tick family execute1D43230. This is the narrow actual-dispatch owner census extension available to stock observation-only baseline; earlier statement that task witness required runtime DispatchTask instrumentation was incomplete.",
+    "A210/B217 retained logs contain generic tick-family execution but not owner/index/serial/UClass/native-vtable per-task identity. Extend existing hook with bounded indexed identity rows including owner slot0,slot300,slot350; preserve normal dispatch and no hold."
+  ],
+  "raw": [
+    {
+      "op": "decompile1402D9BF0 and xrefs",
+      "results": [
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "\r\n/* WARNING: Unknown calling convention -- yet parameter storage is locked */\r\n/* Gets constant 0 from a linker-folded virtual stub.\r\n   \r\n   Parameters:\r\n   No explicit parameter is modeled because the identical body is used by both direct and virtual\r\n   call sites and ignores all incoming registers.\r\n   \r\n   Returns:\r\n   Integer 0.\r\n   \r\n   Algorithm:\r\n   Return the compile-time constant 0.\r\n   \r\n   Evidence:\r\n   Linker-folded zero-return/no-op stub used by HgBattleMode and effect-system vtables. ABI callers\r\n   may interpret zero as a mode ID, false result, or empty completion code.\r\n   \r\n   Rollback policy:\r\n   Pure read-only helper. No state mutation or RNG consumption. */\r\n\r\nundefined8 GetConstantZero(void)\r\n\r\n{\r\n  return 0;\r\n}\r\n\r\n"
+              }
+            ],
+            "structuredContent": {
+              "result": "\r\n/* WARNING: Unknown calling convention -- yet parameter storage is locked */\r\n/* Gets constant 0 from a linker-folded virtual stub.\r\n   \r\n   Parameters:\r\n   No explicit parameter is modeled because the identical body is used by both direct and virtual\r\n   call sites and ignores all incoming registers.\r\n   \r\n   Returns:\r\n   Integer 0.\r\n   \r\n   Algorithm:\r\n   Return the compile-time constant 0.\r\n   \r\n   Evidence:\r\n   Linker-folded zero-return/no-op stub used by HgBattleMode and effect-system vtables. ABI callers\r\n   may interpret zero as a mode ID, false result, or empty completion code.\r\n   \r\n   Rollback policy:\r\n   Pure read-only helper. No state mutation or RNG consumption. */\r\n\r\nundefined8 GetConstantZero(void)\r\n\r\n{\r\n  return 0;\r\n}\r\n\r\n"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "From 140d343a7 in FUN_140d34380 [UNCONDITIONAL_CALL]\nFrom 140f4edab in FUN_140f4ed30 [UNCONDITIONAL_CALL]\nFrom 142ce76c4 in FUN_142ce76c0 [UNCONDITIONAL_CALL]\nFrom 142d45a6f in FUN_142d45a00 [UNCONDITIONAL_CALL]\nFrom 142a31ad2 in FUN_142a31ac0 [UNCONDITIONAL_CALL]\nFrom 142d51055 in FUN_142d51000 [UNCONDITIONAL_CALL]\nFrom 142d45c33 in FUN_142d45ba0 [UNCONDITIONAL_CALL]\nFrom 142d4f570 in GetConstantZero [UNCONDITIONAL_JUMP]\nFrom 142d47daa in FUN_142d46eb0 [UNCONDITIONAL_CALL]\nFrom 141e36802 in FUN_141e36790 [UNCONDITIONAL_CALL]\nFrom 1421f3873 in FUN_1421f3800 [UNCONDITIONAL_CALL]\nFrom 142d7e907 in FUN_142d7e8e0 [UNCONDITIONAL_CALL]\nFrom 142d7e96b in FUN_142d7e8e0 [UNCONDITIONAL_CALL]\nFrom 142d5879e in FUN_142d58670 [UNCONDITIONAL_CALL]\nFrom 142d75478 in FUN_142d75210 [UNCONDITIONAL_CALL]\nFrom 14311a72c in FUN_14311a708 [UNCONDITIONAL_CALL]\nFrom 14311a786 in FUN_14311a708 [UNCONDITIONAL_CALL]\nFrom 14311a7a0 in FUN_14311a708 [UNCONDITIONAL_CALL]\nFrom 14311a7dd in FUN_14311a7d4 [UNCONDITIONAL_CALL]\nFrom 142d47542 in FUN_142d46eb0 [UNCONDITIONAL_CALL]"
+              }
+            ],
+            "structuredContent": {
+              "result": "From 140d343a7 in FUN_140d34380 [UNCONDITIONAL_CALL]\nFrom 140f4edab in FUN_140f4ed30 [UNCONDITIONAL_CALL]\nFrom 142ce76c4 in FUN_142ce76c0 [UNCONDITIONAL_CALL]\nFrom 142d45a6f in FUN_142d45a00 [UNCONDITIONAL_CALL]\nFrom 142a31ad2 in FUN_142a31ac0 [UNCONDITIONAL_CALL]\nFrom 142d51055 in FUN_142d51000 [UNCONDITIONAL_CALL]\nFrom 142d45c33 in FUN_142d45ba0 [UNCONDITIONAL_CALL]\nFrom 142d4f570 in GetConstantZero [UNCONDITIONAL_JUMP]\nFrom 142d47daa in FUN_142d46eb0 [UNCONDITIONAL_CALL]\nFrom 141e36802 in FUN_141e36790 [UNCONDITIONAL_CALL]\nFrom 1421f3873 in FUN_1421f3800 [UNCONDITIONAL_CALL]\nFrom 142d7e907 in FUN_142d7e8e0 [UNCONDITIONAL_CALL]\nFrom 142d7e96b in FUN_142d7e8e0 [UNCONDITIONAL_CALL]\nFrom 142d5879e in FUN_142d58670 [UNCONDITIONAL_CALL]\nFrom 142d75478 in FUN_142d75210 [UNCONDITIONAL_CALL]\nFrom 14311a72c in FUN_14311a708 [UNCONDITIONAL_CALL]\nFrom 14311a786 in FUN_14311a708 [UNCONDITIONAL_CALL]\nFrom 14311a7a0 in FUN_14311a708 [UNCONDITIONAL_CALL]\nFrom 14311a7dd in FUN_14311a7d4 [UNCONDITIONAL_CALL]\nFrom 142d47542 in FUN_142d46eb0 [UNCONDITIONAL_CALL]"
+            },
+            "isError": false
+          }
+        }
+      ]
+    },
+    {
+      "op": "read1402D9BF0",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"address\":\"1402d9bf0\",\"length\":16,\"data\":[51,192,195,204,204,204,204,204,204,204,204,204,204,204,204,204],\"hex\":\"33c0c3cccccccccccccccccccccccccc\"}"
+          }
+        ],
+        "structuredContent": {
+          "result": "{\"address\":\"1402d9bf0\",\"length\":16,\"data\":[51,192,195,204,204,204,204,204,204,204,204,204,204,204,204,204],\"hex\":\"33c0c3cccccccccccccccccccccccccc\"}"
+        },
+        "isError": false
+      }
+    },
+    {
+      "op": "readNiagaraVtablePlus350",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"address\":\"1437fa568\",\"length\":8,\"data\":[112,227,140,64,1,0,0,0],\"hex\":\"70e38c4001000000\"}"
+          }
+        ],
+        "structuredContent": {
+          "result": "{\"address\":\"1437fa568\",\"length\":8,\"data\":[112,227,140,64,1,0,0,0],\"hex\":\"70e38c4001000000\"}"
+        },
+        "isError": false
+      }
+    }
+  ],
+  "limitations": "No selected concrete live owner family yet; generic slot350 cannot be assumed pure. No source or Ghidra edits."
+}

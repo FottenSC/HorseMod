@@ -1,0 +1,65 @@
+{
+  "run_id": "replay-a983d79cf68940d2996ae46efa22304e",
+  "result": "FAIL isolated predicate",
+  "predicate": {
+    "check": "tick_owner",
+    "binding_code": 7,
+    "owner_index": 279154,
+    "owner_generation": 8859,
+    "tick": 217
+  },
+  "scene": "same control; strong1 weak2 unchanged",
+  "interpretation": "A210 retained tick owner fails IsLiveObject at217. Exact retirement mechanism not inferred. No stale-owner bypass.",
+  "next_test": "Full historical transaction fresh-owner reconstruction then real prerequisite removal and complete-B recovery; no unchanged scheduler-only retry.",
+  "cleanup": [
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll",
+      "matches": true
+    },
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\disable_gameimgui.txt",
+      "matches": true
+    },
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\UE4SS.dll",
+      "matches": true
+    },
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\rollback.ini",
+      "matches": true
+    },
+    {
+      "path": "C:\\Users\\prest\\AppData\\Local\\HorseMod\\Qualification\\replay_diagnostics.ini",
+      "matches": true
+    },
+    {
+      "path": "C:\\Users\\prest\\AppData\\Local\\HorseMod\\Qualification\\consumer_startup_failure.json",
+      "matches": true
+    },
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\dlls\\main.dll",
+      "matches": true
+    },
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\enabled.txt",
+      "matches": true
+    }
+  ],
+  "files": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0c413aa63a9d1bc2914356ba779b37a4ed9e704d4067d2e3b1c1f6e49cd83237.json",
+      "sha256": "0c413aa63a9d1bc2914356ba779b37a4ed9e704d4067d2e3b1c1f6e49cd83237",
+      "bytes": 11597
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c00db874e0c502e368e00ccedd4cfc50da3249b7002199923a474e47520bff36.log",
+      "sha256": "c00db874e0c502e368e00ccedd4cfc50da3249b7002199923a474e47520bff36",
+      "bytes": 4712126
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\73ba63a55d6541fd001707b5cf6e538cc1f0810c43fb041350db03bf11216ef3.json",
+      "sha256": "73ba63a55d6541fd001707b5cf6e538cc1f0810c43fb041350db03bf11216ef3",
+      "bytes": 5490
+    }
+  ]
+}

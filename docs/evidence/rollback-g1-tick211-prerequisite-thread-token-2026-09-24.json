@@ -1,0 +1,58 @@
+{
+  "scope": "First corrected-application live diagnostic, then bounded shipped-native thread-token investigation; no acceptance or recovery claim",
+  "run_id": "replay-d2ed24ff815d411fa59ba2345b1addd3",
+  "build": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\f1c2f5e7ca54c05e3f9589232b176ce05534e8b61a036cb016a88c2c890ba1af.json",
+    "sha256": "f1c2f5e7ca54c05e3f9589232b176ce05534e8b61a036cb016a88c2c890ba1af",
+    "bytes": 6433
+  },
+  "run": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\7e0de2ae5f5bd8324eaf8e752c9a78ff1aa97a8d420fd6ec15de8ec6d85ce95f.json",
+    "sha256": "7e0de2ae5f5bd8324eaf8e752c9a78ff1aa97a8d420fd6ec15de8ec6d85ce95f",
+    "bytes": 21418
+  },
+  "raw_failure": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c654027140c1582ea3707fe5e91bedeb914bb8a80381529c0df04d80e23b03ff.json",
+    "sha256": "c654027140c1582ea3707fe5e91bedeb914bb8a80381529c0df04d80e23b03ff",
+    "bytes": 447
+  },
+  "observed": {
+    "site": 3,
+    "site_name": "PrerequisiteAdmission",
+    "reason": 8,
+    "protocol_phase": 0,
+    "native_started": 0,
+    "native_tick": 211,
+    "epoch": 2344,
+    "owner_index": 311112,
+    "owner_generation": 8107,
+    "edge_count_expected": 1,
+    "edge_count_observed": 1,
+    "contract_equal": 1,
+    "admitted_stamp": 2344,
+    "queued_stamp": 2344,
+    "dependencies": 0,
+    "event_head": 134273886,
+    "tick_flags": 94,
+    "enabled": 1,
+    "constructed": 1,
+    "desired_thread": 514,
+    "payload_thread": 514,
+    "queued_on_gt": 0
+  },
+  "native_evidence": {
+    "program": "existing Ghidra SoulcaliburVI.exe in SCVI_Modding",
+    "function": "QueueTickFunctionWithPrerequisitesForEpoch",
+    "address": "142163BA0",
+    "relevant_path": [
+      "When tick+0xC flags bit 0x10 is set, the GT branch computes uVar11 = (bVar5 & 0x10) << 5 | 2.",
+      "It writes uVar11 to graph task+0x24.",
+      "Function 1421679C0 copies task+0x24 to task+8 before enqueue."
+    ],
+    "computed_for_observed_flags": "(0x5e & 0x10) << 5 | 2 = 0x202 = 514",
+    "separate_current_thread": "The original GT current-thread identifier read by Sc6ReplayTaskGroup is 2."
+  },
+  "interpretation": "The protocol equality desired_thread==2 && payload_thread==2 rejects this native 0x202 priority-bearing GT token. The precise native formula supports a narrow flag-dependent token predicate, with all existing lifetime and completion checks retained. No token acceptance change is made in this investigation.",
+  "cleanup": "Runner cleanup complete; journal clean; eight file states independently match prior hashes; no game/replay runner remains.",
+  "next_resolving_test": "Astra high code owner adds production-boundary RED/GREEN for exact flag-dependent token (including wrong high bits and desired/payload disagreement), applies narrow predicate fix, runs required build/native checks, then repeats identical short live case."
+}

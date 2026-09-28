@@ -1,0 +1,19 @@
+{
+  "runtime_sha256": "a8b4689573dff29d067e2ed39d564958b0a17be6efa131c35a24044ec78ea63c",
+  "run_id": "paired-6fd83136024440e8969d3853f47568dc",
+  "first_detector": {
+    "source": "landing",
+    "coordinate": [
+      1,
+      360
+    ],
+    "batch": 361,
+    "phase": "adapter",
+    "animation_issue": "scheduler"
+  },
+  "receiver_observation": "inactive with zero recorded rounds at baseline and failure on both peers",
+  "raw_sha256": {
+    "paired-6fd83136024440e8969d3853f47568dc-cycle-001-host.log": "3ed526f05c391e47bf499316a0e9cc7d1d0025d1948f666edf6c7be31ed473fb",
+    "paired-6fd83136024440e8969d3853f47568dc-cycle-001-sandbox.log": "f064f9c35f3d686c93264b9814c3f4c0eb2888eff816e42d09c457a9155c9a61"
+  }
+}

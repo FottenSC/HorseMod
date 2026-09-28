@@ -23,11 +23,13 @@ PresentationJournal::PresentationJournal(
     slots_.reset(new (std::nothrow) Slot[maximum_events_]);
     watermarks_.reset(new (std::nothrow) Watermark[maximum_events_]);
     replacement_presented_.reset(new (std::nothrow) bool[maximum_events_]);
-    if (!slots_ || !watermarks_ || !replacement_presented_)
+    replacement_changed_.reset(new (std::nothrow) bool[maximum_events_]);
+    if (!slots_ || !watermarks_ || !replacement_presented_ || !replacement_changed_)
     {
         slots_.reset();
         watermarks_.reset();
         replacement_presented_.reset();
+        replacement_changed_.reset();
         maximum_events_ = 0;
         maximum_payload_bytes_ = 0;
     }
@@ -149,29 +151,54 @@ Status PresentationJournal::ReplaceFrom(FrameCoordinate coordinate,
         return Status::failure(FailureCode::CapacityExceeded);
     }
 
+    auto& observation = corrections_[correction_id_ % corrections_.size()];
+    if (observation.pending != 0)
+        return Status::failure(FailureCode::CapacityExceeded);
+    if (observation.id != 0 && !observation.reported)
+        ++statistics_.correction_observation_losses;
+
     for (std::size_t index = 0; index < replacement.size(); ++index)
     {
         replacement_presented_[index] = false;
+        replacement_changed_[index] = true;
         const auto key = Key(replacement[index]);
         for (std::size_t slot_index = 0;
              slot_index < pending_count_; ++slot_index)
         {
             const auto& slot = slots_[slot_index];
-            if (slot.occupied && slot.presented && Key(slot.event) == key)
+            if (slot.occupied && Key(slot.event) == key
+                && slot.event.payload_size == replacement[index].payload_size
+                && std::equal(slot.event.payload.begin(),
+                    slot.event.payload.begin() + slot.event.payload_size,
+                    replacement[index].payload.begin()))
             {
-                replacement_presented_[index] = true;
+                replacement_presented_[index] = slot.presented;
+                replacement_changed_[index] = false;
                 break;
             }
         }
     }
     DiscardFrom(coordinate);
+    observation = {};
+    observation.id = ++correction_id_;
+    observation.first = coordinate;
     for (std::size_t index = 0; index < replacement.size(); ++index)
     {
+        const auto before = pending_count_;
         const Status status = RecordInternal(replacement[index],
             replacement_presented_[index]);
         if (!status.ok()) return Status::failure(FailureCode::UndoFailed);
         if (replacement_presented_[index])
             ++statistics_.speculative_reused;
+        if (pending_count_ > before)
+        {
+            auto& slot = slots_[pending_count_ - 1];
+            slot.correction_id = observation.id;
+            slot.correction_changed = replacement_changed_[index];
+            ++observation.replacement_events;
+            ++observation.pending;
+            if (replacement_presented_[index]) ++observation.reused_events;
+        }
     }
     return Status::success();
 }
@@ -219,7 +246,14 @@ Status PresentationJournal::CommitThrough(
                 next_key = key;
             }
         }
-        if (next_index == pending_count_) return Status::success();
+        if (next_index == pending_count_)
+        {
+            for (auto& observation : corrections_)
+                if (observation.id != 0 && observation.pending == 0
+                    && observation.first <= confirmed && observation.discarded_events == 0)
+                    observation.final_drain = true;
+            return Status::success();
+        }
         auto& next = slots_[next_index];
 
         auto* watermark = EnsureWatermark(next.event.coordinate.generation);
@@ -242,6 +276,26 @@ Status PresentationJournal::CommitThrough(
             statistics_.last_failed_event = next.event;
             return published;
         }
+        if (next.correction_id != 0 && !next.presented)
+        {
+            auto& observation = corrections_[(next.correction_id - 1) % corrections_.size()];
+            ++observation.published_events;
+            if (next.correction_changed) ++observation.changed_published_events;
+            const auto mix = [&](std::uint64_t value) noexcept {
+                for (unsigned shift = 0; shift < 64; shift += 8)
+                {
+                    observation.payload_identity ^= (value >> shift) & 0xff;
+                    observation.payload_identity *= 1099511628211ull;
+                }
+            };
+            mix(next.event.coordinate.frame);
+            mix(next.event.source_ordinal);
+            mix(next.event.kind);
+            mix(next.event.identity);
+            mix(next.event.payload_size);
+            for (std::size_t index = 0; index < next.event.payload_size; ++index)
+                mix(std::to_integer<unsigned>(next.event.payload[index]));
+        }
         if (next.event.coordinate.frame > watermark->frame)
         {
             watermark->frame = next.event.coordinate.frame;
@@ -252,7 +306,7 @@ Status PresentationJournal::CommitThrough(
             watermark->source_ordinal = (std::max)(
                 watermark->source_ordinal, next.event.source_ordinal);
         }
-        ClearSlot(next_index);
+        ClearSlot(next_index, true);
         ++statistics_.committed;
     }
 }
@@ -307,6 +361,8 @@ Status PresentationJournal::ResetStatistics() noexcept
     if (pending_count_ != 0 || payload_bytes_ != 0)
         return Status::failure(FailureCode::IllegalTransition);
     statistics_ = {};
+    correction_id_ = 0;
+    corrections_ = {};
     return Status::success();
 }
 
@@ -361,13 +417,33 @@ bool PresentationJournal::Valid(const PresentationEvent& event) noexcept
         && event.payload_size <= Schema::maximum_presentation_payload;
 }
 
-void PresentationJournal::ClearSlot(std::size_t index) noexcept
+void PresentationJournal::ClearSlot(std::size_t index, bool committed) noexcept
 {
     auto& slot = slots_[index];
+    if (slot.correction_id != 0)
+    {
+        auto& observation = corrections_[(slot.correction_id - 1) % corrections_.size()];
+        --observation.pending;
+        if (!committed) ++observation.discarded_events;
+    }
     payload_bytes_ -= slot.event.payload_size;
     --pending_count_;
     if (index != pending_count_)
         slot = std::move(slots_[pending_count_]);
     slots_[pending_count_] = {};
+}
+
+std::optional<PresentationJournal::CorrectionObservation>
+PresentationJournal::TakeDrainedCorrection() noexcept
+{
+    for (auto& observation : corrections_)
+        if ((observation.final_drain || (observation.id != 0
+                && observation.pending == 0 && observation.discarded_events != 0))
+            && !observation.reported)
+        {
+            observation.reported = true;
+            return observation;
+        }
+    return std::nullopt;
 }
 }

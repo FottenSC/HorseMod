@@ -1,0 +1,51 @@
+{
+  "scope": "Owned ground configuration, exact component transform at +0x270, captured MID parameters, root-only cold construction/retirement. Live constructor diagnostic pending; full graph reconstruction remains unresolved.",
+  "native_evidence": [
+    "140863B30 deep config copy",
+    "140863660 placement array copy/destruction; row stride0x50",
+    "1408A2CA0 consumes row+0 mesh and row+8/+18 material arrays",
+    "142141460 queues unregistered primitive in texture streaming via SetStaticMesh; manager+0x170 ownership must be removed/verified. Native plate saved and read back."
+  ],
+  "validation": {
+    "ground-configuration-local.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\df1f780d73b0fb4c710f7e0a678c488111472a4837ac0b79fef68b02c72cc01e.log",
+      "sha256": "df1f780d73b0fb4c710f7e0a678c488111472a4837ac0b79fef68b02c72cc01e",
+      "bytes": 116
+    },
+    "ground-configuration-build.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a9764af998b6066424d98f78efcb7f891879b728c3883c125fbf9d23f2a3977a.log",
+      "sha256": "a9764af998b6066424d98f78efcb7f891879b728c3883c125fbf9d23f2a3977a",
+      "bytes": 3978
+    },
+    "ground-transform-red.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\ba3bba231a737120874c35cfde1379cc48d768acd7aab7d010d8b06f51f9d421.log",
+      "sha256": "ba3bba231a737120874c35cfde1379cc48d768acd7aab7d010d8b06f51f9d421",
+      "bytes": 2627
+    },
+    "ground-image-green.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\27221f3bb2ea75f6cefad097809f458818a3f41748063b42c660e46c174248d1.log",
+      "sha256": "27221f3bb2ea75f6cefad097809f458818a3f41748063b42c660e46c174248d1",
+      "bytes": 116
+    },
+    "ground-image-build.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8ef2d7949f265207e13147e32f1a1aa0ffce3146dd2e5e38b42e83e12d230601.log",
+      "sha256": "8ef2d7949f265207e13147e32f1a1aa0ffce3146dd2e5e38b42e83e12d230601",
+      "bytes": 3979
+    },
+    "ground-image-material-local.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4233346035ef9605343074bf1bf5a407ef56004ca038ee50273fa402c31cae94.log",
+      "sha256": "4233346035ef9605343074bf1bf5a407ef56004ca038ee50273fa402c31cae94",
+      "bytes": 117
+    },
+    "ground-cold-root-local.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e78cb3d434e15a55e2e0feb956070bc94624744ca10d4f8a304950970af11c98.log",
+      "sha256": "e78cb3d434e15a55e2e0feb956070bc94624744ca10d4f8a304950970af11c98",
+      "bytes": 116
+    },
+    "ground-cold-root-build.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f6688fa4390c2f3b18a5d63884868d23ecc9aaf222a4f900be4cff2c45a8c61e.log",
+      "sha256": "f6688fa4390c2f3b18a5d63884868d23ecc9aaf222a4f900be4cff2c45a8c61e",
+      "bytes": 3979
+    }
+  }
+}

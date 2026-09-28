@@ -1,0 +1,14 @@
+{
+  "report": "strict-seek-callback-scope.json",
+  "run_id": "3f8481f67c1743c2b0c91bcc3bad61a5",
+  "classification": "internal_seek_consistency_only_source_fidelity_disputed",
+  "user_observation": "Near the end, positions appeared wrong and the fighters performed moves without hitting each other; playback did not match the original replay.",
+  "source_fidelity": "unresolved_failure",
+  "raw_log": {
+    "path": "strict-seek-callback-scope.UE4SS.log",
+    "sha256": "723c6a2ead686c563998074aa0fd9273ebc444d393d553d995d895c74f84e7ef",
+    "bytes": 81090,
+    "sealed_after_run": true
+  },
+  "next_check": "Distinguish imported replay fidelity, historical input producer handoff, and rendered pose agreement using native input, position, and hit observations. No repeat live attempt without a distinguishing measurement."
+}

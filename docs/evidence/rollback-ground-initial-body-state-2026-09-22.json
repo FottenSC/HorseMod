@@ -1,0 +1,113 @@
+{
+  "scope": "Owned initial sleeping-kinematic body values and coupled physical poses. Integrated in ground preparation; not live-qualified.",
+  "sources": {
+    "HorseMod/horselib/deterministic/ReplayGroundInitialBodyState.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9a82c0b1d75aecc187787777c6265a1aeb52126f5f9d48877dca697a3f5ec689.hpp",
+      "sha256": "9a82c0b1d75aecc187787777c6265a1aeb52126f5f9d48877dca697a3f5ec689",
+      "bytes": 6968
+    },
+    "HorseMod/horselib/deterministic/ReplayGroundPrivateBody.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b83870514338f39d34cb9bf841f8bfb813ec3bce3df44ca2cd654c4c72942929.hpp",
+      "sha256": "b83870514338f39d34cb9bf841f8bfb813ec3bce3df44ca2cd654c4c72942929",
+      "bytes": 3109
+    },
+    "HorseMod/horselib/deterministic/ReplayGroundPrivateQueues.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\aa613837c1297f0dc36f796229a874dba105581a46f4b52688986c9069099bfe.hpp",
+      "sha256": "aa613837c1297f0dc36f796229a874dba105581a46f4b52688986c9069099bfe",
+      "bytes": 2862
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayGroundDebrisState.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f6e80ccb6e25db730112fd9e5051018589376a3973b002f51a6a6a667dc4335b.hpp",
+      "sha256": "f6e80ccb6e25db730112fd9e5051018589376a3973b002f51a6a6a667dc4335b",
+      "bytes": 7199
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayHost.GroundDebris.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9bf851bced98ebd8c4e6896837fb75957fc98c876dd4ed39ae2e04b0de402dc8.inl",
+      "sha256": "9bf851bced98ebd8c4e6896837fb75957fc98c876dd4ed39ae2e04b0de402dc8",
+      "bytes": 75353
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayGroundColdGraph.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f4417c5d6336da59a25bc90984893345ecac31fb9bb96753479b3abbbd5345a1.inl",
+      "sha256": "f4417c5d6336da59a25bc90984893345ecac31fb9bb96753479b3abbbd5345a1",
+      "bytes": 30563
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayGroundColdPhysics.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4b53b6ebf41b33f8f7d22afad64bf5a8049fe859ba62b3abfb8e25c7451f6318.inl",
+      "sha256": "4b53b6ebf41b33f8f7d22afad64bf5a8049fe859ba62b3abfb8e25c7451f6318",
+      "bytes": 12254
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayHost.ParticleOwners.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9d47caa7d4b9fe0f2f9da1ed3b195dca3c4b6f961052b802b5eb5626c61c6f64.inl",
+      "sha256": "9d47caa7d4b9fe0f2f9da1ed3b195dca3c4b6f961052b802b5eb5626c61c6f64",
+      "bytes": 40569
+    },
+    "tools/native_candidate_regions_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\39fccf118054edcf525054e18d28debdd99c338bc75ba32c880508eb349a6e32.cpp",
+      "sha256": "39fccf118054edcf525054e18d28debdd99c338bc75ba32c880508eb349a6e32",
+      "bytes": 387881
+    },
+    "tools/replay_ground_initial_kinematic_selftest.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f45c172f6c3030756ea17ba01e3ace7e31bce2feb4cc15a1eae92614412fb2fa.inl",
+      "sha256": "f45c172f6c3030756ea17ba01e3ace7e31bce2feb4cc15a1eae92614412fb2fa",
+      "bytes": 15905
+    },
+    "tools/replay_ground_capture_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\976ab645727ee718f9d473dd9006988e291dee92669279d325d2fdaccbbc8569.cpp",
+      "sha256": "976ab645727ee718f9d473dd9006988e291dee92669279d325d2fdaccbbc8569",
+      "bytes": 9016
+    },
+    "tools/replay_ground_cold_root_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7d7cc496de08c3255e1661f38fc7723bd76a3ace0eebc78cd1455cd0f49e4e3e.cpp",
+      "sha256": "7d7cc496de08c3255e1661f38fc7723bd76a3ace0eebc78cd1455cd0f49e4e3e",
+      "bytes": 12006
+    }
+  },
+  "logs": {
+    "ground-initial-body-state-build.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7d9697ffa8099c3bf85af3fdf0f47c056dc70e8d2acd377e17308a8c17ac0515.log",
+      "sha256": "7d9697ffa8099c3bf85af3fdf0f47c056dc70e8d2acd377e17308a8c17ac0515",
+      "bytes": 869
+    },
+    "ground-initial-body-pose-fix-build.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\64356662bfe2b2f4a0a2704fc3cf58f8675d466087d5a9061fdf3960d16a5bb2.log",
+      "sha256": "64356662bfe2b2f4a0a2704fc3cf58f8675d466087d5a9061fdf3960d16a5bb2",
+      "bytes": 868
+    },
+    "ground-initial-body-predicate-build.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c5cb6e4f81cf0302d1aba0b9a27c2bdb8c55030ff88eebd7335b6d10d1a80aaf.log",
+      "sha256": "c5cb6e4f81cf0302d1aba0b9a27c2bdb8c55030ff88eebd7335b6d10d1a80aaf",
+      "bytes": 868
+    },
+    "ground-initial-body-private-target-build.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4f3f44fa5a3058523e1b302f0a11d664366468b8194745069039750329f12a7a.log",
+      "sha256": "4f3f44fa5a3058523e1b302f0a11d664366468b8194745069039750329f12a7a",
+      "bytes": 868
+    },
+    "ground-initial-body-coupled-pose-build.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\73c26d01b7ed638271d283bcf7387aa9d5fbf3ef5ba4eb090711f8d3b8c5cf80.log",
+      "sha256": "73c26d01b7ed638271d283bcf7387aa9d5fbf3ef5ba4eb090711f8d3b8c5cf80",
+      "bytes": 334
+    },
+    "ground-body-state-capture-focused.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\ebf57ac462d2578f15e3937d12a8878f1b8afe02963fd3b45a96d452f01eb7cf.log",
+      "sha256": "ebf57ac462d2578f15e3937d12a8878f1b8afe02963fd3b45a96d452f01eb7cf",
+      "bytes": 116
+    },
+    "ground-body-state-integration-build.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\3225a0581dffca09ca891b9aaf05eb5ee68f3ac4706aeeb29b2495befde59e5b.log",
+      "sha256": "3225a0581dffca09ca891b9aaf05eb5ee68f3ac4706aeeb29b2495befde59e5b",
+      "bytes": 335
+    }
+  },
+  "validation": {
+    "focused": "3 passed,401 deselected",
+    "latest_build": "pass; required two CTests and shipped SDK native checks pass",
+    "actual_red": "Nontrivial centre-of-mass pose through native setters differs at generated property0x34; manifest eeffc818462019c7c12ab67b8c637c2fc88bf3dd9c7786f5ebb552d45c371cf4",
+    "green": "Coupled captured BodyCore90, BodyToActorB0, buffered BodyToWorld140 plus private target-absence admission pass",
+    "earlier_diagnostic_correction": "Earlier field3A was a stale baseline mismatch; instrumented earliest rejection was FFFF0004: live-body guard incorrectly required allocated kinematic state on a private body. Do not cite those earlier runs as pose mismatch evidence.",
+    "continuation_limit": "Existing 120-tick independent initial-kinematic removal/recovery continuation passes. Newly reconstructed body was verified privately and released; it has NOT yet had its own independent 120-tick continuation test.",
+    "live": "No live run of this newer initial-body-state capture/installation. Prior private construction/retirement live receipt remains separate.",
+    "fresh_process_check": "No game, replay runner, pytest, compiler/build or native selftest process found at handover."
+  },
+  "gates_promoted": []
+}

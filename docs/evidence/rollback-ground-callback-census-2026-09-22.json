@@ -1,0 +1,141 @@
+{
+  "red": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\98ba59bf7399958f5587c0da5895dd7b4f450eef1ef1815d0b1477fc9442b45b.log",
+    "sha256": "98ba59bf7399958f5587c0da5895dd7b4f450eef1ef1815d0b1477fc9442b45b",
+    "bytes": 3660
+  },
+  "red_files": {
+    "HorseMod/horselib/deterministic/Sc6ReplayGroundDebrisState.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\bcdb96aced1ca7b2a65122efd3eb47b049b7ece7c8daede5395c2e090362617e.hpp",
+      "sha256": "bcdb96aced1ca7b2a65122efd3eb47b049b7ece7c8daede5395c2e090362617e",
+      "bytes": 8137
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayHost.GroundDebris.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\edc82e59ed92ae4de031ae287b9dbbaa694730ff2d13bffe703c18422cb30889.inl",
+      "sha256": "edc82e59ed92ae4de031ae287b9dbbaa694730ff2d13bffe703c18422cb30889",
+      "bytes": 87527
+    },
+    "tools/replay_ground_capture_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\87fa4b548c308e26818fbb157044f65212ce226689466b6b48a07ec8bad88177.cpp",
+      "sha256": "87fa4b548c308e26818fbb157044f65212ce226689466b6b48a07ec8bad88177",
+      "bytes": 24881
+    },
+    "tools/deterministic_qualification/tests/test_replay_run.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\40b7122db8e455c13c8ca04433553de16934903af025fce6d277c82335fafca7.py",
+      "sha256": "40b7122db8e455c13c8ca04433553de16934903af025fce6d277c82335fafca7",
+      "bytes": 491744
+    }
+  },
+  "base": "rollback-ground-admission-reporting-2026-09-22.json green_source plus these full replacements",
+  "scope": "Bounded rejection-only native callback census; no acceptance change.",
+  "fixture_compile_failure": {
+    "cause": "Boundary fixture duplicated the old diagnostic fields; use the production declaration. Census regression already passed.",
+    "log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\2b2801439d38996e438bb8f814406c5dd2ac86e5dfbcbd0d522249ee6a277d15.log",
+      "sha256": "2b2801439d38996e438bb8f814406c5dd2ac86e5dfbcbd0d522249ee6a277d15",
+      "bytes": 4921
+    }
+  },
+  "green": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\901e53f4f71a8b38232e860bb1bfa317d8781c04448c72506e3a507d7426e51c.log",
+    "sha256": "901e53f4f71a8b38232e860bb1bfa317d8781c04448c72506e3a507d7426e51c",
+    "bytes": 100
+  },
+  "green_files": {
+    "HorseMod/horselib/deterministic/Sc6ReplayGroundDebrisState.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\bcdb96aced1ca7b2a65122efd3eb47b049b7ece7c8daede5395c2e090362617e.hpp",
+      "sha256": "bcdb96aced1ca7b2a65122efd3eb47b049b7ece7c8daede5395c2e090362617e",
+      "bytes": 8137
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayHost.GroundDebris.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6c69a5e885418f68cb1b8182e0462a501d75b908c720016747a1fd8f903b59d7.inl",
+      "sha256": "6c69a5e885418f68cb1b8182e0462a501d75b908c720016747a1fd8f903b59d7",
+      "bytes": 89323
+    },
+    "tools/replay_ground_capture_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\520fb3107d0720a8a65f288b0f7ef40185344b840881cdb4a36d8327690023b4.cpp",
+      "sha256": "520fb3107d0720a8a65f288b0f7ef40185344b840881cdb4a36d8327690023b4",
+      "bytes": 25996
+    },
+    "tools/deterministic_qualification/tests/test_replay_run.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\50f88d45ba36bbdd80044a71bf824971ff104ea5aeefd8a2c80c55785b168804.py",
+      "sha256": "50f88d45ba36bbdd80044a71bf824971ff104ea5aeefd8a2c80c55785b168804",
+      "bytes": 492033
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayHost.Application.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\2f9c091433bf2f4619e09a1f4a4497c0dd00065f6925e387e58417402f4ae1c6.inl",
+      "sha256": "2f9c091433bf2f4619e09a1f4a4497c0dd00065f6925e387e58417402f4ae1c6",
+      "bytes": 33078
+    },
+    "tools/replay_ground_update_boundary_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c1e5885635dad86323e24d435ece7a0012567ac16759aa0bdb82003a1af6cd05.cpp",
+      "sha256": "c1e5885635dad86323e24d435ece7a0012567ac16759aa0bdb82003a1af6cd05",
+      "bytes": 6056
+    }
+  },
+  "required_build": {
+    "ground-callback-census-build-20260922.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\99b4f40e6e7fea11fdcd01ff499062a3879093b6f83948c5959ab0e415765770.log",
+      "sha256": "99b4f40e6e7fea11fdcd01ff499062a3879093b6f83948c5959ab0e415765770",
+      "bytes": 335
+    },
+    "build-stage.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\99aba4533614b640dfaa92262cd18c1816ad88fea43cdaff12df9fcd1c7de828.json",
+      "sha256": "99aba4533614b640dfaa92262cd18c1816ad88fea43cdaff12df9fcd1c7de828",
+      "bytes": 6239
+    },
+    "build-provenance.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\22bd4a8d11e98869f1cb94dc27245647852dea9a247d27d6215144ca941066b0.json",
+      "sha256": "22bd4a8d11e98869f1cb94dc27245647852dea9a247d27d6215144ca941066b0",
+      "bytes": 2373
+    },
+    "local-regressions.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\628a48e43cfc2da2c9c61ee2d88339cab04faadb796fab7d8902452c49da9775.json",
+      "sha256": "628a48e43cfc2da2c9c61ee2d88339cab04faadb796fab7d8902452c49da9775",
+      "bytes": 2141
+    },
+    "local-regressions.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\98df4123e7194542b1f3694160b08a48be55583fc3c5c95601f7a84f5e8a30a9.log",
+      "sha256": "98df4123e7194542b1f3694160b08a48be55583fc3c5c95601f7a84f5e8a30a9",
+      "bytes": 4316
+    }
+  },
+  "live": {
+    "stage": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\681bc29e8d5b9d9220e50f350885ba375eca3fb6b2f099ba86faa2ec5e4c3246.json",
+      "sha256": "681bc29e8d5b9d9220e50f350885ba375eca3fb6b2f099ba86faa2ec5e4c3246",
+      "bytes": 19810
+    },
+    "executor": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7548523cb90eea4f172c37aaf1ce6546a88d2d6542a04e3e47e57385a496709b.json",
+      "sha256": "7548523cb90eea4f172c37aaf1ce6546a88d2d6542a04e3e47e57385a496709b",
+      "bytes": 19539
+    },
+    "console": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\edcffa493d1951b2ebbe93ea392310018da5c03502d96adbd21fb944644c4754.log",
+      "sha256": "edcffa493d1951b2ebbe93ea392310018da5c03502d96adbd21fb944644c4754",
+      "bytes": 1316
+    },
+    "manifest": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\6089a35aec9799ff7c36e2502d27f109c5d35ad01f1743c87088164a764d0533.json",
+      "sha256": "6089a35aec9799ff7c36e2502d27f109c5d35ad01f1743c87088164a764d0533",
+      "bytes": 30133,
+      "summary": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\44046d5bd9c9d9b0a0fa4c5217a0881d3f5c684381adc37cc9243d1a77063fd0.md",
+        "sha256": "44046d5bd9c9d9b0a0fa4c5217a0881d3f5c684381adc37cc9243d1a77063fd0",
+        "bytes": 690
+      }
+    },
+    "cleanup": {
+      "complete": true,
+      "games_remaining": 0
+    },
+    "run_id": "replay-f932b8505aef4ff0ae1ef3d15f5867be",
+    "finding": "Single pre-step callback, storage3 units, vtable3510A68, invoke2017DC0, method30FC2B0. Native vehicle registration verified; actual owner empty-state still needs live validation.",
+    "raw_log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\76c343a032dcc075e6597ec2788f02fda61f32f7188c5ae6a74c27fedc73e3f7.log",
+      "sha256": "76c343a032dcc075e6597ec2788f02fda61f32f7188c5ae6a74c27fedc73e3f7",
+      "bytes": 123861
+    }
+  }
+}

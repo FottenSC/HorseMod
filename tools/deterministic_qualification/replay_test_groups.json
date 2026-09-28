@@ -1,0 +1,523 @@
+{
+  "schema": 1,
+  "all": [
+    "tools/deterministic_qualification/tests"
+  ],
+  "groups": {
+    "niagara-observation": [
+      "tools/deterministic_qualification/tests/test_niagara_observation.py"
+    ],
+    "physics-observation": [
+      "tools/deterministic_qualification/tests/test_physics_callback_observation.py",
+      "tools/deterministic_qualification/tests/test_consumer_host.py::test_consumer_retirement_entries_stop_before_native_effects",
+      "tools/deterministic_qualification/tests/test_vfx_completion_observation.py"
+    ],
+    "vfx-observation": [
+      "tools/deterministic_qualification/tests/test_vfx_completion_observation.py"
+    ],
+    "hud-players": [
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_hud_empty_type_backing",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_hud_fresh_damage_owner_undo",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_hud_damage_backing_survives_native_shrink",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_hud_fresh_type_owner_undo",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_hud_completion_handle_uses_native_callback_layout"
+    ],
+    "gpu-storage": [
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_corrected_capture_preserves_complete_b_owner",
+      "tools/deterministic_qualification/tests/test_replay_checkpoint_vfx_route.py",
+      "tools/deterministic_qualification/tests/test_replay_gpu_image_equality.py",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_capture_history_reservation",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_capture_reopen_and_empty_lighting_retirement",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_private_owner_drain_requires_fresh_gpu_completion"
+    ],
+    "runner": [
+      "tools/deterministic_qualification/tests/test_replay_readiness.py",
+      "tools/deterministic_qualification/tests/test_replay_outcomes.py",
+      "tools/deterministic_qualification/tests/test_replay_reporting.py",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_short_checkpoint_window_decoder",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_rolling_revision_assignment_requires_complete_ordered_history",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_rolling_schedule_wire_request_is_bounded_and_versioned",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_rolling_callbacks_use_each_traversals_authored_revision",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_rolling_coverage_does_not_count_startup_repeats_as_combat",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_rolling_coverage_separates_regeneration_and_requires_retirement_completion",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_retained_rolling_manifest_includes_scoped_coverage",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_integration_receipt_reuses_only_verified_unchanged_pass",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_failed_integration_receipt_is_never_reused",
+      "tools/deterministic_qualification/tests/test_process_control.py::test_command_line_enumeration_is_explicit_and_identity_bound",
+      "tools/deterministic_qualification/tests/test_process_control.py::test_development_teardown_records_emergency_cleanup",
+      "tools/deterministic_qualification/tests/test_process_control.py::test_paired_teardown_starts_both_graceful_closes_together",
+      "tools/deterministic_qualification/tests/test_process_control.py::test_pid_only_enumeration_uses_tasklist_without_powershell",
+      "tools/deterministic_qualification/tests/test_process_control.py::test_process_exit_witness_retains_terminated_process_and_closes",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_cancel_control_requires_owned_click_and_accepted_host_dispatch",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_cross_round_214_cli_rejects_unqualified_combinations",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_cross_round_recovery_cli_reaches_build_without_launch",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_execution_fallback_cli_preserves_B210",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_execution_fallback_request_interval_matches_cli_scope",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_ground_commit_cli_and_observation_budget",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_guard_resimulation_cli_requires_bounded_correction_protocol",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_indexed_seek_cli_fails_before_unnecessary_control",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_initial_baseline_cli_is_bounded_before_launch",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_managed_index_cli_scope",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_midpoint_recovery_cli_is_bounded",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_private_hud_drained_recovery_cli_reaches_build",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_private_hud_recovery_cli_reaches_build",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_rolling_600_observers_cover_continuous_native_window",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_rolling_coherence_deduplicates_repeated_ticks_within_existing_budget",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_rolling_executor_revalidation_counts_actual_repeated_work",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_rolling_hud_requires_every_traversal_and_ordered_clocks",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_rolling_independent_traversals_reject_pose_and_lifecycle_drift",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_rolling_receipts_require_every_exact_cycle",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_rolling_receipts_use_selected_initial_boundary",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_rolling_release_enables_real_continuation_measurement",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_rolling_runner_stops_on_unrecoverable_native_undo",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_rolling_window_turnover_preserves_operation_pins",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_session_exit_cli_does_not_claim_held_cancel_or_full_index",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_short_checkpoint_window_cli",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_stage_reuses_build_only_after_complete_provenance_validation",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_step_control_requires_owned_click_and_pending_boundary_observation",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_trace_causality_gate_requires_every_boundary_and_retains_first_difference",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_trace_render_recovery_cli_reaches_build",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_altered_deployment_and_missing_backup",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_control_catalog_retains_log_and_allows_candidate_only_change",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_control_reuse_rejects_each_incompatible_dependency",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_corrupt_journal_is_unknown_not_clean",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_diagnostic_settings_partial_write_preserves_recoverable_predecessor",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_failure_bundle_preserves_traversal_and_bounds_bytes",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_first_failure_cycle_tick_and_missing_generation_are_explicit",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_native_capacity_failure_retains_first_tick_and_budget",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_group_ids_exist_and_dependency_map_fails_closed",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_immutable_bundle_deduplicates_and_rejects_corruption",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_legacy_stage_without_profile_retains_original_failure",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_missing_evidence_never_reports_diagnostic_complete",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_missing_file_low_disk_and_unrelated_game_block",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_pending_launch_without_process_stays_blocked_and_read_only",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_preflight_does_not_create_clean_journal",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_preflight_checks_loader_before_build_without_publication",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_profile_rejects_behavioral_override",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_profile_rejects_false_continuation_metadata",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_profile_allows_verified_candidate_resume",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_resumed_profile_requires_exact_profile_and_diagnostics",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_profile_resolves_existing_cli_and_blocks_before_build",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_rolling600_requires_current_rolling30_profile_binaries_and_cleanup",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_stale_journal_is_not_recovered",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_startup_rng_difference_is_not_a_rollback_failure",
+      "tools/deterministic_qualification/tests/test_source_retention.py::test_build_dependency_closure_retains_ignored_generated_inputs",
+      "tools/deterministic_qualification/tests/test_source_retention.py::test_existing_archive_corruption_is_not_overwritten",
+      "tools/deterministic_qualification/tests/test_source_retention.py::test_moving_source_is_rejected_without_publishing_archive",
+      "tools/deterministic_qualification/tests/test_source_retention.py::test_reporting_edits_reuse_native_build_but_consumed_generators_do_not",
+      "tools/deterministic_qualification/tests/test_source_retention.py::test_retains_actual_dirty_untracked_bytes_and_deletions",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_native_loading_diagnostic_launch_and_consumption_guards",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_native_loading_control_requires_matching_setup_and_consumption",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_startup_flush_control_requires_completed_native_receipt",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_production_startup_loading_registration_budget",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_intermediate_rolling_log_budget"
+    ],
+    "root-transforms": [
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_trace_causality_gate_requires_every_boundary_and_retains_first_difference",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_trace_capture_accounting_and_release",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_trace_retirement_method_fault_boundaries",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_trace_private_storage_publication_undo",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_trace_render_binding_ownership",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_trace_causality_uses_bounded_checkpoint_window",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_trace_survivor_view_never_installs_or_reads_dead_child",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_trace_preparation_waits_for_native_work_and_gpu_before_projection",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_trace_child_projection_uses_typed_native_bindings",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_trace_child_animation_restores_each_retained_destination",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_trace_child_history_preserves_fresh_bindings_and_complete_b",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_trace_child_cleanup_waits_for_new_gpu_completion"
+    ],
+    "contact-latches": [
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_foot_contact_history_restores_without_duplicate_landing"
+    ],
+    "ownership": [
+      "tools/deterministic_qualification/tests/test_replay_gpu_image_equality.py",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_additional_index_checkpoint_selection_retirement_and_budget",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_automatic_end_hold_requires_native_ownership_and_no_extra_gameplay",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_backward_B_recovery_requires_requested_plan_and_completed_ownership",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_cold_clone_requires_exact_retained_source_lease",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_cold_owner_rejects_render_ownership_and_retries_only_lease_retirement",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_commit_ownership_requires_completed_tails_before_retirement",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_deferred_completion_cancellation_requires_full_B_ownership_chain",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_emitter_set_admits_only_witnessed_partial_gpu_death",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_fresh_owner_release_requires_settlement_and_completed_render_retirement",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_full_index_requires_each_independent_native_boundary_and_retirement",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_held_index_cancellation_requires_retirement_before_resume",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_host_index_checkpoint_requires_completed_ownership",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_index_checkpoint_waits_for_native_resource_retirement",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_indexed_control_events_survive_bursts_and_partial_lines",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_indexed_recovery_requires_observed_B_and_exact_cancellation_boundary",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_late_settlement_recovery_requires_reopening_and_no_commit",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_native_emitter_recovery_requires_destruction_and_complete_B",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_observer_releases_readback_pin_before_seek_retirement",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_online_rules_teardown_uses_owned_callback_ids_after_object_retirement",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_particle_copy_requires_combat_writes_and_retirement",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_particle_gpu_owner_requires_completed_retirement_receipt",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_particle_registration_journal_retains_partial_native_ownership",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_capture_reopen_and_empty_lighting_retirement",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_capture_requires_particle_completion_ownership",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_expired_index_retirement_before_B",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_ground_commit_admission_and_retirement",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_index_checkpoint_ownership",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_index_sequence_release_boundary",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_memory_selection_preserves_active_ownership",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_menu_exit_ownership",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_original_viewport_copy_and_retirement",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_trace_capture_accounting_and_release",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_trace_private_storage_publication_undo",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_trace_render_binding_ownership",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_trace_render_recovery_poisoned_retry",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_trace_retirement_method_fault_boundaries",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_vfx_gpu_dependencies_reach_object_lease",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_retained_index_proof_requires_advertised_host_ownership",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_rolling_release_enables_real_continuation_measurement",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_seek_recovery_requires_native_C_tails_birth_retirement_and_original_B",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_seek_release_acceptance_and_completed_retirement_order",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_trace_causality_gate_requires_every_boundary_and_retains_first_difference",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_trace_causality_uses_bounded_checkpoint_window",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_trace_child_animation_restores_each_retained_destination",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_trace_child_cleanup_waits_for_new_gpu_completion",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_trace_child_factory_journals_partial_native_acquisition",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_trace_child_history_preserves_fresh_bindings_and_complete_b",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_trace_child_projection_uses_typed_native_bindings",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_trace_preparation_waits_for_native_work_and_gpu_before_projection",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_trace_survivor_view_never_installs_or_reads_dead_child",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_transient_capture_binding_envelope",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_particle_configuration_deferred_owner",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_particle_configuration_managed_selection",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_particle_copy_recursive_owned_allocation_bounds",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_corrected_capture_preserves_complete_b_owner",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_correction_admission_keeps_native_ticks_distinct_from_samples",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_ground_body_initial_kinematic_admission"
+    ],
+    "particle-materials": [
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_particle_material_graph_captures_owned_bindings",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_particle_material_realization_rebinds_and_keeps_b",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_particle_configuration_deferred_owner",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_cold_owner_rejects_render_ownership_and_retries_only_lease_retirement",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_cold_clone_requires_exact_retained_source_lease"
+    ],
+    "particle-topology": [
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_reconstructed_topology_preserves_complete_b"
+    ],
+    "tooling": [
+      "tools/deterministic_qualification/tests/test_fixture_cache.py",
+      "tools/deterministic_qualification/tests/test_replay_outcomes.py",
+      "tools/deterministic_qualification/tests/test_replay_readiness.py",
+      "tools/deterministic_qualification/tests/test_replay_timing.py",
+      "tools/deterministic_qualification/tests/test_source_objects.py",
+      "tools/deterministic_qualification/tests/test_replay_experiments.py",
+      "tools/deterministic_qualification/tests/test_rolling_telemetry.py",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_ground_update_precedes_native_application",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_component_dispatch_revalidates_admitted_consumer"
+    ],
+    "reporting": [
+      "tools/deterministic_qualification/tests/test_replay_baseline.py",
+      "tools/deterministic_qualification/tests/test_replay_reporting.py",
+      "tools/deterministic_qualification/tests/test_replay_outcomes.py",
+      "tools/deterministic_qualification/tests/test_replay_readiness.py"
+    ],
+    "tooling-integration": [
+      "tools/deterministic_qualification/tests/test_configuration.py",
+      "tools/deterministic_qualification/tests/test_consumer_host.py",
+      "tools/deterministic_qualification/tests/test_fixture_cache.py",
+      "tools/deterministic_qualification/tests/test_niagara_observation.py",
+      "tools/deterministic_qualification/tests/test_offline_matrix.py",
+      "tools/deterministic_qualification/tests/test_offline_resume.py",
+      "tools/deterministic_qualification/tests/test_physics_callback_observation.py",
+      "tools/deterministic_qualification/tests/test_process_control.py",
+      "tools/deterministic_qualification/tests/test_process_memory.py",
+      "tools/deterministic_qualification/tests/test_reassessment_boundaries.py",
+      "tools/deterministic_qualification/tests/test_replay_checkpoint_vfx_route.py",
+      "tools/deterministic_qualification/tests/test_replay_entry_request.py",
+      "tools/deterministic_qualification/tests/test_replay_experiments.py",
+      "tools/deterministic_qualification/tests/test_replay_gpu_image_equality.py",
+      "tools/deterministic_qualification/tests/test_replay_outcomes.py",
+      "tools/deterministic_qualification/tests/test_replay_readiness.py",
+      "tools/deterministic_qualification/tests/test_replay_reporting.py",
+      "tools/deterministic_qualification/tests/test_replay_run.py",
+      "tools/deterministic_qualification/tests/test_replay_timing.py",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py",
+      "tools/deterministic_qualification/tests/test_rolling_telemetry.py",
+      "tools/deterministic_qualification/tests/test_runner.py",
+      "tools/deterministic_qualification/tests/test_source_objects.py",
+      "tools/deterministic_qualification/tests/test_source_retention.py",
+      "tools/deterministic_qualification/tests/test_startup_failure.py",
+      "tools/deterministic_qualification/tests/test_tira_campaign.py",
+      "tools/deterministic_qualification/tests/test_trace_parser.py",
+      "tools/deterministic_qualification/tests/test_vfx_completion_observation.py"
+    ],
+    "fixture-cache": [
+      "tools/deterministic_qualification/tests/test_fixture_cache.py",
+      "tools/deterministic_qualification/tests/test_vfx_completion_observation.py"
+    ],
+    "experiments": [
+      "tools/deterministic_qualification/tests/test_replay_experiments.py",
+      "tools/deterministic_qualification/tests/test_replay_outcomes.py",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_rolling_coverage_does_not_count_startup_repeats_as_combat",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_rolling_coverage_separates_regeneration_and_requires_retirement_completion",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py::test_retained_rolling_manifest_includes_scoped_coverage"
+    ],
+    "retention": [
+      "tools/deterministic_qualification/tests/test_source_retention.py",
+      "tools/deterministic_qualification/tests/test_source_objects.py",
+      "tools/deterministic_qualification/tests/test_replay_readiness.py",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py"
+    ],
+    "timing": [
+      "tools/deterministic_qualification/tests/test_replay_timing.py",
+      "tools/deterministic_qualification/tests/test_rolling_telemetry.py",
+      "tools/deterministic_qualification/tests/test_replay_reporting.py"
+    ],
+    "fixture-sharing": [
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_trace_retirement_method_fault_boundaries",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_production_trace_private_storage_publication_undo",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_scheduler_rejects_uncaptured_niagara_consumers",
+      "tools/deterministic_qualification/tests/test_replay_run.py::test_component_dispatch_revalidates_admitted_consumer"
+    ]
+  },
+  "source_areas": [
+    {
+      "pattern": "tools/deterministic_qualification/replay_diagnostics.py",
+      "groups": [
+        "runner"
+      ]
+    },
+    {
+      "pattern": "tools/deterministic_qualification/report.py",
+      "groups": [
+        "runner"
+      ]
+    },
+    {
+      "pattern": "tools/replay_test.py",
+      "groups": [
+        "runner"
+      ]
+    },
+    {
+      "pattern": "tools/deterministic_qualification/replay_profiles/*.json",
+      "groups": [
+        "runner"
+      ]
+    },
+    {
+      "pattern": "tools/deterministic_qualification/replay_test_groups.json",
+      "groups": [
+        "runner"
+      ]
+    },
+    {
+      "pattern": "HorseMod/horselib/deterministic/Sc6ReplayTrace*",
+      "groups": [
+        "root-transforms",
+        "ownership"
+      ]
+    },
+    {
+      "pattern": "HorseMod/horselib/deterministic/Sc6ReplayWorldState*",
+      "groups": [
+        "contact-latches",
+        "ownership"
+      ]
+    },
+    {
+      "pattern": "HorseMod/horselib/deterministic/Sc6ReplayHost*",
+      "groups": [
+        "ownership",
+        "root-transforms",
+        "contact-latches"
+      ]
+    },
+    {
+      "pattern": "docs/*",
+      "groups": [
+        "runner"
+      ]
+    },
+    {
+      "pattern": "tools/deterministic_qualification/replay_preflight.py",
+      "groups": [
+        "runner"
+      ]
+    },
+    {
+      "pattern": "tools/deterministic_qualification/replay_profiles.py",
+      "groups": [
+        "runner"
+      ]
+    },
+    {
+      "pattern": "tools/deterministic_qualification/replay_local.py",
+      "groups": [
+        "runner"
+      ]
+    },
+    {
+      "pattern": "tools/deterministic_qualification/replay_controls_catalog.py",
+      "groups": [
+        "runner"
+      ]
+    },
+    {
+      "pattern": "tools/deterministic_qualification/process_control.py",
+      "groups": [
+        "runner"
+      ]
+    },
+    {
+      "pattern": "tools/deterministic_qualification/replay_outcomes.py",
+      "groups": [
+        "reporting"
+      ]
+    },
+    {
+      "pattern": "tools/deterministic_qualification/replay_baseline.py",
+      "groups": [
+        "reporting"
+      ]
+    },
+    {
+      "pattern": "tools/deterministic_qualification/replay_readiness.py",
+      "groups": [
+        "reporting"
+      ]
+    },
+    {
+      "pattern": "tools/deterministic_qualification/replay_readiness.json",
+      "groups": [
+        "reporting"
+      ]
+    },
+    {
+      "pattern": "tools/deterministic_qualification/fixture_cache.py",
+      "groups": [
+        "fixture-cache"
+      ]
+    },
+    {
+      "pattern": "tools/deterministic_qualification/replay_experiments.py",
+      "groups": [
+        "experiments"
+      ]
+    },
+    {
+      "pattern": "tools/deterministic_qualification/replay_coverage.py",
+      "groups": [
+        "experiments",
+        "runner"
+      ]
+    },
+    {
+      "pattern": "tools/deterministic_qualification/replay_schedule.py",
+      "groups": [
+        "experiments"
+      ]
+    },
+    {
+      "pattern": "tools/deterministic_qualification/replay_overhead.py",
+      "groups": [
+        "experiments"
+      ]
+    },
+    {
+      "pattern": "tools/deterministic_qualification/replay_timing.py",
+      "groups": [
+        "timing"
+      ]
+    },
+    {
+      "pattern": "tools/deterministic_qualification/source_retention.py",
+      "groups": [
+        "retention"
+      ]
+    },
+    {
+      "pattern": "tools/deterministic_qualification/replay_evidence.py",
+      "groups": [
+        "retention",
+        "reporting"
+      ]
+    },
+    {
+      "pattern": "tools/deterministic_qualification/replay_reporting.py",
+      "groups": [
+        "reporting"
+      ]
+    },
+    {
+      "pattern": "tools/replay_trace_retirement_selftest.cpp",
+      "groups": [
+        "fixture-sharing"
+      ]
+    },
+    {
+      "pattern": "tools/replay_trace_storage_selftest.cpp",
+      "groups": [
+        "fixture-sharing"
+      ]
+    },
+    {
+      "pattern": "tools/replay_scheduler_consumer_selftest.cpp",
+      "groups": [
+        "fixture-sharing"
+      ]
+    },
+    {
+      "pattern": "tools/replay_component_dispatch_selftest.cpp",
+      "groups": [
+        "fixture-sharing"
+      ]
+    },
+    {
+      "pattern": "tools/deterministic_qualification/tests/test_source_retention.py",
+      "groups": [
+        "retention"
+      ]
+    }
+  ],
+  "native_groups": {
+    "contact-latches": [
+      [
+        "NativeCandidateRegionsSelfTest.exe",
+        "--contact-latches"
+      ]
+    ],
+    "ownership": [
+      [
+        "NativeCandidateRegionsSelfTest.exe",
+        "--contact-latches"
+      ]
+    ],
+    "all": [
+      [
+        "NativeCandidateRegionsSelfTest.exe",
+        "--contact-latches"
+      ],
+      [
+        "DeterministicCoreSelfTest.exe",
+        "--diagnostic-trace"
+      ]
+    ],
+    "particle-materials": [
+      [
+        "NativeCandidateRegionsSelfTest.exe",
+        "--contact-latches"
+      ]
+    ],
+    "particle-topology": [
+      [
+        "NativeCandidateRegionsSelfTest.exe",
+        "--contact-latches"
+      ]
+    ]
+  },
+  "known_blockers": {
+    "tooling-integration": {
+      "excluded_tests": [
+        "tools/deterministic_qualification/tests/test_consumer_host.py::test_vfx_finish_dispatch_revalidates_live_completion_rows"
+      ],
+      "reason": "Existing native G1 same-count completion replacement reaches native effects. Kept RED; this selection cannot qualify G3 or authorize live validation.",
+      "evidence": "build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/manifests/ad6a4379d509907728f3a50af1b09d58c0dee0003d70caa791ba1211788ddd34.json"
+    }
+  }
+}

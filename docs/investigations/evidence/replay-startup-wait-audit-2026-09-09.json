@@ -1,0 +1,29 @@
+{
+  "source_script_sha256": "3c6fd52563c5b02f44a1779d612a0a0e5b777caf1bea5f54a6cfeba2dd2d2acf",
+  "entrypoints": {
+    "10876": "onCosmosLoginProgress",
+    "10802": "onCeBankLoginSequenceComplete",
+    "9737": "onCosmosLoginComplete",
+    "9308": "FightRequestResetDialog",
+    "8660": "UgcErrorDialog",
+    "6979": "OnCheckUgcLimitCompleted",
+    "6661": "RequestCheckUgcLimit",
+    "6525": "OnSaveDataCheckResult",
+    "6510": "OnStartUpCompleted",
+    "6354": "RequestNextState",
+    "4862": "OnBrokenDataDialogEvent",
+    "3813": "OnLoginCompleted",
+    "1609": "OnLoginErrorDialogEvent",
+    "296": "RequestNetworkCheck",
+    "295": "OnExitExtension",
+    "294": "OnRequestInputCommand",
+    "46": "OnEntryExtension"
+  },
+  "failure_run": "replay-eb86a5ae1ec74357bfbfcd6076e0415c",
+  "failure": "asset_wait_timeout at Title StartUp; exact pending callback unknown",
+  "static_findings": [
+    "OnEntryExtension enters46 and starts native StartSaveDataCheckFlow with OnSaveDataCheckResult delegate.",
+    "Startup also owns sign-in/startup/network checks and dialogs; do not synthesize a completion."
+  ],
+  "instrumentation": "Bounded read-only ubergraph entrypoint trace; removes hook after leaving title; no startup behavior changed."
+}

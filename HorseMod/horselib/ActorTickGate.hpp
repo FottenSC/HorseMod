@@ -42,10 +42,11 @@
 //             and resets the chara to neutral.
 //
 //   Site 21b — ALuxBattleManager_Update_Impl (0x140437590)
-//             Sibling BM tick that ticks the "BattleTime" /
-//             "BattleSystemTime" FName timers via TickTimerHandle —
-//             the round-timer driver.  Registered through a different
-//             dispatch slot than Site 21, so 21 alone doesn't catch it.
+//             Time-group actor update: advances float accumulators +420/+424,
+//             publishes BattleTime/BattleSystemTime through MPC_BattleParam,
+//             and propagates group time dilation. 141EDBB60 is a material
+//             scalar setter, not a timer-handle operation (verified native ABI).
+//             Registered separately from Site 21.
 //
 //   Site 22 — ALuxBattleChara::TickActor (0x1403D0590)
 //             Maegami hair, weapon mesh anim, SC charge gauge, parent-
@@ -99,11 +100,14 @@ namespace Horse
         // read from the shared `policy_slot`.  Idempotent.  Returns false
         // if either AOB doesn't match, the cave is exhausted, or any rel32
         // displacement won't fit.
-        bool resolve(int32_t* policy_slot)
+        bool resolve(int32_t* policy_slot, bool include_manager = true,
+            bool include_input_producer = true)
         {
             if (m_resolved) return m_resolved_ok;
             m_resolved    = true;
             m_resolved_ok = false;
+            m_include_manager = include_manager;
+            m_include_input_producer = include_input_producer;
 
             if (!policy_slot)
             {
@@ -143,11 +147,11 @@ namespace Horse
             // compiler alignment artefact — the CPU ignores it on this
             // opcode but it's required for the AOB to land on the
             // function entry rather than the byte after.
-            void* site20 = sig_scan_sc6(
+            void* site20 = include_input_producer ? sig_scan_sc6(
                 "40 53 48 83 EC 20 48 8B D9 E8 ?? ?? ?? ?? 48 8B 03 "
                 "48 8B CB 48 83 C4 20 5B",
-                "ActorTickGate Site 20 (ALuxBattleFrameInputLog::TickActor)");
-            if (!site20) return false;
+                "ActorTickGate Site 20 (ALuxBattleFrameInputLog::TickActor)") : nullptr;
+            if (include_input_producer && !site20) return false;
 
             // Site 22: ALuxBattleChara::TickActor prologue.  AOB locks the
             // first 23 bytes through the SUB RSP, 0x250 — the imm32 and
@@ -174,10 +178,10 @@ namespace Horse
             //   48 8B D9                 mov  rbx, rcx
             //   0F 29 74 24 20           movaps [rsp+0x20], xmm6
             //   0F B6 89 61 14 00 00     movzx ecx, [rcx+0x1461]   (state byte)
-            void* site21 = sig_scan_sc6(
+            void* site21 = include_manager ? sig_scan_sc6(
                 "40 53 48 83 EC 30 48 8B D9 0F 29 74 24 20 0F B6 89 61 14 00 00",
-                "ActorTickGate Site 21 (BM MainStateMachine_At1461)");
-            if (!site21) return false;
+                "ActorTickGate Site 21 (BM MainStateMachine_At1461)") : nullptr;
+            if (include_manager && !site21) return false;
 
             // Site 20: displaces the first 6 bytes (REX + push rbx +
             // sub rsp,0x20 = 2 + 4).  After the patch the function
@@ -185,7 +189,7 @@ namespace Horse
             // entry no callee-saved register has been touched yet, so
             // bare RET is a clean no-op — the engine sees a tick that
             // did nothing.
-            if (!build_site(site20, /*orig_len=*/6, policy_slot,
+            if (include_input_producer && !build_site(site20, /*orig_len=*/6, policy_slot,
                             m_patch_20, "Site 20 (FrameInputLog::TickActor)"))
                 return false;
 
@@ -199,7 +203,7 @@ namespace Horse
             // Site 21 displaces the first 6 bytes (push rbx + sub rsp,0x30
             // = 2 + 4).  After the patch, the function continues at site+6
             // (mov rbx, rcx onwards).
-            if (!build_site(site21, /*orig_len=*/6, policy_slot,
+            if (include_manager && !build_site(site21, /*orig_len=*/6, policy_slot,
                             m_patch_21, "Site 21 (BM MainStateMachine)"))
                 return false;
 
@@ -287,9 +291,9 @@ namespace Horse
 
             // Site 21b: ALuxBattleManager_Update_Impl prologue.  Distinct
             // tick driver from Site 21 (MainStateMachine_At1461).  This is
-            // what ticks "BattleTime" / "BattleSystemTime" FName timers
-            // (the round timer) — uniquely matches the user's repro of
-            // chara settling to idle after ~1 minute (= round duration).
+            // advances the time-group accumulators and publishes material
+            // collection scalars BattleTime/BattleSystemTime. Native141EDBB60
+            // is a material scalar setter, not a round-timer operation.
             //
             //   48 8B C4              mov rax, rsp
             //   55                    push rbp
@@ -339,10 +343,10 @@ namespace Horse
                 return false;
             }
             if (m_enabled.load(std::memory_order_acquire)) return true;
-            const bool ok_20  = m_patch_20.enable();
+            const bool ok_20  = !m_include_input_producer || m_patch_20.enable();
             const bool ok_11  = m_patch_11.enable();
             const bool ok_22  = m_patch_22.enable();
-            const bool ok_21  = m_patch_21.enable();
+            const bool ok_21  = !m_include_manager || m_patch_21.enable();
             const bool ok_22b = m_patch_22b.enable();
             const bool ok_22c = m_patch_22c.enable();
             const bool ok_21b = m_patch_21b.enable();
@@ -360,13 +364,8 @@ namespace Horse
                     ok_22b ? STR("ok") : STR("FAIL"),
                     ok_22c ? STR("ok") : STR("FAIL"),
                     ok_21b ? STR("ok") : STR("FAIL"));
-                if (ok_20)  m_patch_20.disable();
-                if (ok_11)  m_patch_11.disable();
-                if (ok_22)  m_patch_22.disable();
-                if (ok_21)  m_patch_21.disable();
-                if (ok_22b) m_patch_22b.disable();
-                if (ok_22c) m_patch_22c.disable();
-                if (ok_21b) m_patch_21b.disable();
+                m_enabled.store(true, std::memory_order_release);
+                static_cast<void>(disable());
                 return false;
             }
             m_enabled.store(true, std::memory_order_release);
@@ -378,19 +377,24 @@ namespace Horse
         }
 
         // Revert all seven patches.
-        void disable()
+        bool disable()
         {
-            if (!m_enabled.load(std::memory_order_acquire)) return;
-            m_patch_20.disable();
-            m_patch_11.disable();
-            m_patch_22.disable();
-            m_patch_21.disable();
-            m_patch_22b.disable();
-            m_patch_22c.disable();
-            m_patch_21b.disable();
+            if (m_removal_failed) return false;
+            if (!m_enabled.load(std::memory_order_acquire)) return true;
+            // Attempt every removal; a partial failure permanently withholds
+            // clearance, even though BytePatch drops its individual flag.
+            bool ok = m_patch_20.disable();
+            ok = m_patch_11.disable() && ok;
+            ok = m_patch_22.disable() && ok;
+            ok = m_patch_21.disable() && ok;
+            ok = m_patch_22b.disable() && ok;
+            ok = m_patch_22c.disable() && ok;
+            ok = m_patch_21b.disable() && ok;
+            if (!ok) { m_removal_failed = true; return false; }
             m_enabled.store(false, std::memory_order_release);
             RC::Output::send<RC::LogLevel::Verbose>(
                 STR("[Horse.ActorTickGate] disabled\n"));
+            return true;
         }
 
         bool is_enabled()  const { return m_enabled.load(std::memory_order_acquire); }
@@ -501,6 +505,7 @@ namespace Horse
             return true;
         }
 
+        bool m_include_input_producer{true};
         BytePatch m_patch_20{};   // ALuxBattleFrameInputLog::TickActor (input pipeline)
         BytePatch m_patch_11{};   // Chara_Tick_AdvanceReplayFrame_OrLocal (chara replay-state writer)
         BytePatch m_patch_22{};   // ALuxBattleChara::TickActor
@@ -509,7 +514,9 @@ namespace Horse
         BytePatch m_patch_22c{};  // APreviewHumanActor::TickActor (derived)
         BytePatch m_patch_21b{};  // ALuxBattleManager_Update_Impl (round timer)
         bool      m_resolved    = false;
+        bool      m_include_manager = true;
         bool      m_resolved_ok = false;
+        bool      m_removal_failed = false;
         std::atomic<bool> m_enabled{false};
     };
 

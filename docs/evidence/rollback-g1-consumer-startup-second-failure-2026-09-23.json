@@ -1,0 +1,86 @@
+{
+  "scope": "second startup diagnostic; no consumer suspension reached",
+  "run_id": "replay-84fb6d059eba4d70a94b80fbcabde257",
+  "failure": "owned control process exited (0x00000003)",
+  "fatal_serialize_record_present": false,
+  "cleanup": {
+    "complete": true,
+    "games_remaining": 0
+  },
+  "restored_files": [
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll",
+      "before": "b583b65388616e4fc6bbac841a1de6bc7d87467e67132a0983c69eb5d0c40c2b",
+      "actual": "b583b65388616e4fc6bbac841a1de6bc7d87467e67132a0983c69eb5d0c40c2b",
+      "match": true
+    },
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\disable_gameimgui.txt",
+      "before": "8bd4882859b1ab3b0bb892c3889f4a77937af73e8ecc4224fe0209a5edb1ef96",
+      "actual": "8bd4882859b1ab3b0bb892c3889f4a77937af73e8ecc4224fe0209a5edb1ef96",
+      "match": true
+    },
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\UE4SS.dll",
+      "before": "df9e6e9a2280972b1c28ce590700feacc752b447204f8baadeb95f5776957055",
+      "actual": "df9e6e9a2280972b1c28ce590700feacc752b447204f8baadeb95f5776957055",
+      "match": true
+    },
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\rollback.ini",
+      "before": "22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514",
+      "actual": "22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514",
+      "match": true
+    },
+    {
+      "path": "C:\\Users\\prest\\AppData\\Local\\HorseMod\\Qualification\\replay_diagnostics.ini",
+      "before": null,
+      "actual": null,
+      "match": true
+    },
+    {
+      "path": "C:\\Users\\prest\\AppData\\Local\\HorseMod\\Qualification\\consumer_startup_failure.json",
+      "before": null,
+      "actual": null,
+      "match": true
+    },
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\dlls\\main.dll",
+      "before": null,
+      "actual": null,
+      "match": true
+    },
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\enabled.txt",
+      "before": null,
+      "actual": null,
+      "match": true
+    }
+  ],
+  "report": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4dc4c57149de35bb462619a79d13d8b77b7cb6f5dbec4303623750c4b6dfeaf4.json",
+    "sha256": "4dc4c57149de35bb462619a79d13d8b77b7cb6f5dbec4303623750c4b6dfeaf4",
+    "bytes": 9208
+  },
+  "raw_log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\fc1aa4e945bddb11fc2ff00754e1a2fa77c34f86e47142577683a11baa309126.log",
+    "sha256": "fc1aa4e945bddb11fc2ff00754e1a2fa77c34f86e47142577683a11baa309126",
+    "bytes": 67955
+  },
+  "stage": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\df690c262ea67d66a5d2ce8640214381e292dd6240066f9416227edd4f35ead6.json",
+    "sha256": "df690c262ea67d66a5d2ce8640214381e292dd6240066f9416227edd4f35ead6",
+    "bytes": 11291
+  },
+  "journal": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\792b0804c88af757e16bbe8a2cfbf3d9fa7a785ea753afe95a1b6942b11dde8a.json",
+    "sha256": "792b0804c88af757e16bbe8a2cfbf3d9fa7a785ea753afe95a1b6942b11dde8a",
+    "bytes": 5491
+  },
+  "next_step": "Identify alternate native exit boundary; no unchanged retry and no guard relaxation.",
+  "immutable": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\ef3601dc3c0caabd452a45c2f8f6bbfccd7ed276cbd9fda0a2152b3398eba68b.json",
+    "sha256": "ef3601dc3c0caabd452a45c2f8f6bbfccd7ed276cbd9fda0a2152b3398eba68b",
+    "bytes": 3740
+  }
+}

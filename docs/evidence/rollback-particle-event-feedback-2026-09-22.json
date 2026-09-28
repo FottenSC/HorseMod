@@ -1,0 +1,94 @@
+{
+  "created_utc": "2026-09-22T10:17:12.734301+00:00",
+  "scope": "Particle event receiver simulation and external callback domains; independent of ground reconstruction",
+  "validation": {
+    "native": "Ghidra MCP existing SoulcaliburVI.exe; verified comments and saved program",
+    "asset": "Existing compiled property dumper completed successfully; UE4.17; STG009_Dropwater death End -> spawn1",
+    "tests": "No test/build/live campaign",
+    "live_external_listener_presence": "unproven",
+    "production_changes": false,
+    "acceptance_gate_changes": []
+  },
+  "parser_binary_identities": {
+    "tools\\asset_property_dump\\bin\\Release\\net8.0\\asset_property_dump.dll": {
+      "sha256": "64d59146afd906a8d2ef2583f6923c0cc3b9584afe914700ce6492b6703170db",
+      "bytes": 11776
+    },
+    "tools\\asset_property_dump\\bin\\Release\\net8.0\\CUE4Parse.dll": {
+      "sha256": "b213e10215612675c7937d1204bdf81527486141a5b9f168a7c0af60e8c2be5d",
+      "bytes": 2743808
+    }
+  },
+  "sources": {
+    "HorseMod\\horselib\\deterministic\\Sc6ReplayVfxState.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e0b552bbb59f25e6ea15257e68822279cf34f05a5ba7287db52955ec62e34edb.cpp",
+      "sha256": "e0b552bbb59f25e6ea15257e68822279cf34f05a5ba7287db52955ec62e34edb",
+      "bytes": 221628
+    },
+    "HorseMod\\horselib\\deterministic\\Sc6ReplayVfxState.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\49a1d2a22341b87da1b6e9c786e90f238083edca0623946e93654a508dcc4f45.hpp",
+      "sha256": "49a1d2a22341b87da1b6e9c786e90f238083edca0623946e93654a508dcc4f45",
+      "bytes": 34464
+    },
+    "HorseMod\\horselib\\deterministic\\Sc6ReplayCpuEmitterState.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\bc4b40ba37b6802d4a9643a513a77c8279dd9b464ad5b9a20d5d861e44e0745c.cpp",
+      "sha256": "bc4b40ba37b6802d4a9643a513a77c8279dd9b464ad5b9a20d5d861e44e0745c",
+      "bytes": 92386
+    },
+    "HorseMod\\horselib\\deterministic\\Sc6ReplayCpuEmitterState.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\75c47a851eb331961756052b21464924a9bc96b15e4f99c4f1ad855133191c94.hpp",
+      "sha256": "75c47a851eb331961756052b21464924a9bc96b15e4f99c4f1ad855133191c94",
+      "bytes": 15104
+    },
+    "HorseMod\\horselib\\deterministic\\Sc6ReplayColdParticleOwner.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1cb2c5784f847aa6a98ac4214f8fabba7f31f477ac977c372b1aed4fcc62ebe1.hpp",
+      "sha256": "1cb2c5784f847aa6a98ac4214f8fabba7f31f477ac977c372b1aed4fcc62ebe1",
+      "bytes": 28993
+    },
+    "HorseMod\\horselib\\deterministic\\Sc6ReplayHost.Checkpoint.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6ef90673727a94ee59526912c6010fee0c91a0d5f35d03438fcf232b56d7d752.inl",
+      "sha256": "6ef90673727a94ee59526912c6010fee0c91a0d5f35d03438fcf232b56d7d752",
+      "bytes": 68398
+    },
+    "tools\\asset_property_dump\\Program.cs": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\26e63fd77b1589c8418ed86c4c1d6aa587b3871eb977878aa42012cbc3153f56.cs",
+      "sha256": "26e63fd77b1589c8418ed86c4c1d6aa587b3871eb977878aa42012cbc3153f56",
+      "bytes": 1480
+    },
+    "tools\\asset_property_dump\\asset_property_dump.csproj": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\095617e265a8991d1e5c904ab4ae7f4b8aacfa76b0f5ab53d50b2e56693d4253.csproj",
+      "sha256": "095617e265a8991d1e5c904ab4ae7f4b8aacfa76b0f5ab53d50b2e56693d4253",
+      "bytes": 424
+    },
+    "build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\support-particle-dropwater-2026-09-22.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\19ea79752b835c288a459177ac5dad4085eb135fa476dbaa09ecf08411a09510.json",
+      "sha256": "19ea79752b835c288a459177ac5dad4085eb135fa476dbaa09ecf08411a09510",
+      "bytes": 40504
+    },
+    "build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\support-particle-events-native-2026-09-22.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b058b0f36469751c9edb4f402df616e6fe244418223d072d5589dd71125c6e50.json",
+      "sha256": "b058b0f36469751c9edb4f402df616e6fe244418223d072d5589dd71125c6e50",
+      "bytes": 460189
+    },
+    "build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\support-particle-force-spawn-native-2026-09-22.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d48ce703c56cb3b1a6737692016a80f4cb38c27b7dfe39ebb3e0892f47c86977.json",
+      "sha256": "d48ce703c56cb3b1a6737692016a80f4cb38c27b7dfe39ebb3e0892f47c86977",
+      "bytes": 1802
+    },
+    "docs\\investigations\\rollback-particle-event-feedback-2026-09-22.md": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\605b259bfea4c92f9a96419d73fc7b26788449f5dd955aad8739387e79cfb186.md",
+      "sha256": "605b259bfea4c92f9a96419d73fc7b26788449f5dd955aad8739387e79cfb186",
+      "bytes": 10384
+    },
+    "C:\\Users\\prest\\Documents\\SoulcaliburModding\\SCVI Sound Tools\\dump\\SoulcaliburVI\\Content\\Stage\\STG009\\VFX\\ParticleSystems\\STG009_Dropwater.uasset": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d0dafa5d1b9dadc0c3b819d12954d9bbb392c01660463fd38a1374aeb72e7a50.uasset",
+      "sha256": "d0dafa5d1b9dadc0c3b819d12954d9bbb392c01660463fd38a1374aeb72e7a50",
+      "bytes": 8932
+    },
+    "C:\\Users\\prest\\Documents\\SoulcaliburModding\\SCVI Sound Tools\\dump\\SoulcaliburVI\\Content\\Stage\\STG009\\VFX\\ParticleSystems\\STG009_Dropwater.uexp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9df00c26fb59f7f818500294f36e38bf49fc6c1da46b442356ce9a9f4efc111c.uexp",
+      "sha256": "9df00c26fb59f7f818500294f36e38bf49fc6c1da46b442356ce9a9f4efc111c",
+      "bytes": 13982
+    }
+  }
+}

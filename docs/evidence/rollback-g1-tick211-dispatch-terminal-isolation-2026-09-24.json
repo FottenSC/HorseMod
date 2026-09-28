@@ -1,0 +1,59 @@
+{
+  "scope": "Read-only isolation of corrected tick211 fast-fail; no production/test code edit or live retry",
+  "run_id": "replay-13fc48e95ea0465a9e1a99b14943fdf0",
+  "crash": {
+    "pid": 37320,
+    "timestamp_local": "2026-09-23 20:27:04",
+    "exception": "0xc0000409",
+    "fastfail_argument": 5,
+    "thread_id": 39864,
+    "module": "HorseMod.dll",
+    "module_base": "0x7ffb4c5c0000",
+    "rip": "0x7ffb4c79dbe1",
+    "rva": "0x1ddbe1",
+    "retained_dump": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\5f67e2571544df9e38dd2c837f05fc1aa8996693ec081dd0e64ceee9599d037c.dmp",
+      "sha256": "5f67e2571544df9e38dd2c837f05fc1aa8996693ec081dd0e64ceee9599d037c",
+      "bytes": 80365317
+    },
+    "pdb": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\HorseMod.pdb",
+      "sha256": "3ee460253c7bae07df8f0e5a49e0a50f8a710e7912721f0605167576ee4fd7f3",
+      "bytes": 47271936
+    }
+  },
+  "mapping": {
+    "basis": "Built HorseMod.dll SHA256 5a9bd05cb4c26b68a79489ed01ac4af0b8af75e203d73bf0df1c7c8b07e81d0b matches run; PE RVA decoded with Capstone and compared with source branch",
+    "rva_disassembly": [
+      "0x1ddbc6 call 0x1dd120 (DispatchTask)",
+      "0x1ddbcb mov byte ptr [rdi+0xd0], al",
+      "0x1ddbd1 cmp al, 3",
+      "0x1ddbd3 jne 0x1ddbe5",
+      "0x1ddbd5 mov qword ptr [rdi+0xd8], rbp",
+      "0x1ddbdc mov ecx, 5",
+      "0x1ddbe1 int 0x29"
+    ],
+    "source": {
+      "path": "E:\\myMods\\HorseMod\\horselib\\deterministic\\Sc6ReplayTaskGroup.cpp",
+      "sha256": "c4f26d8663ca0491a1ee145cfcf58f5012ada41fd0994de1e5054cc19ed33974",
+      "bytes": 23787
+    },
+    "source_line": "PumpOne lines 260-264: DispatchTask result TerminalFailure -> terminal_task_ -> __fastfail(FAST_FAIL_INVALID_ARG)"
+  },
+  "remaining_ambiguity": "DispatchTask has two TerminalFailure returns, consumer_hooks_.acquire Reject at line313 and ReplayComponentTickConsumerAdmitted rejection at lines336-339. The minidump excludes the dequeued task heap range 0x1abc6b15b30, so its owner/function and precise predicate cannot be recovered from this dump. No mutation-injected marker appears.",
+  "last_raw_log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\cb36d94bd96df78fa4427f673e6f419e18f1f00e2eabdc1b3b63b0dc2b512959.log",
+    "sha256": "cb36d94bd96df78fa4427f673e6f419e18f1f00e2eabdc1b3b63b0dc2b512959",
+    "bytes": 2452286
+  },
+  "cleanup": "Current journal state clean and seven prior file hashes independently rechecked; no game, replay runner or build process active; Steam left running.",
+  "next_resolving_test": "Astra high code owner adds bounded crash-surviving diagnostic at both DispatchTask TerminalFailure returns and queue/native prerequisite boundaries, proves RED/GREEN production-boundary regression, runs required build/native checks, then repeats only shortest A210/B217 live case with identical setup.",
+  "agent_availability": "Three Astra high subagent starts failed before work with model service 403: Reduced refusals are not available on Astra for most Daybreak customers. User requires Astra high for code/architecture, so no substitute model or parent code edit was made.",
+  "gates": {
+    "G1": "open",
+    "G2": "open",
+    "408": "blocked until relevant publication change",
+    "600": "blocked until G1/G2 close",
+    "debris": "exact/Unresolved"
+  }
+}

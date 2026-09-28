@@ -1,0 +1,183 @@
+{
+  "scope": "Shipped executable entry prefixes only; no hook installation or live recovery claim",
+  "exe": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\SoulcaliburVI.exe",
+  "exe_sha256": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553",
+  "signature_sha256": "1a66a13b9b64d6e89eea0f98c8306e499dd1dc8cc4cdffe3530da547f7702fda",
+  "entries": [
+    {
+      "site": 0,
+      "rva": "0x8ccaa0",
+      "expected": "48895c24084889742410574883ec20488d05f241a902488bf1",
+      "actual": "48895c24084889742410574883ec20488d05f241a902488bf1",
+      "matches": true
+    },
+    {
+      "site": 1,
+      "rva": "0x8cd120",
+      "expected": "48895c2408574883ec20488bf98bda4881c1b0030000e875f8ffff",
+      "actual": "48895c2408574883ec20488bf98bda4881c1b0030000e875f8ffff",
+      "matches": true
+    },
+    {
+      "site": 2,
+      "rva": "0x21b4e60",
+      "expected": "48895c24084889742410574883ec20488d054aac8301488bd9",
+      "actual": "48895c24084889742410574883ec20488d054aac8301488bd9",
+      "matches": true
+    },
+    {
+      "site": 3,
+      "rva": "0x21b7820",
+      "expected": "4c894c242044884424188854241055535657488d6c24c14881eca8000000",
+      "actual": "4c894c242044884424188854241055535657488d6c24c14881eca8000000",
+      "matches": true
+    },
+    {
+      "site": 4,
+      "rva": "0x21ba4c0",
+      "expected": "48895c240848896c2410488974241848897c242041564883ec40",
+      "actual": "48895c240848896c2410488974241848897c242041564883ec40",
+      "matches": true
+    },
+    {
+      "site": 5,
+      "rva": "0x21c5950",
+      "expected": "48895c2410574883ec20488bd9488bfa488b89c80100004885c9",
+      "actual": "48895c2410574883ec20488bd9488bfa488b89c80100004885c9",
+      "matches": true
+    },
+    {
+      "site": 6,
+      "rva": "0x1eecdf0",
+      "expected": "40535657415441554881ec20010000488b055ac41f024833c4",
+      "actual": "40535657415441554881ec20010000488b055ac41f024833c4",
+      "matches": true
+    },
+    {
+      "site": 7,
+      "rva": "0x1d66700",
+      "expected": "40534883ec20f6818801000001488bd974458b8188010000",
+      "actual": "40534883ec20f6818801000001488bd974458b8188010000",
+      "matches": true
+    },
+    {
+      "site": 8,
+      "rva": "0x1d37f40",
+      "expected": "40534883ec20f7818801000000000008488bd9740b488b01",
+      "actual": "40534883ec20f7818801000000000008488bd9740b488b01",
+      "matches": true
+    },
+    {
+      "site": 9,
+      "rva": "0x1d41970",
+      "expected": "40534883ec208b8188010000488bd90fbae01c0f8226010000",
+      "actual": "40534883ec208b8188010000488bd90fbae01c0f8226010000",
+      "matches": true
+    },
+    {
+      "site": 10,
+      "rva": "0x8d3d20",
+      "expected": "48895c240848896c2410488974241857415641574883ec30",
+      "actual": "48895c240848896c2410488974241857415641574883ec30",
+      "matches": true
+    },
+    {
+      "site": 11,
+      "rva": "0x2159b90",
+      "expected": "48895c2418564883ec30410fb6400c498bd82442488bf1f6410c42",
+      "actual": "48895c2418564883ec30410fb6400c498bd82442488bf1f6410c42",
+      "matches": true
+    },
+    {
+      "site": 12,
+      "rva": "0x2164920",
+      "expected": "48895c2408574883ec30488bd9498bf8488d4c2420e89671e1fe",
+      "actual": "48895c2408574883ec30488bd9498bf8488d4c2420e89671e1fe",
+      "matches": true
+    },
+    {
+      "site": 13,
+      "rva": "0x39b420",
+      "expected": "48895c24104889742418574883ec30488bf9c605fdbcdf0300",
+      "actual": "48895c24104889742418574883ec30488bf9c605fdbcdf0300",
+      "matches": true
+    },
+    {
+      "site": 14,
+      "rva": "0x544470",
+      "expected": "4c8bdc5556574157498d6ba14881ec980000004c8db900010000",
+      "actual": "4c8bdc5556574157498d6ba14881ec980000004c8db900010000",
+      "matches": true
+    },
+    {
+      "site": 15,
+      "rva": "0x2157bc0",
+      "expected": "40534883ec20f6410c40488d05ef428701488901488bd97415",
+      "actual": "40534883ec20f6410c40488d05ef428701488901488bd97415",
+      "matches": true
+    },
+    {
+      "site": 16,
+      "rva": "0xd54cb0",
+      "expected": "40554155488d6c24b14881eca80000004c8be9e82806feff84c00f85cd020000",
+      "actual": "40554155488d6c24b14881eca80000004c8be9e82806feff84c00f85cd020000",
+      "matches": true
+    },
+    {
+      "site": 17,
+      "rva": "0x3aeb50",
+      "expected": "48895c2408574883ec20488bb960050000488bd94885ff7422836f0801751c48",
+      "actual": "48895c2408574883ec20488bb960050000488bd94885ff7422836f0801751c48",
+      "matches": true
+    },
+    {
+      "site": 18,
+      "rva": "0x3af4b0",
+      "expected": "48895c24084889742410574883ec20488bf9488b89d00300004885c97405e82d",
+      "actual": "48895c24084889742410574883ec20488bf9488b89d00300004885c97405e82d",
+      "matches": true
+    },
+    {
+      "site": 19,
+      "rva": "0x1d99730",
+      "expected": "488bc488501055564155488bec4881ec80000000440fb6ea488bf184d20f84c9",
+      "actual": "488bc488501055564155488bec4881ec80000000440fb6ea488bf184d20f84c9",
+      "matches": true
+    },
+    {
+      "site": 20,
+      "rva": "0x3ba850",
+      "expected": "48895c240848896c24104889742418574883ec20488be933db488b8958040000",
+      "actual": "48895c240848896c24104889742418574883ec20488be933db488b8958040000",
+      "matches": true
+    },
+    {
+      "site": 21,
+      "rva": "0x3bb550",
+      "expected": "48895c24084889742410574883ec20488bb9980000008bf2488bd94885ff0f84",
+      "actual": "48895c24084889742410574883ec20488bb9980000008bf2488bd94885ff0f84",
+      "matches": true
+    },
+    {
+      "site": 22,
+      "rva": "0x2ddae10",
+      "expected": "4885d27467534883ec20488d4a60488bdaff1559184500488d4b50e8503abffe",
+      "actual": "4885d27467534883ec20488d4a60488bdaff1559184500488d4b50e8503abffe",
+      "matches": true
+    },
+    {
+      "site": 23,
+      "rva": "0x3af580",
+      "expected": "48895c24104889742418574883ec20488bd94881c1700f0000",
+      "actual": "48895c24104889742418574883ec20488bd94881c1700f0000",
+      "matches": true
+    },
+    {
+      "site": 24,
+      "rva": "0xd2b9f0",
+      "expected": "48895c241048896c241848897424205741544155415641574883ec30",
+      "actual": "48895c241048896c241848897424205741544155415641574883ec30",
+      "matches": true
+    }
+  ]
+}

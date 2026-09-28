@@ -1,0 +1,25 @@
+{
+  "certifying": false,
+  "cleanup": {
+    "deployment_restored": true,
+    "game_processes_remaining": 0,
+    "resource_state": "clean"
+  },
+  "kind": "owned_launch_cleanup_probe",
+  "observations": {
+    "host": {
+      "created": 1788625379.680835,
+      "module": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll",
+      "pid": 78600,
+      "sha256": "b26fe044632ddcdf553386d09d1de9c556882c8b490a49717fe63205fda6acfb"
+    },
+    "sandbox": {
+      "created": 1788625377.504635,
+      "module": "C:\\Sandbox\\prest\\sc67\\drive\\E\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll",
+      "pid": 63444,
+      "sha256": "b26fe044632ddcdf553386d09d1de9c556882c8b490a49717fe63205fda6acfb"
+    }
+  },
+  "result": "pass",
+  "runtime_sha256": "b26fe044632ddcdf553386d09d1de9c556882c8b490a49717fe63205fda6acfb"
+}

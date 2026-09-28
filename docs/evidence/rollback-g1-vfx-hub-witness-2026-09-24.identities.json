@@ -1,0 +1,280 @@
+{
+  "schema": 1,
+  "mode": "local forwarding witness only; no project build, deployment, live run or Ghidra mutation",
+  "red_manifest": "794c1ca5a520b00341510f4c76e14ee3f524597369d2a7bc5d7e5172f76e7c08",
+  "red_raw_log": "59def3635cdec46c22154c678d345bfc64e7ef90d1f582efd5393a048465b446",
+  "green": {
+    "summary": {
+      "result": "pass",
+      "groups": [
+        "vfx-observation"
+      ],
+      "native": [],
+      "source_retention": {
+        "manifest_sha256": "7a921e82ff4847615baa0796b917b4ac86bc83ae2d544b992334233f7c6f24e8",
+        "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-7a921e82ff4847615baa0796b917b4ac86bc83ae2d544b992334233f7c6f24e8.zip",
+        "archive_sha256": "f68de0488cdbf4bd052aa3ff69cca7309397a3a894079be79e0e3ba6d57b68c3",
+        "files": 16621,
+        "uncompressed_bytes": 93135960,
+        "reconstructible": true
+      },
+      "workspace_fingerprint": "8692f2202a6bc5c98e00db458214e1e64804aa718f113f580c2d774113492262",
+      "command": [
+        "C:\\Program Files\\Python311\\python.exe",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "tools/deterministic_qualification/tests/test_vfx_completion_observation.py"
+      ],
+      "elapsed_seconds": 46.047,
+      "raw_log": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\966c78ca7ecb36cec7ae46b6e68fdebbbb646a518e1753230ff440655d184d5a.log",
+        "sha256": "966c78ca7ecb36cec7ae46b6e68fdebbbb646a518e1753230ff440655d184d5a",
+        "bytes": 100
+      },
+      "game_launched": false,
+      "stage": "local",
+      "profile": null
+    },
+    "evidence": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\619cf4777df0e09208e960bee9cec3324b03626904bd2e55e7cc62630e385400.json",
+      "sha256": "619cf4777df0e09208e960bee9cec3324b03626904bd2e55e7cc62630e385400",
+      "bytes": 1998,
+      "summary": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\a2bb696f4c663d4997f0a29f971e544b02225914b9edb1367ae73bbabba1380f.md",
+        "sha256": "a2bb696f4c663d4997f0a29f971e544b02225914b9edb1367ae73bbabba1380f",
+        "bytes": 533
+      }
+    }
+  },
+  "sources": [
+    {
+      "path": "HorseMod/horselib/deterministic/NativeReplayVfxCompletionObservation.hpp",
+      "sha256": "95103ac30fae37647c2d81b6688920df38ca4fd824296efe3333158fa752e72a",
+      "bytes": 46573,
+      "retained_entry": "workspace/HorseMod/horselib/deterministic/NativeReplayVfxCompletionObservation.hpp",
+      "matches_final_green_archive": true
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativeReplayVfxCompletionObservation.Hub.inl",
+      "sha256": "5a766e2203d5c09526def598f074fef11c1c53e4b6cf4786dbca3e0c29e90a4b",
+      "bytes": 14507,
+      "retained_entry": "workspace/HorseMod/horselib/deterministic/NativeReplayVfxCompletionObservation.Hub.inl",
+      "matches_final_green_archive": true
+    },
+    {
+      "path": "tools/replay_vfx_completion_observation_selftest.cpp",
+      "sha256": "0f8305146bd3be6a0d5905842771c4996553fb03dcf78c57c17aaee1820f7d1c",
+      "bytes": 37278,
+      "retained_entry": "workspace/tools/replay_vfx_completion_observation_selftest.cpp",
+      "matches_final_green_archive": true
+    },
+    {
+      "path": "tools/deterministic_qualification/tests/test_vfx_completion_observation.py",
+      "sha256": "9d94cc052f8a1652e9c427549bc7958eb29d700793ddcbec5d533c2b86c4f8cc",
+      "bytes": 46158,
+      "retained_entry": "workspace/tools/deterministic_qualification/tests/test_vfx_completion_observation.py",
+      "matches_final_green_archive": true
+    },
+    {
+      "path": "tools/deterministic_qualification/replay_control.py",
+      "sha256": "0eeaf0e9efbdc622b6bec71e8b3a905d030c4f4e83ba370750f915a438ce67db",
+      "bytes": 102348,
+      "retained_entry": "workspace/tools/deterministic_qualification/replay_control.py",
+      "matches_final_green_archive": true
+    }
+  ],
+  "native": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\73cea8cf81906c51dd1fb6d2efbcbda3395169799e239c25415eb93d372b3e9a.json",
+    "sha256": "73cea8cf81906c51dd1fb6d2efbcbda3395169799e239c25415eb93d372b3e9a",
+    "bytes": 52989,
+    "source": "E:\\myMods\\docs\\evidence\\rollback-g1-vfx-hub-witness-2026-09-24.native.json"
+  },
+  "metadata": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c04d236da599a1610335b23ac4c438f720b98b15bfcf51afa8f9fab98d7c57d4.json",
+    "sha256": "c04d236da599a1610335b23ac4c438f720b98b15bfcf51afa8f9fab98d7c57d4",
+    "bytes": 3022,
+    "source": "E:\\myMods\\docs\\evidence\\rollback-g1-vfx-hub-witness-2026-09-24.metadata.json"
+  },
+  "native_bytes_checks": [
+    {
+      "address": "1403a3b70",
+      "bytes": 48,
+      "sha256": "252d71ad88b4b06ecfe83c101b6db7f56efaed05142eab22d2ed9ac3ac9cea7c",
+      "file_offset": 3813744,
+      "matches_installed_game": true
+    },
+    {
+      "address": "1403ca7a0",
+      "bytes": 48,
+      "sha256": "b18ce742ad3423d0789563a9e4b096760d7c3f6e7789dcc5f542fb4681a1690e",
+      "file_offset": 3972512,
+      "matches_installed_game": true
+    },
+    {
+      "address": "14326bfe8",
+      "bytes": 112,
+      "sha256": "38707fa0569f4ca18cddc540ed2d444974efa77932d5ce3248c548f1910a0545",
+      "file_offset": 52868072,
+      "matches_installed_game": true
+    }
+  ],
+  "installed_game_sha256": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553",
+  "selected_report": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8e4653618b1b4bf54e77a50f4e9f9165d1a7b79a676d4c4c46226337e2373085.json",
+    "sha256": "8e4653618b1b4bf54e77a50f4e9f9165d1a7b79a676d4c4c46226337e2373085",
+    "recorded_identities": {
+      "config": "26a017d28e1e3d1c9175fe94712258c816976fbb092a5e0dc6bc7eb13a18eac4",
+      "framework": "e1136a410343cc5caad0dfce2b2722002a20d5707ef6077ff794541f48a4847f",
+      "game": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553",
+      "observer": "e4463f0d3764cf43fcbc635bf03a34a6339c7d776a0ff1e44c4b4179e5819ceb",
+      "physx": "c3c7bd6e13260ee5f850552b6e9a15f69e58e0b41cd4f4bcb48e1b419719b5a2",
+      "replay": "95e12e394d35c13d5e0dd3dce692f9e0a4022e2a84205a9ec75f2fa6726d7879",
+      "runtime": "26cb65eec006e44deeb7f07b834353bebf1ab191939743fb7941acc272e8c5af",
+      "ucrt": "5e7709a6b71bb818260b6f05c5bb3b6ca0c3ca9bc2f58c6242c1cd9d826d0079"
+    },
+    "positive_producers": [
+      {
+        "id": 67,
+        "count": 2,
+        "capacity": 18,
+        "recursion": 1,
+        "scope_kinds": [
+          4,
+          2
+        ]
+      },
+      {
+        "id": 90,
+        "count": 2,
+        "capacity": 18,
+        "recursion": 1,
+        "scope_kinds": [
+          4,
+          2
+        ]
+      },
+      {
+        "id": 121,
+        "count": 2,
+        "capacity": 18,
+        "recursion": 1,
+        "scope_kinds": [
+          4,
+          2
+        ]
+      },
+      {
+        "id": 125,
+        "count": 2,
+        "capacity": 18,
+        "recursion": 1,
+        "scope_kinds": [
+          4,
+          2
+        ]
+      },
+      {
+        "id": 127,
+        "count": 2,
+        "capacity": 18,
+        "recursion": 1,
+        "scope_kinds": [
+          4,
+          2
+        ]
+      },
+      {
+        "id": 2679,
+        "count": 2,
+        "capacity": 18,
+        "recursion": 1,
+        "scope_kinds": [
+          4,
+          2
+        ]
+      }
+    ]
+  },
+  "fixtures": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\01ee2117c881139d9f8bd48129bc2ffab0c41abba837c3598f87a8d62e2ac801.json",
+      "sha256": "01ee2117c881139d9f8bd48129bc2ffab0c41abba837c3598f87a8d62e2ac801",
+      "bytes": 18667,
+      "source": "C:\\Users\\prest\\AppData\\Local\\Temp\\pytest-of-prest\\pytest-3102\\test_vfx_hub_incomplete_still_0\\vfx_completion_observation.json"
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\47219b3560daf2b4e06afc8aa7f62978e28c360ae34bce7577def83486023802.json",
+      "sha256": "47219b3560daf2b4e06afc8aa7f62978e28c360ae34bce7577def83486023802",
+      "bytes": 18696,
+      "source": "C:\\Users\\prest\\AppData\\Local\\Temp\\pytest-of-prest\\pytest-3102\\test_vfx_hub_incomplete_still_1\\vfx_completion_observation.json"
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\ce760a92a2d48aa111f80f78eff9e688f3064ee40d1a5e8ad6599abacd355e56.json",
+      "sha256": "ce760a92a2d48aa111f80f78eff9e688f3064ee40d1a5e8ad6599abacd355e56",
+      "bytes": 18715,
+      "source": "C:\\Users\\prest\\AppData\\Local\\Temp\\pytest-of-prest\\pytest-3102\\test_vfx_hub_incomplete_still_2\\vfx_completion_observation.json"
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\fba79d4ba5203cfacaf3bde2d19c2dd8e1e2bea7b16c6d1fe650be9adb67af58.json",
+      "sha256": "fba79d4ba5203cfacaf3bde2d19c2dd8e1e2bea7b16c6d1fe650be9adb67af58",
+      "bytes": 18717,
+      "source": "C:\\Users\\prest\\AppData\\Local\\Temp\\pytest-of-prest\\pytest-3102\\test_vfx_hub_incomplete_still_3\\vfx_completion_observation.json"
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a27c2900f174b03fb84214a66b1e2d0e1edfaf0e554e78ae8dc3de0f36b4ab1b.json",
+      "sha256": "a27c2900f174b03fb84214a66b1e2d0e1edfaf0e554e78ae8dc3de0f36b4ab1b",
+      "bytes": 18698,
+      "source": "C:\\Users\\prest\\AppData\\Local\\Temp\\pytest-of-prest\\pytest-3102\\test_vfx_hub_incomplete_still_4\\vfx_completion_observation.json"
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\170af09f798213f7a3081e674e22eb293f67658002726d774886633d4ba26140.json",
+      "sha256": "170af09f798213f7a3081e674e22eb293f67658002726d774886633d4ba26140",
+      "bytes": 19628,
+      "source": "C:\\Users\\prest\\AppData\\Local\\Temp\\pytest-of-prest\\pytest-3102\\test_vfx_hub_incomplete_still_5\\vfx_completion_observation.json"
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8841583a1113998dba1c3d4c53b36f76e3ad5aaaa760e3687b330f3cba9257fa.json",
+      "sha256": "8841583a1113998dba1c3d4c53b36f76e3ad5aaaa760e3687b330f3cba9257fa",
+      "bytes": 20073,
+      "source": "C:\\Users\\prest\\AppData\\Local\\Temp\\pytest-of-prest\\pytest-3102\\test_vfx_hub_incomplete_still_6\\vfx_completion_observation.json"
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0381e4c0b48f8bb0d0137ae9b4bed3335f409e3c840bb0867476263baea69cc1.json",
+      "sha256": "0381e4c0b48f8bb0d0137ae9b4bed3335f409e3c840bb0867476263baea69cc1",
+      "bytes": 19154,
+      "source": "C:\\Users\\prest\\AppData\\Local\\Temp\\pytest-of-prest\\pytest-3102\\test_vfx_hub_incomplete_still_7\\vfx_completion_observation.json"
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\03d16e12654ae9485cc745469cefe6ca20c6320fa81586259e7c864611d8aad4.json",
+      "sha256": "03d16e12654ae9485cc745469cefe6ca20c6320fa81586259e7c864611d8aad4",
+      "bytes": 25875,
+      "source": "C:\\Users\\prest\\AppData\\Local\\Temp\\pytest-of-prest\\pytest-3102\\test_vfx_hub_incomplete_still_8\\vfx_completion_observation.json"
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c5e230a498b7d3fc968e879718e43aeeaafcc2f6ff8d3ab07970df9721d276f1.json",
+      "sha256": "c5e230a498b7d3fc968e879718e43aeeaafcc2f6ff8d3ab07970df9721d276f1",
+      "bytes": 16683,
+      "source": "C:\\Users\\prest\\AppData\\Local\\Temp\\pytest-of-prest\\pytest-3102\\test_vfx_hub_incomplete_still_9\\vfx_completion_observation.json"
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7ef9e7f9a3cda1400135892e6265294faf5bca0d67bb3329ea1815d3f5bf188a.json",
+      "sha256": "7ef9e7f9a3cda1400135892e6265294faf5bca0d67bb3329ea1815d3f5bf188a",
+      "bytes": 20552,
+      "source": "C:\\Users\\prest\\AppData\\Local\\Temp\\pytest-of-prest\\pytest-3102\\test_vfx_hub_two_entry_witness0\\vfx_completion_observation.json"
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\3a8e97e8807f7acf70c38ef6e23aaf138482d9d871e1201f9bf6dd300bdcd860.exe",
+      "sha256": "3a8e97e8807f7acf70c38ef6e23aaf138482d9d871e1201f9bf6dd300bdcd860",
+      "bytes": 597504,
+      "source": "C:\\Users\\prest\\AppData\\Local\\Temp\\pytest-of-prest\\pytest-3102\\vfx-completion-native0\\vfx-observation.exe"
+    }
+  ],
+  "final_inventory": {
+    "non_owned_game_pid": 91812,
+    "game_not_launched_or_touched": true,
+    "steam_pid": 98544,
+    "no_owned_fixture_or_test_process_remaining": true
+  }
+}

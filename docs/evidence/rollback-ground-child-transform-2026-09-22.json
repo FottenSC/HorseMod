@@ -1,0 +1,81 @@
+{
+  "change": "Own ground child world transforms required by native impulse consumer; reconstruction graph admission remains guarded.",
+  "red": {
+    "HorseMod/horselib/deterministic/Sc6ReplayHost.GroundDebris.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\54f8bd93e4fa11aa0de8c30eb380bbcf3c7fbc65ba8a6f9fa55f0ebcfa1ec378.inl",
+      "sha256": "54f8bd93e4fa11aa0de8c30eb380bbcf3c7fbc65ba8a6f9fa55f0ebcfa1ec378",
+      "bytes": 69682
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayGroundDebrisState.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8126d1588764cc919f848e85fd4f5ad310c93b9921c6b2d7e3d9d920aaefefec.hpp",
+      "sha256": "8126d1588764cc919f848e85fd4f5ad310c93b9921c6b2d7e3d9d920aaefefec",
+      "bytes": 3751
+    },
+    "tools/replay_ground_capture_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b637e114569eff30637e4ec39e5c9a512add234c961ccee77718ff246ef365a1.cpp",
+      "sha256": "b637e114569eff30637e4ec39e5c9a512add234c961ccee77718ff246ef365a1",
+      "bytes": 3939
+    },
+    "tools/deterministic_qualification/tests/test_replay_run.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c1e6bc361e66d4f4916ace9402666f4d0a5cd8431da57f28fe8e314c0f8864e9.py",
+      "sha256": "c1e6bc361e66d4f4916ace9402666f4d0a5cd8431da57f28fe8e314c0f8864e9",
+      "bytes": 484996
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/ground-child-transform-red.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1fd38fb046bf4b7dd89cada5cbf97ebf7fad148f16192b025cb5f31920736281.log",
+      "sha256": "1fd38fb046bf4b7dd89cada5cbf97ebf7fad148f16192b025cb5f31920736281",
+      "bytes": 2969
+    }
+  },
+  "green": {
+    "HorseMod/horselib/deterministic/Sc6ReplayHost.GroundDebris.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e86d65fd6f181b439e0ebcc4485c9254f53181de28d0205b36e2ed2046eacc17.inl",
+      "sha256": "e86d65fd6f181b439e0ebcc4485c9254f53181de28d0205b36e2ed2046eacc17",
+      "bytes": 69737
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayGroundDebrisState.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8126d1588764cc919f848e85fd4f5ad310c93b9921c6b2d7e3d9d920aaefefec.hpp",
+      "sha256": "8126d1588764cc919f848e85fd4f5ad310c93b9921c6b2d7e3d9d920aaefefec",
+      "bytes": 3751
+    },
+    "tools/replay_ground_capture_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b637e114569eff30637e4ec39e5c9a512add234c961ccee77718ff246ef365a1.cpp",
+      "sha256": "b637e114569eff30637e4ec39e5c9a512add234c961ccee77718ff246ef365a1",
+      "bytes": 3939
+    },
+    "tools/deterministic_qualification/tests/test_replay_run.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c1e6bc361e66d4f4916ace9402666f4d0a5cd8431da57f28fe8e314c0f8864e9.py",
+      "sha256": "c1e6bc361e66d4f4916ace9402666f4d0a5cd8431da57f28fe8e314c0f8864e9",
+      "bytes": 484996
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/ground-child-transform-green.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a67c646618263b0d9cda4210ec43a7e90502cabbb9434073a65e0f24456c259f.log",
+      "sha256": "a67c646618263b0d9cda4210ec43a7e90502cabbb9434073a65e0f24456c259f",
+      "bytes": 101
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/ground-child-transform-build.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\beb55ce43532794a2c8199157e3841bc871022b73a29f95f8d6b39dfd59b32a0.log",
+      "sha256": "beb55ce43532794a2c8199157e3841bc871022b73a29f95f8d6b39dfd59b32a0",
+      "bytes": 336
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/build-provenance.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9fc4f87fb1e1c9da159c313c3bafee25c304e0fde0e11a960dc38f6145b084f5.json",
+      "sha256": "9fc4f87fb1e1c9da159c313c3bafee25c304e0fde0e11a960dc38f6145b084f5",
+      "bytes": 2020
+    }
+  },
+  "native": {
+    "program": "SoulcaliburVI.exe",
+    "consumer": "14089FF80 reads child+280..288; FTransform starts+270. Impulse phase must not be replayed during preparation.",
+    "constructor": "1408A2CA0 registers child components with the world inside its loop, before returning. It cannot be invoked directly as a private B-preserving factory.",
+    "annotations": "Plate comments at 14089FF80 and 1408A2CA0 written, read back and saved through native MCP; no prototype/type rewrite claimed."
+  },
+  "validation": {
+    "focused_ground_tests": 3,
+    "required_ctest_total": 2,
+    "required_ctest_failed": 0,
+    "build": "pass",
+    "native_combat_run": "not run; transform capture does not yet replace the expired companion",
+    "gates_promoted": []
+  }
+}

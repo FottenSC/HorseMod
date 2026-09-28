@@ -1,0 +1,360 @@
+[
+  {
+    "call": "disassemble_function",
+    "args": {
+      "address": "1404834D0",
+      "program": "SoulcaliburVI.exe"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "1404834d0: PUSH RBX \n1404834d2: SUB RSP,0x20 \n1404834d6: MOV RBX,RCX \n1404834d9: CALL 0x140562320 \n1404834de: MOVSS XMM1,dword ptr [0x143e8a05c] \n1404834e6: MOV RCX,RBX \n1404834e9: CALL 0x140487370 \n1404834ee: MOVSS XMM1,dword ptr [0x143e8a05c] \n1404834f6: MOV RCX,RBX \n1404834f9: CALL 0x1404879e0 \n1404834fe: MOV byte ptr [RBX + 0x3a8],0x0 \n140483505: ADD RSP,0x20 \n140483509: POP RBX \n14048350a: RET \n"
+        }
+      ],
+      "structuredContent": {
+        "result": "1404834d0: PUSH RBX \n1404834d2: SUB RSP,0x20 \n1404834d6: MOV RBX,RCX \n1404834d9: CALL 0x140562320 \n1404834de: MOVSS XMM1,dword ptr [0x143e8a05c] \n1404834e6: MOV RCX,RBX \n1404834e9: CALL 0x140487370 \n1404834ee: MOVSS XMM1,dword ptr [0x143e8a05c] \n1404834f6: MOV RCX,RBX \n1404834f9: CALL 0x1404879e0 \n1404834fe: MOV byte ptr [RBX + 0x3a8],0x0 \n140483505: ADD RSP,0x20 \n140483509: POP RBX \n14048350a: RET \n"
+      },
+      "isError": false
+    }
+  },
+  {
+    "call": "validate_function_prototype",
+    "args": {
+      "function_address": "1404834D0",
+      "prototype": "void TickBattleColorFadeManager(void *pManager, float fDeltaSeconds)",
+      "calling_convention": "__fastcall",
+      "program": "SoulcaliburVI.exe"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"valid\":true}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"valid\":true}"
+      },
+      "isError": false
+    }
+  },
+  {
+    "call": "get_plate_comment",
+    "args": {
+      "address": "1404834D0",
+      "program": "SoulcaliburVI.exe"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"address\":\"1404834d0\",\"function_name\":\"INFERRED_LuxBattleActor_Tick_ProcessMoveFramesAndZeroAt3a8\",\"comment\":\"INFERRED_LuxBattleActor_Tick_ProcessMoveFramesAndZeroAt3a8\\n\\n==========================================================================\\nWARNING: NAME IS INFERRED, NOT VERIFIED\\n==========================================================================\\nThis function was identified by an Explore agent in 2026-04 as a possible\\n\\\"unhooked tick handler that mutates replay state.\\\" The agent's claim was\\nthat it ZEROs `chara+0x3A8` every frame, which (the agent reasoned) is\\nthe recorded-frame-buffer pointer on ALuxBattleFrameInputLog, so this\\nfunction is leaking replay state during HorseMod freeze.\\n\\nThat reasoning is structurally wrong: +0x3A8 is `pRecordedFrameBuffer`\\nONLY on ALuxBattleFrameInputLog. On other UE4 actors +0x3A8 is a\\ndifferent (smaller) field — typically a single byte. If this function\\nactually zeroed the FrameInputLog's buffer pointer, the next replay tick\\nwould crash (LuxReplayChara_Tick dereferences +0x3A8 for memcpy).\\nThe game does NOT crash, so this function is operating on a different\\nobject whose +0x3A8 is benign.\\n\\nWhat the function actually does (from decompile):\\n  1. AActor_TickActor() — parent UE4 super-call (so it IS a real\\n     Actor::Tick handler).\\n  2. Calls FUN_140487370(this, DAT_143E8A05C) — large 3KB+ helper.\\n  3. Calls FUN_1404879E0(this, DAT_143E8A05C) — large 3KB+ helper.\\n  4. Writes `*(byte*)(this+0x3A8) = 0` — zeroes a flag byte.\\n\\nWhat kind of actor it is: UNKNOWN. The class registration that maps to\\nthis vtable hasn't been identified. Could be any of the auxiliary\\nactors (StageInfinityManager, BattleAnnounce, CameraActor, etc.).\\n\\nDO NOT add a HorseMod freeze patch here without first proving (via\\nhardware breakpoint or runtime logging) that this function actually\\nmutates replay-relevant state during a HorseMod freeze. The previous\\nKeyRecorder hook (site 17) was added on similar speculation and caused\\na regression.\"}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"address\":\"1404834d0\",\"function_name\":\"INFERRED_LuxBattleActor_Tick_ProcessMoveFramesAndZeroAt3a8\",\"comment\":\"INFERRED_LuxBattleActor_Tick_ProcessMoveFramesAndZeroAt3a8\\n\\n==========================================================================\\nWARNING: NAME IS INFERRED, NOT VERIFIED\\n==========================================================================\\nThis function was identified by an Explore agent in 2026-04 as a possible\\n\\\"unhooked tick handler that mutates replay state.\\\" The agent's claim was\\nthat it ZEROs `chara+0x3A8` every frame, which (the agent reasoned) is\\nthe recorded-frame-buffer pointer on ALuxBattleFrameInputLog, so this\\nfunction is leaking replay state during HorseMod freeze.\\n\\nThat reasoning is structurally wrong: +0x3A8 is `pRecordedFrameBuffer`\\nONLY on ALuxBattleFrameInputLog. On other UE4 actors +0x3A8 is a\\ndifferent (smaller) field — typically a single byte. If this function\\nactually zeroed the FrameInputLog's buffer pointer, the next replay tick\\nwould crash (LuxReplayChara_Tick dereferences +0x3A8 for memcpy).\\nThe game does NOT crash, so this function is operating on a different\\nobject whose +0x3A8 is benign.\\n\\nWhat the function actually does (from decompile):\\n  1. AActor_TickActor() — parent UE4 super-call (so it IS a real\\n     Actor::Tick handler).\\n  2. Calls FUN_140487370(this, DAT_143E8A05C) — large 3KB+ helper.\\n  3. Calls FUN_1404879E0(this, DAT_143E8A05C) — large 3KB+ helper.\\n  4. Writes `*(byte*)(this+0x3A8) = 0` — zeroes a flag byte.\\n\\nWhat kind of actor it is: UNKNOWN. The class registration that maps to\\nthis vtable hasn't been identified. Could be any of the auxiliary\\nactors (StageInfinityManager, BattleAnnounce, CameraActor, etc.).\\n\\nDO NOT add a HorseMod freeze patch here without first proving (via\\nhardware breakpoint or runtime logging) that this function actually\\nmutates replay-relevant state during a HorseMod freeze. The previous\\nKeyRecorder hook (site 17) was added on similar speculation and caused\\na regression.\"}"
+      },
+      "isError": false
+    }
+  },
+  {
+    "call": "rename_function_by_address",
+    "args": {
+      "function_address": "1404834D0",
+      "new_name": "TickBattleColorFadeManager",
+      "program": "SoulcaliburVI.exe"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"status\":\"success\",\"message\":\"Success: Renamed function at 0x1404834d0 from 'INFERRED_LuxBattleActor_Tick_ProcessMoveFramesAndZeroAt3a8' to 'TickBattleColorFadeManager'\",\"warnings\":[\"Function name 'TickBattleColorFadeManager' does not start with a recognized verb. First word 'Tick' not in allowed list. Common verbs: Get, Set, Initialize, Process, Calculate, Find, Check, Handle\"]}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"status\":\"success\",\"message\":\"Success: Renamed function at 0x1404834d0 from 'INFERRED_LuxBattleActor_Tick_ProcessMoveFramesAndZeroAt3a8' to 'TickBattleColorFadeManager'\",\"warnings\":[\"Function name 'TickBattleColorFadeManager' does not start with a recognized verb. First word 'Tick' not in allowed list. Common verbs: Get, Set, Initialize, Process, Calculate, Find, Check, Handle\"]}"
+      },
+      "isError": false
+    }
+  },
+  {
+    "call": "set_function_prototype",
+    "args": {
+      "function_address": "1404834D0",
+      "prototype": "void TickBattleColorFadeManager(void *pManager, float fDeltaSeconds)",
+      "calling_convention": "__fastcall",
+      "program": "SoulcaliburVI.exe"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "Successfully set prototype for function at 0x1404834d0 with __fastcall calling convention"
+        }
+      ],
+      "structuredContent": {
+        "result": "Successfully set prototype for function at 0x1404834d0 with __fastcall calling convention"
+      },
+      "isError": false
+    }
+  },
+  {
+    "call": "get_function_variables",
+    "args": {
+      "address": "1404834D0",
+      "program": "SoulcaliburVI.exe"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"function_name\":\"TickBattleColorFadeManager\",\"function_address\":\"1404834d0\",\"parameters\":[{\"name\":\"pManager\",\"type\":\"void *\",\"ordinal\":0,\"storage\":\"RCX:8\",\"needs_type\":false,\"needs_rename\":false,\"suggested_prefix\":\"p\"},{\"name\":\"fDeltaSeconds\",\"type\":\"float\",\"ordinal\":1,\"storage\":\"XMM1_Da:4\",\"needs_type\":false,\"needs_rename\":false,\"suggested_prefix\":\"fl\"}],\"locals\":[],\"total_locals\":0}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"function_name\":\"TickBattleColorFadeManager\",\"function_address\":\"1404834d0\",\"parameters\":[{\"name\":\"pManager\",\"type\":\"void *\",\"ordinal\":0,\"storage\":\"RCX:8\",\"needs_type\":false,\"needs_rename\":false,\"suggested_prefix\":\"p\"},{\"name\":\"fDeltaSeconds\",\"type\":\"float\",\"ordinal\":1,\"storage\":\"XMM1_Da:4\",\"needs_type\":false,\"needs_rename\":false,\"suggested_prefix\":\"fl\"}],\"locals\":[],\"total_locals\":0}"
+      },
+      "isError": false
+    }
+  },
+  {
+    "call": "set_plate_comment",
+    "args": {
+      "address": "1404834D0",
+      "comment": "Tick the LuxBattleColorFadeManager lane state and clear its per-tick flag.\n\nIdentity:\n  Receiver table1432A2A28 belongs to LuxBattleColorFadeManager (constructor140440CD0 and class registration1408E2040).\n  Table+418 at1432A2E40 points here. The selected live disable-hub row2 receiver has this exact table.\n  This supersedes the old unknown-actor/FrameInputLog interpretation. +3A8 is written as one byte, not a replay-buffer pointer.\n\nAlgorithm:\n1. ForwardActorBaseTick at140562320 receives the original RCX manager and XMM1 delta.\n2. Call140487370 with the fixed float at143E8A05C; it updates the manager+390/+398 player arrays and their lane/entry state, including pending fade removals.\n3. Call1404879E0 with the same fixed step.\n4. Clear manager+3A8 byte at1404834FE.\n\nParameters:\n  pManager: borrowed receiver in RCX; kept as void* because this function only needs its address and raw flag offset.\n  fDeltaSeconds: float XMM1, forwarded to the parent tick.\nReturns: void.\n\nRollback relevance:\n  Disable callback1404704F0 persists lane changes before this later tick. 140487370 calls140480F70 at140487924, reaching140481400 dynamic material parameter writes/commit.\n  Callback return is not application/render/GPU completion and does not prove a complete-B participant. Do not suppress this tick or infer replay ownership from a coincident field offset.\n  Existing names/types within140487370 refer to Chara/move slots; those annotations are not independent receiver identity evidence. This entry's table and raw call chain establish the color-fade receiver.\n\nSource: existing SoulcaliburVI.exe; table xref, raw Win64 disassembly and lane/material consumers verified2026-09-24.",
+      "program": "SoulcaliburVI.exe"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"status\":\"success\",\"message\":\"Set plate comment for function at 0x1404834d0\"}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"status\":\"success\",\"message\":\"Set plate comment for function at 0x1404834d0\"}"
+      },
+      "isError": false
+    }
+  },
+  {
+    "call": "get_plate_comment",
+    "args": {
+      "address": "1404834D0",
+      "program": "SoulcaliburVI.exe"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"address\":\"1404834d0\",\"function_name\":\"TickBattleColorFadeManager\",\"comment\":\"Tick the LuxBattleColorFadeManager lane state and clear its per-tick flag.\\n\\nIdentity:\\n  Receiver table1432A2A28 belongs to LuxBattleColorFadeManager (constructor140440CD0 and class registration1408E2040).\\n  Table+418 at1432A2E40 points here. The selected live disable-hub row2 receiver has this exact table.\\n  This supersedes the old unknown-actor/FrameInputLog interpretation. +3A8 is written as one byte, not a replay-buffer pointer.\\n\\nAlgorithm:\\n1. ForwardActorBaseTick at140562320 receives the original RCX manager and XMM1 delta.\\n2. Call140487370 with the fixed float at143E8A05C; it updates the manager+390/+398 player arrays and their lane/entry state, including pending fade removals.\\n3. Call1404879E0 with the same fixed step.\\n4. Clear manager+3A8 byte at1404834FE.\\n\\nParameters:\\n  pManager: borrowed receiver in RCX; kept as void* because this function only needs its address and raw flag offset.\\n  fDeltaSeconds: float XMM1, forwarded to the parent tick.\\nReturns: void.\\n\\nRollback relevance:\\n  Disable callback1404704F0 persists lane changes before this later tick. 140487370 calls140480F70 at140487924, reaching140481400 dynamic material parameter writes/commit.\\n  Callback return is not application/render/GPU completion and does not prove a complete-B participant. Do not suppress this tick or infer replay ownership from a coincident field offset.\\n  Existing names/types within140487370 refer to Chara/move slots; those annotations are not independent receiver identity evidence. This entry's table and raw call chain establish the color-fade receiver.\\n\\nSource: existing SoulcaliburVI.exe; table xref, raw Win64 disassembly and lane/material consumers verified2026-09-24.\"}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"address\":\"1404834d0\",\"function_name\":\"TickBattleColorFadeManager\",\"comment\":\"Tick the LuxBattleColorFadeManager lane state and clear its per-tick flag.\\n\\nIdentity:\\n  Receiver table1432A2A28 belongs to LuxBattleColorFadeManager (constructor140440CD0 and class registration1408E2040).\\n  Table+418 at1432A2E40 points here. The selected live disable-hub row2 receiver has this exact table.\\n  This supersedes the old unknown-actor/FrameInputLog interpretation. +3A8 is written as one byte, not a replay-buffer pointer.\\n\\nAlgorithm:\\n1. ForwardActorBaseTick at140562320 receives the original RCX manager and XMM1 delta.\\n2. Call140487370 with the fixed float at143E8A05C; it updates the manager+390/+398 player arrays and their lane/entry state, including pending fade removals.\\n3. Call1404879E0 with the same fixed step.\\n4. Clear manager+3A8 byte at1404834FE.\\n\\nParameters:\\n  pManager: borrowed receiver in RCX; kept as void* because this function only needs its address and raw flag offset.\\n  fDeltaSeconds: float XMM1, forwarded to the parent tick.\\nReturns: void.\\n\\nRollback relevance:\\n  Disable callback1404704F0 persists lane changes before this later tick. 140487370 calls140480F70 at140487924, reaching140481400 dynamic material parameter writes/commit.\\n  Callback return is not application/render/GPU completion and does not prove a complete-B participant. Do not suppress this tick or infer replay ownership from a coincident field offset.\\n  Existing names/types within140487370 refer to Chara/move slots; those annotations are not independent receiver identity evidence. This entry's table and raw call chain establish the color-fade receiver.\\n\\nSource: existing SoulcaliburVI.exe; table xref, raw Win64 disassembly and lane/material consumers verified2026-09-24.\"}"
+      },
+      "isError": false
+    }
+  },
+  {
+    "call": "decompile_function",
+    "args": {
+      "address": "1404834D0",
+      "program": "SoulcaliburVI.exe"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "\r\n/* Tick the LuxBattleColorFadeManager lane state and clear its per-tick flag.\r\n   \r\n   Identity:\r\n     Receiver table1432A2A28 belongs to LuxBattleColorFadeManager (constructor140440CD0 and class\r\n   registration1408E2040).\r\n     Table+418 at1432A2E40 points here. The selected live disable-hub row2 receiver has this exact\r\n   table.\r\n     This supersedes the old unknown-actor/FrameInputLog interpretation. +3A8 is written as one\r\n   byte, not a replay-buffer pointer.\r\n   \r\n   Algorithm:\r\n   1. ForwardActorBaseTick at140562320 receives the original RCX manager and XMM1 delta.\r\n   2. Call140487370 with the fixed float at143E8A05C; it updates the manager+390/+398 player arrays\r\n   and their lane/entry state, including pending fade removals.\r\n   3. Call1404879E0 with the same fixed step.\r\n   4. Clear manager+3A8 byte at1404834FE.\r\n   \r\n   Parameters:\r\n     pManager: borrowed receiver in RCX; kept as void* because this function only needs its address\r\n   and raw flag offset.\r\n     fDeltaSeconds: float XMM1, forwarded to the parent tick.\r\n   Returns: void.\r\n   \r\n   Rollback relevance:\r\n     Disable callback1404704F0 persists lane changes before this later tick. 140487370\r\n   calls140480F70 at140487924, reaching140481400 dynamic material parameter writes/commit.\r\n     Callback return is not application/render/GPU completion and does not prove a complete-B\r\n   participant. Do not suppress this tick or infer replay ownership from a coincident field offset.\r\n     Existing names/types within140487370 refer to Chara/move slots; those annotations are not\r\n   independent receiver identity evidence. This entry's table and raw call chain establish the\r\n   color-fade receiver.\r\n   \r\n   Source: existing SoulcaliburVI.exe; table xref, raw Win64 disassembly and lane/material consumers\r\n   verified2026-09-24. */\r\n\r\nvoid TickBattleColorFadeManager(void *pManager,float fDeltaSeconds)\r\n\r\n{\r\n  ForwardActorBaseTick(pManager,fDeltaSeconds);\r\n  LuxBattleChara_ProcessMoveSlotsAndDispatch(pManager,g_flFramesToSeconds60Hz);\r\n  LuxBattleChara_DecayMoveCountersAndApplySoulCharge(pManager,g_flFramesToSeconds60Hz);\r\n  *(undefined1 *)((longlong)pManager + 0x3a8) = 0;\r\n  return;\r\n}\r\n\r\n"
+        }
+      ],
+      "structuredContent": {
+        "result": "\r\n/* Tick the LuxBattleColorFadeManager lane state and clear its per-tick flag.\r\n   \r\n   Identity:\r\n     Receiver table1432A2A28 belongs to LuxBattleColorFadeManager (constructor140440CD0 and class\r\n   registration1408E2040).\r\n     Table+418 at1432A2E40 points here. The selected live disable-hub row2 receiver has this exact\r\n   table.\r\n     This supersedes the old unknown-actor/FrameInputLog interpretation. +3A8 is written as one\r\n   byte, not a replay-buffer pointer.\r\n   \r\n   Algorithm:\r\n   1. ForwardActorBaseTick at140562320 receives the original RCX manager and XMM1 delta.\r\n   2. Call140487370 with the fixed float at143E8A05C; it updates the manager+390/+398 player arrays\r\n   and their lane/entry state, including pending fade removals.\r\n   3. Call1404879E0 with the same fixed step.\r\n   4. Clear manager+3A8 byte at1404834FE.\r\n   \r\n   Parameters:\r\n     pManager: borrowed receiver in RCX; kept as void* because this function only needs its address\r\n   and raw flag offset.\r\n     fDeltaSeconds: float XMM1, forwarded to the parent tick.\r\n   Returns: void.\r\n   \r\n   Rollback relevance:\r\n     Disable callback1404704F0 persists lane changes before this later tick. 140487370\r\n   calls140480F70 at140487924, reaching140481400 dynamic material parameter writes/commit.\r\n     Callback return is not application/render/GPU completion and does not prove a complete-B\r\n   participant. Do not suppress this tick or infer replay ownership from a coincident field offset.\r\n     Existing names/types within140487370 refer to Chara/move slots; those annotations are not\r\n   independent receiver identity evidence. This entry's table and raw call chain establish the\r\n   color-fade receiver.\r\n   \r\n   Source: existing SoulcaliburVI.exe; table xref, raw Win64 disassembly and lane/material consumers\r\n   verified2026-09-24. */\r\n\r\nvoid TickBattleColorFadeManager(void *pManager,float fDeltaSeconds)\r\n\r\n{\r\n  ForwardActorBaseTick(pManager,fDeltaSeconds);\r\n  LuxBattleChara_ProcessMoveSlotsAndDispatch(pManager,g_flFramesToSeconds60Hz);\r\n  LuxBattleChara_DecayMoveCountersAndApplySoulCharge(pManager,g_flFramesToSeconds60Hz);\r\n  *(undefined1 *)((longlong)pManager + 0x3a8) = 0;\r\n  return;\r\n}\r\n\r\n"
+      },
+      "isError": false
+    }
+  },
+  {
+    "call": "analyze_function_completeness",
+    "args": {
+      "function_address": "1404834D0",
+      "compact": true,
+      "program": "SoulcaliburVI.exe"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"function_name\":\"TickBattleColorFadeManager\",\"classification\":\"worker\",\"is_thunk\":false,\"has_custom_name\":true,\"has_prototype\":true,\"has_calling_convention\":true,\"is_stub\":false,\"is_compiler_helper\":false,\"documentation_profile\":\"worker\",\"return_type\":\"void\",\"return_type_resolved\":true,\"has_plate_comment\":true,\"plate_issues\":0,\"decompilation_available\":true,\"undefined_count\":0,\"phantom_count\":0,\"hungarian_violations\":2,\"type_quality_issues\":2,\"globals_unrenamed\":0,\"labels_unrenamed\":0,\"ordinals_undocumented\":0,\"magic_numbers_undocumented\":2,\"struct_accesses_unresolved\":0,\"inline_comment_count\":0,\"disasm_comment_count\":0,\"code_line_count\":6,\"comment_density\":0.0,\"completeness_score\":86.04255912362459,\"effective_score\":87.97682315979729,\"all_deductions_unfixable\":false,\"fixable_deductions\":12.023176840202703,\"structural_deductions\":1.934264036172708,\"max_achievable_score\":98.0657359638273,\"deduction_count\":4,\"has_renameable_variables\":false}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"function_name\":\"TickBattleColorFadeManager\",\"classification\":\"worker\",\"is_thunk\":false,\"has_custom_name\":true,\"has_prototype\":true,\"has_calling_convention\":true,\"is_stub\":false,\"is_compiler_helper\":false,\"documentation_profile\":\"worker\",\"return_type\":\"void\",\"return_type_resolved\":true,\"has_plate_comment\":true,\"plate_issues\":0,\"decompilation_available\":true,\"undefined_count\":0,\"phantom_count\":0,\"hungarian_violations\":2,\"type_quality_issues\":2,\"globals_unrenamed\":0,\"labels_unrenamed\":0,\"ordinals_undocumented\":0,\"magic_numbers_undocumented\":2,\"struct_accesses_unresolved\":0,\"inline_comment_count\":0,\"disasm_comment_count\":0,\"code_line_count\":6,\"comment_density\":0.0,\"completeness_score\":86.04255912362459,\"effective_score\":87.97682315979729,\"all_deductions_unfixable\":false,\"fixable_deductions\":12.023176840202703,\"structural_deductions\":1.934264036172708,\"max_achievable_score\":98.0657359638273,\"deduction_count\":4,\"has_renameable_variables\":false}"
+      },
+      "isError": false
+    }
+  },
+  {
+    "call": "save_program",
+    "args": {
+      "program": "SoulcaliburVI.exe"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"success\":true,\"program\":\"SoulcaliburVI.exe\",\"message\":\"Program saved successfully\"}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"success\":true,\"program\":\"SoulcaliburVI.exe\",\"message\":\"Program saved successfully\"}"
+      },
+      "isError": false
+    }
+  },
+  {
+    "call": "analyze_function_completeness",
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"function_name\":\"TickBattleColorFadeManager\",\"classification\":\"worker\",\"is_thunk\":false,\"has_custom_name\":true,\"has_prototype\":true,\"has_calling_convention\":true,\"is_stub\":false,\"is_compiler_helper\":false,\"documentation_profile\":\"worker\",\"return_type\":\"void\",\"return_type_resolved\":true,\"has_plate_comment\":true,\"plate_comment_issues\":[],\"decompilation_available\":true,\"undefined_variables\":[],\"phantom_variables\":[],\"hungarian_notation_violations\":[\"fDeltaSeconds (type: float, expected prefix: fl)\",\"fDeltaSeconds (type: float, expected prefix: fl)\"],\"type_quality_issues\":[\"Generic void* parameter: pManager (should use specific structure type)\",\"Generic void* local: pManager (p-prefix suggests typed struct pointer — create struct with create_struct() then set_local_variable_type())\"],\"unrenamed_globals\":[],\"unrenamed_labels\":[],\"undocumented_ordinals\":[],\"undocumented_magic_numbers\":[\"0x20 at 1404834d2\",\"0x20 at 140483505\"],\"unresolved_struct_accesses\":[],\"inline_comment_count\":0,\"disasm_comment_count\":0,\"code_line_count\":6,\"comment_density\":0.0,\"completeness_score\":86.04255912362459,\"effective_score\":87.97682315979729,\"all_deductions_unfixable\":false,\"fixable_deductions\":12.023176840202703,\"structural_deductions\":1.934264036172708,\"max_achievable_score\":98.0657359638273,\"deduction_breakdown\":[{\"category\":\"hungarian_violations\",\"points\":3.154648767857287,\"fixable\":true,\"count\":1,\"description\":\"Variables violate naming convention for their data types\"},{\"category\":\"hungarian_violations_structural\",\"points\":1.934264036172708,\"fixable\":false,\"count\":1,\"description\":\"Hungarian mismatch on non-renameable register-only/thunk variables\"},{\"category\":\"type_quality\",\"points\":5.0,\"fixable\":true,\"count\":1,\"description\":\"Type quality problems requiring better struct/pointer typing\"},{\"category\":\"local_type_quality\",\"points\":3.868528072345416,\"fixable\":true,\"count\":1,\"description\":\"Local variables with generic void*/int* types need struct typing\"}],\"has_renameable_variables\":false,\"recommendations\":[\"UNDOCUMENTED MAGIC NUMBERS - Add EOL comments for hex/numeric constants:\",\"1. Found 2 instruction(s) with undocumented constants: 0x20 at 1404834d2, 0x20 at 140483505\",\"2. Use batch_set_comments() with EOL_COMMENTs to explain each constant\",\"3. Common patterns: struct offsets (document field name), enum values, bit masks, array sizes\",\"HUNGARIAN NOTATION VIOLATIONS - Follow FUNCTION_DOC_WORKFLOW_V4.md 'Local Variable Renaming' section and docs/HUNGARIAN_NOTATION.md:\",\"1. Verify type-to-prefix mapping matches Ghidra type:\",\"   - byte -> b/by | char -> c/ch | bool -> f | short -> n/s | ushort -> w\",\"   - int -> n/i | uint -> dw | long -> l | ulong -> dw\",\"   - longlong -> ll | ulonglong -> qw | float -> fl | double -> d\",\"   - void* -> p | typed pointers -> p+StructName (pUnitAny)\",\"   - byte[N] -> ab | ushort[N] -> aw | uint[N] -> ad\",\"   - char* -> sz/lpsz | wchar_t* -> wsz\",\"2. First set correct type with set_local_variable_type() using lowercase builtin\",\"3. Then rename with rename_variables() using correct Hungarian prefix\",\"4. For globals, add g_ prefix before type prefix: g_dwProcessId, g_abEncryptionKey\",\"TYPE QUALITY ISSUES - Follow FUNCTION_DOC_WORKFLOW_V4.md 'Structure Identification' section:\",\"1. Replace generic void* parameters with specific structure types using set_function_prototype()\",\"   Example: void ProcessData(void* pData) -> void ProcessData(UnitAny* pUnit)\",\"1. Replace generic void* parameters with specific structure types using set_function_prototype()\",\"   Example: void ProcessData(void* pData) -> void ProcessData(UnitAny* pUnit)\",\"COMPLETE WORKFLOW (FUNCTION_DOC_WORKFLOW_V4.md):\",\"1. Initialize: get_current_selection() + analyze_function_complete() -- gather decompiled code, xrefs, callees, callers, disassembly, variables\",\"2. Classify: Leaf/Worker/Thunk/Init/Callback/Public API/Internal utility\",\"3. Mandatory Undefined Type Audit: examine BOTH decompiled code and disassembly for undefined types\",\"4. Verify Decompiler vs Assembly: loops, type casts, pointer arithmetic, conditionals, early exits\",\"5. Control Flow + Loop Mapping: return points, loop headers/bounds/stride, error paths\",\"6. Structure Identification: search_data_types() or create_struct(), memory model docs\",\"7. Rename + Prototype: rename_function_by_address() (PascalCase) + set_function_prototype()\",\"8. Local Variable Renaming: set_local_variable_type() then rename_variables() with Hungarian notation\",\"9. Global Data: rename_or_label() with g_ prefix for DAT_*/s_* references\",\"10. Plate Comment: set_plate_comment() per PLATE_COMMENT_FORMAT_GUIDE.md (Algorithm, Parameters, Returns, Structure Layout, Magic Numbers)\",\"11. Inline Comments: PRE_COMMENTs + EOL_COMMENTs via batch_set_comments()\",\"12. Verify: analyze_function_completeness() once -- accept phantom/void* deductions\"],\"remediation_actions\":[{\"issue_type\":\"hungarian_violations\",\"priority\":\"medium\",\"tool\":\"rename_variables\",\"params_template\":{\"function_address\":\"1404834d0\",\"variable_renames\":{\"<old_name>\":\"<new_name>\"}},\"evidence\":[\"fDeltaSeconds (type: float, expected prefix: fl)\",\"fDeltaSeconds (type: float, expected prefix: fl)\"],\"estimated_gain\":6},{\"issue_type\":\"type_quality\",\"priority\":\"high\",\"tool\":\"set_function_prototype\",\"params_template\":{\"function_address\":\"1404834d0\",\"prototype\":\"<return_type> <name>(<typed_params>)\"},\"evidence\":[\"Generic void* parameter: pManager (should use specific structure type)\",\"Generic void* local: pManager (p-prefix suggests typed struct pointer — create struct with create_struct() then set_local_variable_type())\"],\"estimated_gain\":15},{\"issue_type\":\"local_type_quality\",\"priority\":\"high\",\"tool\":\"set_local_variable_type\",\"params_template\":{\"function_address\":\"1404834d0\",\"name\":\"<variable_name>\",\"data_type\":\"<StructName> *\"},\"evidence\":[\"Generic void* local: pManager (p-prefix suggests typed struct pointer — create struct with create_struct() then set_local_variable_type())\"],\"estimated_gain\":10},{\"issue_type\":\"undocumented_magic_numbers\",\"priority\":\"medium\",\"tool\":\"batch_set_comments\",\"params_template\":{\"function_address\":\"1404834d0\",\"eol_comments\":[{\"address\":\"<instr_address>\",\"comment\":\"<constant_meaning>\"}]},\"evidence\":[\"0x20 at 1404834d2\",\"0x20 at 140483505\"],\"estimated_gain\":4},{\"issue_type\":\"inline_comment_density\",\"priority\":\"low\",\"tool\":\"batch_set_comments\",\"params_template\":{\"function_address\":\"1404834d0\",\"decompiler_comments\":[{\"address\":\"<address>\",\"comment\":\"<explanation>\"}]},\"evidence\":[\"comment_density=0.00\"],\"estimated_gain\":5}]}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"function_name\":\"TickBattleColorFadeManager\",\"classification\":\"worker\",\"is_thunk\":false,\"has_custom_name\":true,\"has_prototype\":true,\"has_calling_convention\":true,\"is_stub\":false,\"is_compiler_helper\":false,\"documentation_profile\":\"worker\",\"return_type\":\"void\",\"return_type_resolved\":true,\"has_plate_comment\":true,\"plate_comment_issues\":[],\"decompilation_available\":true,\"undefined_variables\":[],\"phantom_variables\":[],\"hungarian_notation_violations\":[\"fDeltaSeconds (type: float, expected prefix: fl)\",\"fDeltaSeconds (type: float, expected prefix: fl)\"],\"type_quality_issues\":[\"Generic void* parameter: pManager (should use specific structure type)\",\"Generic void* local: pManager (p-prefix suggests typed struct pointer — create struct with create_struct() then set_local_variable_type())\"],\"unrenamed_globals\":[],\"unrenamed_labels\":[],\"undocumented_ordinals\":[],\"undocumented_magic_numbers\":[\"0x20 at 1404834d2\",\"0x20 at 140483505\"],\"unresolved_struct_accesses\":[],\"inline_comment_count\":0,\"disasm_comment_count\":0,\"code_line_count\":6,\"comment_density\":0.0,\"completeness_score\":86.04255912362459,\"effective_score\":87.97682315979729,\"all_deductions_unfixable\":false,\"fixable_deductions\":12.023176840202703,\"structural_deductions\":1.934264036172708,\"max_achievable_score\":98.0657359638273,\"deduction_breakdown\":[{\"category\":\"hungarian_violations\",\"points\":3.154648767857287,\"fixable\":true,\"count\":1,\"description\":\"Variables violate naming convention for their data types\"},{\"category\":\"hungarian_violations_structural\",\"points\":1.934264036172708,\"fixable\":false,\"count\":1,\"description\":\"Hungarian mismatch on non-renameable register-only/thunk variables\"},{\"category\":\"type_quality\",\"points\":5.0,\"fixable\":true,\"count\":1,\"description\":\"Type quality problems requiring better struct/pointer typing\"},{\"category\":\"local_type_quality\",\"points\":3.868528072345416,\"fixable\":true,\"count\":1,\"description\":\"Local variables with generic void*/int* types need struct typing\"}],\"has_renameable_variables\":false,\"recommendations\":[\"UNDOCUMENTED MAGIC NUMBERS - Add EOL comments for hex/numeric constants:\",\"1. Found 2 instruction(s) with undocumented constants: 0x20 at 1404834d2, 0x20 at 140483505\",\"2. Use batch_set_comments() with EOL_COMMENTs to explain each constant\",\"3. Common patterns: struct offsets (document field name), enum values, bit masks, array sizes\",\"HUNGARIAN NOTATION VIOLATIONS - Follow FUNCTION_DOC_WORKFLOW_V4.md 'Local Variable Renaming' section and docs/HUNGARIAN_NOTATION.md:\",\"1. Verify type-to-prefix mapping matches Ghidra type:\",\"   - byte -> b/by | char -> c/ch | bool -> f | short -> n/s | ushort -> w\",\"   - int -> n/i | uint -> dw | long -> l | ulong -> dw\",\"   - longlong -> ll | ulonglong -> qw | float -> fl | double -> d\",\"   - void* -> p | typed pointers -> p+StructName (pUnitAny)\",\"   - byte[N] -> ab | ushort[N] -> aw | uint[N] -> ad\",\"   - char* -> sz/lpsz | wchar_t* -> wsz\",\"2. First set correct type with set_local_variable_type() using lowercase builtin\",\"3. Then rename with rename_variables() using correct Hungarian prefix\",\"4. For globals, add g_ prefix before type prefix: g_dwProcessId, g_abEncryptionKey\",\"TYPE QUALITY ISSUES - Follow FUNCTION_DOC_WORKFLOW_V4.md 'Structure Identification' section:\",\"1. Replace generic void* parameters with specific structure types using set_function_prototype()\",\"   Example: void ProcessData(void* pData) -> void ProcessData(UnitAny* pUnit)\",\"1. Replace generic void* parameters with specific structure types using set_function_prototype()\",\"   Example: void ProcessData(void* pData) -> void ProcessData(UnitAny* pUnit)\",\"COMPLETE WORKFLOW (FUNCTION_DOC_WORKFLOW_V4.md):\",\"1. Initialize: get_current_selection() + analyze_function_complete() -- gather decompiled code, xrefs, callees, callers, disassembly, variables\",\"2. Classify: Leaf/Worker/Thunk/Init/Callback/Public API/Internal utility\",\"3. Mandatory Undefined Type Audit: examine BOTH decompiled code and disassembly for undefined types\",\"4. Verify Decompiler vs Assembly: loops, type casts, pointer arithmetic, conditionals, early exits\",\"5. Control Flow + Loop Mapping: return points, loop headers/bounds/stride, error paths\",\"6. Structure Identification: search_data_types() or create_struct(), memory model docs\",\"7. Rename + Prototype: rename_function_by_address() (PascalCase) + set_function_prototype()\",\"8. Local Variable Renaming: set_local_variable_type() then rename_variables() with Hungarian notation\",\"9. Global Data: rename_or_label() with g_ prefix for DAT_*/s_* references\",\"10. Plate Comment: set_plate_comment() per PLATE_COMMENT_FORMAT_GUIDE.md (Algorithm, Parameters, Returns, Structure Layout, Magic Numbers)\",\"11. Inline Comments: PRE_COMMENTs + EOL_COMMENTs via batch_set_comments()\",\"12. Verify: analyze_function_completeness() once -- accept phantom/void* deductions\"],\"remediation_actions\":[{\"issue_type\":\"hungarian_violations\",\"priority\":\"medium\",\"tool\":\"rename_variables\",\"params_template\":{\"function_address\":\"1404834d0\",\"variable_renames\":{\"<old_name>\":\"<new_name>\"}},\"evidence\":[\"fDeltaSeconds (type: float, expected prefix: fl)\",\"fDeltaSeconds (type: float, expected prefix: fl)\"],\"estimated_gain\":6},{\"issue_type\":\"type_quality\",\"priority\":\"high\",\"tool\":\"set_function_prototype\",\"params_template\":{\"function_address\":\"1404834d0\",\"prototype\":\"<return_type> <name>(<typed_params>)\"},\"evidence\":[\"Generic void* parameter: pManager (should use specific structure type)\",\"Generic void* local: pManager (p-prefix suggests typed struct pointer — create struct with create_struct() then set_local_variable_type())\"],\"estimated_gain\":15},{\"issue_type\":\"local_type_quality\",\"priority\":\"high\",\"tool\":\"set_local_variable_type\",\"params_template\":{\"function_address\":\"1404834d0\",\"name\":\"<variable_name>\",\"data_type\":\"<StructName> *\"},\"evidence\":[\"Generic void* local: pManager (p-prefix suggests typed struct pointer — create struct with create_struct() then set_local_variable_type())\"],\"estimated_gain\":10},{\"issue_type\":\"undocumented_magic_numbers\",\"priority\":\"medium\",\"tool\":\"batch_set_comments\",\"params_template\":{\"function_address\":\"1404834d0\",\"eol_comments\":[{\"address\":\"<instr_address>\",\"comment\":\"<constant_meaning>\"}]},\"evidence\":[\"0x20 at 1404834d2\",\"0x20 at 140483505\"],\"estimated_gain\":4},{\"issue_type\":\"inline_comment_density\",\"priority\":\"low\",\"tool\":\"batch_set_comments\",\"params_template\":{\"function_address\":\"1404834d0\",\"decompiler_comments\":[{\"address\":\"<address>\",\"comment\":\"<explanation>\"}]},\"evidence\":[\"comment_density=0.00\"],\"estimated_gain\":5}]}"
+      },
+      "isError": false
+    }
+  },
+  {
+    "call": "rename_variables",
+    "args": {
+      "function_address": "1404834D0",
+      "variable_renames": {
+        "fDeltaSeconds": "flDeltaSeconds"
+      },
+      "program": "SoulcaliburVI.exe"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"success\":true,\"method\":\"batch\",\"variables_renamed\":1,\"variables_failed\":0}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"success\":true,\"method\":\"batch\",\"variables_renamed\":1,\"variables_failed\":0}"
+      },
+      "isError": false
+    }
+  },
+  {
+    "call": "batch_set_comments",
+    "args": {
+      "address": "1404834D0",
+      "plate_comment": "Tick the LuxBattleColorFadeManager lane state and clear its per-tick flag.\n\nIdentity:\n  Receiver table1432A2A28 belongs to LuxBattleColorFadeManager (constructor140440CD0 and class registration1408E2040).\n  Table+418 at1432A2E40 points here. The selected live disable-hub row2 receiver has this exact table.\n  This supersedes the old unknown-actor/FrameInputLog interpretation. +3A8 is written as one byte, not a replay-buffer pointer.\n\nAlgorithm:\n1. ForwardActorBaseTick at140562320 receives the original RCX manager and XMM1 delta.\n2. Call140487370 with the fixed float at143E8A05C; it updates the manager+390/+398 player arrays and their lane/entry state, including pending fade removals.\n3. Call1404879E0 with the same fixed step.\n4. Clear manager+3A8 byte at1404834FE.\n\nParameters:\n  pManager: borrowed receiver in RCX; kept as void* because this function only needs its address and raw flag offset.\n  flDeltaSeconds: float XMM1, forwarded to the parent tick.\nReturns: void.\n\nRollback relevance:\n  Disable callback1404704F0 persists lane changes before this later tick. 140487370 calls140480F70 at140487924, reaching140481400 dynamic material parameter writes/commit.\n  Callback return is not application/render/GPU completion and does not prove a complete-B participant. Do not suppress this tick or infer replay ownership from a coincident field offset.\n  Existing names/types within140487370 refer to Chara/move slots; those annotations are not independent receiver identity evidence. This entry's table and raw call chain establish the color-fade receiver.\n\nSource: existing SoulcaliburVI.exe; table xref, raw Win64 disassembly and lane/material consumers verified2026-09-24.",
+      "disassembly_comments": [
+        {
+          "address": "1404834E9",
+          "comment": "Update this color-fade receiver's lane/entry arrays; pending removal feeds material updates."
+        },
+        {
+          "address": "1404834FE",
+          "comment": "Clear the single per-tick flag byte on LuxBattleColorFadeManager; not a FrameInputLog buffer pointer."
+        }
+      ],
+      "program": "SoulcaliburVI.exe"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"success\":true,\"decompiler_comments_set\":0,\"disassembly_comments_set\":2,\"plate_comment_set\":true,\"plate_comment_cleared\":false,\"comments_overwritten\":1}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"success\":true,\"decompiler_comments_set\":0,\"disassembly_comments_set\":2,\"plate_comment_set\":true,\"plate_comment_cleared\":false,\"comments_overwritten\":1}"
+      },
+      "isError": false
+    }
+  },
+  {
+    "call": "get_plate_comment",
+    "args": {
+      "address": "1404834D0",
+      "program": "SoulcaliburVI.exe"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"address\":\"1404834d0\",\"function_name\":\"TickBattleColorFadeManager\",\"comment\":\"Tick the LuxBattleColorFadeManager lane state and clear its per-tick flag.\\n\\nIdentity:\\n  Receiver table1432A2A28 belongs to LuxBattleColorFadeManager (constructor140440CD0 and class registration1408E2040).\\n  Table+418 at1432A2E40 points here. The selected live disable-hub row2 receiver has this exact table.\\n  This supersedes the old unknown-actor/FrameInputLog interpretation. +3A8 is written as one byte, not a replay-buffer pointer.\\n\\nAlgorithm:\\n1. ForwardActorBaseTick at140562320 receives the original RCX manager and XMM1 delta.\\n2. Call140487370 with the fixed float at143E8A05C; it updates the manager+390/+398 player arrays and their lane/entry state, including pending fade removals.\\n3. Call1404879E0 with the same fixed step.\\n4. Clear manager+3A8 byte at1404834FE.\\n\\nParameters:\\n  pManager: borrowed receiver in RCX; kept as void* because this function only needs its address and raw flag offset.\\n  flDeltaSeconds: float XMM1, forwarded to the parent tick.\\nReturns: void.\\n\\nRollback relevance:\\n  Disable callback1404704F0 persists lane changes before this later tick. 140487370 calls140480F70 at140487924, reaching140481400 dynamic material parameter writes/commit.\\n  Callback return is not application/render/GPU completion and does not prove a complete-B participant. Do not suppress this tick or infer replay ownership from a coincident field offset.\\n  Existing names/types within140487370 refer to Chara/move slots; those annotations are not independent receiver identity evidence. This entry's table and raw call chain establish the color-fade receiver.\\n\\nSource: existing SoulcaliburVI.exe; table xref, raw Win64 disassembly and lane/material consumers verified2026-09-24.\"}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"address\":\"1404834d0\",\"function_name\":\"TickBattleColorFadeManager\",\"comment\":\"Tick the LuxBattleColorFadeManager lane state and clear its per-tick flag.\\n\\nIdentity:\\n  Receiver table1432A2A28 belongs to LuxBattleColorFadeManager (constructor140440CD0 and class registration1408E2040).\\n  Table+418 at1432A2E40 points here. The selected live disable-hub row2 receiver has this exact table.\\n  This supersedes the old unknown-actor/FrameInputLog interpretation. +3A8 is written as one byte, not a replay-buffer pointer.\\n\\nAlgorithm:\\n1. ForwardActorBaseTick at140562320 receives the original RCX manager and XMM1 delta.\\n2. Call140487370 with the fixed float at143E8A05C; it updates the manager+390/+398 player arrays and their lane/entry state, including pending fade removals.\\n3. Call1404879E0 with the same fixed step.\\n4. Clear manager+3A8 byte at1404834FE.\\n\\nParameters:\\n  pManager: borrowed receiver in RCX; kept as void* because this function only needs its address and raw flag offset.\\n  flDeltaSeconds: float XMM1, forwarded to the parent tick.\\nReturns: void.\\n\\nRollback relevance:\\n  Disable callback1404704F0 persists lane changes before this later tick. 140487370 calls140480F70 at140487924, reaching140481400 dynamic material parameter writes/commit.\\n  Callback return is not application/render/GPU completion and does not prove a complete-B participant. Do not suppress this tick or infer replay ownership from a coincident field offset.\\n  Existing names/types within140487370 refer to Chara/move slots; those annotations are not independent receiver identity evidence. This entry's table and raw call chain establish the color-fade receiver.\\n\\nSource: existing SoulcaliburVI.exe; table xref, raw Win64 disassembly and lane/material consumers verified2026-09-24.\"}"
+      },
+      "isError": false
+    }
+  },
+  {
+    "call": "decompile_function",
+    "args": {
+      "address": "1404834D0",
+      "program": "SoulcaliburVI.exe"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "\r\n/* Tick the LuxBattleColorFadeManager lane state and clear its per-tick flag.\r\n   \r\n   Identity:\r\n     Receiver table1432A2A28 belongs to LuxBattleColorFadeManager (constructor140440CD0 and class\r\n   registration1408E2040).\r\n     Table+418 at1432A2E40 points here. The selected live disable-hub row2 receiver has this exact\r\n   table.\r\n     This supersedes the old unknown-actor/FrameInputLog interpretation. +3A8 is written as one\r\n   byte, not a replay-buffer pointer.\r\n   \r\n   Algorithm:\r\n   1. ForwardActorBaseTick at140562320 receives the original RCX manager and XMM1 delta.\r\n   2. Call140487370 with the fixed float at143E8A05C; it updates the manager+390/+398 player arrays\r\n   and their lane/entry state, including pending fade removals.\r\n   3. Call1404879E0 with the same fixed step.\r\n   4. Clear manager+3A8 byte at1404834FE.\r\n   \r\n   Parameters:\r\n     pManager: borrowed receiver in RCX; kept as void* because this function only needs its address\r\n   and raw flag offset.\r\n     flDeltaSeconds: float XMM1, forwarded to the parent tick.\r\n   Returns: void.\r\n   \r\n   Rollback relevance:\r\n     Disable callback1404704F0 persists lane changes before this later tick. 140487370\r\n   calls140480F70 at140487924, reaching140481400 dynamic material parameter writes/commit.\r\n     Callback return is not application/render/GPU completion and does not prove a complete-B\r\n   participant. Do not suppress this tick or infer replay ownership from a coincident field offset.\r\n     Existing names/types within140487370 refer to Chara/move slots; those annotations are not\r\n   independent receiver identity evidence. This entry's table and raw call chain establish the\r\n   color-fade receiver.\r\n   \r\n   Source: existing SoulcaliburVI.exe; table xref, raw Win64 disassembly and lane/material consumers\r\n   verified2026-09-24. */\r\n\r\nvoid TickBattleColorFadeManager(void *pManager,float flDeltaSeconds)\r\n\r\n{\r\n  ForwardActorBaseTick(pManager,flDeltaSeconds);\r\n  LuxBattleChara_ProcessMoveSlotsAndDispatch(pManager,g_flFramesToSeconds60Hz);\r\n  LuxBattleChara_DecayMoveCountersAndApplySoulCharge(pManager,g_flFramesToSeconds60Hz);\r\n  *(undefined1 *)((longlong)pManager + 0x3a8) = 0;\r\n  return;\r\n}\r\n\r\n"
+        }
+      ],
+      "structuredContent": {
+        "result": "\r\n/* Tick the LuxBattleColorFadeManager lane state and clear its per-tick flag.\r\n   \r\n   Identity:\r\n     Receiver table1432A2A28 belongs to LuxBattleColorFadeManager (constructor140440CD0 and class\r\n   registration1408E2040).\r\n     Table+418 at1432A2E40 points here. The selected live disable-hub row2 receiver has this exact\r\n   table.\r\n     This supersedes the old unknown-actor/FrameInputLog interpretation. +3A8 is written as one\r\n   byte, not a replay-buffer pointer.\r\n   \r\n   Algorithm:\r\n   1. ForwardActorBaseTick at140562320 receives the original RCX manager and XMM1 delta.\r\n   2. Call140487370 with the fixed float at143E8A05C; it updates the manager+390/+398 player arrays\r\n   and their lane/entry state, including pending fade removals.\r\n   3. Call1404879E0 with the same fixed step.\r\n   4. Clear manager+3A8 byte at1404834FE.\r\n   \r\n   Parameters:\r\n     pManager: borrowed receiver in RCX; kept as void* because this function only needs its address\r\n   and raw flag offset.\r\n     flDeltaSeconds: float XMM1, forwarded to the parent tick.\r\n   Returns: void.\r\n   \r\n   Rollback relevance:\r\n     Disable callback1404704F0 persists lane changes before this later tick. 140487370\r\n   calls140480F70 at140487924, reaching140481400 dynamic material parameter writes/commit.\r\n     Callback return is not application/render/GPU completion and does not prove a complete-B\r\n   participant. Do not suppress this tick or infer replay ownership from a coincident field offset.\r\n     Existing names/types within140487370 refer to Chara/move slots; those annotations are not\r\n   independent receiver identity evidence. This entry's table and raw call chain establish the\r\n   color-fade receiver.\r\n   \r\n   Source: existing SoulcaliburVI.exe; table xref, raw Win64 disassembly and lane/material consumers\r\n   verified2026-09-24. */\r\n\r\nvoid TickBattleColorFadeManager(void *pManager,float flDeltaSeconds)\r\n\r\n{\r\n  ForwardActorBaseTick(pManager,flDeltaSeconds);\r\n  LuxBattleChara_ProcessMoveSlotsAndDispatch(pManager,g_flFramesToSeconds60Hz);\r\n  LuxBattleChara_DecayMoveCountersAndApplySoulCharge(pManager,g_flFramesToSeconds60Hz);\r\n  *(undefined1 *)((longlong)pManager + 0x3a8) = 0;\r\n  return;\r\n}\r\n\r\n"
+      },
+      "isError": false
+    }
+  },
+  {
+    "call": "analyze_function_completeness",
+    "args": {
+      "function_address": "1404834D0",
+      "compact": true,
+      "program": "SoulcaliburVI.exe"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"function_name\":\"TickBattleColorFadeManager\",\"classification\":\"worker\",\"is_thunk\":false,\"has_custom_name\":true,\"has_prototype\":true,\"has_calling_convention\":true,\"is_stub\":false,\"is_compiler_helper\":false,\"documentation_profile\":\"worker\",\"return_type\":\"void\",\"return_type_resolved\":true,\"has_plate_comment\":true,\"plate_issues\":0,\"decompilation_available\":true,\"undefined_count\":0,\"phantom_count\":0,\"hungarian_violations\":0,\"type_quality_issues\":2,\"globals_unrenamed\":0,\"labels_unrenamed\":0,\"ordinals_undocumented\":0,\"magic_numbers_undocumented\":2,\"struct_accesses_unresolved\":0,\"inline_comment_count\":0,\"disasm_comment_count\":2,\"code_line_count\":6,\"comment_density\":3.33,\"completeness_score\":91.13147192765459,\"effective_score\":91.13147192765459,\"all_deductions_unfixable\":false,\"fixable_deductions\":8.868528072345416,\"structural_deductions\":0.0,\"max_achievable_score\":100.0,\"deduction_count\":2,\"has_renameable_variables\":false}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"function_name\":\"TickBattleColorFadeManager\",\"classification\":\"worker\",\"is_thunk\":false,\"has_custom_name\":true,\"has_prototype\":true,\"has_calling_convention\":true,\"is_stub\":false,\"is_compiler_helper\":false,\"documentation_profile\":\"worker\",\"return_type\":\"void\",\"return_type_resolved\":true,\"has_plate_comment\":true,\"plate_issues\":0,\"decompilation_available\":true,\"undefined_count\":0,\"phantom_count\":0,\"hungarian_violations\":0,\"type_quality_issues\":2,\"globals_unrenamed\":0,\"labels_unrenamed\":0,\"ordinals_undocumented\":0,\"magic_numbers_undocumented\":2,\"struct_accesses_unresolved\":0,\"inline_comment_count\":0,\"disasm_comment_count\":2,\"code_line_count\":6,\"comment_density\":3.33,\"completeness_score\":91.13147192765459,\"effective_score\":91.13147192765459,\"all_deductions_unfixable\":false,\"fixable_deductions\":8.868528072345416,\"structural_deductions\":0.0,\"max_achievable_score\":100.0,\"deduction_count\":2,\"has_renameable_variables\":false}"
+      },
+      "isError": false
+    }
+  },
+  {
+    "call": "save_program",
+    "args": {
+      "program": "SoulcaliburVI.exe"
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"success\":true,\"program\":\"SoulcaliburVI.exe\",\"message\":\"Program saved successfully\"}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"success\":true,\"program\":\"SoulcaliburVI.exe\",\"message\":\"Program saved successfully\"}"
+      },
+      "isError": false
+    }
+  }
+]

@@ -27,6 +27,7 @@
 #include <Unreal/Hooks/Hooks.hpp>
 #include <Unreal/Hooks/Internal/DetourSubclasses.hpp>
 #include <Unreal/Hooks/Internal/Metadata.hpp>
+#include <thread>
 
 #pragma push_macro("ensure")
 #undef ensure
@@ -47,6 +48,91 @@ namespace RC::Unreal::Hook
     using I::EHookType;
     using I::EDetourTarget;
     using I::EGlobalCallbackAttributeFlags;
+
+    namespace
+    {
+        std::recursive_mutex EngineTickOverrideMutex;
+        std::atomic<bool> HasEngineTickOverride{};
+        void* EngineTickOwner{};
+        EngineTickOverride EngineTickBody{};
+        thread_local unsigned EngineTickOverrideDepth{};
+        thread_local bool DeferEnginePostRequested{};
+        std::atomic<UEngine*> EngineTickPostContext{};
+        std::thread::id EngineTickPostThread;
+    }
+
+    bool UE4SS_SetEngineTickOverride(void* Owner, EngineTickOverride Callback)
+    {
+        if (!Owner || EngineTickOverrideDepth) return false;
+        std::lock_guard Guard(EngineTickOverrideMutex);
+        if (Callback)
+        {
+            if (EngineTickOwner) return false;
+            EngineTickOwner = Owner;
+            EngineTickBody = Callback;
+            HasEngineTickOverride.store(true, std::memory_order_release);
+        }
+        else
+        {
+            if (EngineTickOwner != Owner || EngineTickPostContext.load()) return false;
+            HasEngineTickOverride.store(false, std::memory_order_release);
+            EngineTickBody = nullptr;
+            EngineTickOwner = nullptr;
+        }
+        return true;
+    }
+
+    bool UE4SS_DeferEngineTickPost(void* Owner)
+    {
+        // The body already holds the owner mutex. Only that same call may
+        // request deferral; no external caller can fabricate a pending phase.
+        if (EngineTickOverrideDepth != 1 || !Owner || EngineTickOwner != Owner || EngineTickPostContext.load())
+            return false;
+        DeferEnginePostRequested = true;
+        return true;
+    }
+
+    bool UE4SS_CompleteEngineTickPost(void* Owner)
+    {
+        if (!Owner || EngineTickOverrideDepth) return false;
+        std::lock_guard Guard(EngineTickOverrideMutex);
+        auto* Detour = I::GetDetourInstance<EDetourTarget::EngineTick>();
+        if (EngineTickOwner != Owner || !EngineTickPostContext.load()
+            || EngineTickPostThread != std::this_thread::get_id() || !Detour->HasDeferredEngineTickPost())
+            return false;
+        EngineTickPostContext.store(nullptr, std::memory_order_release);
+        // Clear pending state before callbacks: a posthook may release its
+        // finished owner, as normal EngineTickPost deactivation already does.
+        Detour->CompleteDeferredEngineTickPost();
+        return true;
+    }
+
+    bool I::EngineTickPostPendingFor(UEngine* Context) noexcept
+    {
+        return Context && EngineTickPostContext.load(std::memory_order_acquire) == Context;
+    }
+
+    I::EngineTickDisposition I::TryEngineTickOverride(UEngine* Context, float DeltaSeconds, bool bIdleMode) noexcept
+    {
+        if (!HasEngineTickOverride.load(std::memory_order_acquire)) return EngineTickDisposition::Native;
+        std::lock_guard Guard(EngineTickOverrideMutex);
+        if (!EngineTickBody) return EngineTickDisposition::Native;
+        const bool PreviousRequest = DeferEnginePostRequested;
+        DeferEnginePostRequested = false;
+        ++EngineTickOverrideDepth;
+        const bool Handled = EngineTickBody(EngineTickOwner, Context, DeltaSeconds, bIdleMode);
+        --EngineTickOverrideDepth;
+        const bool Requested = DeferEnginePostRequested;
+        DeferEnginePostRequested = PreviousRequest;
+        if (Requested)
+        {
+            if (!Handled || EngineTickPostContext.load()) std::terminate();
+            EngineTickPostThread = std::this_thread::get_id();
+            EngineTickPostContext.store(Context, std::memory_order_release);
+            return EngineTickDisposition::Deferred;
+        }
+        return Handled ? EngineTickDisposition::Complete : EngineTickDisposition::Native;
+    }
 
 
     #pragma region StaticConstructObject

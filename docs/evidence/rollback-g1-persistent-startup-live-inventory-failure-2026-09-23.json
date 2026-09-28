@@ -1,0 +1,40 @@
+{
+  "scope": "Persistent early sentinel installation observed; normal application diagnostic failed before consumer activation",
+  "run_id": "replay-215b1b9a78024390ba0906cdebd13423",
+  "startup": [
+    "[2026-09-23 17:58:45.0807903] [HorseMod] consumer sentinels startup=true installed=true process_owned_bytes=1452880 activation=false"
+  ],
+  "inventory": [
+    "[2026-09-23 17:59:53.2905361] [ReplayQualification] scheduler inventory run_id=replay-215b1b9a78024390ba0906cdebd13423 levels=7 ticks=196 kinds=6 active=182 disabled=13 cooldown=1 newly_spawned=0 prerequisites=89 outside_prerequisites=0 pending_tasks=0"
+  ],
+  "failure": "capture failed; inspect E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\application-probe.json",
+  "cleanup": {
+    "complete": true,
+    "games_remaining": 0
+  },
+  "report": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\5d97f128f2ed7dcfdd8bd4f15b9ffd6b793e2c776ac4d1172700924b60ffc59f.json",
+    "sha256": "5d97f128f2ed7dcfdd8bd4f15b9ffd6b793e2c776ac4d1172700924b60ffc59f",
+    "bytes": 9140
+  },
+  "stage": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\691a08ea0e0f207ca676616ae3d79839b7595c498d03d627cd4691add237fbd2.json",
+    "sha256": "691a08ea0e0f207ca676616ae3d79839b7595c498d03d627cd4691add237fbd2",
+    "bytes": 10842
+  },
+  "raw": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d7b21f1d88c9782ec4111880bb2ea57eac50a5798ea2a8612f9402b24bdf20be.log",
+    "sha256": "d7b21f1d88c9782ec4111880bb2ea57eac50a5798ea2a8612f9402b24bdf20be",
+    "bytes": 5349680
+  },
+  "journal": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\2f126f2ed4edf8e542099210e488685fcfdeb780a2722118c4dcc5ee904a0610.json",
+    "sha256": "2f126f2ed4edf8e542099210e488685fcfdeb780a2722118c4dcc5ee904a0610",
+    "bytes": 5154
+  },
+  "immutable": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\02425d9c128a16fc431e6115946eaf56660153c465e938a7af43f21a4e9ae97f.json",
+    "sha256": "02425d9c128a16fc431e6115946eaf56660153c465e938a7af43f21a4e9ae97f",
+    "bytes": 1991
+  }
+}

@@ -124,6 +124,8 @@ Status BattleAudioSelectorState::PreflightRestore(
         const Status resolved = resolve_and_validate(index, handler, current,
             index >= image.observed_count);
         if (!resolved.ok()) return resolved;
+        if (binding_.exact_membership && (handler != 0) != (index < image.observed_count))
+            return Status::failure(FailureCode::IdentityMismatch);
         if (index < image.observed_count && handler == 0)
             return Status::failure(FailureCode::IdentityMismatch);
         if (handler == 0) break;
@@ -148,15 +150,20 @@ Status BattleAudioSelectorState::RestoreTransactional(
         if (handlers[count] == 0) break;
     }
     std::size_t written{};
+    bool write_failed{};
     for (; written < count; ++written)
     {
         const std::int32_t desired = written < image.observed_count
             ? image.alternations[written] : 0;
         if (!write_value(memory_, handlers[written] + alternation_offset,
                 desired))
+        {
+            write_failed = true;
+            ++written; // A failed write may have changed a prefix; undo this slot too.
             break;
+        }
     }
-    bool verified = written == count;
+    bool verified = !write_failed && written == count;
     for (std::size_t index = 0; verified && index < count; ++index)
     {
         std::int32_t observed{};

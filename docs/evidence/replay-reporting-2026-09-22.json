@@ -1,0 +1,94 @@
+{
+  "scope": "Replay CLI reporting only; no native qualification or deployment behavior changes",
+  "default": "compact",
+  "validation": {
+    "reporting-red.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c7a207ddd9e18673d85749bcdd4ee8a5240515ae63f18b7e5afce2b6b7c13e25.log",
+      "sha256": "c7a207ddd9e18673d85749bcdd4ee8a5240515ae63f18b7e5afce2b6b7c13e25",
+      "bytes": 1145
+    },
+    "reporting-tests.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\99f138db89c22cc2eafd776f8c118ae7d981d09d501c87850dfd202011d91357.log",
+      "sha256": "99f138db89c22cc2eafd776f8c118ae7d981d09d501c87850dfd202011d91357",
+      "bytes": 101
+    },
+    "reporting-runner-tests.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\ef7e1df0ffb392a80fabd54310974360d1ee679cc4b4045a3f6d8e03a5646bcf.log",
+      "sha256": "ef7e1df0ffb392a80fabd54310974360d1ee679cc4b4045a3f6d8e03a5646bcf",
+      "bytes": 265
+    },
+    "reporting-output-measurements.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\57301f72bfe3e64529ba15b5dfd7697326c613e1244037a8033ebe970a1efb49.json",
+      "sha256": "57301f72bfe3e64529ba15b5dfd7697326c613e1244037a8033ebe970a1efb49",
+      "bytes": 809
+    }
+  },
+  "source_contents": {
+    "tools/replay_test.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a9a8aa30681a20f6dc62b345b3964e2391c902af033aa3b414ef45641e91439c.py",
+      "sha256": "a9a8aa30681a20f6dc62b345b3964e2391c902af033aa3b414ef45641e91439c",
+      "bytes": 407897
+    },
+    "tools/deterministic_qualification/replay_run.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8cc92f10a74888b73f63f7c76b15323d1716f8a36dec7a5bc112ece5c867a052.py",
+      "sha256": "8cc92f10a74888b73f63f7c76b15323d1716f8a36dec7a5bc112ece5c867a052",
+      "bytes": 8596
+    },
+    "tools/deterministic_qualification/replay_reporting.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\eb3716624a77ecab09580dfee44e8ef2a22bf49063d7df1e0e42612141d8c310.py",
+      "sha256": "eb3716624a77ecab09580dfee44e8ef2a22bf49063d7df1e0e42612141d8c310",
+      "bytes": 13867
+    },
+    "tools/deterministic_qualification/replay_profiles.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\10bc0e9e5c886b23b9044cb598022498a1ec1ecefc5f415a2222254c0504b6ce.py",
+      "sha256": "10bc0e9e5c886b23b9044cb598022498a1ec1ecefc5f415a2222254c0504b6ce",
+      "bytes": 4806
+    },
+    "tools/deterministic_qualification/replay_test_groups.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b2fe05880c95d10921467153b9dba0fd2729cb04e4f58e5fc1e949216f4cf0a6.json",
+      "sha256": "b2fe05880c95d10921467153b9dba0fd2729cb04e4f58e5fc1e949216f4cf0a6",
+      "bytes": 24941
+    },
+    "tools/deterministic_qualification/tests/test_replay_reporting.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a70fe8b02eede586320f0b32423bf40bcff564788ebc3709e1f85ca164e1b829.py",
+      "sha256": "a70fe8b02eede586320f0b32423bf40bcff564788ebc3709e1f85ca164e1b829",
+      "bytes": 11282
+    },
+    "docs/replay-tool-output.md": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\00a398a579f86c5e9a00f6a4a70b9a2fd0531449b330b04b8d3d7d945d39c19d.md",
+      "sha256": "00a398a579f86c5e9a00f6a4a70b9a2fd0531449b330b04b8d3d7d945d39c19d",
+      "bytes": 2539
+    }
+  },
+  "measurements": {
+    "scope": "Formatter replay of retained reports; no native execution or qualification rerun",
+    "cases": [
+      {
+        "case": "preflight",
+        "before_bytes": 15688,
+        "after_bytes": 292,
+        "reduction_percent": 98.14,
+        "source_report": "build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\e73aa29d8d9d89cf571763a2f5889c648c73f614043e59ebd443f04cc1432a7c.json",
+        "source_log": null
+      },
+      {
+        "case": "native-success",
+        "before_bytes": 3916,
+        "after_bytes": 295,
+        "reduction_percent": 92.47,
+        "source_report": "build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\build-stage.json",
+        "source_log": "build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\ground-auxiliary-parents-build.log"
+      }
+    ]
+  },
+  "checks": "182 selected runner/profile/deployment/recovery/source-retention checks pass; includes 19 reporting checks. Regression invokes original CLI body without formatter and verifies it exceeds 2 KiB, then verifies bounded decorated output with identical outcome.",
+  "native_campaign": "not run for reporting changes",
+  "prior_native_run": {
+    "run_id": "replay-814437dbe50e4fcab7af42b538f0a3f5",
+    "manifest": "e30de8dd338012c0bd467da366304a4ce13d16a31515237001636bbd8cc81fdc",
+    "cleanup": {
+      "complete": true,
+      "games_remaining": 0
+    }
+  }
+}

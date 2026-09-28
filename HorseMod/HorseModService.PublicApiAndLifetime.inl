@@ -78,18 +78,6 @@ public:
         return true;
     }
 
-#if HORSE_ENABLE_GEKKONET
-    bool PrepareModuleUnload() noexcept
-    {
-        if (m_online_lifecycle.CanUnloadModule()) return true;
-        if (m_online_lifecycle.phase()
-            != Horse::Deterministic::OnlineLifecyclePhase::
-                FailClosedAwaitingSceneExit)
-            fail_online_qualification(
-                Horse::Deterministic::FailureCode::PeerDisconnected);
-        return false;
-    }
-#endif
 
     bool ArmReplayQualificationGroup(std::string_view run_id,
         std::uint32_t location, std::uint32_t anchors,
@@ -199,112 +187,6 @@ public:
             repeats_per_anchor, qualification.arm_elapsed_ms);
         return true;
     }
-#if HORSE_ENABLE_OBSERVER_PROBE
-    bool ArmOnlineObserverProbe(
-        const Horse::Deterministic::OnlineObserverProbeRequest& request) noexcept
-    {
-        if (m_deterministic_config.enabled || !m_deterministic_config.trace
-            || m_deterministic_config.correction_probe
-            || m_deterministic_config.forced_depth7_qualification
-            || m_forced_correction_qualification.runtime_armed)
-            return false;
-#if HORSE_ENABLE_GEKKONET
-        if (m_online_qualification_requested.load(std::memory_order_acquire)
-            || m_online_production_requested.load(std::memory_order_acquire)
-            || m_online_coordinator.state()
-                != Horse::Deterministic::OnlineState::Disabled
-            || m_online_gekko.started())
-            return false;
-#endif
-        return m_online_observer_probe.Arm(request, ::GetTickCount64());
-    }
-
-    std::uint32_t GetOnlineObserverProbeReport(
-        Horse::Deterministic::OnlineObserverProbeReport& output) const noexcept
-    {
-        static_cast<void>(m_online_observer_probe.CopyReport(output));
-        return static_cast<std::uint32_t>(m_online_observer_probe.state());
-    }
-
-    void DisarmOnlineObserverProbe() noexcept
-    {
-        m_online_observer_probe.Disarm();
-    }
-#endif
-#if HORSE_ENABLE_GEKKONET
-    bool ArmOnlineQualification(std::string_view run_id = {},
-        std::uint32_t fault_value = 0,
-        std::span<const std::uint8_t> correction_stimulus_depths = {},
-        std::uint32_t correction_stimulus_min_round = 1) noexcept
-    {
-        if (fault_value > static_cast<std::uint32_t>(
-                OnlineQualificationFault::PostownershipPeer))
-            return false;
-        const auto fault = static_cast<OnlineQualificationFault>(fault_value);
-        if (correction_stimulus_depths.size() > 3
-            || std::any_of(correction_stimulus_depths.begin(),
-                correction_stimulus_depths.end(), [](std::uint8_t depth) {
-                    return !Horse::Deterministic::
-                        IsQualificationCorrectionDepth(depth);
-                }))
-            return false;
-        const bool restore_fault_stimulus =
-            fault == OnlineQualificationFault::PostownershipRestore
-            && correction_stimulus_depths.size() == 1
-            && correction_stimulus_depths.front() == 11;
-        if (fault != OnlineQualificationFault::None
-            && !correction_stimulus_depths.empty()
-            && !restore_fault_stimulus)
-            return false;
-        if (fault == OnlineQualificationFault::PostownershipRestore
-            && !restore_fault_stimulus)
-            return false;
-        if (correction_stimulus_min_round == 0
-            || correction_stimulus_min_round > 2
-            || (correction_stimulus_depths.empty()
-                && correction_stimulus_min_round != 1))
-            return false;
-        if (run_id.size() > 96
-            || std::any_of(run_id.begin(), run_id.end(), [](char value) {
-                return !(std::isalnum(static_cast<unsigned char>(value))
-                    || value == '-' || value == '_' || value == '.');
-            }))
-            return false;
-        if (!g_horse_mod_unload_guard_ready.load(std::memory_order_acquire)
-            || m_deterministic_config.enabled || !m_deterministic_config.trace
-            || m_deterministic_config.correction_probe
-            || m_deterministic_config.forced_depth7_qualification
-            || m_forced_correction_qualification.runtime_armed
-            || !m_deterministic_hooks.installed()
-#if HORSE_ENABLE_OBSERVER_PROBE
-            || m_online_observer_probe.state()
-                == Horse::Deterministic::OnlineObserverProbeState::Armed
-#endif
-            || m_online_coordinator.state()
-                != Horse::Deterministic::OnlineState::Disabled
-            || m_online_production_requested.load(std::memory_order_acquire)
-            || !m_online_lifecycle.IsClearForStock())
-            return false;
-        m_online_coordinator.Select(OnlineRuntimeKind::Qualification);
-        if (!m_online_lifecycle.ArmPreOwnership().ok()) return false;
-        reset_online_session_measurements(
-            run_id, fault, correction_stimulus_depths,
-            correction_stimulus_min_round);
-        m_online_qualification_requested.store(true,
-            std::memory_order_release);
-        return true;
-    }
-
-    std::uint32_t GetOnlineQualificationStatus() const noexcept
-    {
-        return online_qualification_status();
-    }
-
-    std::uint32_t GetOnlineQualificationStatusHistory() const noexcept
-    {
-        return online_qualification_status_history();
-    }
-#endif
 
     bool ArmReplayQualificationCycle(std::string_view run_id,
         std::uint32_t depth, std::uint32_t location) noexcept
@@ -1293,6 +1175,32 @@ public:
         auto deterministic_load =
             Horse::Deterministic::LoadConfig(deterministic_config_path);
         m_deterministic_config = deterministic_load.config;
+        if(Horse::Deterministic::VerifiedReplayExecutable()) {
+            const bool material_startup=RC::IsInitialCppModStartupThread();
+            const bool material_installed=Horse::Deterministic::NativeReplayMaterialTaskGuard::InstallStartup(
+                reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr)),material_startup);
+            Output::send<LogLevel::Default>(STR("[HorseMod] material CPU task guard startup={} installed={} process_owned_bytes={} resource_completion_proven=false\n"),
+                material_startup,material_installed,Horse::Deterministic::NativeReplayMaterialTaskGuard::ProcessOwnedBytes());
+            // Enforcement installation is independent of optional trace diagnostics.
+            // Historical arming rejects if this complete installation is absent.
+            const bool vfx_completion_installed=Horse::Deterministic::NativeReplayVfxCompletionObservation::InstallStartup(
+                reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr)),material_startup);
+            Output::send<LogLevel::Default>(STR("[HorseMod] VFX finish dispatch installed={} process_owned_bytes={} containment_only=true writer_coverage_proven=false\n"),
+                vfx_completion_installed,Horse::Deterministic::NativeReplayVfxCompletionObservation::ProcessOwnedBytes());
+        }
+        if(deterministic_load.status.ok() && m_deterministic_config.trace
+            && Horse::Deterministic::VerifiedReplayExecutable()) {
+            const bool startup=RC::IsInitialCppModStartupThread();
+            const bool installed=Horse::Deterministic::NativeReplayTraceTaskGuard::InstallStartup(
+                reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr)),startup);
+            Output::send<LogLevel::Default>(STR(
+                "[HorseMod] consumer sentinels startup={} installed={} process_owned_bytes={} activation=false\n"),
+                startup,installed,Horse::Deterministic::NativeReplayTraceTaskGuard::ProcessOwnedBytes());
+            const bool niagara_installed=Horse::Deterministic::NativeReplayNiagaraObservation::InstallStartup(
+                reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr)),startup);
+            Output::send<LogLevel::Default>(STR("[HorseMod] Niagara observation startup={} installed={} process_owned_bytes={} forwarding_only=true\n"),
+                startup,niagara_installed,Horse::Deterministic::NativeReplayNiagaraObservation::ProcessOwnedBytes());
+        }
         m_replay_native_runtime.SetForcedDepth7QualificationEnabled(
             m_deterministic_config.forced_depth7_qualification);
         m_replay_native_runtime.SetCorrectedInputQualificationEnabled(
@@ -1314,6 +1222,7 @@ public:
         if (!deterministic_load.status.ok())
         {
             m_deterministic_config.enabled = false;
+            m_deterministic_config.replay_seeking = false;
             m_deterministic_failure = deterministic_load.status.code;
             Output::send<LogLevel::Warning>(STR(
                 "[HorseMod] rollback.ini is invalid; deterministic simulation "
@@ -1491,6 +1400,11 @@ public:
             RC::to_generic_string(HORSEMOD_SOURCE_COMMIT));
     }
 
+    bool PrepareForDestruction() noexcept
+    {
+        return m_deterministic_hooks.Uninstall();
+    }
+
     ~HorseMod() override
     {
         Output::send<LogLevel::Verbose>(STR("[HorseMod] dtor ENTER\n"));
@@ -1500,34 +1414,7 @@ public:
         if (m_stage_break_listener_diagnostics)
             m_stage_break_listener_diagnostics->Finish();
 
-#if HORSE_ENABLE_GEKKONET
-        m_online_production_requested.store(false, std::memory_order_release);
-        m_online_production_reentry_pending.store(
-            false, std::memory_order_release);
-        if (m_online_lifecycle.phase()
-                == Horse::Deterministic::OnlineLifecyclePhase::PreOwnership
-            || m_online_lifecycle.phase()
-                == Horse::Deterministic::OnlineLifecyclePhase::SceneExitCleanup)
-            reset_online_qualification_preownership();
-        else if (m_online_lifecycle.IsClearForStock())
-        {
-            m_online_gekko.Stop();
-            m_online_coordinator.Disable();
-        }
-        else
-        {
-            const auto state = m_online_coordinator.state();
-            if (state == Horse::Deterministic::OnlineState::Active
-                || state == Horse::Deterministic::OnlineState::RoundBarrier)
-                static_cast<void>(m_online_coordinator.ReturnToLobby());
-            m_online_gekko.Stop();
-            online_transport().Stop();
-        }
-#endif
-#if HORSE_ENABLE_OBSERVER_PROBE
-        m_online_observer_probe.Disarm();
-#endif
-        m_deterministic_hooks.Uninstall();
+        if(!m_deterministic_hooks.Uninstall()) __fastfail(FAST_FAIL_INVALID_ARG);
         m_ucrt_rand_broker.Stop();
         if (m_deterministic_config.trace)
         {
@@ -1610,7 +1497,6 @@ public:
                 m_battle_terminate_hook_path, m_battle_terminate_hook_ids);
             m_battle_terminate_hook_registered = false;
         }
-
         // Tear down the C++-level SetStartPosition detour cleanly so the
         // reloaded mod (e.g. dev iteration) doesn't double-hook on its
         // next install.  Idempotent if install never succeeded.
@@ -1629,11 +1515,6 @@ public:
         // Idempotent if install never succeeded.
         Horse::HasSubProviderEntryHook::instance().uninstall();
 
-#if HORSE_ENABLE_GEKKONET || HORSE_ENABLE_OBSERVER_PROBE
-        // The captured pointer is non-owning and must disappear before the
-        // initializer detour is removed or this module begins unloading.
-        Horse::Deterministic::Sc6BattleSyncOwnerHook::instance().uninstall();
-#endif
 
         // Tear down the SetPresence post-hook so the lambda doesn't
         // fire on a freed cached path-string after dllmain unload.
@@ -1698,12 +1579,8 @@ public:
                     }
                     self->service_gameimgui_toggle_key_release();
                     self->service_gameimgui_deferred_install();
-#if HORSE_ENABLE_GEKKONET
-                    self->service_online_qualification();
-#endif
-#if HORSE_ENABLE_OBSERVER_PROBE
-                    self->service_online_observer_probe();
-#endif
+                    if(self->m_deterministic_config.replay_seeking)
+                        self->m_native_replay_session_entry.Poll(Horse::NativeBinding::imageBase());
                     self->draw_line_overlays_after_battle_tick();
                 }, engine_tick_opts);
         Output::send<LogLevel::Default>(STR(
@@ -1715,38 +1592,6 @@ public:
         // pointers cover reset/start-position, online rules, presence
         // tracking, line-batcher refresh, and throw-height prediction.
         Horse::NativeBinding::resolve();
-#if HORSE_ENABLE_GEKKONET || HORSE_ENABLE_OBSERVER_PROBE
-        if (!Horse::Deterministic::Sc6BattleSyncOwnerHook::instance().install())
-        {
-            Output::send<LogLevel::Warning>(STR(
-                "[HorseMod] exact BattleSync ownership observation is "
-                "unavailable; online qualification remains fail-closed\n"));
-        }
-#endif
-#if HORSE_ENABLE_GEKKONET
-        const auto online_observer = m_sc6_online_session_observer.Initialize(
-            Horse::NativeBinding::imageBase());
-        if (!online_observer.ok())
-        {
-            Output::send<LogLevel::Warning>(STR(
-                "[HorseMod] online session observer unavailable: {}\n"),
-                RC::to_generic_string(std::string(
-                    Horse::Deterministic::failure_code_name(
-                        online_observer.code))));
-        }
-#endif
-#if HORSE_ENABLE_OBSERVER_PROBE
-        const auto observer_probe = m_online_observer_access.Initialize(
-            Horse::NativeBinding::imageBase());
-        if (!observer_probe.ok())
-        {
-            Output::send<LogLevel::Warning>(STR(
-                "[HorseMod] observer-only online accessor unavailable: {}\n"),
-                RC::to_generic_string(std::string(
-                    Horse::Deterministic::failure_code_name(
-                        observer_probe.code))));
-        }
-#endif
         m_replay_native_runtime_status = m_replay_native_runtime.Initialize(
             Horse::NativeBinding::imageBase(), &m_ucrt_rand_broker);
         if (!m_replay_native_runtime_status.ok())
@@ -1758,7 +1603,11 @@ public:
                 "deterministic simulation remains disabled\n"),
                 RC::to_generic_string(std::string(failure)));
         }
-        if (m_deterministic_config.trace || m_deterministic_config.enabled)
+        if(m_deterministic_config.replay_seeking && !Horse::Deterministic::VerifiedReplayExecutable()) {
+            m_deterministic_config.replay_seeking=false;
+            Output::send<LogLevel::Warning>(STR("[HorseMod] automatic replay seeking rejected: unsupported executable identity\n"));
+        }
+        if (m_deterministic_config.trace || m_deterministic_config.enabled || m_deterministic_config.replay_seeking)
         {
             const auto ucrt_started = m_ucrt_rand_broker.Start();
             if (!ucrt_started.ok())
@@ -1776,13 +1625,11 @@ public:
                     &HorseMod::on_outer_tick_source,
                     &HorseMod::on_outer_tick,
                     &HorseMod::on_replay_exit,
-#if HORSE_ENABLE_GEKKONET
-                    &HorseMod::on_authoritative_input,
-                    &HorseMod::on_authoritative_input_commit
-#else
-                    nullptr,
-                    nullptr
-#endif
+                    &HorseMod::on_native_actor_hold,
+                    &HorseMod::on_tutorial_tick,
+                    &HorseMod::on_native_actor_hold,
+                    &HorseMod::on_input_producer_tick,
+                    &HorseMod::companion_replay_storage
                 },
                 &m_ucrt_rand_broker);
             if (!m_frame_fencepost_hook_status.ok())
@@ -1804,7 +1651,7 @@ public:
                     if (!presentation.ok())
                     {
                         m_frame_fencepost_hook_status = presentation;
-                        m_deterministic_hooks.Uninstall();
+                        if(!m_deterministic_hooks.Uninstall()) return;
                         m_ucrt_rand_broker.Stop();
                         return;
                     }
@@ -1812,25 +1659,6 @@ public:
                 Output::send<LogLevel::Default>(STR(
                     "[HorseMod] deterministic lifecycle hooks armed; "
                     "stock simulation remains authoritative\n"));
-#if HORSE_ENABLE_GEKKONET
-                if (m_deterministic_config.enabled)
-                {
-                    reset_online_session_measurements("production");
-                    m_online_coordinator.Select(OnlineRuntimeKind::Production);
-                    const auto armed = m_online_lifecycle.ArmPreOwnership();
-                    if (!armed.ok())
-                    {
-                        m_frame_fencepost_hook_status = armed;
-                        return;
-                    }
-                    m_online_production_requested.store(true,
-                        std::memory_order_release);
-                    Output::send<LogLevel::Default>(STR(
-                        "[HorseMod] production rollback observation armed; "
-                        "ownership requires the complete immutable release "
-                        "allowlist\n"));
-                }
-#endif
             }
         }
 

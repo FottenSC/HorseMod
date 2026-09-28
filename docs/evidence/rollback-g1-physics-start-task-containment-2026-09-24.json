@@ -1,0 +1,97 @@
+{
+  "scope": "G1 exact PhysX start-task before-consumption callback admission; terminal containment only",
+  "native_map": "docs/evidence/rollback-g1-physics-start-task-native-boundary-2026-09-24.md",
+  "red": "docs/evidence/rollback-g1-physics-dispatch-red-2026-09-24.json",
+  "green": {
+    "focused_command": "$env:PYTHONPATH='tools'; python -m pytest -q -x tools/deterministic_qualification/tests/test_replay_run.py::test_component_dispatch_revalidates_admitted_consumer tools/deterministic_qualification/tests/test_replay_run.py::test_ground_capture_uses_native_scene_transform",
+    "focused_result": "2 passed in 12.41s",
+    "build_manifest": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\01a27a63b630913f3ae7b3c737ce1862ad124fbdcce320ae878c76e8e49b9cd3.json",
+    "build_manifest_sha256": "01a27a63b630913f3ae7b3c737ce1862ad124fbdcce320ae878c76e8e49b9cd3",
+    "build_result": "pass",
+    "build_console": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\85fc3374b164b5778a3aa0fbf8985388f3c704023e903b1bdfa3c40936932f6f.log",
+    "state_policy_version": 3,
+    "source_archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-55f1c7e00ae8c5927aa9d8e6b7526b91b592b1499dd7e9597e547aa7b7b3e41e.zip",
+    "source_archive_sha256": "8b57f3913a99df246a7c8609afea515c999905f1d39b0e4aafb91fc2404c7551",
+    "ctest": "2 passed; 0 failed",
+    "native_checks": "Shipped native candidate and task/event/TLS/physics fixtures PASS in build log"
+  },
+  "live": {
+    "manifest": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\f667ca54e41baa339ba03e69a56c176b14f2b0f5d24875146a02cb1f7710a1e2.json",
+    "manifest_sha256": "f667ca54e41baa339ba03e69a56c176b14f2b0f5d24875146a02cb1f7710a1e2",
+    "candidate_run_id": "replay-8aba76d6ac004c718991ce36353877cc",
+    "candidate_report": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d612101cbdebc2fde7b5eb44eb2f1e6ce0083c7329371972c1888610958e19d0.json",
+    "candidate_raw_log": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\864b5555d7273e83a38c802812616061701c0eab21685ad2310e8b4cac24f6e4.log",
+    "control_run_id": "replay-9b32ad9f08fb4c3bbf89123472bb564d",
+    "control_report": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\40eab22e7bcd81594d84774bc408b52eaf5bd8b56066e98bcab292fb65fd251f.json",
+    "control_raw_log": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a5312d6a3097b230d831f11086c9dee04f2d6313580c459b28909a565ffd3686.log",
+    "result": "pass",
+    "certifying": false,
+    "failure_trigger": "native prerequisite mutation detected before dependent consumption",
+    "ownership_states": [
+      "BRetained",
+      "APublished",
+      "ExecutionActive",
+      "FailedRecoverable",
+      "RecoveryQuiescing",
+      "Recovering",
+      "Recovered"
+    ],
+    "B_recovered_tick": 217,
+    "continuation_ticks": 120,
+    "native_callbacks_compared": 480,
+    "native_poses": {
+      "result": "pass",
+      "prefix_ticks": 20,
+      "continuation_ticks": 120,
+      "scope": "complete Lux animation-proxy outputs; not downstream native rendering proof"
+    },
+    "visual_coherence": "incomplete",
+    "rollback_cost": "not_measured"
+  },
+  "cleanup": {
+    "journal_state": "clean",
+    "journal_run_id": "replay-9b32ad9f08fb4c3bbf89123472bb564d",
+    "prior_file_states": [
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll",
+        "expected": "b583b65388616e4fc6bbac841a1de6bc7d87467e67132a0983c69eb5d0c40c2b",
+        "actual": "b583b65388616e4fc6bbac841a1de6bc7d87467e67132a0983c69eb5d0c40c2b",
+        "matches": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\UE4SS.dll",
+        "expected": "df9e6e9a2280972b1c28ce590700feacc752b447204f8baadeb95f5776957055",
+        "actual": "df9e6e9a2280972b1c28ce590700feacc752b447204f8baadeb95f5776957055",
+        "matches": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\rollback.ini",
+        "expected": "22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514",
+        "actual": "22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514",
+        "matches": true
+      },
+      {
+        "path": "C:\\Users\\prest\\AppData\\Local\\HorseMod\\Qualification\\replay_diagnostics.ini",
+        "expected": null,
+        "actual": null,
+        "matches": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\dlls\\main.dll",
+        "expected": null,
+        "actual": null,
+        "matches": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\enabled.txt",
+        "expected": null,
+        "actual": null,
+        "matches": true
+      }
+    ],
+    "game_processes": 0,
+    "steam_pid_retained": 98544
+  },
+  "remaining": "G1 open: this rejects a changed PhysX start callback terminally, without complete-B recovery for that mutation, later substep worker changes, Niagara construction ownership, or debris outgoing consumer closure. G2 open. Debris exact/Unresolved; no 408 retry without publication change and no 600 before G1/G2 close.",
+  "next_resolving_test": "Establish an owned resumable pre-PhysX-start task disposition or stable pre-application callback generation witness, then RED/GREEN a changed callback that returns through complete-B recovery; separately cover worker substep mutation before its callback dispatch."
+}

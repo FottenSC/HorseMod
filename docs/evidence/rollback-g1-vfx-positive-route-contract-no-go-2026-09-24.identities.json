@@ -1,0 +1,3537 @@
+{
+  "schema": 1,
+  "decision": "NO-GO; no production/test edits, builds or live action",
+  "candidate": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8e4653618b1b4bf54e77a50f4e9f9165d1a7b79a676d4c4c46226337e2373085.json",
+    "sha256": "8e4653618b1b4bf54e77a50f4e9f9165d1a7b79a676d4c4c46226337e2373085",
+    "identities": {
+      "config": "26a017d28e1e3d1c9175fe94712258c816976fbb092a5e0dc6bc7eb13a18eac4",
+      "framework": "e1136a410343cc5caad0dfce2b2722002a20d5707ef6077ff794541f48a4847f",
+      "game": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553",
+      "observer": "e4463f0d3764cf43fcbc635bf03a34a6339c7d776a0ff1e44c4b4179e5819ceb",
+      "physx": "c3c7bd6e13260ee5f850552b6e9a15f69e58e0b41cd4f4bcb48e1b419719b5a2",
+      "replay": "95e12e394d35c13d5e0dd3dce692f9e0a4022e2a84205a9ec75f2fa6726d7879",
+      "runtime": "26cb65eec006e44deeb7f07b834353bebf1ab191939743fb7941acc272e8c5af",
+      "ucrt": "5e7709a6b71bb818260b6f05c5bb3b6ca0c3ca9bc2f58c6242c1cd9d826d0079"
+    },
+    "mapped_runtime": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll",
+      "pid": 3888,
+      "process_created": 1790273529.5955665,
+      "sha256": "26cb65eec006e44deeb7f07b834353bebf1ab191939743fb7941acc272e8c5af",
+      "verification": "owned_process_mapped_file_and_sha256"
+    },
+    "mapped_observer": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\dlls\\main.dll",
+      "pid": 3888,
+      "process_created": 1790273529.5955665,
+      "sha256": "e4463f0d3764cf43fcbc635bf03a34a6339c7d776a0ff1e44c4b4179e5819ceb"
+    }
+  },
+  "current_game_sha256": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553",
+  "candidate_source_retention": {
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-8d9d085e9b2ab58bd59cec122a16a3573b5b948cc3762dc0386893cf609be89f.zip",
+    "archive_sha256": "b0e0652f42a1c5bd988c46754f353493f94d730e9bb94e0e3080ed2b34f14dda",
+    "files": 17323,
+    "manifest_sha256": "8d9d085e9b2ab58bd59cec122a16a3573b5b948cc3762dc0386893cf609be89f",
+    "reconstructible": true,
+    "uncompressed_bytes": 127548766
+  },
+  "reviewed_source_archive": {
+    "path": "E:\\myMods\\docs\\evidence\\rollback-g1-vfx-positive-route-contract-no-go-2026-09-24.sources.zip",
+    "sha256": "6acbe339e5a4967f6ce76d553a9f5b228cf9eefd7a3e4d8e17adc74d46f5a792"
+  },
+  "sources": [
+    {
+      "path": "HorseMod/horselib/deterministic/NativeReplayVfxCompletionObservation.hpp",
+      "bytes": 45343,
+      "sha256": "a8233d4bcfe235981b004c286410721fb973586fd12a99a2f620abf4fb3446de",
+      "retained_entry": "workspace/HorseMod/horselib/deterministic/NativeReplayVfxCompletionObservation.hpp",
+      "matches_candidate_build_archive": true
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ReplayVfxExecutionScope.hpp",
+      "bytes": 1528,
+      "sha256": "96d0839dddde182528ba8ef4f6b589faf3c4bb60a18602352f7dec23a6ca3646",
+      "retained_entry": "workspace/HorseMod/horselib/deterministic/ReplayVfxExecutionScope.hpp",
+      "matches_candidate_build_archive": true
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativeReplayPrerequisiteGuard.hpp",
+      "bytes": 22820,
+      "sha256": "421612a7a88506bf9f9a850709fdb40ab1fe6f8a46c7c877f20c8b8f88931833",
+      "retained_entry": "workspace/HorseMod/horselib/deterministic/NativeReplayPrerequisiteGuard.hpp",
+      "matches_candidate_build_archive": true
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayTaskGroup.hpp",
+      "bytes": 6575,
+      "sha256": "eb89c436c22effae0836503f677edc2491dce4c04d9d79b9bdc708856c428b2d",
+      "retained_entry": "workspace/HorseMod/horselib/deterministic/Sc6ReplayTaskGroup.hpp",
+      "matches_candidate_build_archive": true
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayTaskGroup.cpp",
+      "bytes": 33847,
+      "sha256": "c317807365800851a0ff8824b50f1d43c4d8dcfd4ecd6c984164e482295cdb9e",
+      "retained_entry": "workspace/HorseMod/horselib/deterministic/Sc6ReplayTaskGroup.cpp",
+      "matches_candidate_build_archive": true
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayTaskGroup.Resume.inl",
+      "bytes": 1156,
+      "sha256": "0c64a86a2c6b6391cd5d6f847324e4f5f8b35bec3785cd60efef2e733016a3ee",
+      "retained_entry": "workspace/HorseMod/horselib/deterministic/Sc6ReplayTaskGroup.Resume.inl",
+      "matches_candidate_build_archive": true
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ReplayComponentTickConsumer.hpp",
+      "bytes": 1517,
+      "sha256": "564f93e4e33cb2832f032e06cce832b1660880c350d05f5cd2955192595bb3b4",
+      "retained_entry": "workspace/HorseMod/horselib/deterministic/ReplayComponentTickConsumer.hpp",
+      "matches_candidate_build_archive": true
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayHost.Restore.inl",
+      "bytes": 171732,
+      "sha256": "0a20648f0e98ad4b9595623348de1c05287b2825d12dd19d48bcaee9ee62c1e1",
+      "retained_entry": "workspace/HorseMod/horselib/deterministic/Sc6ReplayHost.Restore.inl",
+      "matches_candidate_build_archive": true
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayHost.Consumer.inl",
+      "bytes": 12508,
+      "sha256": "eb5843edbb18576351fb09ff563658ce628b5afa6270875cfec5764452b09039",
+      "retained_entry": "workspace/HorseMod/horselib/deterministic/Sc6ReplayHost.Consumer.inl",
+      "matches_candidate_build_archive": true
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayVfxState.cpp",
+      "bytes": 227507,
+      "sha256": "8860a828f35de72d8ea921a6337c4e3862030ca3fe1d980ca5b238414d21821f",
+      "retained_entry": "workspace/HorseMod/horselib/deterministic/Sc6ReplayVfxState.cpp",
+      "matches_candidate_build_archive": true
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayTraceState.hpp",
+      "bytes": 54630,
+      "sha256": "969b7d27542fc36fb71a5f789924fc3ac522826a593992979bb58290cfedc0c4",
+      "retained_entry": "workspace/HorseMod/horselib/deterministic/Sc6ReplayTraceState.hpp",
+      "matches_candidate_build_archive": true
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayTraceStorage.inl",
+      "bytes": 41769,
+      "sha256": "e026a827399709755c8e5ce261a028cc543fc575bafd2d401c6c7f26882fae0e",
+      "retained_entry": "workspace/HorseMod/horselib/deterministic/Sc6ReplayTraceStorage.inl",
+      "matches_candidate_build_archive": true
+    }
+  ],
+  "native_log_sha256": "54602b0d5775e4286cfa6432e1d48257b319f9e87a2f367ff92eb2ff91384c81",
+  "sidecar_phase": {
+    "boundary": "CompleteTrajectory.vfx_status",
+    "close_ms": 2621359828,
+    "close_thread": 47428,
+    "complete": true,
+    "end_tick": 483,
+    "native_quiescence_proven": false,
+    "pending_at_close": 0,
+    "scope": "startup_to_trajectory_completion",
+    "state": "closed",
+    "whole_process_coverage": false
+  },
+  "sidecar_flags": {
+    "attachment_dispatch_observation_version": 1,
+    "attachment_pre_deactivation_observed": false,
+    "capture_start_ms": 2621306921,
+    "clear_observed": false,
+    "dropped": 0,
+    "dropped_is_lower_bound": true,
+    "execution_owner_lease_proven": false,
+    "execution_owner_observation_version": 1,
+    "max_events": 512,
+    "max_rows": 4,
+    "observation_only": true,
+    "owned_bytes": 3145728,
+    "pending_pairs": 0,
+    "persistence_failed": false,
+    "pid": 3888,
+    "producer_entry_persisted_before_native": false,
+    "producer_observation_version": 1,
+    "producer_pending": 0,
+    "producer_pending_at_close": 0,
+    "prune_observes_prior_direct_write": false,
+    "run_id": "replay-bda836b3a520426fbcb3101085464fcb",
+    "shared_writer_observation_version": 1,
+    "synchronized_snapshot": false,
+    "task_attribution_proven": false,
+    "truncated_records": 0,
+    "unrecognized_collections_omitted": true,
+    "unstable_records": 0,
+    "version": 1,
+    "writer_coverage_proven": false
+  },
+  "selected_producers": [
+    {
+      "id": 67,
+      "entry_rva": "0x3c5250",
+      "kinds": [
+        4,
+        2
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830295238368,
+        "index": 310154,
+        "serial": 8259,
+        "table": 140696496224472,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 6510397920,
+          "caller": 140696447006608,
+          "capacity": 18,
+          "collection": 1833175790048,
+          "completion": 0,
+          "context": 1833175789928,
+          "count": 2,
+          "function": 0,
+          "function_table": 0,
+          "hub_owner": {
+            "address": 1833175789888,
+            "index": 311211,
+            "serial": 0,
+            "table": 140696497341128,
+            "valid": true
+          },
+          "hub_read": true,
+          "id": 58981,
+          "kind": 4,
+          "native_thread": 0,
+          "recursion": 1,
+          "scheduled_task": 0,
+          "storage": 1833167607536,
+          "table": 140696497341688,
+          "task_read": false,
+          "tick_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "world": 0
+        },
+        {
+          "argument": 1830582561760,
+          "caller": 140718264931288,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1830223204800,
+          "context": 1830582561696,
+          "count": 0,
+          "function": 1830214875752,
+          "function_table": 140696502191904,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 58976,
+          "kind": 2,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830582561696,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830214875712,
+            "index": 311213,
+            "serial": 8343,
+            "table": 140696496286240,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 90,
+      "entry_rva": "0x3c5250",
+      "kinds": [
+        4,
+        2
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830295238368,
+        "index": 310154,
+        "serial": 8259,
+        "table": 140696496224472,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 6510397920,
+          "caller": 140696447006608,
+          "capacity": 18,
+          "collection": 1833175790048,
+          "completion": 0,
+          "context": 1833175789928,
+          "count": 2,
+          "function": 0,
+          "function_table": 0,
+          "hub_owner": {
+            "address": 1833175789888,
+            "index": 311211,
+            "serial": 0,
+            "table": 140696497341128,
+            "valid": true
+          },
+          "hub_read": true,
+          "id": 60785,
+          "kind": 4,
+          "native_thread": 0,
+          "recursion": 1,
+          "scheduled_task": 0,
+          "storage": 1833167607536,
+          "table": 140696497341688,
+          "task_read": false,
+          "tick_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "world": 0
+        },
+        {
+          "argument": 1830549958544,
+          "caller": 140718264931288,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1829986386272,
+          "context": 1830549958480,
+          "count": 0,
+          "function": 1830214875752,
+          "function_table": 140696502191904,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 60782,
+          "kind": 2,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830549958480,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830214875712,
+            "index": 311213,
+            "serial": 8343,
+            "table": 140696496286240,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 121,
+      "entry_rva": "0x3c5250",
+      "kinds": [
+        4,
+        2
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830295238368,
+        "index": 310154,
+        "serial": 8259,
+        "table": 140696496224472,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 6510397952,
+          "caller": 140696447006608,
+          "capacity": 18,
+          "collection": 1833175790048,
+          "completion": 0,
+          "context": 1833175789928,
+          "count": 2,
+          "function": 0,
+          "function_table": 0,
+          "hub_owner": {
+            "address": 1833175789888,
+            "index": 311211,
+            "serial": 0,
+            "table": 140696497341128,
+            "valid": true
+          },
+          "hub_read": true,
+          "id": 62597,
+          "kind": 4,
+          "native_thread": 0,
+          "recursion": 1,
+          "scheduled_task": 0,
+          "storage": 1833167607536,
+          "table": 140696497341688,
+          "task_read": false,
+          "tick_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "world": 0
+        },
+        {
+          "argument": 1830625044080,
+          "caller": 140718264931288,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1830223204960,
+          "context": 1830625044016,
+          "count": 0,
+          "function": 1830214875752,
+          "function_table": 140696502191904,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 62596,
+          "kind": 2,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830625044016,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830214875712,
+            "index": 311213,
+            "serial": 8343,
+            "table": 140696496286240,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 125,
+      "entry_rva": "0x3c5250",
+      "kinds": [
+        4,
+        2
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830295238368,
+        "index": 310154,
+        "serial": 8259,
+        "table": 140696496224472,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 6510397920,
+          "caller": 140696447006608,
+          "capacity": 18,
+          "collection": 1833175790048,
+          "completion": 0,
+          "context": 1833175789928,
+          "count": 2,
+          "function": 0,
+          "function_table": 0,
+          "hub_owner": {
+            "address": 1833175789888,
+            "index": 311211,
+            "serial": 0,
+            "table": 140696497341128,
+            "valid": true
+          },
+          "hub_read": true,
+          "id": 62601,
+          "kind": 4,
+          "native_thread": 0,
+          "recursion": 1,
+          "scheduled_task": 0,
+          "storage": 1833167607536,
+          "table": 140696497341688,
+          "task_read": false,
+          "tick_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "world": 0
+        },
+        {
+          "argument": 1830625044080,
+          "caller": 140718264931288,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1830223204960,
+          "context": 1830625044016,
+          "count": 0,
+          "function": 1830214875752,
+          "function_table": 140696502191904,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 62596,
+          "kind": 2,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830625044016,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830214875712,
+            "index": 311213,
+            "serial": 8343,
+            "table": 140696496286240,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 127,
+      "entry_rva": "0x3c5250",
+      "kinds": [
+        4,
+        2
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830295238368,
+        "index": 310154,
+        "serial": 8259,
+        "table": 140696496224472,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 6510397920,
+          "caller": 140696447006608,
+          "capacity": 18,
+          "collection": 1833175790048,
+          "completion": 0,
+          "context": 1833175789928,
+          "count": 2,
+          "function": 0,
+          "function_table": 0,
+          "hub_owner": {
+            "address": 1833175789888,
+            "index": 311211,
+            "serial": 0,
+            "table": 140696497341128,
+            "valid": true
+          },
+          "hub_read": true,
+          "id": 62603,
+          "kind": 4,
+          "native_thread": 0,
+          "recursion": 1,
+          "scheduled_task": 0,
+          "storage": 1833167607536,
+          "table": 140696497341688,
+          "task_read": false,
+          "tick_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "world": 0
+        },
+        {
+          "argument": 1830625044080,
+          "caller": 140718264931288,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1830223204960,
+          "context": 1830625044016,
+          "count": 0,
+          "function": 1830214875752,
+          "function_table": 140696502191904,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 62596,
+          "kind": 2,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830625044016,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830214875712,
+            "index": 311213,
+            "serial": 8343,
+            "table": 140696496286240,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 746,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830612005824,
+        "index": 279166,
+        "serial": 8859,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1830549954704,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1829015878848,
+          "context": 1830549954640,
+          "count": 0,
+          "function": 1830612006096,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 94056,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830549954640,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830612005824,
+            "index": 279166,
+            "serial": 8859,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 958,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830594907456,
+        "index": 279170,
+        "serial": 8857,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1829806544720,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1830226312528,
+          "context": 1829806544656,
+          "count": 0,
+          "function": 1830594907728,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 97669,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1829806544656,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830594907456,
+            "index": 279170,
+            "serial": 8857,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 961,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830303973568,
+        "index": 279167,
+        "serial": 8858,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1830681769136,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1830257107568,
+          "context": 1830681769072,
+          "count": 0,
+          "function": 1830303973840,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 97672,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830681769072,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830303973568,
+            "index": 279167,
+            "serial": 8858,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 1015,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1832306131008,
+        "index": 279155,
+        "serial": 8881,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1830219969280,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1829015865488,
+          "context": 1830219969216,
+          "count": 0,
+          "function": 1832306131280,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 98621,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830219969216,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1832306131008,
+            "index": 279155,
+            "serial": 8881,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 1118,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830634612480,
+        "index": 279154,
+        "serial": 8882,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1830549964576,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1829993226496,
+          "context": 1830549964512,
+          "count": 0,
+          "function": 1830634612752,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 100335,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830549964512,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830634612480,
+            "index": 279154,
+            "serial": 8882,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 1129,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830673947136,
+        "index": 279151,
+        "serial": 8883,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1830681757984,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1832253781024,
+          "context": 1830681757920,
+          "count": 0,
+          "function": 1830673947408,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 100525,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830681757920,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830673947136,
+            "index": 279151,
+            "serial": 8883,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 1167,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1833168942080,
+        "index": 279150,
+        "serial": 8884,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1830691691120,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1830529314656,
+          "context": 1830691691056,
+          "count": 0,
+          "function": 1833168942352,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 101275,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830691691056,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1833168942080,
+            "index": 279150,
+            "serial": 8884,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 1347,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1833199475328,
+        "index": 279146,
+        "serial": 8886,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1830219971584,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1832253770224,
+          "context": 1830219971520,
+          "count": 0,
+          "function": 1833199475600,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 104314,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830219971520,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1833199475328,
+            "index": 279146,
+            "serial": 8886,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 1452,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1829670496064,
+        "index": 279127,
+        "serial": 9717,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1830691712656,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1832253780624,
+          "context": 1830691712592,
+          "count": 0,
+          "function": 1829670496336,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 105851,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830691712592,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1829670496064,
+            "index": 279127,
+            "serial": 9717,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 1513,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830304009472,
+        "index": 279122,
+        "serial": 9750,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1830624006800,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1830257241840,
+          "context": 1830624006736,
+          "count": 0,
+          "function": 1830304009744,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 106807,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830624006736,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830304009472,
+            "index": 279122,
+            "serial": 9750,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 1581,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830605324416,
+        "index": 279119,
+        "serial": 9751,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1830219971072,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1830223203920,
+          "context": 1830219971008,
+          "count": 0,
+          "function": 1830605324688,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 107770,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830219971008,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830605324416,
+            "index": 279119,
+            "serial": 9751,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 1619,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1832306137536,
+        "index": 279118,
+        "serial": 9752,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1830219984528,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1832251757904,
+          "context": 1830219984464,
+          "count": 0,
+          "function": 1832306137808,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 108342,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830219984464,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1832306137536,
+            "index": 279118,
+            "serial": 9752,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 1715,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830611982976,
+        "index": 279115,
+        "serial": 9755,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1830610569216,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1830624903680,
+          "context": 1830610569152,
+          "count": 0,
+          "function": 1830611983248,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 110040,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830610569152,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830611982976,
+            "index": 279115,
+            "serial": 9755,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 1862,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1832306127744,
+        "index": 279114,
+        "serial": 9756,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1829806546000,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1832253769184,
+          "context": 1829806545936,
+          "count": 0,
+          "function": 1832306128016,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 112679,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1829806545936,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1832306127744,
+            "index": 279114,
+            "serial": 9756,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 1893,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1832285166016,
+        "index": 279111,
+        "serial": 9757,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1830681765552,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1832251755584,
+          "context": 1830681765488,
+          "count": 0,
+          "function": 1832285166288,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 113244,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830681765488,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1832285166016,
+            "index": 279111,
+            "serial": 9757,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 1897,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830312257216,
+        "index": 279083,
+        "serial": 9775,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1829792128336,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1830226318368,
+          "context": 1829792128272,
+          "count": 0,
+          "function": 1830312257488,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 113248,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1829792128272,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830312257216,
+            "index": 279083,
+            "serial": 9775,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 1929,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830307591104,
+        "index": 279110,
+        "serial": 9758,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1829633089392,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1829015865168,
+          "context": 1829633089328,
+          "count": 0,
+          "function": 1830307591376,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 113817,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1829633089328,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830307591104,
+            "index": 279110,
+            "serial": 9758,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 2000,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830690609600,
+        "index": 279107,
+        "serial": 9759,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1829784244512,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1832251764544,
+          "context": 1829784244448,
+          "count": 0,
+          "function": 1830690609872,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 115320,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1829784244448,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830690609600,
+            "index": 279107,
+            "serial": 9759,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 2008,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830612035200,
+        "index": 279106,
+        "serial": 9760,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1830325477488,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1830226318368,
+          "context": 1830325477424,
+          "count": 0,
+          "function": 1830612035472,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 115507,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830325477424,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830612035200,
+            "index": 279106,
+            "serial": 9760,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 2039,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830594897664,
+        "index": 279095,
+        "serial": 9762,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1829784231312,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1829015886368,
+          "context": 1829784231248,
+          "count": 0,
+          "function": 1830594897936,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 116254,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1829784231248,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830594897664,
+            "index": 279095,
+            "serial": 9762,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 2070,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830311051456,
+        "index": 279086,
+        "serial": 9774,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1830325479024,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1830223181920,
+          "context": 1830325478960,
+          "count": 0,
+          "function": 1830311051728,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 117001,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830325478960,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830311051456,
+            "index": 279086,
+            "serial": 9774,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 2151,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1832351128128,
+        "index": 279074,
+        "serial": 9778,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1829784232336,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1830224534096,
+          "context": 1829784232272,
+          "count": 0,
+          "function": 1832351128400,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 118530,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1829784232272,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1832351128128,
+            "index": 279074,
+            "serial": 9778,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 2419,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830683577664,
+        "index": 279078,
+        "serial": 9776,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1830691712912,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1830223152800,
+          "context": 1830691712848,
+          "count": 0,
+          "function": 1830683577936,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 123504,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830691712848,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830683577664,
+            "index": 279078,
+            "serial": 9776,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 2454,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830690560640,
+        "index": 279075,
+        "serial": 9777,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1832263682640,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1829991779584,
+          "context": 1832263682576,
+          "count": 0,
+          "function": 1830690560912,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 124082,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1832263682576,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830690560640,
+            "index": 279075,
+            "serial": 9777,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 2479,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830313469760,
+        "index": 279042,
+        "serial": 9787,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1829784201696,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1830624943200,
+          "context": 1829784201632,
+          "count": 0,
+          "function": 1830313470032,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 124651,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1829784201632,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830313469760,
+            "index": 279042,
+            "serial": 9787,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 2637,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1829990256000,
+        "index": 279067,
+        "serial": 9779,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1829025183488,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1829015884688,
+          "context": 1829025183424,
+          "count": 0,
+          "function": 1829990256272,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 127659,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1829025183424,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1829990256000,
+            "index": 279067,
+            "serial": 9779,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 2679,
+      "entry_rva": "0x3c5250",
+      "kinds": [
+        4,
+        2
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830295238368,
+        "index": 310154,
+        "serial": 8259,
+        "table": 140696496224472,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 6510397712,
+          "caller": 140696447006541,
+          "capacity": 18,
+          "collection": 1833175790048,
+          "completion": 0,
+          "context": 1833175789928,
+          "count": 2,
+          "function": 0,
+          "function_table": 0,
+          "hub_owner": {
+            "address": 1833175789888,
+            "index": 311211,
+            "serial": 0,
+            "table": 140696497341128,
+            "valid": true
+          },
+          "hub_read": true,
+          "id": 128259,
+          "kind": 4,
+          "native_thread": 0,
+          "recursion": 1,
+          "scheduled_task": 0,
+          "storage": 1833167607536,
+          "table": 140696497341688,
+          "task_read": false,
+          "tick_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "world": 0
+        },
+        {
+          "argument": 1830219994656,
+          "caller": 140718264931288,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1829615064896,
+          "context": 1830219994592,
+          "count": 0,
+          "function": 1830214875752,
+          "function_table": 140696502191904,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 128258,
+          "kind": 2,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830219994592,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830214875712,
+            "index": 311213,
+            "serial": 8343,
+            "table": 140696496286240,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 2688,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830594884608,
+        "index": 279066,
+        "serial": 9780,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1829792128336,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1829995854096,
+          "context": 1829792128272,
+          "count": 0,
+          "function": 1830594884880,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 128418,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1829792128272,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830594884608,
+            "index": 279066,
+            "serial": 9780,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 2704,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830303993152,
+        "index": 279046,
+        "serial": 9785,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1829784245536,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1829993229056,
+          "context": 1829784245472,
+          "count": 0,
+          "function": 1830303993424,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 128789,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1829784245472,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830303993152,
+            "index": 279046,
+            "serial": 9785,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 2708,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830303967040,
+        "index": 279047,
+        "serial": 9784,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1830691702528,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1829991802224,
+          "context": 1830691702464,
+          "count": 0,
+          "function": 1830303967312,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 128793,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830691702464,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830303967040,
+            "index": 279047,
+            "serial": 9784,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 2928,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830690616128,
+        "index": 279027,
+        "serial": 9797,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1830681713232,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1830257267200,
+          "context": 1830681713168,
+          "count": 0,
+          "function": 1830690616400,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 133092,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830681713168,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830690616128,
+            "index": 279027,
+            "serial": 9797,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 3144,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1832305862336,
+        "index": 279023,
+        "serial": 9799,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1830681757984,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1830224552656,
+          "context": 1830681757920,
+          "count": 0,
+          "function": 1832305862608,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 136531,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830681757920,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1832305862336,
+            "index": 279023,
+            "serial": 9799,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 3245,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830311077568,
+        "index": 279019,
+        "serial": 9801,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1830675864752,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1829993205936,
+          "context": 1830675864688,
+          "count": 0,
+          "function": 1830311077840,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 138064,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830675864688,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830311077568,
+            "index": 279019,
+            "serial": 9801,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 3265,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830312293376,
+        "index": 278998,
+        "serial": 9812,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1830681756192,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1829993205776,
+          "context": 1830681756128,
+          "count": 0,
+          "function": 1830312293648,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 138262,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830681756128,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830312293376,
+            "index": 278998,
+            "serial": 9812,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 3268,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830307620480,
+        "index": 279018,
+        "serial": 9802,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1830624013712,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1832251765584,
+          "context": 1830624013648,
+          "count": 0,
+          "function": 1830307620752,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 138265,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830624013648,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830307620480,
+            "index": 279018,
+            "serial": 9802,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 3385,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830634622272,
+        "index": 279014,
+        "serial": 9803,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1830675864752,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1830624935680,
+          "context": 1830675864688,
+          "count": 0,
+          "function": 1830634622544,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 140162,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830675864688,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830634622272,
+            "index": 279014,
+            "serial": 9803,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 3430,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830312273536,
+        "index": 279022,
+        "serial": 9800,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1830681722336,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1829015881808,
+          "context": 1830681722272,
+          "count": 0,
+          "function": 1830312273808,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 140919,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830681722272,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830312273536,
+            "index": 279022,
+            "serial": 9800,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 3431,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1832351144448,
+        "index": 279003,
+        "serial": 9809,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1830681707344,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1830624920880,
+          "context": 1830681707280,
+          "count": 0,
+          "function": 1832351144720,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 140920,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830681707280,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1832351144448,
+            "index": 279003,
+            "serial": 9809,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 3538,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830307574784,
+        "index": 279002,
+        "serial": 9810,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1830681707856,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1829993199456,
+          "context": 1830681707792,
+          "count": 0,
+          "function": 1830307575056,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 142807,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1830681707792,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830307574784,
+            "index": 279002,
+            "serial": 9810,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    },
+    {
+      "id": 3641,
+      "entry_rva": "0x1f73990",
+      "kinds": [
+        1
+      ],
+      "thread": 47428,
+      "object": {
+        "address": 1830667409856,
+        "index": 278999,
+        "serial": 9811,
+        "table": 140696497216296,
+        "valid": true
+      },
+      "owners": [
+        {
+          "argument": 1829025174896,
+          "caller": 140696478346573,
+          "capacity": 0,
+          "collection": 0,
+          "completion": 1829986382992,
+          "context": 1829025174832,
+          "count": 0,
+          "function": 1830667410128,
+          "function_table": 140696502493080,
+          "hub_owner": {
+            "address": 0,
+            "index": -1,
+            "serial": 0,
+            "table": 0,
+            "valid": false
+          },
+          "hub_read": false,
+          "id": 144334,
+          "kind": 1,
+          "native_thread": 2,
+          "recursion": 0,
+          "scheduled_task": 1829025174832,
+          "storage": 0,
+          "table": 140696503966144,
+          "task_read": true,
+          "tick_owner": {
+            "address": 1830667409856,
+            "index": 278999,
+            "serial": 9811,
+            "table": 140696497216296,
+            "valid": true
+          },
+          "world": 1832250067808
+        }
+      ],
+      "returned": true,
+      "ancestry_at_capacity": true
+    }
+  ],
+  "event_entry_summary": [
+    [
+      1,
+      "dispatch",
+      "0x3d74d0",
+      0,
+      67
+    ],
+    [
+      2,
+      "native_registration",
+      "0x8c9120",
+      0,
+      0
+    ],
+    [
+      3,
+      "shared_prune",
+      "0x3ea210",
+      1,
+      0
+    ],
+    [
+      4,
+      "dispatch",
+      "0x3d74d0",
+      1,
+      90
+    ],
+    [
+      5,
+      "dispatch",
+      "0x3d74d0",
+      1,
+      121
+    ],
+    [
+      6,
+      "dispatch",
+      "0x3d74d0",
+      1,
+      125
+    ],
+    [
+      7,
+      "dispatch",
+      "0x3d74d0",
+      1,
+      127
+    ],
+    [
+      8,
+      "native_registration",
+      "0x8c9120",
+      1,
+      0
+    ],
+    [
+      9,
+      "shared_prune",
+      "0x3ea210",
+      1,
+      0
+    ],
+    [
+      10,
+      "native_registration",
+      "0x8c9120",
+      1,
+      0
+    ],
+    [
+      11,
+      "shared_prune",
+      "0x3ea210",
+      1,
+      0
+    ],
+    [
+      12,
+      "native_registration",
+      "0x8c9120",
+      1,
+      0
+    ],
+    [
+      13,
+      "shared_prune",
+      "0x3ea210",
+      1,
+      0
+    ],
+    [
+      14,
+      "dispatch",
+      "0x3d74d0",
+      1,
+      746
+    ],
+    [
+      15,
+      "dispatch",
+      "0x3d74d0",
+      1,
+      958
+    ],
+    [
+      16,
+      "dispatch",
+      "0x3d74d0",
+      1,
+      961
+    ],
+    [
+      17,
+      "dispatch",
+      "0x3d74d0",
+      1,
+      1015
+    ],
+    [
+      18,
+      "dispatch",
+      "0x3d74d0",
+      1,
+      1118
+    ],
+    [
+      19,
+      "dispatch",
+      "0x3d74d0",
+      1,
+      1129
+    ],
+    [
+      20,
+      "dispatch",
+      "0x3d74d0",
+      1,
+      1167
+    ],
+    [
+      21,
+      "native_registration",
+      "0x8c9120",
+      1,
+      0
+    ],
+    [
+      22,
+      "shared_prune",
+      "0x3ea210",
+      2,
+      0
+    ],
+    [
+      23,
+      "native_registration",
+      "0x8c9120",
+      2,
+      0
+    ],
+    [
+      24,
+      "shared_prune",
+      "0x3ea210",
+      2,
+      0
+    ],
+    [
+      25,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      1347
+    ],
+    [
+      26,
+      "native_registration",
+      "0x8c9120",
+      2,
+      0
+    ],
+    [
+      27,
+      "shared_prune",
+      "0x3ea210",
+      2,
+      0
+    ],
+    [
+      28,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      1452
+    ],
+    [
+      29,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      1513
+    ],
+    [
+      30,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      1581
+    ],
+    [
+      31,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      1619
+    ],
+    [
+      32,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      1715
+    ],
+    [
+      33,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      1862
+    ],
+    [
+      34,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      1893
+    ],
+    [
+      35,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      1897
+    ],
+    [
+      36,
+      "native_registration",
+      "0x8c9120",
+      2,
+      0
+    ],
+    [
+      37,
+      "shared_prune",
+      "0x3ea210",
+      2,
+      0
+    ],
+    [
+      38,
+      "native_registration",
+      "0x8c9120",
+      2,
+      0
+    ],
+    [
+      39,
+      "shared_prune",
+      "0x3ea210",
+      2,
+      0
+    ],
+    [
+      40,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      1929
+    ],
+    [
+      41,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      2000
+    ],
+    [
+      42,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      2008
+    ],
+    [
+      43,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      2039
+    ],
+    [
+      44,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      2070
+    ],
+    [
+      45,
+      "native_registration",
+      "0x8c9120",
+      2,
+      0
+    ],
+    [
+      46,
+      "shared_prune",
+      "0x3ea210",
+      2,
+      0
+    ],
+    [
+      47,
+      "native_registration",
+      "0x8c9120",
+      2,
+      0
+    ],
+    [
+      48,
+      "shared_prune",
+      "0x3ea210",
+      2,
+      0
+    ],
+    [
+      49,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      2151
+    ],
+    [
+      50,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      2419
+    ],
+    [
+      51,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      2454
+    ],
+    [
+      52,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      2479
+    ],
+    [
+      53,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      2637
+    ],
+    [
+      54,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      2679
+    ],
+    [
+      55,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      2688
+    ],
+    [
+      56,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      2704
+    ],
+    [
+      57,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      2708
+    ],
+    [
+      58,
+      "native_registration",
+      "0x8c9120",
+      2,
+      0
+    ],
+    [
+      59,
+      "shared_prune",
+      "0x3ea210",
+      2,
+      0
+    ],
+    [
+      60,
+      "native_registration",
+      "0x8c9120",
+      2,
+      0
+    ],
+    [
+      61,
+      "shared_prune",
+      "0x3ea210",
+      2,
+      0
+    ],
+    [
+      62,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      2928
+    ],
+    [
+      63,
+      "native_registration",
+      "0x8c9120",
+      2,
+      0
+    ],
+    [
+      64,
+      "shared_prune",
+      "0x3ea210",
+      2,
+      0
+    ],
+    [
+      65,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      3144
+    ],
+    [
+      66,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      3245
+    ],
+    [
+      67,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      3265
+    ],
+    [
+      68,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      3268
+    ],
+    [
+      69,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      3385
+    ],
+    [
+      70,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      3430
+    ],
+    [
+      71,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      3431
+    ],
+    [
+      72,
+      "native_registration",
+      "0x8c9120",
+      2,
+      0
+    ],
+    [
+      73,
+      "shared_prune",
+      "0x3ea210",
+      2,
+      0
+    ],
+    [
+      74,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      3538
+    ],
+    [
+      75,
+      "native_registration",
+      "0x8c9120",
+      2,
+      0
+    ],
+    [
+      76,
+      "shared_prune",
+      "0x3ea210",
+      2,
+      0
+    ],
+    [
+      77,
+      "dispatch",
+      "0x3d74d0",
+      2,
+      3641
+    ]
+  ],
+  "manager_registration_pair21": [
+    {
+      "active_dispatch_other_thread_same_collection": 0,
+      "active_dispatch_same_thread_same_collection": 0,
+      "active_other_thread_same_collection": 0,
+      "active_same_thread_same_collection": 0,
+      "boundary": "entry",
+      "caller": 140696452586636,
+      "caller_route": "other",
+      "capacity": 4,
+      "collection": 1830295211240,
+      "collection_kind": "vfx_manager_finished",
+      "count": 1,
+      "depth": 1,
+      "descriptor": 6510396160,
+      "entry_rva": 9212192,
+      "function_name": 17559,
+      "header_after": [
+        1830313768640,
+        1,
+        4
+      ],
+      "header_after_read": true,
+      "header_read": true,
+      "manager": {
+        "address": 1830295210336,
+        "index": 310119,
+        "serial": 8362,
+        "table": 140696497188712,
+        "valid": true
+      },
+      "pair": 21,
+      "parent_pair": 0,
+      "payload": 0,
+      "producer_id": 0,
+      "receiver": 1829845924528,
+      "receiver_identity": {
+        "address": 1829845924528,
+        "index": 310591,
+        "serial": 8189,
+        "table": 140696497228968,
+        "valid": true
+      },
+      "route": "native_registration",
+      "row_identities": [
+        {
+          "address": 1830009323712,
+          "index": 311114,
+          "serial": 8104,
+          "table": 140696497228968,
+          "valid": true
+        }
+      ],
+      "rows": [
+        [
+          311114,
+          8104,
+          17559
+        ]
+      ],
+      "rows_complete": true,
+      "source_collection": 0,
+      "storage": 1830313768640,
+      "thread": 47428,
+      "time_ms": 2621356000,
+      "truncated": false,
+      "unstable": false
+    },
+    {
+      "active_dispatch_other_thread_same_collection": 0,
+      "active_dispatch_same_thread_same_collection": 0,
+      "active_other_thread_same_collection": 0,
+      "active_same_thread_same_collection": 0,
+      "boundary": "return",
+      "caller": 140696452586636,
+      "caller_route": "other",
+      "capacity": 4,
+      "collection": 1830295211240,
+      "collection_kind": "vfx_manager_finished",
+      "count": 2,
+      "depth": 1,
+      "descriptor": 6510396160,
+      "entry_rva": 9212192,
+      "function_name": 17559,
+      "header_after": [
+        1830313768640,
+        2,
+        4
+      ],
+      "header_after_read": true,
+      "header_read": true,
+      "manager": {
+        "address": 1830295210336,
+        "index": 310119,
+        "serial": 8362,
+        "table": 140696497188712,
+        "valid": true
+      },
+      "pair": 21,
+      "parent_pair": 0,
+      "payload": 0,
+      "producer_id": 0,
+      "receiver": 1829845924528,
+      "receiver_identity": {
+        "address": 1829845924528,
+        "index": 310591,
+        "serial": 8189,
+        "table": 140696497228968,
+        "valid": true
+      },
+      "route": "native_registration",
+      "row_identities": [
+        {
+          "address": 1830009323712,
+          "index": 311114,
+          "serial": 8104,
+          "table": 140696497228968,
+          "valid": true
+        },
+        {
+          "address": 1829845924528,
+          "index": 310591,
+          "serial": 8189,
+          "table": 140696497228968,
+          "valid": true
+        }
+      ],
+      "rows": [
+        [
+          311114,
+          8104,
+          17559
+        ],
+        [
+          310591,
+          8189,
+          17559
+        ]
+      ],
+      "rows_complete": true,
+      "source_collection": 0,
+      "storage": 1830313768640,
+      "thread": 47428,
+      "time_ms": 2621356015,
+      "truncated": false,
+      "unstable": false
+    }
+  ],
+  "status_before": {
+    "bytes": 265989,
+    "sha256": "f4b0b0e99744e16007bdd0c32f2aa54e49a2a7c72eafa9a0c27b128d83e016de"
+  },
+  "current_build_binary_checks": {
+    "core_test": {
+      "sha256": "48028516251b65033c21021a6b65b1ff6faaf736223f2524dfd52579d0d98d7c",
+      "matches_candidate": true
+    },
+    "framework": {
+      "sha256": "e1136a410343cc5caad0dfce2b2722002a20d5707ef6077ff794541f48a4847f",
+      "matches_candidate": true
+    },
+    "native_test": {
+      "sha256": "9151189e529d631d9d9214d5e1a0eaf45a4263a60fbf0b3af5b76c036e90615e",
+      "matches_candidate": true
+    },
+    "observer": {
+      "sha256": "e4463f0d3764cf43fcbc635bf03a34a6339c7d776a0ff1e44c4b4179e5819ceb",
+      "matches_candidate": true
+    },
+    "runtime": {
+      "sha256": "26cb65eec006e44deeb7f07b834353bebf1ab191939743fb7941acc272e8c5af",
+      "matches_candidate": true
+    }
+  }
+}

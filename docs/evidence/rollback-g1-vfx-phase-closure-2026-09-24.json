@@ -1,0 +1,176 @@
+{
+  "created_utc": "2026-09-24T07:37:00.0401327Z",
+  "scope": "Astra-high bounded VFX phase closure; selected prerequisite mutation A210/B217, not VFX listener-mutation recovery",
+  "source": {
+    "green_archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-db40f0cff43522362deeb2ffceff7a1d6036bfcd6d667825dd72ee0a8a3fb630.zip",
+    "green_archive_sha256": "667f943a1330dc7564879ee5c2636468fa49da7a2512e00151f7617c2148459f",
+    "staged_pre_fix_archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\vfx-phase-staged-red-98f65a724b3533091d27a3be2583013fa267051cc564024f92ca7bbdddb56c59.zip",
+    "staged_pre_fix_sha256": "98f65a724b3533091d27a3be2583013fa267051cc564024f92ca7bbdddb56c59",
+    "astra_patch": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\vfx-phase-green-2bf69bae8ea6bc7094c19aeef1f75903b6e79c2923fdb7d717b0fc273bea4493.patch",
+    "astra_patch_sha256": "2bf69bae8ea6bc7094c19aeef1f75903b6e79c2923fdb7d717b0fc273bea4493"
+  },
+  "red": {
+    "command": "python tools/replay_test.py local --group vfx-observation, with only Astra production patch reversed",
+    "result": "fail",
+    "first_failure": "phase-close child exit=0; shutdown calls filled buffer: records=128 dropped=5",
+    "passed_before_failure": 12,
+    "manifest": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\48c7bedaa661a5493f16b682d2d2b2a68d2aa2f5c1c5903336e317e283ec9125.json",
+    "manifest_sha256": "48c7bedaa661a5493f16b682d2d2b2a68d2aa2f5c1c5903336e317e283ec9125"
+  },
+  "green": {
+    "command": "python tools/replay_test.py local --group vfx-observation",
+    "result": "pass",
+    "focused_tests": 17,
+    "manifest": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\ef7a9316ca0c859c3dbf2bc65d3e0538b2e6889c8f0348ecc7a22272a4e49648.json",
+    "manifest_sha256": "ef7a9316ca0c859c3dbf2bc65d3e0538b2e6889c8f0348ecc7a22272a4e49648"
+  },
+  "build": {
+    "command": "python tools/replay_test.py build",
+    "result": "pass",
+    "ctests": 2,
+    "ctest_failed": 0,
+    "native_checks": "pass",
+    "manifest": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\28cb0f0f9cbb0c4d3572b5fa890f37f403b63f7226933dec1b4dd4b31e71e012.json",
+    "manifest_sha256": "28cb0f0f9cbb0c4d3572b5fa890f37f403b63f7226933dec1b4dd4b31e71e012"
+  },
+  "setup_note": "First live invocation omitted --consumer-mutation and did not start VFX observation; a profile-plus-flag parse attempt failed before launch. Corrected explicit-argument diagnostic below is the only live mutation observation.",
+  "live": {
+    "stage_result": "pass",
+    "candidate_run_id": "replay-ae04c3c3628f494d8f954064b7663385",
+    "control_run_id": "replay-e25298fa00da48cdb856e6f2759c56f1",
+    "manifest": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\354264437fb14a05ff62ca0720fbf41e37b3bc904a75c48a3393cd362b9ea2b2.json",
+    "manifest_sha256": "354264437fb14a05ff62ca0720fbf41e37b3bc904a75c48a3393cd362b9ea2b2",
+    "candidate_report": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\de8312bffe1a062f34f3769228a4437eacfc3dc98126b970f60be2cfae6b974d.json",
+      "sha256": "de8312bffe1a062f34f3769228a4437eacfc3dc98126b970f60be2cfae6b974d",
+      "bytes": 220644
+    },
+    "candidate_raw_log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\14a1bebbd98bcbf4f8b245b631d103ecbb6fbf18b2b6e7c9086df0affbd31187.log",
+      "sha256": "14a1bebbd98bcbf4f8b245b631d103ecbb6fbf18b2b6e7c9086df0affbd31187",
+      "bytes": 6340775
+    },
+    "control_report": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f416f8221110c2cc17d2a997224abbeadaafa4588ba22b68e59d38831aab9cfd.json",
+      "sha256": "f416f8221110c2cc17d2a997224abbeadaafa4588ba22b68e59d38831aab9cfd",
+      "bytes": 13503
+    },
+    "control_raw_log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0c4a4a0f653e37e046abe990556a72566a65c4ea177ec2a2121570f34350fb6e.log",
+      "sha256": "0c4a4a0f653e37e046abe990556a72566a65c4ea177ec2a2121570f34350fb6e",
+      "bytes": 5612834
+    },
+    "observer_sidecar": {
+      "bytes": 108465,
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\29cf741d17f00863324eac44d4f491b2e7fc8e0d1797f7475bbc2dcdc38e80fd.json",
+      "sha256": "29cf741d17f00863324eac44d4f491b2e7fc8e0d1797f7475bbc2dcdc38e80fd"
+    },
+    "phase": {
+      "boundary": "CompleteTrajectory.vfx_status",
+      "close_ms": 2582967562,
+      "close_thread": 36944,
+      "complete": true,
+      "end_tick": 483,
+      "native_quiescence_proven": false,
+      "pending_at_close": 0,
+      "scope": "startup_to_trajectory_completion",
+      "state": "closed",
+      "whole_process_coverage": false
+    },
+    "observer_valid": true,
+    "events": 122,
+    "entry_pairs": 61,
+    "return_pairs": 61,
+    "registrations": 16,
+    "dispatches": 45,
+    "threads": [
+      36944
+    ],
+    "cross_thread_overlap_events": 0,
+    "same_thread_overlap_events": 0,
+    "manager_generations": [
+      "310120:8360"
+    ],
+    "dropped": 0,
+    "pending_pairs": 0,
+    "unstable_records": 0,
+    "truncated_records": 0,
+    "selected_prerequisite_recovery": {
+      "result": "pass",
+      "failure": "native prerequisite mutation detected before dependent consumption",
+      "recovered_tick": 217,
+      "independent_continuation_ticks": 120,
+      "ownership": {
+        "states": [
+          "BRetained",
+          "APublished",
+          "ExecutionActive",
+          "FailedRecoverable",
+          "RecoveryQuiescing",
+          "Recovering",
+          "Recovered"
+        ],
+        "completed_C_tick": 211,
+        "executed_ticks": 1,
+        "executed_intervals": 1,
+        "C_only_particles": 1,
+        "B_recovered_tick": 217,
+        "native_destroyed_CPU_members": 1,
+        "cancellation_boundary": "ConsumerPrerequisite"
+      }
+    },
+    "independent_continuation_ticks": 120,
+    "native_callbacks_compared": 480,
+    "visual_coherence": "incomplete",
+    "rollback_update_cost": "not_measured"
+  },
+  "cleanup": {
+    "journal_state": "clean",
+    "journal_sha256": "f378fac389626a3b7e8c1221cd66dcc2148d5f7fe0a48053176074eeb49e61ea",
+    "all_prior_states_match": true,
+    "files": [
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll",
+        "before": "b583b65388616e4fc6bbac841a1de6bc7d87467e67132a0983c69eb5d0c40c2b",
+        "actual": "b583b65388616e4fc6bbac841a1de6bc7d87467e67132a0983c69eb5d0c40c2b",
+        "matches": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\UE4SS.dll",
+        "before": "df9e6e9a2280972b1c28ce590700feacc752b447204f8baadeb95f5776957055",
+        "actual": "df9e6e9a2280972b1c28ce590700feacc752b447204f8baadeb95f5776957055",
+        "matches": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\rollback.ini",
+        "before": "22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514",
+        "actual": "22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514",
+        "matches": true
+      },
+      {
+        "path": "C:\\Users\\prest\\AppData\\Local\\HorseMod\\Qualification\\replay_diagnostics.ini",
+        "before": null,
+        "actual": null,
+        "matches": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\dlls\\main.dll",
+        "before": null,
+        "actual": null,
+        "matches": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\enabled.txt",
+        "before": null,
+        "actual": null,
+        "matches": true
+      }
+    ],
+    "game_processes": [],
+    "steam_processes": [
+      98544
+    ]
+  },
+  "remaining_blocker": "No exhaustive reflected/native/mod writer synchronization or receiver lifetime proof. Existing same-count post-admission listener-mutation RED remains open; no complete-B recovery after VFX listener mutation.",
+  "next_resolving_test": "Resolve generic reflected writes and prove a common owner/barrier through +0x388 header publication, backing retirement/free, native snapshot/prune and weak receiver ProcessEvent; then safe local RED/GREEN enforcement and one shortest VFX mutation recovery test."
+}

@@ -1,0 +1,1139 @@
+{
+  "artifacts": {
+    "capture_harness_sha256": "d5a19bd273752bb0dde2831aef1ed12615491df86775c1d98e87e58d9b93aa83",
+    "config": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\rollback.ini",
+      "sha256": "8dc51120f7871e02848ff86e1e2fffc7a778cdee4366275c53a24fa83ce32579"
+    },
+    "config_fields": {
+      "config_version": "1",
+      "correction_probe": "false",
+      "enabled": "false",
+      "forced_depth7_qualification": "false",
+      "input_delay": "1",
+      "qualification_depth": "7",
+      "qualification_location": "2",
+      "rollback_window": "12",
+      "trace": "true"
+    },
+    "game_executable": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\SoulcaliburVI.exe",
+      "sha256": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553"
+    },
+    "generated_schema": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\generated\\deterministic_contract.json",
+      "sha256": "41c81bf2cc0f046355261ee540d3139fe74876c5b227fb7ccf9e61c0e1726383"
+    },
+    "horsemod_dll": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\HorseMod.dll",
+      "sha256": "a4e1ac59daa3a5dafc44420374f39a6729e8755ab0cdc3d3dd5ec8b7b517d462"
+    },
+    "horsemod_dll_sha256": "a4e1ac59daa3a5dafc44420374f39a6729e8755ab0cdc3d3dd5ec8b7b517d462",
+    "replay": {
+      "path": "E:\\myMods\\ReplayExample\\REPLAY_10655830802443135226.bin",
+      "sha256": "d1543bea1bb229bd9cf5e33b09167c88782653e9bb3b98d0eb4c31f131367887"
+    },
+    "replay_qualification_mod": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\ReplayQualificationMod.dll",
+      "sha256": "5d377bdf92ef30f4aad3f2bb6ae0041810d4a508586f04d24d170fe2f13132ed"
+    },
+    "runner_sha256": "a9ee5b82d26a4ab5c0a9c636bd14fc4f4ed4cf518749d7b7de8969ff63838a38",
+    "schema_sha256": "41c81bf2cc0f046355261ee540d3139fe74876c5b227fb7ccf9e61c0e1726383",
+    "stock_outcome_control": null
+  },
+  "case_id": "siegfried-cervantes-murakumo-shrine-grounds",
+  "certifying": false,
+  "created_utc": "2026-09-04T18:34:00.926202+00:00",
+  "display_map_name": "Murakumo Shrine Grounds",
+  "kind": "replay_development_smoke",
+  "reason": "bounded normal-render authored replay audio/ownership smoke",
+  "renderer": "normal",
+  "report_schema": 2,
+  "result": "pass",
+  "row_id": "strict-seek-sentinel",
+  "runtime": {
+    "aggregate_owned_bytes": null,
+    "authored_outcomes_required": false,
+    "batch_accounting_mismatches": null,
+    "canonical_convergence": "exact",
+    "capacity_failures": null,
+    "capacity_growth_events": null,
+    "clean_exit": true,
+    "clean_exit_requested": true,
+    "consecutive_corrections": 0,
+    "correction_probes": [],
+    "corrections": 0,
+    "cursor_mismatches": null,
+    "depth": 0,
+    "development_smoke": true,
+    "development_tira_transition_smoke": false,
+    "final_canonical": null,
+    "forced_depth7": null,
+    "frame_fencepost_observed": false,
+    "gameplay_rng_coverage": null,
+    "graceful_exit_observed": true,
+    "horsemod_version": "1.2.1",
+    "launch_requested": true,
+    "location": null,
+    "min_resume_tick_rate": 58.0,
+    "native_replay_import_ready": null,
+    "performance": {
+      "active_battle_elapsed_us": 1985795,
+      "active_battle_fps": 60.429,
+      "active_battle_frames": 120,
+      "active_battle_tick_rate": 60.429,
+      "capture_max_us": 0,
+      "capture_p99_us": 0,
+      "correction_max_us": 0,
+      "correction_p99_us": 0,
+      "independent_clocks": true,
+      "normal_render_elapsed_us": 1985718,
+      "normal_render_forward_ticks": 120,
+      "normal_render_fps": 60.431,
+      "normal_render_frames": 120,
+      "normal_render_owned_resim_ticks": 0,
+      "normal_render_tick_rate": 60.431
+    },
+    "presentation": {
+      "ephemeral_exactly_once": false,
+      "identity": null,
+      "leaks": 0,
+      "ordered_audio_payload_ids": false,
+      "persistent_final_exact": false,
+      "required_activity": 0,
+      "terminal_coverage": "not_applicable"
+    },
+    "presentation_duplicate_failures": null,
+    "presentation_owned_bytes": null,
+    "presentation_publish_failures": null,
+    "presentation_source_coverage": null,
+    "process_absent_after_exit": true,
+    "reentry": false,
+    "replay_metadata": {
+      "left_character": 6,
+      "map": 23,
+      "right_character": 13,
+      "stage": 23,
+      "state_reset_records": 3
+    },
+    "reported_source_commit": "8bec85ddfd76add9d7031c8a81651414c153767d",
+    "resume_tick_window": 120,
+    "round_transition_barriers": null,
+    "run_id": "be0a8c50b0324e05b170ca0289372e62",
+    "seek_percentages": [],
+    "seeks": [],
+    "stage_terminal": null,
+    "stock_round_outcome": null,
+    "temporary_mod_removed": true,
+    "timeline_accounting_failures": null,
+    "watch_frames": 120
+  },
+  "source": {
+    "build": {
+      "build_command": "cmake --build E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64 --config Shipping -j 4",
+      "cmake": "cmake version 4.3.1",
+      "compiler": {
+        "cmake_cxx_compiler": "E:/ProgramFiles/vsStudioCommunity/VC/Tools/MSVC/14.50.35717/bin/Hostx64/x64/cl.exe",
+        "cmake_generator": "Ninja",
+        "cmake_generator_platform": ""
+      },
+      "compiler_artifact": {
+        "banner": "usage: cl [ option... ] filename... [ /link linkoption... ]",
+        "path": "E:\\ProgramFiles\\vsStudioCommunity\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+        "sha256": "194ddf4aafcb74452218a982309a97de30e0adb33edf4af02904ee107213e782",
+        "size": 682568
+      },
+      "configure_command": "cmake -S E:\\myMods -B E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64"
+    },
+    "commit": "8bec85ddfd76add9d7031c8a81651414c153767d",
+    "deterministic_binary_patch": "diff --git a/HorseMod/OnlineQualificationService.inl b/HorseMod/OnlineQualificationService.inl\nindex a62745e9..17ca5b96 100644\n--- a/HorseMod/OnlineQualificationService.inl\n+++ b/HorseMod/OnlineQualificationService.inl\n@@ -737,6 +737,30 @@\n                 m_online_baseline_coordinate.generation,\n                 m_online_baseline_coordinate.frame\n                     + m_online_prefix_next_frame + 1};\n+            // Once catch-up reaches the completed native boundary, hold that\n+            // frontier briefly while the independently running peer returns\n+            // its final Gekko acknowledgement.  Advancing stock first creates\n+            // a moving frontier that a consistently one-frame-lagged peer can\n+            // never catch, even though every input and packet is healthy.\n+            if (NeedsOnlinePrefixConfirmationDrain(\n+                    m_online_prefix_next_frame,\n+                    m_online_gekko.confirmed_frame(), next,\n+                    timeline.last_coordinate))\n+            {\n+                for (std::size_t budget = 0; budget < 20; ++budget)\n+                {\n+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));\n+                    status = m_online_gekko.PollNetwork();\n+                    if (status.ok()) status = m_online_gekko.FlushCorrections();\n+                    if (!status.ok())\n+                    { fail_online_qualification(status.code); return false; }\n+                    if (!NeedsOnlinePrefixConfirmationDrain(\n+                            m_online_prefix_next_frame,\n+                            m_online_gekko.confirmed_frame(), next,\n+                            timeline.last_coordinate))\n+                        break;\n+                }\n+            }\n             if (CanCompleteOnlinePrefixCatchup(\n                     m_online_prefix_next_frame,\n                     m_online_gekko.confirmed_frame(), next,\n@@ -779,6 +803,36 @@\n                     timeline.last_coordinate.generation,\n                     m_online_prefix_next_frame);\n             }\n+            else if (m_online_coordinator.kind()\n+                    == OnlineRuntimeKind::Qualification\n+                && m_online_qualification_requested.load(\n+                    std::memory_order_acquire)\n+                && OnlinePrefixCatchupWatchdogExpired(\n+                    m_online_baseline_coordinate, timeline.last_coordinate))\n+            {\n+                const auto input = m_replay_native_runtime.input_timeline()\n+                    .GetExact(next);\n+                const auto& coordinator = m_online_coordinator.active();\n+                Output::send<LogLevel::Warning>(STR(\n+                    \"[HorseMod] online qualification run_id={} \"\n+                    \"prefix_catchup_watchdog baseline={}:{} current={}:{} \"\n+                    \"next={}:{} prefix_frames={} input_available={} \"\n+                    \"gekko_next_local={} gekko_confirmed={} \"\n+                    \"queued_gekko={} next_release={}\\n\"),\n+                    RC::to_generic_string(m_online_run_id),\n+                    m_online_baseline_coordinate.generation,\n+                    m_online_baseline_coordinate.frame,\n+                    timeline.last_coordinate.generation,\n+                    timeline.last_coordinate.frame,\n+                    next.generation, next.frame, m_online_prefix_next_frame,\n+                    input.has_value() ? 1 : 0,\n+                    m_online_gekko.qualification_next_local_input_frame(),\n+                    m_online_gekko.confirmed_frame(),\n+                    coordinator.queued_gekko_messages(),\n+                    coordinator.next_gekko_release_frame());\n+                fail_online_qualification(FailureCode::Timeout);\n+                return false;\n+            }\n         }\n         return true;\n     }\ndiff --git a/HorseMod/dllmain.cpp b/HorseMod/dllmain.cpp\nindex 9f3d8f0b..76a7f4b5 100644\n--- a/HorseMod/dllmain.cpp\n+++ b/HorseMod/dllmain.cpp\n@@ -236,6 +236,7 @@\n \n #include <algorithm>\n #include <atomic>\n+#include <chrono>\n #include <cmath>\n #include <cctype>\n #include <cstdint>\n@@ -245,6 +246,7 @@\n #include <limits>\n #include <string>\n #include <string_view>\n+#include <thread>\n #include <vector>\n \n using namespace RC;\ndiff --git a/HorseMod/horselib/deterministic/OnlineCoordinator.hpp b/HorseMod/horselib/deterministic/OnlineCoordinator.hpp\nindex c4b9808a..d5710f13 100644\n--- a/HorseMod/horselib/deterministic/OnlineCoordinator.hpp\n+++ b/HorseMod/horselib/deterministic/OnlineCoordinator.hpp\n@@ -97,6 +97,28 @@ PlanConfirmedHashPublication(FrameCoordinate baseline,\n         && next > completed_native;\n }\n \n+[[nodiscard]] inline constexpr bool OnlinePrefixCatchupWatchdogExpired(\n+    FrameCoordinate baseline, FrameCoordinate completed_native,\n+    std::uint64_t maximum_native_frames = 120) noexcept\n+{\n+    return baseline.generation != 0\n+        && completed_native.generation == baseline.generation\n+        && completed_native.frame >= baseline.frame\n+        && completed_native.frame - baseline.frame >= maximum_native_frames;\n+}\n+\n+[[nodiscard]] inline constexpr bool NeedsOnlinePrefixConfirmationDrain(\n+    std::size_t prefix_frames, std::int32_t gekko_confirmed_frame,\n+    FrameCoordinate next, FrameCoordinate completed_native) noexcept\n+{\n+    if (prefix_frames == 0 || next <= completed_native\n+        || prefix_frames - 1\n+            > static_cast<std::size_t>((std::numeric_limits<std::int32_t>::max)()))\n+        return false;\n+    return gekko_confirmed_frame\n+        < static_cast<std::int32_t>(prefix_frames - 1);\n+}\n+\n struct OnlineGekkoPacket\n {\n     std::uint64_t epoch{};\n@@ -167,6 +189,15 @@ public:\n     [[nodiscard]] std::optional<OnlineGameplayEvent> PopGameplay() noexcept;\n     [[nodiscard]] std::optional<OnlineGekkoPacket> PopGekkoPayload(\n         std::int32_t next_local_input_frame) noexcept;\n+    [[nodiscard]] std::size_t queued_gekko_messages() const noexcept\n+    {\n+        return gekko_size_;\n+    }\n+    [[nodiscard]] std::int32_t next_gekko_release_frame() const noexcept\n+    {\n+        if (gekko_size_ == 0 || !gekko_messages_[gekko_head_]) return -2;\n+        return gekko_messages_[gekko_head_]->qualification_release_frame;\n+    }\n     Status BeginRoundBarrier(\n         FrameCoordinate completed_coordinate,\n         std::uint64_t next_generation,\ndiff --git a/HorseMod/horselib/deterministic/OnlineQualificationMetrics.hpp b/HorseMod/horselib/deterministic/OnlineQualificationMetrics.hpp\nindex 5fa9c2b6..3c8e3e68 100644\n--- a/HorseMod/horselib/deterministic/OnlineQualificationMetrics.hpp\n+++ b/HorseMod/horselib/deterministic/OnlineQualificationMetrics.hpp\n@@ -28,7 +28,11 @@ public:\n \n     void BeginStatus4(std::size_t owned_bytes) noexcept\n     {\n-        if (status4_owned_bytes_ == 0) status4_owned_bytes_ = owned_bytes;\n+        if (status4_owned_bytes_ == 0)\n+        {\n+            status4_owned_bytes_ = owned_bytes;\n+            post_status4_high_water_bytes_ = owned_bytes;\n+        }\n         ObserveOwnedBytes(owned_bytes);\n     }\n \n@@ -41,8 +45,12 @@ public:\n     void ObserveOwnedBytes(std::size_t owned_bytes) noexcept\n     {\n         maximum_owned_bytes_ = (std::max)(maximum_owned_bytes_, owned_bytes);\n-        if (status4_owned_bytes_ != 0 && owned_bytes > status4_owned_bytes_)\n+        if (status4_owned_bytes_ != 0\n+            && owned_bytes > post_status4_high_water_bytes_)\n+        {\n             ++post_status4_growth_events_;\n+            post_status4_high_water_bytes_ = owned_bytes;\n+        }\n     }\n \n     void RecordCorrection(std::uint64_t nanoseconds) noexcept\n@@ -87,6 +95,7 @@ private:\n     std::uint64_t correction_max_ns_{};\n     std::size_t pre_match_owned_bytes_{};\n     std::size_t status4_owned_bytes_{};\n+    std::size_t post_status4_high_water_bytes_{};\n     std::size_t maximum_owned_bytes_{};\n     std::uint64_t post_status4_growth_events_{};\n     std::uint64_t capacity_failures_{};\ndiff --git a/HorseMod/horselib/deterministic/Sc6CandidateCheckpointCapture.cpp b/HorseMod/horselib/deterministic/Sc6CandidateCheckpointCapture.cpp\nindex 3a197231..bae9e3c1 100644\n--- a/HorseMod/horselib/deterministic/Sc6CandidateCheckpointCapture.cpp\n+++ b/HorseMod/horselib/deterministic/Sc6CandidateCheckpointCapture.cpp\n@@ -943,6 +943,18 @@ Status Sc6CandidateCheckpointCapture::PrepareOnlineOwnedStorage(\n     if (status.ok())\n         status = PrepareSnapshotCaptureStorage(\n             batch_entry_capture_scratch_, prototype);\n+    if (status.ok())\n+        status = landing_snapshots_.PrewarmCaptureSlots(prototype);\n+    if (status.ok())\n+        status = batch_entry_snapshots_.PrewarmCaptureSlots(prototype);\n+    if (status.ok())\n+    {\n+        // Status 4 snapshots owned_storage_status(). Publish the prewarm\n+        // allocation now rather than making the next checkpoint capture look\n+        // like post-ownership growth when it merely refreshes these mirrors.\n+        landing_status_.bytes_used = landing_snapshots_.BytesUsed();\n+        batch_entry_status_.bytes_used = batch_entry_snapshots_.BytesUsed();\n+    }\n     return status;\n }\n \ndiff --git a/HorseMod/horselib/deterministic/Sc6ReplayRuntime.Observation.inl b/HorseMod/horselib/deterministic/Sc6ReplayRuntime.Observation.inl\nindex 1e29e9fc..33c3f61e 100644\n--- a/HorseMod/horselib/deterministic/Sc6ReplayRuntime.Observation.inl\n+++ b/HorseMod/horselib/deterministic/Sc6ReplayRuntime.Observation.inl\n@@ -239,19 +239,22 @@ Status Sc6ReplayRuntime::PrepareOnlineOwnedStorage(\n             if (!OnlineScratchRequiresTransientPayload(\n                     role, forced_depth7_qualification_enabled_))\n                 continue;\n-            const auto prepared = PrepareSnapshotCopyStorage(\n+            // These buffers are capture destinations during correction.  The\n+            // status-4 prototype is only one legal encoded size; later game\n+            // content can require any size in the bounded capture envelope.\n+            const auto prepared = PrepareSnapshotCaptureStorage(\n                 *snapshot, *prototype);\n             if (!prepared.ok()) return prepared;\n         }\n         for (auto& snapshot : corrected_replay_capture_.replacement_landing)\n         {\n-            const auto prepared = PrepareSnapshotCopyStorage(\n+            const auto prepared = PrepareSnapshotCaptureStorage(\n                 snapshot, *prototype);\n             if (!prepared.ok()) return prepared;\n         }\n         for (auto& snapshot : corrected_replay_capture_.replacement_batch_entry)\n         {\n-            const auto prepared = PrepareSnapshotCopyStorage(\n+            const auto prepared = PrepareSnapshotCaptureStorage(\n                 snapshot, *prototype);\n             if (!prepared.ok()) return prepared;\n         }\ndiff --git a/HorseMod/horselib/deterministic/SnapshotStore.cpp b/HorseMod/horselib/deterministic/SnapshotStore.cpp\nindex 22754a13..519b3ec1 100644\n--- a/HorseMod/horselib/deterministic/SnapshotStore.cpp\n+++ b/HorseMod/horselib/deterministic/SnapshotStore.cpp\n@@ -13,7 +13,8 @@ namespace Horse::Deterministic\n namespace\n {\n Status PrepareOccupiedSnapshotCopyStorage(\n-    Snapshot& target, const Snapshot& prototype) noexcept\n+    Snapshot& target, const Snapshot& prototype,\n+    bool capture_envelope) noexcept\n {\n     // An occupied slot's Entry coordinate indexes this exact payload. Growing\n     // its reusable buffers must not replace that payload with the newest\n@@ -24,8 +25,12 @@ Status PrepareOccupiedSnapshotCopyStorage(\n         return Status::failure(FailureCode::CapacityExceeded);\n     try\n     {\n-        target.bytes.reserve(prototype.bytes.capacity());\n-        target.local_images.reserve(prototype.local_images.capacity());\n+        target.bytes.reserve(capture_envelope\n+            ? candidate_checkpoint_capture_byte_capacity\n+            : prototype.bytes.capacity());\n+        target.local_images.reserve(capture_envelope\n+            ? maximum_local_reconstruction_images\n+            : prototype.local_images.capacity());\n         for (std::size_t index = 0;\n              index < prototype.local_images.size(); ++index)\n         {\n@@ -217,6 +222,17 @@ Status PrepareSnapshotCaptureStorage(\n }\n \n Status SnapshotStore::PrewarmCopySlots(const Snapshot& prototype) noexcept\n+{\n+    return prewarm_slots(prototype, false);\n+}\n+\n+Status SnapshotStore::PrewarmCaptureSlots(const Snapshot& prototype) noexcept\n+{\n+    return prewarm_slots(prototype, true);\n+}\n+\n+Status SnapshotStore::prewarm_slots(\n+    const Snapshot& prototype, bool capture_envelope) noexcept\n {\n     if (slot_capacity_ == 0)\n         return Status::failure(FailureCode::CapacityExceeded);\n@@ -242,7 +258,7 @@ Status SnapshotStore::PrewarmCopySlots(const Snapshot& prototype) noexcept\n         {\n             auto& target = snapshots_[entry.slot];\n             const auto prepared = PrepareOccupiedSnapshotCopyStorage(\n-                target, prototype);\n+                target, prototype, capture_envelope);\n             if (!prepared.ok()) return prepared;\n             allocated += snapshot_dynamic_cost(target);\n         }\n@@ -252,8 +268,9 @@ Status SnapshotStore::PrewarmCopySlots(const Snapshot& prototype) noexcept\n         for (std::size_t slot = 0; slot < slot_capacity_; ++slot)\n         {\n             if (occupied(slot)) continue;\n-            const auto prepared = PrepareSnapshotCopyStorage(\n-                snapshots_[slot], prototype);\n+            const auto prepared = capture_envelope\n+                ? PrepareSnapshotCaptureStorage(snapshots_[slot], prototype)\n+                : PrepareSnapshotCopyStorage(snapshots_[slot], prototype);\n             if (!prepared.ok()) return prepared;\n             const auto cost = snapshot_dynamic_cost(snapshots_[slot]);\n             if (cost > maximum_bytes_ - allocated)\ndiff --git a/HorseMod/horselib/deterministic/SnapshotStore.hpp b/HorseMod/horselib/deterministic/SnapshotStore.hpp\nindex 4f3b2311..f34dce37 100644\n--- a/HorseMod/horselib/deterministic/SnapshotStore.hpp\n+++ b/HorseMod/horselib/deterministic/SnapshotStore.hpp\n@@ -35,6 +35,10 @@ public:\n     // first native checkpoint. Every admitted slot is allocated before\n     // online status 4; later captures copy into those buffers without growth.\n     Status PrewarmCopySlots(const Snapshot& prototype) noexcept;\n+    // Online history receives future CaptureTransient outputs whose encoded\n+    // length can vary by content. Admit fewer slots if necessary so every\n+    // retained/free slot owns the full bounded capture envelope at status 4.\n+    Status PrewarmCaptureSlots(const Snapshot& prototype) noexcept;\n     Status SaveCopyPrewarmed(const Snapshot& snapshot) noexcept;\n     void ReleasePrewarmedCopySlots() noexcept;\n     [[nodiscard]] std::optional<Snapshot> Load(\n@@ -77,6 +81,8 @@ private:\n \n     [[nodiscard]] std::size_t snapshot_dynamic_cost(\n         const Snapshot& snapshot) const noexcept;\n+    Status prewarm_slots(\n+        const Snapshot& prototype, bool capture_envelope) noexcept;\n     void release_entry(std::vector<Entry>::iterator entry) noexcept;\n     void erase_oldest() noexcept;\n     void reset_free_slots() noexcept;\ndiff --git a/tools/deterministic_core_selftest.cpp b/tools/deterministic_core_selftest.cpp\nindex 31dd395c..6cb0e71a 100644\n--- a/tools/deterministic_core_selftest.cpp\n+++ b/tools/deterministic_core_selftest.cpp\n@@ -79,8 +79,9 @@ void test_online_qualification_metrics_are_bounded_and_resettable()\n             && status.pre_match_owned_bytes == 500,\n         \"online metrics retain growth and capacity failure evidence\");\n     metrics.ObserveOwnedBytes(1001);\n+    metrics.ObserveOwnedBytes(1001);\n     expect(metrics.status().post_status4_growth_events == 1,\n-        \"online metrics detect allocator-accounted post-status-4 growth\");\n+        \"online metrics count new post-status-4 high-water marks once\");\n     metrics.Reset();\n     status = metrics.status();\n     expect(status.correction_samples == 0\n@@ -1115,6 +1116,31 @@ void test_snapshot_capacity_is_atomic()\n         candidate_checkpoint_capture_byte_capacity, std::byte{0x5a});\n     expect(capture_scratch.bytes.capacity() == capture_capacity,\n         \"maximum encoded checkpoint capture cannot grow after ownership\");\n+    Snapshot later_content_capture{};\n+    expect(PrepareSnapshotCaptureStorage(\n+               later_content_capture, prototype).ok(),\n+        \"online correction capture prewarms beyond the status-4 prototype\");\n+    const auto later_content_capacity = later_content_capture.bytes.capacity();\n+    later_content_capture.bytes.resize(\n+        prototype.bytes.capacity() + 1476, std::byte{0x3c});\n+    expect(later_content_capture.bytes.capacity() == later_content_capacity,\n+        \"content-specific correction snapshots cannot grow owned storage\");\n+    SnapshotStore online_history{4 * 1024 * 1024, 8,\n+        CapacityPolicy::RejectNew};\n+    expect(online_history.PrewarmCopySlots(prototype).ok()\n+            && online_history.SaveCopyPrewarmed(prototype).ok(),\n+        \"seed online history before ownership\");\n+    expect(online_history.PrewarmCaptureSlots(prototype).ok(),\n+        \"status 4 prewarms history to the bounded capture envelope\");\n+    const auto online_history_bytes = online_history.BytesUsed();\n+    auto later_history = prototype;\n+    later_history.coordinate = {5, 2};\n+    later_history.bytes.resize(\n+        prototype.bytes.capacity() + 65536, std::byte{0x6d});\n+    expect(online_history.SaveCopyPrewarmed(later_history).ok()\n+            && online_history.BytesUsed() == online_history_bytes\n+            && online_history.FindExact({5, 1}) != nullptr,\n+        \"post-ownership content growth uses preowned history storage\");\n     std::vector<LocalReconstructionImage> movable_capture_exchange;\n     expect(PrepareLocalReconstructionCopyStorage(\n                 movable_capture_exchange, prototype.local_images).ok(),\ndiff --git a/tools/deterministic_qualification/artifacts.py b/tools/deterministic_qualification/artifacts.py\nindex 8f68eb45..5a8894ed 100644\n--- a/tools/deterministic_qualification/artifacts.py\n+++ b/tools/deterministic_qualification/artifacts.py\n@@ -76,6 +76,37 @@ OFFLINE_EVALUATOR_PATHS = (\n     \"tools/deterministic_qualification/offline_matrix.py\",\n )\n \n+# Online evidence has three independently meaningful producer layers.  Keep\n+# these identities separate even where a monolithic module currently belongs\n+# to more than one layer: overlap is conservative, while separate hashes let a\n+# policy-only module change re-evaluate sealed raw logs without pretending the\n+# runtime, stimulus, or capture producer changed.\n+ONLINE_CAPTURE_HARNESS_PATHS = (\n+    \"tools/deterministic_qualification/artifacts.py\",\n+    \"tools/deterministic_qualification/configuration.py\",\n+    \"tools/deterministic_qualification/observer_pair.py\",\n+    \"tools/deterministic_qualification/paired_online.py\",\n+    \"tools/deterministic_qualification/process_control.py\",\n+    \"tools/deterministic_qualification/process_memory.py\",\n+    \"tools/deterministic_qualification/report.py\",\n+    \"tools/deterministic_qualification/runner.py\",\n+    \"tools/deterministic_qualification/sandboxie_pair.py\",\n+)\n+\n+ONLINE_STIMULUS_SPEC_PATHS = (\n+    \"tools/deterministic_qualification/observer_pair.py\",\n+    \"tools/deterministic_qualification/paired_online.py\",\n+    \"tools/replay_qualification_mod/OnlineRoomAutomation.cpp\",\n+    \"tools/replay_qualification_mod/OnlineRoomAutomation.hpp\",\n+    \"tools/replay_qualification_mod/ReplayQualificationMod.cpp\",\n+)\n+\n+ONLINE_EVALUATOR_PATHS = (\n+    \"tools/deterministic_qualification/paired_online.py\",\n+    \"tools/deterministic_qualification/paired_online_evaluation.py\",\n+    \"tools/deterministic_qualification/release_publish.py\",\n+)\n+\n \n def _deterministic_path(path: str) -> bool:\n     normalized = path.replace(\"\\\\\", \"/\")\n@@ -321,3 +352,32 @@ def capture_harness_sha256(root: Path) -> str:\n def offline_evaluator_sha256(root: Path) -> str:\n     \"\"\"Hash the current policy/composition layer independently of capture.\"\"\"\n     return _named_files_sha256(root, OFFLINE_EVALUATOR_PATHS)\n+\n+\n+def online_capture_harness_sha256(root: Path) -> str:\n+    \"\"\"Hash code which launches, captures, and seals paired online evidence.\"\"\"\n+    return _named_files_sha256(root, ONLINE_CAPTURE_HARNESS_PATHS)\n+\n+\n+def online_stimulus_spec_sha256(root: Path) -> str:\n+    \"\"\"Hash the exact paired match/fault/correction stimulus producer.\"\"\"\n+    return _named_files_sha256(root, ONLINE_STIMULUS_SPEC_PATHS)\n+\n+\n+def online_evaluator_sha256(root: Path) -> str:\n+    \"\"\"Hash online policy independently from runtime and external tooling.\"\"\"\n+    return _named_files_sha256(root, ONLINE_EVALUATOR_PATHS)\n+\n+\n+def external_tool_identity(path: Path | None) -> dict[str, object] | None:\n+    \"\"\"Bind an optional reviewed external impairment tool by exact bytes.\"\"\"\n+    if path is None:\n+        return None\n+    resolved = path.resolve()\n+    if not resolved.is_file():\n+        raise FileNotFoundError(f\"external tool not found: {resolved}\")\n+    return {\n+        \"path\": str(resolved),\n+        \"size\": resolved.stat().st_size,\n+        \"sha256\": sha256_file(resolved),\n+    }\ndiff --git a/tools/deterministic_qualification/observer_pair.py b/tools/deterministic_qualification/observer_pair.py\nindex 9b4ae5a9..039d5be8 100644\n--- a/tools/deterministic_qualification/observer_pair.py\n+++ b/tools/deterministic_qualification/observer_pair.py\n@@ -334,6 +334,11 @@ def wait_for_pair_processes(\n             pair = classify_game_processes(\n                 {process.pid for process in processes}, sandbox_pids\n             )\n+            processes = list_game_processes(include_command_lines=True)\n+            if {process.pid for process in processes} != {\n+                    pair.host_pid, pair.sandbox_pid}:\n+                raise RuntimeError(\n+                    \"paired SC6 process identity changed during launch validation\")\n             by_pid = {process.pid: process for process in processes}\n             query = f\"-queryport={spec.sandbox_query_port}\".casefold()\n             if query not in by_pid[pair.sandbox_pid].command_line.casefold():\ndiff --git a/tools/deterministic_qualification/paired_online.py b/tools/deterministic_qualification/paired_online.py\nindex 5972b702..dae0b507 100644\n--- a/tools/deterministic_qualification/paired_online.py\n+++ b/tools/deterministic_qualification/paired_online.py\n@@ -12,6 +12,8 @@ from pathlib import Path\n from typing import Any\n \n from .artifacts import (\n+    external_tool_identity, online_capture_harness_sha256,\n+    online_evaluator_sha256, online_stimulus_spec_sha256,\n     require_compiled_candidate_manifest, runner_sha256, sha256_file,\n     source_identity, source_identity_sha256,\n )\n@@ -460,6 +462,44 @@ class NativeOnlineTerminal(RuntimeError):\n             f\"{peer} native online terminal failure during {context}: {failure}\")\n \n \n+class GateReachabilityFailure(RuntimeError):\n+    \"\"\"A match ended after one or more required gates became unreachable.\"\"\"\n+\n+\n+def _online_producer_identities(\n+    root: Path, args: Any, hashes: dict[str, str], identity: dict[str, Any],\n+    config_hashes: dict[str, str] | None = None,\n+    config_fields: dict[str, dict[str, str]] | None = None,\n+) -> dict[str, Any]:\n+    \"\"\"Record independently invalidatable online evidence producers.\"\"\"\n+    fields: dict[str, Any] = {\n+        \"source\": identity,\n+        \"runtime\": {\n+            \"horsemod_dll_sha256\": hashes[\"horsemod\"],\n+            \"bridge_sha256\": hashes[\"observer_bridge\"],\n+            \"game_executable_sha256\": sha256_file(args.game_executable),\n+        },\n+        \"capture_harness_sha256\": online_capture_harness_sha256(root),\n+        \"stimulus_spec_sha256\": online_stimulus_spec_sha256(root),\n+        \"evaluator_sha256\": online_evaluator_sha256(root),\n+        \"schema_sha256\": sha256_file(args.schema),\n+        \"external_impairment_tool\": external_tool_identity(\n+            args.impairment_tool if args.impairment_profile != \"clean\" else None),\n+        # Compatibility fields consumed by existing report/release readers.\n+        \"horsemod_dll_sha256\": hashes[\"horsemod\"],\n+        \"bridge_sha256\": hashes[\"observer_bridge\"],\n+        \"generated_schema_sha256\": sha256_file(args.schema),\n+        \"game_executable_sha256\": sha256_file(args.game_executable),\n+        \"runner_sha256\": runner_sha256(\n+            root / \"tools\" / \"deterministic_qualification\"),\n+    }\n+    if config_hashes is not None:\n+        fields[\"config_sha256\"] = config_hashes\n+    if config_fields is not None:\n+        fields[\"config_fields\"] = config_fields\n+    return fields\n+\n+\n def _raise_on_native_terminal(\n     logs: dict[str, str], run_ids: dict[str, str], context: str,\n ) -> None:\n@@ -484,6 +524,26 @@ def _raise_on_native_terminal(\n             raise NativeOnlineTerminal(label, \"status=6\", context)\n \n \n+def _raise_if_match_ended(\n+    logs: dict[str, str], run_ids: dict[str, str], context: str,\n+    unmet_gates: tuple[str, ...],\n+) -> None:\n+    \"\"\"Fail as soon as status 7 makes the named active-match gates impossible.\"\"\"\n+    ended = []\n+    for label in (\"host\", \"sandbox\"):\n+        statuses = [\n+            int(match.group(\"status\"))\n+            for match in STATUS.finditer(logs.get(label, \"\"))\n+            if match.group(\"run\") == run_ids[label]\n+        ]\n+        if 7 in statuses:\n+            ended.append(label)\n+    if ended:\n+        raise GateReachabilityFailure(\n+            f\"paired online match ended on {','.join(ended)} during {context}; \"\n+            f\"unreachable gates: {', '.join(unmet_gates)}\")\n+\n+\n def _read_pair_logs(\n     paths: ObserverPairPaths, offsets: dict[str, LogCursor],\n ) -> dict[str, str]:\n@@ -493,14 +553,31 @@ def _read_pair_logs(\n     }\n \n \n+def _require_no_stale_replay_requests(paths: ObserverPairPaths) -> None:\n+    stale = [\n+        f\"{label}:{name}\"\n+        for label, peer in ((\"host\", paths.host), (\"sandbox\", paths.sandbox))\n+        for name in (\"replay_request.txt\", \"replay_result.txt\")\n+        if (peer.qualification_root / name).exists()\n+    ]\n+    if stale:\n+        raise RuntimeError(\n+            \"stale replay qualification artifacts would steal paired startup: \"\n+            + \", \".join(stale))\n+\n+\n def _development_smoke_complete(args: Any, completed_cycles: int) -> bool:\n+    if getattr(args, \"development_burn_smoke\", False):\n+        # The generic cycle/duration predicate below owns burn completion.\n+        return False\n     if not (args.development_setup_smoke\n             or args.development_correction_smoke\n             or args.development_depth7_smoke\n             or args.development_round_barrier_smoke\n             or args.development_multiround_correction_smoke\n             or args.development_failure_smoke\n-            or args.development_reentry_smoke):\n+            or args.development_reentry_smoke\n+            or getattr(args, \"development_profile_smoke\", False)):\n         return False\n     return (not (args.development_reentry_smoke\n                  or args.development_multiround_correction_smoke)\n@@ -508,6 +585,10 @@ def _development_smoke_complete(args: Any, completed_cycles: int) -> bool:\n \n \n def _development_report_kind(args: Any) -> str:\n+    if getattr(args, \"development_burn_smoke\", False):\n+        return \"paired_online_development_memory_timing_burn\"\n+    if getattr(args, \"development_profile_smoke\", False):\n+        return \"paired_online_development_impairment_profile\"\n     if args.development_correction_smoke:\n         return \"paired_online_development_correction_smoke\"\n     if args.development_depth7_smoke:\n@@ -533,7 +614,9 @@ def _qualification_correction_stimulus_depths(\n         return (11,)\n     if (args.development_correction_smoke\n             or args.development_multiround_correction_smoke\n-            or args.development_reentry_smoke):\n+            or args.development_reentry_smoke\n+            or getattr(args, \"development_profile_smoke\", False)\n+            or getattr(args, \"development_burn_smoke\", False)):\n         return (11, 1, 6)\n     if args.development_depth7_smoke:\n         return (7,)\n@@ -552,7 +635,9 @@ def _qualification_correction_stimulus_min_round(\n ) -> int:\n     if failure_case:\n         return 1\n-    if args.development_multiround_correction_smoke:\n+    if (args.development_multiround_correction_smoke\n+            or getattr(args, \"development_profile_smoke\", False)\n+            or getattr(args, \"development_burn_smoke\", False)):\n         return 2\n     development_smoke = any((\n         args.development_setup_smoke,\n@@ -1127,6 +1212,13 @@ def _wait_online(paths: ObserverPairPaths, run_ids: dict[str, str], case: dict[s\n                 if (int(proof.group(\"local\")) != expected_local\n                         or int(proof.group(\"peer\")) != expected_peer):\n                     raise RuntimeError(f\"{label} Steam P2P identity proof mismatch\")\n+        if not all(5 in latest.get(label, {}).get(\"statuses\", ())\n+                   for label in (\"host\", \"sandbox\")):\n+            _raise_if_match_ended(\n+                polled_logs, run_ids, \"bilateral ownership\",\n+                (\"authentication\", \"bilateral ownership\", \"correction\",\n+                 \"presentation\", \"round-2 re-ownership\"),\n+            )\n         if all(5 in latest.get(label, {}).get(\"statuses\", ())\n                for label in (\"host\", \"sandbox\")):\n             for label in (\"host\", \"sandbox\"):\n@@ -1227,7 +1319,7 @@ def _wait_online(paths: ObserverPairPaths, run_ids: dict[str, str], case: dict[s\n                     (\"generations\", generations_complete),\n                     (\"duration\", duration_complete),\n                 ) if not complete]\n-                raise RuntimeError(\n+                raise GateReachabilityFailure(\n                     \"paired online match returned to the lobby before \"\n                     \"certification gates completed: \" + \", \".join(missing))\n         time.sleep(0.25)\n@@ -1402,6 +1494,10 @@ def _wait_development_setup_smoke(\n         current_logs = _read_pair_logs(paths, offsets)\n         _raise_on_native_terminal(\n             current_logs, online_run_ids, \"automatic match setup\")\n+        _raise_if_match_ended(\n+            current_logs, online_run_ids, \"automatic match setup\",\n+            (\"exact content setup\", \"bilateral ownership\"),\n+        )\n         reports: dict[str, dict[str, Any]] = {}\n         logs: dict[str, str] = {}\n         for label, peer in ((\"host\", paths.host), (\"sandbox\", paths.sandbox)):\n@@ -1481,6 +1577,10 @@ def _wait_development_setup_smoke(\n         }\n         _raise_on_native_terminal(\n             logs, online_run_ids, \"online development cycle\")\n+        _raise_if_match_ended(\n+            logs, online_run_ids, \"online development cycle\",\n+            (\"bilateral ownership\", \"confirmed convergence\"),\n+        )\n         confirmed_latest: dict[str, dict[str, Any]] = {}\n         for label in (\"host\", \"sandbox\"):\n             failures = [match for match in FAILURE.finditer(logs[label])\n@@ -1577,6 +1677,10 @@ def _wait_development_setup_smoke(\n             _raise_on_native_terminal(\n                 logs, online_run_ids,\n                 \"repeated authenticated corrections\")\n+            _raise_if_match_ended(\n+                logs, online_run_ids, \"repeated authenticated corrections\",\n+                (\"repeated correction sequence\", \"presentation reconciliation\"),\n+            )\n             stimulus_sequence = _correction_stimulus_sequence_evidence(\n                 logs, online_run_ids, expected_depths)\n             corrections = _repeated_correction_evidence(\n@@ -1661,7 +1765,11 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:\n         or args.development_round_barrier_smoke\n         or args.development_multiround_correction_smoke\n         or args.development_failure_smoke\n-        or args.development_reentry_smoke)\n+        or args.development_reentry_smoke\n+        or args.development_profile_smoke\n+        or args.development_burn_smoke)\n+    development_full_gate = (\n+        args.development_profile_smoke or args.development_burn_smoke)\n     correction_stimulus_depths = _qualification_correction_stimulus_depths(\n         args, failure_case)\n     correction_stimulus_min_round = (\n@@ -1672,9 +1780,12 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:\n             args.development_round_barrier_smoke,\n             args.development_multiround_correction_smoke,\n             args.development_failure_smoke,\n-            args.development_reentry_smoke)) > 1:\n+            args.development_reentry_smoke,\n+            args.development_profile_smoke,\n+            args.development_burn_smoke)) > 1:\n         raise RuntimeError(\"select only one paired development smoke\")\n-    if development_smoke and (\n+    standard_development_smoke = development_smoke and not development_full_gate\n+    if standard_development_smoke and (\n         args.match_cycles != (2 if (\n             args.development_reentry_smoke\n             or args.development_multiround_correction_smoke) else 1)\n@@ -1686,6 +1797,20 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:\n         raise RuntimeError(\n             \"development smoke must use its exact clean, non-soak, \"\n             \"non-failure cycle count\")\n+    if args.development_profile_smoke and (\n+            args.match_cycles != 1 or args.cycling_soak_seconds != 0\n+            or args.soak_seconds != 0 or bool(args.failure_case)\n+            or args.impairment_profile == \"clean\" or args.fresh_box):\n+        raise RuntimeError(\n+            \"development profile smoke requires one non-clean, non-soak \"\n+            \"implicit profile gate\")\n+    if args.development_burn_smoke and (\n+            args.match_cycles < 2 or args.cycling_soak_seconds <= 0\n+            or args.soak_seconds != 0 or bool(args.failure_case)\n+            or args.impairment_profile != \"clean\" or args.fresh_box):\n+        raise RuntimeError(\n+            \"development burn smoke requires clean same-process cycling with \"\n+            \"at least two matches and a positive duration\")\n     if ((args.match_cycles > 1 or args.cycling_soak_seconds > 0)\n             and args.impairment_profile != \"clean\"):\n         raise RuntimeError(\"same-process cycling is a clean-profile qualification\")\n@@ -1704,6 +1829,7 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:\n         sandbox_query_port=args.sandbox_query_port,\n     )\n     spec.validate()\n+    _require_no_stale_replay_requests(paths)\n     if list_game_processes():\n         raise RuntimeError(\"SC6 must be closed before paired deployment\")\n     identity = source_identity(root)\n@@ -1749,6 +1875,9 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:\n     memory_tracker: PrivateMemoryTracker | None = None\n     memory_evidence: dict[str, object] | None = None\n     cycling_elapsed_seconds = 0.0\n+    # Cleanup/reporting must be valid even when room creation or process\n+    # admission fails before the match loop is entered.\n+    cycle_index = 0\n     primary: BaseException | None = None\n     active_automation_run_ids: dict[str, str] | None = None\n     try:\n@@ -1865,7 +1994,7 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:\n                     create_match_teardown_request(\n                         paths.sandbox, teardown_run_ids[\"sandbox\"], 2)\n                     return teardown_run_ids\n-                if development_smoke:\n+                if development_smoke and not development_full_gate:\n                     metrics, raw_logs = _wait_development_setup_smoke(\n                         paths, run_ids, active_automation_run_ids, case,\n                         log_offsets, args.match_timeout, guard,\n@@ -1961,7 +2090,8 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:\n                     require_graceful=(\n                         primary is None and (not development_smoke\n                                              or args.development_reentry_smoke\n-                                             or args.development_failure_smoke)),\n+                                             or args.development_failure_smoke\n+                                             or development_full_gate)),\n                     graceful_timeout_seconds=(5.0 if primary is not None else 60.0),\n                 )\n             else:\n@@ -2050,17 +2180,9 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:\n                 \"cleanup_errors\": cleanup_errors,\n                 \"native_root\": root_failure,\n             },\n-            \"identities\": None if hashes is None else {\n-                \"source\": identity,\n-                \"horsemod_dll_sha256\": hashes[\"horsemod\"],\n-                \"bridge_sha256\": hashes[\"observer_bridge\"],\n-                \"generated_schema_sha256\": sha256_file(args.schema),\n-                \"config_sha256\": config_hashes,\n-                \"config_fields\": config_fields,\n-                \"game_executable_sha256\": sha256_file(args.game_executable),\n-                \"runner_sha256\": runner_sha256(\n-                    root / \"tools\" / \"deterministic_qualification\"),\n-            },\n+            \"identities\": None if hashes is None else\n+                _online_producer_identities(\n+                    root, args, hashes, identity, config_hashes, config_fields),\n             \"runtime\": {\"peers\": metrics, \"cycles\": cycle_metrics},\n             \"writable_roots\": {\n                 \"host_mods\": str(paths.host.mods_root),\n@@ -2101,15 +2223,8 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:\n             \"stage_package_root\": case[\"stage_package_root\"],\n             \"fighter_order\": case[\"fighter_order\"],\n             \"renderer\": \"normal\",\n-            \"identities\": {\n-                \"source\": identity,\n-                \"horsemod_dll_sha256\": hashes[\"horsemod\"],\n-                \"bridge_sha256\": hashes[\"observer_bridge\"],\n-                \"generated_schema_sha256\": sha256_file(args.schema),\n-                \"game_executable_sha256\": sha256_file(args.game_executable),\n-                \"runner_sha256\": runner_sha256(\n-                    root / \"tools\" / \"deterministic_qualification\"),\n-            },\n+            \"identities\": _online_producer_identities(\n+                root, args, hashes, identity, config_hashes, config_fields),\n             \"runtime\": {\n                 \"peers\": metrics,\n                 \"cycles\": cycle_metrics,\n@@ -2144,17 +2259,11 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:\n         \"protocol_version\": 2, \"snapshot_schema_version\": 47,\n         \"impairment\": impairment_evidence,\n         \"identities\": {\n-            \"source\": identity,\n+            **_online_producer_identities(\n+                root, args, hashes, identity, config_hashes, config_fields),\n             \"host_steamid64\": args.host_steamid64,\n             \"client_steamid64\": args.client_steamid64,\n-            \"horsemod_dll_sha256\": hashes[\"horsemod\"],\n-            \"bridge_sha256\": hashes[\"observer_bridge\"],\n-            \"generated_schema_sha256\": sha256_file(args.schema),\n-            \"config_sha256\": config_hashes,\n-            \"config_fields\": config_fields,\n-            \"game_executable_sha256\": sha256_file(args.game_executable),\n             \"source_identity_sha256\": source_identity_sha256(root),\n-            \"runner_sha256\": runner_sha256(root / \"tools\" / \"deterministic_qualification\"),\n             \"loaded_map_sha256\": metrics[\"host\"][\"handshake\"][\"loaded\"],\n         },\n         \"processes\": {\ndiff --git a/tools/deterministic_qualification/process_control.py b/tools/deterministic_qualification/process_control.py\nindex 2f71682e..807a69cc 100644\n--- a/tools/deterministic_qualification/process_control.py\n+++ b/tools/deterministic_qualification/process_control.py\n@@ -20,13 +20,49 @@ class GameProcess:\n     command_line: str\n \n \n-def list_game_processes() -> tuple[GameProcess, ...]:\n-    \"\"\"Return every SC6 process and its native command line.\n+def _list_game_process_ids() -> tuple[int, ...]:\n+    \"\"\"Enumerate SC6 cheaply without loading PowerShell's automation runtime.\"\"\"\n+    result = subprocess.run(\n+        [\"tasklist\", \"/FI\", f\"IMAGENAME eq {PROCESS_NAME}\",\n+         \"/FO\", \"CSV\", \"/NH\"],\n+        check=False,\n+        capture_output=True,\n+        text=True,\n+        timeout=15,\n+    )\n+    if result.returncode != 0:\n+        detail = (result.stderr or result.stdout).strip()\n+        raise RuntimeError(f\"failed to enumerate SoulcaliburVI processes: {detail}\")\n+    pids: list[int] = []\n+    for row in csv.reader(StringIO(result.stdout)):\n+        if len(row) < 2 or row[0].casefold() != PROCESS_NAME.casefold():\n+            continue\n+        try:\n+            pid = int(row[1])\n+        except ValueError as error:\n+            raise RuntimeError(\n+                \"SoulcaliburVI tasklist enumeration was malformed\") from error\n+        if pid <= 0:\n+            raise RuntimeError(\n+                \"SoulcaliburVI process enumeration contained an invalid PID\")\n+        pids.append(pid)\n+    return tuple(sorted(pids))\n \n-    Qualification needs the command line to prove that only the Sandboxie peer\n-    owns the alternate Steam query port.  A tasklist-only first match is\n-    deliberately insufficient once paired execution is possible.\n+\n+def list_game_processes(\n+    *, include_command_lines: bool = False,\n+) -> tuple[GameProcess, ...]:\n+    \"\"\"Return every SC6 process, querying command lines only when requested.\n+\n+    Match polling and cleanup only need stable PIDs.  Avoiding a PowerShell/CIM\n+    process on every poll matters when two game processes are near the machine's\n+    commit limit.  Paired launch still requests command lines once to prove that\n+    only the Sandboxie peer owns the alternate Steam query port.\n     \"\"\"\n+    pids = _list_game_process_ids()\n+    if not include_command_lines or not pids:\n+        return tuple(GameProcess(pid, \"\") for pid in pids)\n+\n     script = (\n         \"$p=Get-CimInstance Win32_Process -Filter \\\"Name='SoulcaliburVI.exe'\\\" | \"\n         \"Select-Object ProcessId,CommandLine; \"\n@@ -62,7 +98,11 @@ def list_game_processes() -> tuple[GameProcess, ...]:\n             raise RuntimeError(\"SoulcaliburVI process enumeration contained an invalid PID\")\n         command_line = row.get(\"CommandLine\")\n         processes.append(GameProcess(pid, \"\" if command_line is None else str(command_line)))\n-    return tuple(sorted(processes, key=lambda process: process.pid))\n+    processes = sorted(processes, key=lambda process: process.pid)\n+    if tuple(process.pid for process in processes) != pids:\n+        raise RuntimeError(\n+            \"SoulcaliburVI process identity changed during command-line enumeration\")\n+    return tuple(processes)\n \n \n def find_game_pid() -> int | None:\ndiff --git a/tools/deterministic_qualification/runner.py b/tools/deterministic_qualification/runner.py\nindex 17612b15..ae98f37a 100644\n--- a/tools/deterministic_qualification/runner.py\n+++ b/tools/deterministic_qualification/runner.py\n@@ -2015,6 +2015,12 @@ def build_parser() -> argparse.ArgumentParser:\n     paired.add_argument(\"--development-reentry-smoke\", action=\"store_true\",\n         help=(\"allow a dirty, explicitly non-certifying two-match run in one \"\n               \"SC6 process to verify cleanup and qualification re-entry\"))\n+    paired.add_argument(\"--development-profile-smoke\", action=\"store_true\",\n+        help=(\"allow one dirty, non-certifying non-clean impairment profile \"\n+              \"through the full online gate and graceful cleanup\"))\n+    paired.add_argument(\"--development-burn-smoke\", action=\"store_true\",\n+        help=(\"allow a dirty, non-certifying clean same-process cycling burn \"\n+              \"through the full online and memory/timing gates\"))\n     paired.add_argument(\"--memory-warmup-seconds\", type=float, default=600.0)\n     paired.add_argument(\"--launch-timeout\", type=float, default=180.0)\n     paired.add_argument(\"--phase-timeout\", type=float, default=10.0)\ndiff --git a/tools/deterministic_qualification/tests/test_paired_online_cycles.py b/tools/deterministic_qualification/tests/test_paired_online_cycles.py\nindex f2d3cca9..60e1adfa 100644\n--- a/tools/deterministic_qualification/tests/test_paired_online_cycles.py\n+++ b/tools/deterministic_qualification/tests/test_paired_online_cycles.py\n@@ -9,7 +9,8 @@ from tools.deterministic_qualification.runner import (\n     DEFAULT_SANDBOX_ROOT, _paired_observer_paths, build_parser,\n )\n from tools.deterministic_qualification.paired_online import (\n-    FAILURE, NativeOnlineTerminal, ROUND_TAKEOVER_EVENTS, TAKEOVER_EVENTS,\n+    FAILURE, GateReachabilityFailure, NativeOnlineTerminal,\n+    ROUND_TAKEOVER_EVENTS, TAKEOVER_EVENTS,\n     _atomic_online_request,\n     _require_matching_independent_baselines,\n     _confirmed_convergence, _development_session_latch,\n@@ -24,12 +25,14 @@ from tools.deterministic_qualification.paired_online import (\n     _qualification_correction_stimulus_depths,\n     _qualification_correction_stimulus_min_round,\n     _qualification_failure_plan, _read_since,\n+    _require_no_stale_replay_requests,\n     _repeated_correction_evidence,\n     _required_correction_stimulus,\n     _require_confirmed_owned_generations,\n     _require_corrections_in_owned_generation,\n     _require_ordered_takeover, _require_two_owned_generations,\n-    _raise_on_native_terminal, _raise_on_terminal_owned_metrics,\n+    _raise_if_match_ended, _raise_on_native_terminal,\n+    _raise_on_terminal_owned_metrics,\n     _root_failure_evidence,\n     _validate_online_status_evidence,\n     _wait_development_setup_smoke,\n@@ -138,6 +141,24 @@ def test_paired_online_exposes_noncertifying_multiround_correction_smoke():\n     assert _development_smoke_complete(arguments, 2)\n \n \n+def test_paired_online_exposes_noncertifying_profile_and_burn_modes():\n+    profile = build_parser().parse_args([\n+        \"paired-online\", \"--case-manifest\", \"cases.json\", \"--case\", \"case-a\",\n+        \"--dll\", \"HorseMod.dll\", \"--output-dir\", \"evidence\",\n+        \"--report\", \"profile.json\", \"--development-profile-smoke\",\n+        \"--impairment-profile\", \"latency\", \"--impairment-tool\", \"clumsy.exe\",\n+    ])\n+    burn = build_parser().parse_args([\n+        \"paired-online\", \"--case-manifest\", \"cases.json\", \"--case\", \"case-a\",\n+        \"--dll\", \"HorseMod.dll\", \"--output-dir\", \"evidence\",\n+        \"--report\", \"burn.json\", \"--development-burn-smoke\",\n+        \"--match-cycles\", \"3\", \"--cycling-soak-seconds\", \"180\",\n+    ])\n+    assert profile.development_profile_smoke is True\n+    assert burn.development_burn_smoke is True\n+    assert not _development_smoke_complete(burn, 3)\n+\n+\n def test_functional_certification_arms_authenticated_11_1_6_corrections():\n     arguments = build_parser().parse_args([\n         \"paired-online\", \"--case-manifest\", \"cases.json\", \"--case\", \"case-a\",\n@@ -686,6 +707,48 @@ def test_native_status_six_is_terminal_without_waiting_for_status_seven():\n             logs, {\"host\": \"host\", \"sandbox\": \"sandbox\"}, \"active match\")\n \n \n+def test_rapid_status_six_then_seven_preserves_native_failure_precedence():\n+    logs = {\n+        \"host\": (\n+            \"[ReplayQualification] online qualification run_id=host status=6\\n\"\n+            \"[ReplayQualification] online qualification run_id=host status=7\\n\"\n+        ),\n+        \"sandbox\": \"\",\n+    }\n+    with pytest.raises(NativeOnlineTerminal, match=\"status=6\"):\n+        _raise_on_native_terminal(\n+            logs, {\"host\": \"host\", \"sandbox\": \"sandbox\"}, \"active match\")\n+\n+\n+def test_gate_reachability_watchdog_fails_on_early_status_seven():\n+    logs = {\n+        \"host\": \"[ReplayQualification] online qualification run_id=host status=7\\n\",\n+        \"sandbox\": \"\",\n+    }\n+    with pytest.raises(GateReachabilityFailure, match=\"unreachable gates.*ownership\"):\n+        _raise_if_match_ended(\n+            logs, {\"host\": \"host\", \"sandbox\": \"sandbox\"},\n+            \"automatic setup\", (\"ownership\", \"correction\"))\n+\n+\n+def test_paired_preflight_rejects_stale_replay_request(tmp_path):\n+    def peer(label):\n+        root = tmp_path / label\n+        qualification = root / \"qualification\"\n+        qualification.mkdir(parents=True)\n+        return ObserverPeerPaths(\n+            mods_root=root / \"mods\", horsemod_dll=root / \"main.dll\",\n+            config=root / \"rollback.ini\", qualification_root=qualification,\n+            log=root / \"UE4SS.log\")\n+\n+    paths = ObserverPairPaths(host=peer(\"host\"), sandbox=peer(\"sandbox\"))\n+    _require_no_stale_replay_requests(paths)\n+    (paths.host.qualification_root / \"replay_request.txt\").write_text(\n+        \"run_id=stale\\n\", encoding=\"utf-8\")\n+    with pytest.raises(RuntimeError, match=\"steal paired startup\"):\n+        _require_no_stale_replay_requests(paths)\n+\n+\n def test_native_terminal_prefers_root_over_peer_disconnect():\n     logs = {\n         \"host\": (\ndiff --git a/tools/online_coordinator_selftest.cpp b/tools/online_coordinator_selftest.cpp\nindex dbd15e2e..d26c3e34 100644\n--- a/tools/online_coordinator_selftest.cpp\n+++ b/tools/online_coordinator_selftest.cpp\n@@ -908,6 +908,29 @@ void test_prefix_activation_requires_a_real_confirmed_frame()\n         \"an observed prefix cannot activate before Gekko confirms it\");\n }\n \n+void test_prefix_watchdog_is_generation_bound_and_bounded()\n+{\n+    expect(!OnlinePrefixCatchupWatchdogExpired({2, 390}, {2, 509}),\n+        \"prefix catch-up retains a bounded 120-frame completion window\");\n+    expect(OnlinePrefixCatchupWatchdogExpired({2, 390}, {2, 510}),\n+        \"a stalled prefix fails before the next round can mask the unmet gate\");\n+    expect(!OnlinePrefixCatchupWatchdogExpired({2, 390}, {3, 510}),\n+        \"a replacement generation is not measured against the retired baseline\");\n+}\n+\n+void test_prefix_confirmation_drain_holds_a_fixed_native_frontier()\n+{\n+    expect(NeedsOnlinePrefixConfirmationDrain(\n+            120, 118, {1, 243}, {1, 242}),\n+        \"a one-frame confirmation lag drains after catch-up reaches the boundary\");\n+    expect(!NeedsOnlinePrefixConfirmationDrain(\n+            120, 119, {1, 243}, {1, 242}),\n+        \"a confirmed fixed frontier needs no drain\");\n+    expect(!NeedsOnlinePrefixConfirmationDrain(\n+            119, 117, {1, 242}, {1, 242}),\n+        \"catch-up must reach the native boundary before confirmation draining\");\n+}\n+\n void test_player_match_teardown_requires_the_complete_blueprint_sequence()\n {\n     const auto active = PlanMatchTeardown(\n@@ -1038,6 +1061,8 @@ int main()\n     test_terminal_cleanup_lifecycle();\n     test_confirmed_hash_waits_for_completed_native_coordinate();\n     test_prefix_activation_requires_a_real_confirmed_frame();\n+    test_prefix_watchdog_is_generation_bound_and_bounded();\n+    test_prefix_confirmation_drain_holds_a_fixed_native_frontier();\n     test_player_match_teardown_requires_the_complete_blueprint_sequence();\n     test_qualification_lobby_admission_is_sealed_before_setup();\n     test_online_cleanup_waits_for_native_battle_termination_post_hook();\n",
+    "deterministic_binary_patch_bytes": 51093,
+    "deterministic_binary_patch_sha256": "5aca3271ef6ee4b7737faaa30d82a12142c96db2e13acfe878a9e75b96610d19",
+    "dirty": true,
+    "status_porcelain_v2": [
+      "1 .M N... 100644 100644 100644 a62745e96ce464f21ba24c2f3f655e808bf4f65b a62745e96ce464f21ba24c2f3f655e808bf4f65b HorseMod/OnlineQualificationService.inl",
+      "1 .M N... 100644 100644 100644 9f3d8f0b448c8fc3bac18bb1d5e81456d81f9875 9f3d8f0b448c8fc3bac18bb1d5e81456d81f9875 HorseMod/dllmain.cpp",
+      "1 .M N... 100644 100644 100644 c4b9808a7369f9c63760adf253eee5ed12bf626f c4b9808a7369f9c63760adf253eee5ed12bf626f HorseMod/horselib/deterministic/OnlineCoordinator.hpp",
+      "1 .M N... 100644 100644 100644 5fa9c2b66d6a36f650b2340d6433d15e9c6cc9ec 5fa9c2b66d6a36f650b2340d6433d15e9c6cc9ec HorseMod/horselib/deterministic/OnlineQualificationMetrics.hpp",
+      "1 .M N... 100644 100644 100644 3a197231bc75caaa89b5602fc5ba27db00bd45c6 3a197231bc75caaa89b5602fc5ba27db00bd45c6 HorseMod/horselib/deterministic/Sc6CandidateCheckpointCapture.cpp",
+      "1 .M N... 100644 100644 100644 1e29e9fc191dabe4acffc37f5326bd0e018025b9 1e29e9fc191dabe4acffc37f5326bd0e018025b9 HorseMod/horselib/deterministic/Sc6ReplayRuntime.Observation.inl",
+      "1 .M N... 100644 100644 100644 22754a1396460cef272a0f2afdd9038e6e54df23 22754a1396460cef272a0f2afdd9038e6e54df23 HorseMod/horselib/deterministic/SnapshotStore.cpp",
+      "1 .M N... 100644 100644 100644 4f3b23117f91a4dc261556ddd4bfabb70dab2c1a 4f3b23117f91a4dc261556ddd4bfabb70dab2c1a HorseMod/horselib/deterministic/SnapshotStore.hpp",
+      "1 .M N... 100644 100644 100644 31dd395cf4a927e9e13ef05157facab12526d0af 31dd395cf4a927e9e13ef05157facab12526d0af tools/deterministic_core_selftest.cpp",
+      "1 .M N... 100644 100644 100644 8f68eb45dc82b86505c2e46e9d711fbbbc2fd098 8f68eb45dc82b86505c2e46e9d711fbbbc2fd098 tools/deterministic_qualification/artifacts.py",
+      "1 .M N... 100644 100644 100644 9b4ae5a949e08b68a1d6b4ec0e69f6351a128d67 9b4ae5a949e08b68a1d6b4ec0e69f6351a128d67 tools/deterministic_qualification/observer_pair.py",
+      "1 .M N... 100644 100644 100644 5972b702f22c0fbe2d54c72e3f1512646a93be5b 5972b702f22c0fbe2d54c72e3f1512646a93be5b tools/deterministic_qualification/paired_online.py",
+      "1 .M N... 100644 100644 100644 2f71682e40403c364baf2f8a43efe8a7e1093870 2f71682e40403c364baf2f8a43efe8a7e1093870 tools/deterministic_qualification/process_control.py",
+      "1 .M N... 100644 100644 100644 17612b15d98cd1ed7084fc3c042556bb13b27136 17612b15d98cd1ed7084fc3c042556bb13b27136 tools/deterministic_qualification/runner.py",
+      "1 .M N... 100644 100644 100644 f2d3cca95ac93b893d81ccbe764e72332d38442e f2d3cca95ac93b893d81ccbe764e72332d38442e tools/deterministic_qualification/tests/test_paired_online_cycles.py",
+      "1 .M N... 100644 100644 100644 dbd15e2e2c9d78cda4a5b4ad2cf8ec34ad70c46a dbd15e2e2c9d78cda4a5b4ad2cf8ec34ad70c46a tools/online_coordinator_selftest.cpp",
+      "? tools/deterministic_dev_vertical.py",
+      "? tools/deterministic_qualification/development_workflow.py",
+      "? tools/deterministic_qualification/tests/test_development_workflow.py",
+      "? tools/deterministic_qualification/tests/test_process_control.py"
+    ],
+    "submodules": [
+      "f21698d85367c8d97585cf7610897316c873681c third_party/GekkoNet (v20260629200724-02c447c-6-gf21698d)",
+      " 6b3fd8a175f1e164eb1bd1be6f766f48b980f7c0 tools/BlueprintToCpp (heads/codex/pre-rollback-rewrite-snapshot-20260823)",
+      " 75f3878b7a348cbda3927048b142a0a6923e79c0 tools/BlueprintToCpp/CUE4Parse (v1.2.2-719-g75f3878b)",
+      " 414689d5cff4286a7898487a46dc5e48005d38da tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl (v2.1.0)",
+      " 0d98dba29d66e93259db7daa53a9327df767a415 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/benchmark (v1.6.1)",
+      " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/catch2 (v2.13.7)",
+      " d7982f2b2524feeb322f424b29cf43df30b5d5b7 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm (v2.2.0)",
+      " 0d98dba29d66e93259db7daa53a9327df767a415 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm/external/benchmark (v1.6.1)",
+      " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm/external/catch2 (v2.13.7)",
+      " 54b3985e8ccc5efb5f24dabf0b4b802a996366e6 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/sjson-cpp (v0.9.0)",
+      " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/sjson-cpp/external/catch2 (v2.13.7)"
+    ],
+    "tracked_inputs": [
+      {
+        "path": "CMakeLists.txt",
+        "sha256": "0ee3de61f39d1362738ce9a1973c4522ceccf2807936fbcce2fbc89f3489464a",
+        "size": 5011
+      },
+      {
+        "path": "HorseMod/CMakeLists.txt",
+        "sha256": "c727ecf11acc782c35e174fb5ac2825ce7c42a93e271d77a83cbae635fa4a6a8",
+        "size": 21074
+      },
+      {
+        "path": "HorseMod/HorseModService.KHitAudit.inl",
+        "sha256": "73c896ed486d496cad0c6d116422c66618bf517a9afdc7b79cb22c950df1087d",
+        "size": 51795
+      },
+      {
+        "path": "HorseMod/HorseModService.LabbingAndGeneral.inl",
+        "sha256": "298878f3099b4cbdcb9e9407be299351c8d13e55d090c5798ee5b886a326436f",
+        "size": 26622
+      },
+      {
+        "path": "HorseMod/HorseModService.OnlineCallbacks.inl",
+        "sha256": "670c216aa1a6375ffe43e1eb3a4137b779a8f71e878af93c9c366cb9a95ad067",
+        "size": 86753
+      },
+      {
+        "path": "HorseMod/HorseModService.OnlineOwnership.inl",
+        "sha256": "5418ffe00f62e880d2471c04b6a1504840781cc8fc842121a75dc3daae00a7bb",
+        "size": 74120
+      },
+      {
+        "path": "HorseMod/HorseModService.PresenceAndOverlay.inl",
+        "sha256": "e9f4fbb147e71b63fd07216923f9845e4036898f828b19b69bc39c0afd08619d",
+        "size": 52418
+      },
+      {
+        "path": "HorseMod/HorseModService.PublicApiAndLifetime.inl",
+        "sha256": "948840a2f32a7bb5359141ce50944682dcfe6ed153a07b9ca26072261343502f",
+        "size": 89759
+      },
+      {
+        "path": "HorseMod/HorseModService.QualificationDiagnostics.inl",
+        "sha256": "6162bc91d9f64230e6b38c23b5a97f297ad2803a905ce73f262d0a9eb3ab1273",
+        "size": 87575
+      },
+      {
+        "path": "HorseMod/HorseModService.RuntimeControls.inl",
+        "sha256": "ae3f2888f3fd141e5683f70c6b512a7d6bf29a024dc1064a716d670b4eaa4c1c",
+        "size": 55358
+      },
+      {
+        "path": "HorseMod/HorseModService.SettingsAndRequests.inl",
+        "sha256": "a232dc6590305695fe85f9d2c264f013f985318ef55c27c3b5677b29e8fcc854",
+        "size": 57548
+      },
+      {
+        "path": "HorseMod/HorseModService.TypesAndState.inl",
+        "sha256": "b0307d39435df37d981caf975f77a8e0a0fced27f2e3d539dba660d439ae454b",
+        "size": 49960
+      },
+      {
+        "path": "HorseMod/HorseModService.UiTabs.inl",
+        "sha256": "4af4d8cbb9a0849bc5ecabab9b3503d1ada2ee0abee10469b79b473e00e4b87c",
+        "size": 58474
+      },
+      {
+        "path": "HorseMod/OnlineQualificationService.inl",
+        "sha256": "94c9461869ae9933432817daf72cd1599b02eca1473c4f9f717d9a86d4418160",
+        "size": 45713
+      },
+      {
+        "path": "HorseMod/dllmain.cpp",
+        "sha256": "6f2781c54a276258fb9d5d722e91a14eb0e4e68f9a49c1a2829b5552996aecb0",
+        "size": 30894
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/AudioPresentation.cpp",
+        "sha256": "4f3342cd6e3052bb0ceef557477390367e7ad3b58567316df8a3874bc3b5efaf",
+        "size": 7775
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/AudioPresentation.hpp",
+        "sha256": "439a9554543b2f9172761a01d5e2a47975100c1f324a973d2bdc6922c9555658",
+        "size": 14604
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/AuthoritativeInputGate.hpp",
+        "sha256": "09bdfe232abeb92c913341ba5217b1456627a0962716b86b396451669f2420b4",
+        "size": 2787
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/BattleAudioSelectorState.cpp",
+        "sha256": "2e5efa4b85b776960d68e2d4263ed615cac21f80d3de3bb355548613ae9583c3",
+        "size": 6552
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/BattleAudioSelectorState.hpp",
+        "sha256": "4838fb424721ca77d91fc8dd15150580453fa8e9c85166038c1a64facfc4e347",
+        "size": 2090
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CallbackTopology.cpp",
+        "sha256": "342d9122d442be31238e3cd938c4ada45013643b7d7471c2af782140ca072802",
+        "size": 7276
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CallbackTopology.hpp",
+        "sha256": "1cc96f59f06b9b7bf2dfaeb9ae7c6ed45cb49a068376996c9cad780956dc6e62",
+        "size": 1619
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CandidateCheckpoint.cpp",
+        "sha256": "b46218183b68855e0462e090c8d7e7a41222eef7d42ad81ce33420cdfb6e57d5",
+        "size": 49091
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CandidateCheckpoint.hpp",
+        "sha256": "fe3ed38d72c5bcec7ee2e6986be4ddbe8e50ef4a58f9145acb4b13e98e7dac4f",
+        "size": 3303
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CandidateGameStateAdapter.cpp",
+        "sha256": "d1adc823aa8cb06287be447c52baf5340843c2fe7091779ccce9c0736c3f59fd",
+        "size": 35421
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CandidateGameStateAdapter.hpp",
+        "sha256": "968ef8b0698b6ce8b404fe6bc07fd2c7778f9d32edf278b13d97d2b28a0e539e",
+        "size": 11488
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CanonicalHashTimeline.cpp",
+        "sha256": "611681b6e7e3c7a6c7dc0d47164c6f14cd52e7c815ff77b25f642cd087d8b49f",
+        "size": 6658
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CanonicalHashTimeline.hpp",
+        "sha256": "803c332deaa97e46e5fcdd95c14e61f95f59b58a9751e7d6032ee82874fbd470",
+        "size": 2483
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CharaAnimationState.cpp",
+        "sha256": "cf852b8736db0450853c246ed06714a1f79fd54a89663fb685b22513a211df9f",
+        "size": 26828
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CharaAnimationState.hpp",
+        "sha256": "1f14b95c3116743428cbf6e0b4b7d6f4dd961555d0383356cf0ef163a09fb6bc",
+        "size": 6214
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Config.cpp",
+        "sha256": "c6a9a32e3adc72889339f02ed149401d9cdc861df790ec500f7aac73983c1a4f",
+        "size": 4118
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Config.hpp",
+        "sha256": "d2a736c48af1f8ee443160e27d17ff6a1b6ec93d6534158c239ccc38930a560f",
+        "size": 1204
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/DeterministicHookSet.Audio.inl",
+        "sha256": "2513f1944166a15ddbda9ec16c6a0700e33d830f6bbe80f752a603a100077764",
+        "size": 55890
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/DeterministicHookSet.FrameAndStage.inl",
+        "sha256": "639fad887c98580cda90f85bab52b5f1602d8abbccf22f4104ed540659f12f42",
+        "size": 70826
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/DeterministicHookSet.LifecycleAndJournal.inl",
+        "sha256": "ad3e787f9b2d53135816594b88c771cde4e814d64b874b73dda341ec1cc03200",
+        "size": 65363
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/DeterministicHookSet.PresentationTerminals.inl",
+        "sha256": "cbdc937b5ff2435f3e4675f166cf058f461049c0c5239f7b8d6a50526c3c6301",
+        "size": 56762
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/DeterministicHookSet.cpp",
+        "sha256": "c9d7ba7c2070320ddcb6364d2e3453c839461da3d3acbdffd0a8d22d2b61cba0",
+        "size": 52045
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/DeterministicHookSet.hpp",
+        "sha256": "7104b44f0ad25164a196b668982bf5db06b79bd192000a06e29289f00260bc44",
+        "size": 42971
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/FloatingPointEnvironment.cpp",
+        "sha256": "900ac867fd069b5106a52858a02daa0713bc774db7e18e71585e15f1ab9cf620",
+        "size": 2424
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/FloatingPointEnvironment.hpp",
+        "sha256": "8aa548aa0b633f2e99f106334264c0cbb480b950615587ed0b11a73f39016c42",
+        "size": 1446
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/GekkoRollbackSession.cpp",
+        "sha256": "113f69a819cb4020a8e70453094bc7baa1c41d51caff55d3bd914d85b9b63b35",
+        "size": 16481
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/GekkoRollbackSession.hpp",
+        "sha256": "cb69a7c1a8bfadb2240a702c19488a887e75ce7996cfeef829df5875057b44d4",
+        "size": 11500
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/HgCpuCoverageProbe.cpp",
+        "sha256": "3760ebc6275b907dcef279f3955f2be33e4987f09859d3beb3d9a2262871b307",
+        "size": 6194
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/HgCpuCoverageProbe.hpp",
+        "sha256": "7c40e9027a3f15b74313c36ebab3fdace334f0d4eddc8cf2df38090630113b99",
+        "size": 2279
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/HgCpuRuntimeDiagnostics.cpp",
+        "sha256": "77f899ec860ba9795d65482bd93677c3d8131e9b5ef8a8d720f39f95dddced54",
+        "size": 7203
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/HgCpuRuntimeDiagnostics.hpp",
+        "sha256": "76515ead4989a832b565ebaa2d7d5cd2c2213626526af17e141f5fd87bdc1250",
+        "size": 1569
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/HgCpuStream.cpp",
+        "sha256": "c216af0bf6a9e66e80e100e9cccac8596f77c57014da6a58fc4c7cbe98725c3b",
+        "size": 7668
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/HgCpuStream.hpp",
+        "sha256": "1102a3ca1583387bcf2c27ff14ac61f240f387a6380ad739c5d4d39d3866d827",
+        "size": 2849
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/InputTimeline.cpp",
+        "sha256": "e165c63065d054d644ee2e0ef80ae2e90129711c6e422e66bdcea53c7c42b8c7",
+        "size": 5085
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/InputTimeline.hpp",
+        "sha256": "95f8b164a91d8585fc8d669fdaa566c047842455e33ee59a0c3d164ac0ee52c5",
+        "size": 1519
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Interfaces.hpp",
+        "sha256": "eeb7c8a75f43870d1322d19d88a308372137827d35a708e2131838b5625a5123",
+        "size": 4142
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/LocalImageChecksum.hpp",
+        "sha256": "85a6b204203c40e0668268a55115622b5ac0d4664ea04f2699b010abb483bd31",
+        "size": 2395
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/MotionBankSnapshot.cpp",
+        "sha256": "f87976bef4d05bfecce951aa35ebe016acd0950f43ce758e746f35655b0ed4f5",
+        "size": 11056
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/MotionBankSnapshot.hpp",
+        "sha256": "a81424933f1af05549352d755dfae52506e5424a1a3658376fd66c66f972b426",
+        "size": 2302
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/MoveDispatchState.cpp",
+        "sha256": "bcff8b261c4eeeea846561d4d5534e2d266ab2307d88e89629bc74f4733536f7",
+        "size": 19039
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/MoveDispatchState.hpp",
+        "sha256": "26925909a1ea5466a9780a8bfb288bf4192aaa1b7b4ce32c9c1ee182d397657c",
+        "size": 4489
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativeAudioPresentationController.cpp",
+        "sha256": "2d1dc051ba93ee8edc3fb3e1a1c1457891819e9d19be5e4dbcb7fdc3ffdef805",
+        "size": 4938
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativeAudioPresentationController.hpp",
+        "sha256": "471a4ab4b159fcbf4b059ee608b45de7cd774a293fca8756fde0f0d60727ded2",
+        "size": 1333
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativeBatchTimeline.cpp",
+        "sha256": "813cd3ac5ab9ee66c12f6549576b5257703763df09796637949b516a172bc7be",
+        "size": 19723
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativeBatchTimeline.hpp",
+        "sha256": "7e8b571997e2fa37a84802f883d66fbe25881f91512995ae87294b6120d1ce7b",
+        "size": 14160
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativeCandidateRegions.cpp",
+        "sha256": "56d0356dc8ce9bddbcc381461b43b6b66b35361f1eba10fa6990905d35f6fa34",
+        "size": 125231
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativeCandidateRegions.hpp",
+        "sha256": "52d04010f63d83649f07e3dc7e1c0f569d927f52aa43970ae44d2b28f8676807",
+        "size": 20349
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativePresentationJournal.cpp",
+        "sha256": "e84c53ad43000daad5c59d3d5447b44a2c5f1a9f035510f79209d0b3dc75ca17",
+        "size": 10361
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativePresentationJournal.hpp",
+        "sha256": "4b39d528acf1397c67ba203049af04e44fa226ea9b23269f386c6d4db94a04c4",
+        "size": 652
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativeReplayMaterializer.cpp",
+        "sha256": "ac7f5be2a145bb584d59605c9b1419918d741c0899114af4c4ed9942536142de",
+        "size": 5256
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativeReplayMaterializer.hpp",
+        "sha256": "981027b969dbe670c8283b2fd83695212bacaafb34370824b58172aadf6d16b9",
+        "size": 1925
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/OnlineContractTypes.hpp",
+        "sha256": "0db76547729a9b33fc76b4482b2b9815c60f9ed3353b9caf7ffc9df6902b00b9",
+        "size": 1717
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/OnlineCoordinator.cpp",
+        "sha256": "e876c2102591746b3a627e3b130ddb7066daf58969bcc856633c1e6a51076235",
+        "size": 45837
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/OnlineCoordinator.hpp",
+        "sha256": "9781a5aa124026201b14b61390c04b9564e69ba259dc976484d3359541b20ff4",
+        "size": 12321
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/OnlineLifecycle.hpp",
+        "sha256": "202d16b0fe31acb0ec13d61d0269834a1a7439b5eedbdf2571222190f2fb189b",
+        "size": 3859
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/OnlineQualificationMetrics.hpp",
+        "sha256": "2b919e2de27449154d38d98a5f698facbcd7d36f83151c133ab0b6ffec6cba3a",
+        "size": 3319
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/OnlineSceneExitGate.hpp",
+        "sha256": "b15ae8e15559809aa83ed2a4344976e33453f6033de38ebf9699810a2adef69b",
+        "size": 1575
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ParticlePresentation.cpp",
+        "sha256": "6fa30f546885d388b65a1d9650f2a477808558ee7467123e77ac976392f510f1",
+        "size": 6401
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ParticlePresentation.hpp",
+        "sha256": "b9d451b8c79bd69eb12a35f8ce0f76751627f9119330d6b9f647d33f8ac208cd",
+        "size": 1530
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/PresentationJournal.cpp",
+        "sha256": "1ec9e16dd9744a8af6abdf5dbb67cccd2533abc5333e24b539b40ac623433d9e",
+        "size": 12116
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/PresentationJournal.hpp",
+        "sha256": "fdbc24e9b64af8f0566392a16d091e9b30353f61278653e6ecacfa344e26ae5a",
+        "size": 4084
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ProductionOnlineAllowlist.cpp",
+        "sha256": "1255e566c1431e161295f91a586393ba69b8202114de74660784968dbaff36b0",
+        "size": 4124
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ProductionOnlineAllowlist.hpp",
+        "sha256": "a010f8c22128a394c1a684f1cff0d3b8bb40c1e9db177dfa8c2b65b024ba60e8",
+        "size": 2029
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ProductionReleaseLoader.cpp",
+        "sha256": "d91ce662c385fb834e8f29960c01a53418e510f88d1b54258a038578c8c2cd14",
+        "size": 12417
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ProductionReleaseLoader.hpp",
+        "sha256": "7566c423c667aa82411d60f20a015666d2471f169a1baab54c752d78b9e59ec6",
+        "size": 742
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ReplayCoordinator.cpp",
+        "sha256": "470b3a645d596bc81083a8fa7ab3ef27c3ea507889c11a5ab7085f39e48295d1",
+        "size": 7626
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ReplayCoordinator.hpp",
+        "sha256": "ad6c2fcc1c5a2ef6a5d24e1bb9aa87e4e1e24e096df1cae614c1fae235449071",
+        "size": 2181
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ReplaySeekPlanner.cpp",
+        "sha256": "983ad76e35025c6a1c165f8ed2c68524d65fc28f8d234cd40695333e750628e0",
+        "size": 8535
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ReplaySeekPlanner.hpp",
+        "sha256": "df9a9f2b8afd08db8c5aa520b3e199da52aea59064094ba7b35edead9caee5a4",
+        "size": 1688
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6BattleSyncOwnerHook.hpp",
+        "sha256": "3de923ce594e3810e63d11d385e3d4a6bf174b7085fd5b30100c895895636c63",
+        "size": 4973
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6CandidateCheckpointCapture.cpp",
+        "sha256": "1126371589f207488058ebde66237959b7287ac2e92f9c11da0de0be8641ffd9",
+        "size": 53765
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6CandidateCheckpointCapture.hpp",
+        "sha256": "d3c9edadee89422f4fa4e6d620d8ab7f13ab9cbde04a09abd332a6c2356ef822",
+        "size": 14708
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6HookLayout.hpp",
+        "sha256": "29888bea1ddd220e437e8cf9ca27bfdeaf10eeb873f6b25c3a701e6ee9f37e55",
+        "size": 1923
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6OnlineContractObserver.cpp",
+        "sha256": "ae8b1c14d30fa72d1d1f89f4e4da601a78e6243529b213467a4521556224a1a0",
+        "size": 28959
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6OnlineContractObserver.hpp",
+        "sha256": "c056eff648c8c81e48c8c703da3e65df70d863792129d9ba4d6620ecce7c061f",
+        "size": 6135
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6OnlineObserverProbe.cpp",
+        "sha256": "3b7f9cd8b0f682569d4f400272a50caedee648d17b4c9c3814a9b37292193edf",
+        "size": 7527
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6OnlineObserverProbe.hpp",
+        "sha256": "7f298bbad83700dbbd18142ae2dc6df61fe16a54f6ab7575924f43bebabc215a",
+        "size": 3698
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6PresentationSink.cpp",
+        "sha256": "ea58f941260a50019475774dbfab1cb1a6e77655252fe4b49fa834547843c6e7",
+        "size": 1182
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6PresentationSink.hpp",
+        "sha256": "edf0ff6fcb4c53af8a628015c81544050b7d185f3139c36d1a4f7a535957f906",
+        "size": 467
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6ReplayNativeBridge.cpp",
+        "sha256": "d46d856b364b506d897c803e71af7a72314c998269f5358c58cf85d231779d0b",
+        "size": 10344
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6ReplayNativeBridge.hpp",
+        "sha256": "d08c16c7b255467ed5c7af022aaa6cdb6566785d09053617181af12bbab22502",
+        "size": 1914
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.Correction.inl",
+        "sha256": "8e44244655a4b44412e8af007db3e14478aea8b798d64c56b6c4dc3c21d5b209",
+        "size": 47691
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.Observation.inl",
+        "sha256": "5e191f4475d8fc24efa4c013b5d96ce44f5a60b8ed6a3eca4ed1eeae2d78771a",
+        "size": 76376
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.PresentationAndSeek.inl",
+        "sha256": "898d126cd8a0f23da78e272aa837b150bf8f99913a5f09b1b99f89034f32a6e9",
+        "size": 71947
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.cpp",
+        "sha256": "10e37bc4ce59f2d95e8f4b921e5357381cec2f1a273ff2aea9f3546f52527199",
+        "size": 15717
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.hpp",
+        "sha256": "100ba3d6dfadff5f9ed784e2b978425cc2597436f07c98215a4457050152888a",
+        "size": 43175
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6StageCatalog.cpp",
+        "sha256": "36ba7136138abd82131ab6f4367f8d59e5612c6e0d0f4196a0e929329e85fdcf",
+        "size": 472
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6StageCatalog.hpp",
+        "sha256": "bdb3218212e3ced5f2eafd45bffe67904a54389ae72225315dd1037ee147ebab",
+        "size": 1142
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Schema.hpp",
+        "sha256": "1417586fe3f3ef1bace91e71bd0dba275c6cf772e4fdf7052589b77f21c0a790",
+        "size": 23196
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/SecondaryEventState.cpp",
+        "sha256": "2120e095984a6773ddc19dd2d4e1879bc834493fdf4799a1d47334747893ca82",
+        "size": 10269
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/SecondaryEventState.hpp",
+        "sha256": "5d3e63e15ee2e060a96b46578f83d29fe8c3dc739627bc86d0d469596d951b29",
+        "size": 2406
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/SimulationSession.cpp",
+        "sha256": "dbb1d3bfb2ec7ce1b9a72739ea711c720e8fff6c10274d828d3acf79d6f6a20e",
+        "size": 8982
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/SimulationSession.hpp",
+        "sha256": "0aaf0a372ac4296951799bea9ff12ea932326286bdfc5cf167501453d445f7ff",
+        "size": 1746
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/SnapshotStore.cpp",
+        "sha256": "0894d8be4eed943bd291e2f46935da9a43de6e3fc3cebd378897fcc28c8dc366",
+        "size": 21811
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/SnapshotStore.hpp",
+        "sha256": "1112a0c3223efd70747ffb2f70879de17b59342e5fb30716c81e69145b39c985",
+        "size": 4280
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StageBreakListenerDiagnostics.cpp",
+        "sha256": "fa1cf9fd3c2dc5a6b008e23b1791dbd0bf882d8cdefd7761471ba318562bbb9f",
+        "size": 19157
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StageBreakListenerDiagnostics.hpp",
+        "sha256": "9ac86b2df3bd6b9c0eb5da8fd589d5adc19f77fc8d66dd396e153e2dbc02ee94",
+        "size": 6418
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StageBreakPresentationIdentity.cpp",
+        "sha256": "2a99efcb7c4dc81c5475b86c69bc3721d69670182303e38bf2d161fbbeb5ebd9",
+        "size": 14823
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StageBreakPresentationIdentity.hpp",
+        "sha256": "74b2aac17c7fdbb4682ee5584798ecad713ee4fbb931f8642ca47995bebf7eae",
+        "size": 3404
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StagePresentation.cpp",
+        "sha256": "cf031b6882d9722ac19b85a9b4900c51e46f65cfe642eb067dea45be5992c43d",
+        "size": 7598
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StagePresentation.hpp",
+        "sha256": "c07537bfde2e52a5dae57c48781af516c82d99ab3b53fde1b57054fad143ca6b",
+        "size": 1333
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StageWindGraphTransaction.cpp",
+        "sha256": "f315f979eba893e754c095817506038cd101433fdf75eface0a27cd6efecd95c",
+        "size": 10525
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StageWindGraphTransaction.hpp",
+        "sha256": "495c3866c204decae95a958db22953c0baf3c48dd5ff90c4d970858668fe2080",
+        "size": 885
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StageWindTopology.cpp",
+        "sha256": "bfd4c4201784468dd9af1eeed880a219612849d0a08cbcbb2861612d93ebc473",
+        "size": 16669
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StageWindTopology.hpp",
+        "sha256": "922d7d3094bc1b413b07de8b06d57bb48e9e8622c820c3a404060b2d29d7e287",
+        "size": 8572
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/SteamP2PTransport.cpp",
+        "sha256": "a85b264f278c78b02e4793de7b68969960aee65d802cd1482fd36dc6c41bb4c4",
+        "size": 25435
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/SteamP2PTransport.hpp",
+        "sha256": "2670e8c78e9d8d2ec69c4b0a539b8e4e1f8fefa56478c595ac5f286bd16426f0",
+        "size": 6525
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Types.hpp",
+        "sha256": "1030fe79ceb3747003e9d25ea02c40c521ad822fc46cb68f5aec8757f60f9b64",
+        "size": 12104
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/UcrtRandBroker.cpp",
+        "sha256": "ddf2d44ced0b810deed17fb83f30ea8e5d759ad53b55959b9590e0dc1f770395",
+        "size": 4937
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/UcrtRandBroker.hpp",
+        "sha256": "e8c08cec4288726d7e686cdde3260eeeb1160899682fdd39e4aecd95f89c88af",
+        "size": 1978
+      },
+      {
+        "path": "HorseMod/rollback.ini.example",
+        "sha256": "6c014794b0511992033d90574ab7e92bde00b0f324867eae22c136f927b8c029",
+        "size": 76
+      },
+      {
+        "path": "docs/investigations/deterministic-production-candidate-manifest.json",
+        "sha256": "c0cba1c615ae02e4e754421565f83bf35be655f1eb37e2904f82a878e8a948fe",
+        "size": 3026
+      },
+      {
+        "path": "docs/investigations/deterministic-production-region-manifest.json",
+        "sha256": "242b33289b6bce0bc54ef742b1b4490bb97f2ee54ad7a605a73921b17cd55e1e",
+        "size": 11111
+      },
+      {
+        "path": "docs/investigations/deterministic-tira-qualification-manifest.json",
+        "sha256": "cef0e02b24691c92c15b8c7fe6f51e78d373ee574930e87a87a295f27ea733a1",
+        "size": 1552
+      },
+      {
+        "path": "tools/deterministic_core_selftest.cpp",
+        "sha256": "9ca19ce000df260f657a5723f5bbf2f75f512966bbdfdf75e535e88ad358d436",
+        "size": 119280
+      },
+      {
+        "path": "tools/deterministic_iteration.py",
+        "sha256": "5975e2cfa406d416269960a2e766fd64194a3f1cddbd4bd195e2e8ec07b87f7c",
+        "size": 3119
+      },
+      {
+        "path": "tools/deterministic_qualification.py",
+        "sha256": "7722d89b24cd3ff1c377bbbc96dd711a36afb93e819f986d24cd1dfe04997702",
+        "size": 110
+      },
+      {
+        "path": "tools/deterministic_qualification/__init__.py",
+        "sha256": "17b7b701f8753af2779a08a65245389862295ffcb90c9f7fe700c6da3a27e312",
+        "size": 79
+      },
+      {
+        "path": "tools/deterministic_qualification/artifacts.py",
+        "sha256": "2dae72cd732bcaca2f282b7d2003ffb45f1e41aa2debbb57c2a051ef004b7dbe",
+        "size": 14591
+      },
+      {
+        "path": "tools/deterministic_qualification/configuration.py",
+        "sha256": "06509d24cb7e62704cab35cda17307298d905ccbf69506d9f18cf3c036c27365",
+        "size": 5631
+      },
+      {
+        "path": "tools/deterministic_qualification/impairment.py",
+        "sha256": "50a5970d89c932f6a16d9e99c7d7347769d2ba46621da76353b9c57819e9e65d",
+        "size": 5043
+      },
+      {
+        "path": "tools/deterministic_qualification/observer_pair.py",
+        "sha256": "e9b0f097401d1992797b97d2404bff80a8758fce2b88964bde846f27528f4bd1",
+        "size": 22113
+      },
+      {
+        "path": "tools/deterministic_qualification/offline_campaign.py",
+        "sha256": "70a11f9e0776e5ccdaba2c57575b9831afaf496d81b807c76c8dc14569cbb21a",
+        "size": 33646
+      },
+      {
+        "path": "tools/deterministic_qualification/offline_capture.py",
+        "sha256": "a55733f4f328d84cfe6a81430d20ef1393cb39d6a6010f92c2358c88ea559810",
+        "size": 8017
+      },
+      {
+        "path": "tools/deterministic_qualification/offline_matrix.py",
+        "sha256": "0c814ab7557de0c14f9a4b3594ada1d403c7325c58b6a06af847ad8971091e48",
+        "size": 13991
+      },
+      {
+        "path": "tools/deterministic_qualification/offline_spec.py",
+        "sha256": "12dc961bbfe041eb3b9f5074f7d109002f6f55828087ced6d9a4fe3242132e56",
+        "size": 3063
+      },
+      {
+        "path": "tools/deterministic_qualification/paired_online.py",
+        "sha256": "975de7791116a7288483d44a0c1e61af075c5db6f1df8db71a66141f2ec9a151",
+        "size": 110768
+      },
+      {
+        "path": "tools/deterministic_qualification/paired_online_evaluation.py",
+        "sha256": "97ea79ad83f9fd495b68e8164b015596c90979b59b633bb718e755308817d89d",
+        "size": 5571
+      },
+      {
+        "path": "tools/deterministic_qualification/process_control.py",
+        "sha256": "e56a14143ffa22e00b9076430ecda8f39454bf2517f173c0e48ef4c33c5a05b7",
+        "size": 7688
+      },
+      {
+        "path": "tools/deterministic_qualification/process_memory.py",
+        "sha256": "7e08e623445aa750d7aa32cba5a413597143a5b4cdcc4f089cd64ec1252bd61c",
+        "size": 3437
+      },
+      {
+        "path": "tools/deterministic_qualification/release_publish.py",
+        "sha256": "05de8f5a8d045158c15cad87c6a19d88bc3809e6fb2fa9cf0745c76d47bfb936",
+        "size": 19197
+      },
+      {
+        "path": "tools/deterministic_qualification/replay_entry.py",
+        "sha256": "cdfdd0ba268002d3ce11848c38404c11dce4ccc7182d348902171341ec8868bb",
+        "size": 11490
+      },
+      {
+        "path": "tools/deterministic_qualification/report.py",
+        "sha256": "4d4572fb3a0e521817c2adaab7d27e918b940eb11372b3770380be9e8b09700e",
+        "size": 408
+      },
+      {
+        "path": "tools/deterministic_qualification/runner.py",
+        "sha256": "80f0d5ded63b0c291dd95843240788e6148f4b7c0ee44248a3fc8f2e0ff7f16a",
+        "size": 112225
+      },
+      {
+        "path": "tools/deterministic_qualification/sandboxie_pair.py",
+        "sha256": "cdb25acc83b0d047629429aba522f384e3fbdaf52dca6ab6414dc9f668b979c6",
+        "size": 3927
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_configuration.py",
+        "sha256": "0140c15278430457b799f821195f06f0e36dfa7fb92b72617134caf97adf263f",
+        "size": 3008
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_impairment.py",
+        "sha256": "e77125f37b3511c756bdef01f15392ba285085b5844366b5c57d86464044abdd",
+        "size": 1419
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_observer_pair.py",
+        "sha256": "8de715fc215aac0cd1ba1f34bb3b14c7373f3a1fac9e8bd36751d9364bdbdd31",
+        "size": 7090
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_offline_matrix.py",
+        "sha256": "ba675238c07b8f7bf3625a7b586b5e6dcd79e1a33be588b060d66adcaffcf8cd",
+        "size": 3091
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_offline_resume.py",
+        "sha256": "76f439ab8e16d1a2b84d402f53c034850f641e6310a2a035f4e20bc078af2b34",
+        "size": 13930
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_paired_online_cycles.py",
+        "sha256": "4343d6e229034e08dbe7446b5ed7ffba15a0625fe5d05b9e6282e6ad1610aa24",
+        "size": 49306
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_process_memory.py",
+        "sha256": "629a03db34882a4b1389276d448c98783d85a4bcf0ca06d846e9f44a15a20f67",
+        "size": 1830
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_release_publish.py",
+        "sha256": "54533a481f6824614aa4d305974cf265868b88e5f3319d5bf5f7d84742da583c",
+        "size": 2514
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_replay_entry_request.py",
+        "sha256": "9ee4b158539c741f10e4c7200ed50d76b0c8e4af6ef46c6bdea092f3178aff99",
+        "size": 7864
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_runner.py",
+        "sha256": "ce535a88421e0f3ed6fabf5ea75e5cac696d3ece2d629a2691544c23e830b5c2",
+        "size": 20410
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_sandboxie_pair.py",
+        "sha256": "c9838f425d1dc2c0413b787f2cb1d2f58de00742e1e53d6aa76ddb62f42ba21b",
+        "size": 2018
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_tira_campaign.py",
+        "sha256": "07c9f06ef5735ca1ebca530387367b5cdc3e10271f6e32bc28ec4858d4dd24ab",
+        "size": 8283
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_trace_parser.py",
+        "sha256": "4802fd954eb773daaffb1a887eb38beb2a6d9f2a30177c3b49d0e79565cdbdb5",
+        "size": 18004
+      },
+      {
+        "path": "tools/deterministic_qualification/tira_campaign.py",
+        "sha256": "b43217bc13b7f5d2a0ca81a87a5b34e48f9eeba5533670de2e8bf98c96d0678e",
+        "size": 23975
+      },
+      {
+        "path": "tools/deterministic_qualification/trace_parser.py",
+        "sha256": "311cb092423e8110bb69605baa590a82f0a64f9a7783e020b458a5dba5b02768",
+        "size": 43917
+      },
+      {
+        "path": "tools/deterministic_schema_exporter.cpp",
+        "sha256": "aaeca5beaca2b383da029c4aa0880278d0d911cf023c543a4b29d0de47f4a665",
+        "size": 7104
+      },
+      {
+        "path": "tools/gekko_rollback_session_selftest.cpp",
+        "sha256": "ccfc686f918f28746c0095388153f7657a17c6ca68347bc0d700ae7ac1e95eda",
+        "size": 42415
+      },
+      {
+        "path": "tools/generate_compiled_release_identities.py",
+        "sha256": "097bb1512af037668e2cd28b8ee5a75294f38bfc352d9c103fc125999b4dcad6",
+        "size": 1735
+      },
+      {
+        "path": "tools/generate_production_candidate_manifest.py",
+        "sha256": "6867aaea32825bd2074a0412173eeaae84cdc7f4b2dbf8f5eaac9c30aea0feb3",
+        "size": 3326
+      },
+      {
+        "path": "tools/generate_production_regions.py",
+        "sha256": "c9fa3d3221a3fa667e9546123b1335b89bdd7a4daeba780eb8b1ba3ec80ed88f",
+        "size": 2475
+      },
+      {
+        "path": "tools/native_candidate_regions_selftest.cpp",
+        "sha256": "dcf7ca670151bbdcd8ab50f5a847f2899fbca2c1bec4b655f7b7c9fbfa99b6ad",
+        "size": 153874
+      },
+      {
+        "path": "tools/online_coordinator_selftest.cpp",
+        "sha256": "ab668b18e102ad3798b900dbb35ecc5eabdd7bb9d55dcc13531150e81e04617c",
+        "size": 48758
+      },
+      {
+        "path": "tools/production_release_loader_selftest.cpp",
+        "sha256": "f8a81717876a1a382f6838a308c07e216b57df8555a291ae08cc9f1e5eff95fa",
+        "size": 6370
+      },
+      {
+        "path": "tools/replay_qualification_mod/OnlineRoomAutomation.cpp",
+        "sha256": "c66aa09e597f62521f7bd434298c3bf0ed33f0c3fa62bff8fe72b9750c1ad020",
+        "size": 104957
+      },
+      {
+        "path": "tools/replay_qualification_mod/OnlineRoomAutomation.hpp",
+        "sha256": "1f1593b8b02770c77ac28ebefe3e95f85e10ea090c8a504a9371453736bb54e7",
+        "size": 4698
+      },
+      {
+        "path": "tools/replay_qualification_mod/ReplayPayloadImporter.cpp",
+        "sha256": "4a8ae7e1018c028a9392112fd84f16721bedb4d08be6327aab7c4b07ba7afddc",
+        "size": 15059
+      },
+      {
+        "path": "tools/replay_qualification_mod/ReplayPayloadImporter.hpp",
+        "sha256": "92591ea769191e2cf56ceba867bd09589e3e84100f00c76ff2a19e7312a41734",
+        "size": 2326
+      },
+      {
+        "path": "tools/replay_qualification_mod/ReplayQualificationHealth.hpp",
+        "sha256": "2d7d19f12df92969f23415089ff709acaabf8f7bbeb98b25da6a01a023358430",
+        "size": 999
+      },
+      {
+        "path": "tools/replay_qualification_mod/ReplayQualificationMod.cpp",
+        "sha256": "2979abf937b4e41f32c45d5a437614187bf704f61b2e243cdd6ede877dff1ed4",
+        "size": 143627
+      },
+      {
+        "path": "tools/replay_qualification_mod/ReplaySceneNavigator.cpp",
+        "sha256": "b1387c7e21332e254ec4e0f94d7c4f7aef03d03aac4ac3a7e22c7f9cb53837fd",
+        "size": 17486
+      },
+      {
+        "path": "tools/replay_qualification_mod/ReplaySceneNavigator.hpp",
+        "sha256": "def7ba2cf5aacae193a6ee09fbdf4037252e778149c606fba18ea4c85ec9d393",
+        "size": 591
+      },
+      {
+        "path": "tools/replay_qualification_mod/ReplaySeekReadiness.hpp",
+        "sha256": "5a231b9caae3f2e4073ffdcb92324491dc40703a1b3d6a212d87450ebfb171d0",
+        "size": 1498
+      },
+      {
+        "path": "tools/sc6_online_contract_observer_selftest.cpp",
+        "sha256": "e71eb05d5c55c37f3fd3d17271a4f44adf1c220ba17788b988e51c0ddc3df893",
+        "size": 7269
+      },
+      {
+        "path": "tools/sc6_online_observer_probe_selftest.cpp",
+        "sha256": "a8071d74b8612c9ea618a683f276b8e6c82da86d347b891020c05b41a6ad23bc",
+        "size": 4256
+      },
+      {
+        "path": "tools/steam_p2p_transport_selftest.cpp",
+        "sha256": "697227a22f77f0508bd6b8d97ccc8cb926b5f402e97fda4624b77d05f8fce23a",
+        "size": 11527
+      }
+    ],
+    "untracked_inputs": [
+      {
+        "path": "tools/deterministic_dev_vertical.py",
+        "sha256": "683551eccbc8e6516b7c08e321853630871e14a73053857180666d3c4f632662",
+        "size": 5543
+      },
+      {
+        "path": "tools/deterministic_qualification/development_workflow.py",
+        "sha256": "02686833c17a5e4e5f98475a02e8c2f3c34dc1c13abc79e3af3c78e23bc94651",
+        "size": 17632
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_development_workflow.py",
+        "sha256": "3712c22c203e4418fd166aea15f8784e76cfde261b29d401750eba65391f4480",
+        "size": 3049
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_process_control.py",
+        "sha256": "0fb352d0381de37449eac5ed529dd5b455e78d21f32c099aa9835b68af8b38e6",
+        "size": 1594
+      }
+    ]
+  },
+  "stage_package_root": "/Game/DLC/11/Stage/STG017"
+}

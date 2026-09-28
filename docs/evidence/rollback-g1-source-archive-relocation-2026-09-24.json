@@ -1,0 +1,20 @@
+[
+  {
+    "name": "source-e684ed14a10d236a11b277b3f365f532817c73a1695b5f027b2a8c7e689438be.zip",
+    "bytes": 33440726,
+    "sha256": "9920977F57DC8E45D547A3FB64B27BE39D0067E9B1C534A569C27D3BA01829B6",
+    "target": "C:\\Users\\prest\\Documents\\myMods-source-archives-20260924\\source-e684ed14a10d236a11b277b3f365f532817c73a1695b5f027b2a8c7e689438be.zip"
+  },
+  {
+    "name": "source-7bc2914698c7b30af7bc2e1464b3f857e5b912eab2ec909feb813b55ed1113ae.zip",
+    "bytes": 33437986,
+    "sha256": "4A47AB90A91066CEE9879D416841782783B24444ADD69333FB22A5DC11EA1E68",
+    "target": "C:\\Users\\prest\\Documents\\myMods-source-archives-20260924\\source-7bc2914698c7b30af7bc2e1464b3f857e5b912eab2ec909feb813b55ed1113ae.zip"
+  },
+  {
+    "name": "source-a205582866f1c91465a73147757951791769d2eddf5d270ebe28ec1f60aa03f1.zip",
+    "bytes": 28931175,
+    "sha256": "02574518C1B25EB3DCC775B53017F4ED81E8C18C12136488B9D4101BD59FBE50",
+    "target": "C:\\Users\\prest\\Documents\\myMods-source-archives-20260924\\source-a205582866f1c91465a73147757951791769d2eddf5d270ebe28ec1f60aa03f1.zip"
+  }
+]

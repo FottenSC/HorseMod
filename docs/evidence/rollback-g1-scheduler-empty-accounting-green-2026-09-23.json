@@ -1,0 +1,51 @@
+{
+  "result": "10 focused tests PASS in27.27s; empty object fixed charge preserved and allocation/patch/reservation negatives fail",
+  "scope": "Local observer predicates and production storage accounting, not native restore or complete-B recovery",
+  "files": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\22f0bcaefef05b3d1e558a7e523fca28139187d6c19724547fa484e9d14a98c2.cpp",
+      "sha256": "22f0bcaefef05b3d1e558a7e523fca28139187d6c19724547fa484e9d14a98c2",
+      "bytes": 520133
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d38fb4c314803bacd9d016ded374a75afeaffff0fece6876ca3a65e46b2afb0a.py",
+      "sha256": "d38fb4c314803bacd9d016ded374a75afeaffff0fece6876ca3a65e46b2afb0a",
+      "bytes": 36239
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\969b7d27542fc36fb71a5f789924fc3ac522826a593992979bb58290cfedc0c4.hpp",
+      "sha256": "969b7d27542fc36fb71a5f789924fc3ac522826a593992979bb58290cfedc0c4",
+      "bytes": 54630
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\875301a596f803041792c30a6d346fb923f0abcaae17819c0abdb1e5afac1ade.cpp",
+      "sha256": "875301a596f803041792c30a6d346fb923f0abcaae17819c0abdb1e5afac1ade",
+      "bytes": 2586
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b3abe1e0dc933830f5fb823b9c1261131f9ed2156ddc6a951ec2495ae8aaeb08.exe",
+      "sha256": "b3abe1e0dc933830f5fb823b9c1261131f9ed2156ddc6a951ec2495ae8aaeb08",
+      "bytes": 129024
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e742f136d7c7d1d11e3112b45a3c3c5e52087105fe01c46fa215563f4c7b53a6.obj",
+      "sha256": "e742f136d7c7d1d11e3112b45a3c3c5e52087105fe01c46fa215563f4c7b53a6",
+      "bytes": 125900
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\875301a596f803041792c30a6d346fb923f0abcaae17819c0abdb1e5afac1ade.cpp",
+      "sha256": "875301a596f803041792c30a6d346fb923f0abcaae17819c0abdb1e5afac1ade",
+      "bytes": 2586
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b3abe1e0dc933830f5fb823b9c1261131f9ed2156ddc6a951ec2495ae8aaeb08.exe",
+      "sha256": "b3abe1e0dc933830f5fb823b9c1261131f9ed2156ddc6a951ec2495ae8aaeb08",
+      "bytes": 129024
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e742f136d7c7d1d11e3112b45a3c3c5e52087105fe01c46fa215563f4c7b53a6.obj",
+      "sha256": "e742f136d7c7d1d11e3112b45a3c3c5e52087105fe01c46fa215563f4c7b53a6",
+      "bytes": 125900
+    }
+  ]
+}

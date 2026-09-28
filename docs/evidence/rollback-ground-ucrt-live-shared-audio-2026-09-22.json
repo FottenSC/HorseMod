@@ -1,0 +1,64 @@
+{
+  "run_id": "replay-d5bbc5fcafb94d678c007be7c0739790",
+  "raw_log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0755fd024083532dfcca7395e61384b2b6276826a1c0bcfe1be36090dd2703cf.log",
+    "sha256": "0755fd024083532dfcca7395e61384b2b6276826a1c0bcfe1be36090dd2703cf",
+    "bytes": 76201173
+  },
+  "rows": 538,
+  "callers": {
+    "54f91e": 328,
+    "1f9bd5c": 162,
+    "895d6e": 8,
+    "896105": 40
+  },
+  "threads": [
+    79708
+  ],
+  "invalid_lcg_rows": [],
+  "debris_to_audio_contiguous_edges": 7,
+  "example": [
+    {
+      "before": {
+        "tick": 616,
+        "thread": 79708,
+        "caller": "896105",
+        "result": 2053,
+        "before": 1866973710,
+        "state": 134549657,
+        "valid": true
+      },
+      "after": {
+        "tick": 617,
+        "thread": 79708,
+        "caller": "54f91e",
+        "result": 29259,
+        "before": 134549657,
+        "state": 1917522168,
+        "valid": true
+      }
+    }
+  ],
+  "scope": "Candidate-only actual same-thread native CRT observation. Audio14054F8B0 follows debris placement and uses shared state. No independent control CRT state/order comparison or debris exclusion is claimed.",
+  "identities": {
+    "config": "26a017d28e1e3d1c9175fe94712258c816976fbb092a5e0dc6bc7eb13a18eac4",
+    "framework": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6",
+    "game": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553",
+    "observer": "9fc1cbe0beaf947293bab4f0a0dc82f87df4aedb17008236787ca5f1ab78d007",
+    "physx": "c3c7bd6e13260ee5f850552b6e9a15f69e58e0b41cd4f4bcb48e1b419719b5a2",
+    "replay": "95e12e394d35c13d5e0dd3dce692f9e0a4022e2a84205a9ec75f2fa6726d7879",
+    "runtime": "92f282d0c8804e1bae4c0d96296c8d348167dbb91fd1060a904e232f1c449477",
+    "ucrt": "5e7709a6b71bb818260b6f05c5bb3b6ca0c3ca9bc2f58c6242c1cd9d826d0079"
+  },
+  "native_callers": {
+    "54f91e": "14054F8B0 LuxAudio_RegisterActiveVoiceInstance; generated voice ID retries depend on current backend values",
+    "1f9bd5c": "141F9BD00 InitializeTilePoolParticleEmitterInstance; seeds local FRandomStream+288/+28C",
+    "895d6e": "140895CC0 base ground yaw",
+    "896105": "140895CC0 per-child placement jitter"
+  },
+  "limitations": [
+    "Candidate-only repeated and corrected traversals; no independent control CRT comparison.",
+    "No MoveVM RAND return366FF4 was observed in ticks610..743. Its use of the same import is native evidence, not a live branch witness in this window.",
+    "Shared RNG dependence requires preserving actual corrected-history draws; exact chunk-motion feedback remains unresolved."
+  ]
+}

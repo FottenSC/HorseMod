@@ -1,0 +1,56 @@
+{
+  "result": "PASS four focused production-boundary tests in 24.62 seconds",
+  "scope": "Actual world StartTasks and prior-cleanup continuation; external scheduling probes establish ordering/rejection, not native completion or B recovery. Existing PumpOne/DispatchTask/native-entry guard regressions also pass.",
+  "log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\dc247259be6ad14e5d88a000dbdd58f934673d780d4508cf1454512d741d8971.json",
+    "sha256": "dc247259be6ad14e5d88a000dbdd58f934673d780d4508cf1454512d741d8971",
+    "bytes": 101
+  },
+  "source_retention": {
+    "manifest_sha256": "24eaf7edac6037498052b7329f090efd5cd8d6889d507602f27a28fde2917dea",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-24eaf7edac6037498052b7329f090efd5cd8d6889d507602f27a28fde2917dea.zip",
+    "archive_sha256": "0035d2f0b2fcfb397111f631849d462b33d63ab22d4ac3940ce1d7dc515dbde7",
+    "files": 16602,
+    "uncompressed_bytes": 92793490,
+    "reconstructible": true
+  },
+  "command": "PYTHONPATH=tools python -m pytest -q -x tools/deterministic_qualification/tests/test_consumer_host.py::test_world_start_preserves_owned_prior_cleanup_wait tools/deterministic_qualification/tests/test_consumer_host.py::test_prerequisite_guard_reads_and_pre_native_witness tools/deterministic_qualification/tests/test_consumer_host.py::test_consumer_retirement_entries_stop_before_native_effects tools/deterministic_qualification/tests/test_replay_run.py::test_component_dispatch_revalidates_admitted_consumer",
+  "predecessor": "docs/evidence/rollback-g1-tick211-native-queue-snapshot-live-2026-09-24.json",
+  "red": "docs/evidence/rollback-g1-prior-cleanup-red-2026-09-24.json",
+  "native_reads": {
+    "rollback-g1-prior-cleanup-14215c8d0-2026-09-24.txt": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\48046b0255e35c196ee70fdf2f40909dc4deb938362108e5790f1aff8f4ea74c.json",
+      "sha256": "48046b0255e35c196ee70fdf2f40909dc4deb938362108e5790f1aff8f4ea74c",
+      "bytes": 2312
+    },
+    "rollback-g1-prior-cleanup-14215ec10-2026-09-24.txt": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4a730b3ab3b6c946e6969f4e08ba0b3b661cf8b76ea091ec03e02303deeb37c5.json",
+      "sha256": "4a730b3ab3b6c946e6969f4e08ba0b3b661cf8b76ea091ec03e02303deeb37c5",
+      "bytes": 1322
+    },
+    "rollback-g1-prior-cleanup-142167890-2026-09-24.txt": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\21a1846631b131452c9984fab728e2de5b072ddca9897a4b080c28cc4be7c826.json",
+      "sha256": "21a1846631b131452c9984fab728e2de5b072ddca9897a4b080c28cc4be7c826",
+      "bytes": 1456
+    }
+  },
+  "implementation": [
+    "Wait on retained real cleanup events through existing BeginWait/PumpOne; every dequeued component still reaches DispatchTask admission.",
+    "Publish exact native manager context and sequencer flags before wait; verify unchanged before and after each continuation.",
+    "Preserve native return-task ordering even for already complete six-event array; event completion alone is insufficient.",
+    "Release retained array once through original 1415E3830 only after actual event completion and return task; continue original manager StartTasks with empty cleanup array.",
+    "Bound to at most eight native group cleanup events; fixed additional storage is included in host sizeof ownership accounting."
+  ],
+  "local_cases": [
+    "empty array unchanged native start",
+    "six pending cleanup events",
+    "all events complete before wait still requires return task",
+    "return before final event complete rejects",
+    "manager context mutation rejects",
+    "configuration mutation rejects",
+    "array descriptor mutation rejects",
+    "individual retained event pointer mutation rejects",
+    "published sequencer flag mutation rejects"
+  ],
+  "remaining": "Required build/native checks and shortest bounded live retry by parent; G1 and complete-B recovery remain unproven."
+}

@@ -12,6 +12,12 @@
 
 namespace RC
 {
+    // True only on the proxy-loader thread while its initial C++ mod
+    // constructors run, before the UE4SS initializer thread is created.
+    // This is a startup-context witness, not proof that a game's workers
+    // have not started; callers must independently validate that condition.
+    RC_UE4SS_API auto IsInitialCppModStartupThread() noexcept -> bool;
+
     struct ModMetadata
     {
         const StringType ModName{};

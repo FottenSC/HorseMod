@@ -1,0 +1,72 @@
+
+/* Summary: Wait for a render fence while optionally processing game-thread tasks. Preserve the
+   distinct fast and pending lifetime paths.
+   
+   Parameters:
+   ppFence: address of the retained graph-event/fence pointer slot.
+   bProcessGameThreadTasks: permits admitted GT queue processing in the blocking helper when the GT
+   is idle and the render wait is not nested.
+   
+   Returns: No value. A completed/null fast path clears the slot; a pending path leaves the slot and
+   its reference retained after waiting.
+   
+   Algorithm:
+   1. If threaded rendering is disabled, return without changing the slot.
+   2. Run 1415E9E30 (render exception/health and GT Windows-message processing).
+   3. If the slot is null or event head +8 bit26 is complete, clear the slot and decrement the
+   nonnull event refcount +48, freeing through 140D2EBE0 only on the last reference.
+   4. Otherwise flush the shared immediate fence batch through 1415EF6F0 and tail-jump to 1415ED580.
+   The helper waits for an OS event triggered by real fence completion; eligible waits drain GT
+   tasks between bounded wait slices and preserve native timeout/health policy.
+   
+   Special Cases: The pending branch is a tail jump at 1415EFF0E, not a call followed by the
+   fast-path release. The helper returns its pooled OS event after signaling but does not clear
+   ppFence or decrement that slot reference. A fence that completes during the batch flush follows
+   the retained pending branch as well. Submission is not fence or GPU completion.
+   
+   Source: SoulcaliburVI.exe disassembly 1415EFECA..1415EFF3A and helper 1415ED580, verified via
+   native Ghidra MCP 2026-09-24. */
+
+void FRenderCommandFence_Wait(void **ppFence,char bProcessGameThreadTasks)
+
+{
+  ulonglong *puVar1;
+  int *piVar2;
+  int iVar3;
+  void *pvVar4;
+  ulonglong uVar5;
+  
+  if (g_fUseThreadedRendering) {
+    FUN_1415e9e30();
+    if (*ppFence != (void *)0x0) {
+      puVar1 = (ulonglong *)((longlong)*ppFence + 8);
+      LOCK();
+      uVar5 = *puVar1;
+      if (uVar5 == 0) {
+        *puVar1 = 0;
+        uVar5 = 0;
+      }
+      UNLOCK();
+      if ((uVar5 >> 0x1a & 1) == 0) {
+        FUN_1415ef6f0();
+        FUN_1415ed580(ppFence,bProcessGameThreadTasks);
+        return;
+      }
+    }
+    pvVar4 = *ppFence;
+    *ppFence = (void *)0x0;
+    if (pvVar4 != (void *)0x0) {
+      LOCK();
+      piVar2 = (int *)((longlong)pvVar4 + 0x48);
+      iVar3 = *piVar2;
+      *piVar2 = *piVar2 + -1;
+      UNLOCK();
+      if (iVar3 == 1) {
+        FUN_140d2ebe0();
+      }
+    }
+  }
+  return;
+}
+
+

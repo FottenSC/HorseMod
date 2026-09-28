@@ -1,0 +1,15 @@
+{
+  "candidate_report": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\rewrite-runtime-source-control.json",
+  "identities": {
+    "config": "8dc51120f7871e02848ff86e1e2fffc7a778cdee4366275c53a24fa83ce32579",
+    "game": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553",
+    "observer": "8b369cc0d72738b82df5d7b1d8a1a50926e8dd20aa46b2367f4bab89225ae27a",
+    "replay": "95e12e394d35c13d5e0dd3dce692f9e0a4022e2a84205a9ec75f2fa6726d7879",
+    "runtime": "c7e23652332c1b98e06252c0ced9f8323acccaac91479967f2fd87c32dff7212"
+  },
+  "limitations": "Shared replay importer and other UE4SS mods remain in both paths; this does not prove original recording fidelity, continuous capture health, or seek correctness.",
+  "observations_compared": 1200,
+  "reference_report": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\rewrite-stock-source-control.json",
+  "result": "pass",
+  "scope": "horsemod_loaded_trajectory_neutrality"
+}

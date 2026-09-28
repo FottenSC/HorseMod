@@ -1,0 +1,33 @@
+{
+  "case_id": "tira-supplied-11775433596982945207",
+  "certifying": false,
+  "cleanup": {
+    "diagnostic_flags_restored_false": {
+      "correction_probe": true,
+      "forced_depth7_qualification": true,
+      "trace": true
+    },
+    "process_absent": true
+  },
+  "created_utc": "2026-09-01T11:46:41.676908+00:00",
+  "display_map_name": "Astral Chaos: Tide of the Damned",
+  "failure": {
+    "bounded_log": "E:\\myMods\\docs\\investigations\\evidence\\tira-supplied-11775433596982945207-detector-reaudit-nesting.failure.log",
+    "bounded_log_lines": 256,
+    "field_or_mask": null,
+    "fields": {},
+    "first_failing_frame": null,
+    "first_failure_line": "",
+    "graph_provenance": null,
+    "lifecycle_phase": null,
+    "owner_pointer": null,
+    "owner_selector": null,
+    "return_rva": null
+  },
+  "kind": "replay_entry_failure",
+  "reason": "SoulcaliburVI process 13100 exited before qualification evidence completed",
+  "report_schema": 2,
+  "result": "fail",
+  "row_id": "detector-reaudit-nesting",
+  "stage_package_root": "/Game/Stage/STG004"
+}

@@ -1,0 +1,40 @@
+{
+  "scope": "Production DispatchTask linked to shipped native task wrapper. Unchanged branch callback/event/refcount/pool PASS. Niagara preentry rejection leaves payload/event/pool unchanged. Not lifetime, suspension or B recovery proof.",
+  "files": {
+    "HorseMod/CMakeLists.txt": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\5f9d28e5cc3c8619b5b5d3bac93d94c3b050cdf18cc79a6b8fc801d1f5f67e54.txt",
+      "sha256": "5f9d28e5cc3c8619b5b5d3bac93d94c3b050cdf18cc79a6b8fc801d1f5f67e54",
+      "bytes": 15186
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayTaskGroup.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\ff2e14cb371be02ce55c113a209622746100ce8f54301542792c49df3ad5abdf.cpp",
+      "sha256": "ff2e14cb371be02ce55c113a209622746100ce8f54301542792c49df3ad5abdf",
+      "bytes": 18056
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayTaskGroup.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\cc4c9d4593e99ed51aac5ec852cdc5d41253a9c9841f742a1ab7573909bfcd20.hpp",
+      "sha256": "cc4c9d4593e99ed51aac5ec852cdc5d41253a9c9841f742a1ab7573909bfcd20",
+      "bytes": 3402
+    },
+    "tools/native_candidate_regions_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\87aa118306e0320db5c3b68ad9ed14f56ab099e274b404e2c72f6cbc3a9842e9.cpp",
+      "sha256": "87aa118306e0320db5c3b68ad9ed14f56ab099e274b404e2c72f6cbc3a9842e9",
+      "bytes": 413733
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/component-dispatch-shipped-build-20260923.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\64152a7e7d4f5b195b57348714abfdd4b05b15d08c53cce10f2740b0d240045a.log",
+      "sha256": "64152a7e7d4f5b195b57348714abfdd4b05b15d08c53cce10f2740b0d240045a",
+      "bytes": 335
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/build-stage.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\442033d3382d281b361a7f39c070871c5a8d454dcfeea7e1375db5d76a3f8126.json",
+      "sha256": "442033d3382d281b361a7f39c070871c5a8d454dcfeea7e1375db5d76a3f8126",
+      "bytes": 6239
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/local-regressions.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\000221dc050071c2e3e7421b358dafe5f598e6ee225e888d8f7f24b10c99483d.json",
+      "sha256": "000221dc050071c2e3e7421b358dafe5f598e6ee225e888d8f7f24b10c99483d",
+      "bytes": 2141
+    }
+  }
+}

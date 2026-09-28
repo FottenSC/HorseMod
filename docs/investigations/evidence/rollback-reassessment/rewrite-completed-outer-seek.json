@@ -1,0 +1,58 @@
+{
+  "case_id": "",
+  "certifying": false,
+  "cleanup": {
+    "diagnostic_flags_restored_false": {
+      "correction_probe": true,
+      "forced_depth7_qualification": true,
+      "trace": true
+    },
+    "process_absent": true
+  },
+  "created_utc": "2026-09-05T00:42:44.991415+00:00",
+  "display_map_name": "",
+  "failure": {
+    "bounded_log": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\rewrite-completed-outer-seek.failure.log",
+    "bounded_log_lines": 68,
+    "field_or_mask": "0x0",
+    "fields": {
+      "cache_expected": "0/0/0/0",
+      "cache_observed": "0/0/0/0",
+      "cache_row": "4294967295",
+      "component_mask": "0x0",
+      "game_time": "0/0",
+      "identity": "0/0",
+      "identity_issue": "0",
+      "input_cache_chunk": "4294967295",
+      "input_scalar_mask": "0x0",
+      "move_dispatch": "0000000000000000/0000000000000000->0000000000000000/0000000000000000",
+      "native_mask": "0x0",
+      "plan_base": "0:0",
+      "plan_batch": "0",
+      "plan_entry": "0:0",
+      "plan_exit": "0:0",
+      "plan_stage": "0",
+      "recorder_time": "0/0",
+      "source_end": "1565",
+      "status": "state_hash_mismatch",
+      "target": "1204",
+      "update_time": "0/0",
+      "vfx_edges_p1": "0/0/0/0->0/0/0/0",
+      "vfx_edges_p2": "0/0/0/0->0/0/0/0",
+      "wind_mask": "0x0"
+    },
+    "first_failing_frame": "1204",
+    "first_failure_line": "[2026-09-05 02:42:42.5429977] [HorseMod] owned replay seek request failed target=1204 source_end=1565 status=state_hash_mismatch component_mask=0x0 native_mask=0x0 input_scalar_mask=0x0 input_cache_chunk=4294967295 game_time=0/0 update_time=0/0 recorder_time=0/0 cache_row=4294967295 cache_expected=0/0/0/0 cache_observed=0/0/0/0 move_dispatch=0000000000000000/0000000000000000->0000000000000000/0000000000000000 vfx_edges_p1=0/0/0/0->0/0/0/0 vfx_edges_p2=0/0/0/0->0/0/0/0 wind_mask=0x0 identity_issue=0 identity=0/0 plan_stage=0 plan_batch=0 plan_base=0:0 plan_entry=0:0 plan_exit=0:0",
+    "graph_provenance": null,
+    "lifecycle_phase": null,
+    "owner_pointer": null,
+    "owner_selector": null,
+    "return_rva": null
+  },
+  "kind": "replay_entry_failure",
+  "reason": "native replay entry failed: horsemod_seek_validation_failed",
+  "report_schema": 2,
+  "result": "fail",
+  "row_id": "",
+  "stage_package_root": ""
+}

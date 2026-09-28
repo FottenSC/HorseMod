@@ -1,0 +1,55 @@
+{
+  "scope": "A210/B217 consumer-mutation retry after owned prior-cleanup wait",
+  "run_id": "replay-b089553476a4417fa86b3938be7bbdc6",
+  "evidence": {
+    "build_manifest": {
+      "path": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/manifests/71e3c517e92ccc278613efff8c17d29c98a81adc433c1dab4812d2ce4308297c.json",
+      "sha256": "71e3c517e92ccc278613efff8c17d29c98a81adc433c1dab4812d2ce4308297c",
+      "bytes": 6433
+    },
+    "run_manifest": {
+      "path": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/manifests/8fa41a248631d185fbb869afb986519060c5aece17e56b4c732e261a48c35119.json",
+      "sha256": "8fa41a248631d185fbb869afb986519060c5aece17e56b4c732e261a48c35119",
+      "bytes": 21914
+    },
+    "failure_sidecar": {
+      "path": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/93f874366cc9b4091fffec72d70f200254133344f457d94ffa7ade183ae99840.json",
+      "sha256": "93f874366cc9b4091fffec72d70f200254133344f457d94ffa7ade183ae99840",
+      "bytes": 511
+    },
+    "matching_dump": {
+      "path": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/2012c57befbfb2548d6b7a95ba8876fe8b63c2cf8f4c3376ab041bb701811502.dmp",
+      "sha256": "2012c57befbfb2548d6b7a95ba8876fe8b63c2cf8f4c3376ab041bb701811502",
+      "bytes": 80125444
+    },
+    "implementation_red": "docs/evidence/rollback-g1-prior-cleanup-red-2026-09-24.json",
+    "implementation_green": "docs/evidence/rollback-g1-prior-cleanup-green-2026-09-24.json"
+  },
+  "checks": "Prior-cleanup RED/GREEN, four focused regressions, required build/native and two CTests passed; preflight ready before deployment.",
+  "first_failure": {
+    "process": "owned PID648 terminated 0xc0000409 before native queue pop",
+    "site": "NativeQueueSnapshot at guarded 140D2B9F0",
+    "tick": 211,
+    "epoch": 2340,
+    "transaction_phase": 2,
+    "protocol_phase": 4,
+    "queue_head_tail_equal": true,
+    "head_next_low26_index": 0,
+    "queue_rereads_consistent": true,
+    "cleanup_event_count": 0,
+    "cleanup_event_capacity": 24,
+    "mutation_marker": "consumer prerequisite mutation injected count=1 native_api=141D58ED0 production_entry_returned=true repair=false"
+  },
+  "matching_dump_read_only_stack": [
+    "main.dll+0x4E9E fastfail at site24",
+    "SoulcaliburVI.exe+0x2164609 inside 142164510 release tick group",
+    "SoulcaliburVI.exe+0xD2D0C2 inside 140D2D050 PumpNamedTaskQueueUntilIdle",
+    "SoulcaliburVI.exe+0x2165D47 inside 142165D30 group wrapper",
+    "SoulcaliburVI.exe+0x1F029A2 inside UWorld_Tick",
+    "main.dll+0x1393D7, +0x1A4E57, +0x1A5023 return candidates"
+  ],
+  "interpretation": "The previously incomplete retained cleanup event is no longer present. This later native pump occurs on the release-group idle branch of 142164510, so the prior-cleanup fix passed its immediate boundary but did not complete corrected tick211. The sampled first GT queue was empty; no queue admission or B recovery follows from that observation.",
+  "cleanup": "Deployment journal clean, eight prior file states independently match SHA256 or absence, zero owned game and replay runner processes, Steam untouched.",
+  "gates": "Observer validity, simulation, coherence, recovery and performance not measured after process termination. Complete-B recovery and 120 independent continuation ticks remain unproven. G1/G2 open; debris exact/Unresolved; no408 or600 retry.",
+  "next_resolving_test": "Astra high code owner resolves the exact native release-group idle-pump route and ownership boundary, adds a production-boundary RED/GREEN fix or precise bounded diagnostic, then required build/native checks before the shortest live retry."
+}

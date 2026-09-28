@@ -1,8 +1,8 @@
 """Static HgMotion/MOT helpers for SC6 movement analysis.
 
-This module intentionally separates "valid clip header" from "decoded root
-motion".  The root channel format is only partially understood from Ghidra, so
-distance values are emitted only when a decoder can prove the curve.
+This module intentionally separates a structurally valid clip header from a
+decoded root-motion curve. Distances are emitted only after the native
+Huffman stream and selector-0x16 channel have both decoded successfully.
 """
 
 from __future__ import annotations
@@ -78,7 +78,7 @@ def _unknown_curve(frame_count: int, confidence: str, reason: str) -> RootMotion
 
 
 def decode_motion_clip_header(raw: bytes) -> MotionClipHeader:
-    if len(raw) < 0x20:
+    if len(raw) < 0x1E:
         return MotionClipHeader(
             frame_count=0,
             channel_count_words=0,
@@ -86,11 +86,11 @@ def decode_motion_clip_header(raw: bytes) -> MotionClipHeader:
             header_size=0,
             raw_header_hex=raw[:0x20].hex(),
             confidence="failed",
-            reason="motion section is smaller than 0x20 bytes",
+            reason="motion section is smaller than the 0x1E-byte minimum header",
         )
 
     frame_count, channel_count_words, flags = struct.unpack_from("<HHI", raw, 0)
-    if frame_count == 0 or frame_count > 600:
+    if frame_count == 0:
         return MotionClipHeader(
             frame_count=frame_count,
             channel_count_words=channel_count_words,
@@ -98,7 +98,7 @@ def decode_motion_clip_header(raw: bytes) -> MotionClipHeader:
             header_size=0x1C,
             raw_header_hex=raw[:0x20].hex(),
             confidence="failed",
-            reason=f"implausible frame count {frame_count}",
+            reason="zero frame count",
         )
 
     decoded_word_count = channel_count_words >> 1

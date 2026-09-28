@@ -1,0 +1,33 @@
+{
+  "case_id": "astaroth-raphael-silver-wolves-haven",
+  "certifying": false,
+  "cleanup": {
+    "diagnostic_flags_restored_false": {
+      "correction_probe": true,
+      "forced_depth7_qualification": true,
+      "trace": true
+    },
+    "process_absent": true
+  },
+  "created_utc": "2026-09-01T21:18:36.260100+00:00",
+  "display_map_name": "Silver Wolves' Haven",
+  "failure": {
+    "bounded_log": "E:\\myMods\\docs\\investigations\\evidence\\grouped-canary-silver-wolves.failure.log",
+    "bounded_log_lines": 66,
+    "field_or_mask": null,
+    "fields": {},
+    "first_failing_frame": null,
+    "first_failure_line": "[2026-09-01 23:18:32.9453491] [HorseMod] frame-fencepost observation failed: presentation_failed",
+    "graph_provenance": null,
+    "lifecycle_phase": null,
+    "owner_pointer": null,
+    "owner_selector": null,
+    "return_rva": null
+  },
+  "kind": "replay_entry_failure",
+  "reason": "native replay entry failed: horsemod_qualification_group_cleanup_failed",
+  "report_schema": 2,
+  "result": "fail",
+  "row_id": "",
+  "stage_package_root": "/Game/DLC/07/Stage/STG011_R"
+}

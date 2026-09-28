@@ -177,7 +177,10 @@ Status CallbackTopologyProbe::Capture(
     }
     try
     {
-        output.records.reserve(collections.size() * 8);
+        // capture_collection is noexcept. Reserve its complete admitted bound
+        // here, where allocation failure becomes an explicit status, so its
+        // push_back cannot terminate midway through native observation.
+        output.records.reserve(collections.size() * maximum_entries_per_collection);
         std::uint64_t signature = 1469598103934665603ull;
         for (const auto& collection : collections)
         {

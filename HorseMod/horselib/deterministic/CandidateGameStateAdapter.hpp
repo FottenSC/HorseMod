@@ -26,9 +26,11 @@ struct CandidateAdapterBinding
 {
     NativeContext context{};
     BattleAudioSelectorState* battle_audio_selector{};
+    bool restore_audio_selector{};
     HgCpuGenerationContext hgcpu_context{};
     HgCpuExecFn hgcpu_writer{};
     HgCpuExecFn hgcpu_reader{};
+    std::array<std::uintptr_t,2> hgcpu_stat_fighters{};
     MotionBankSnapshot* motion_banks{};
     MoveDispatchState* move_dispatch{};
     SecondaryEventState* secondary_events{};
@@ -182,6 +184,7 @@ public:
     {
         return last_restore_operation_failure_mask_;
     }
+    [[nodiscard]] NativeCandidateValidationDiagnostic last_native_restore_diagnostic() const noexcept { return last_native_restore_diagnostic_; }
     [[nodiscard]] std::array<std::uint16_t, 2>
     last_captured_movevm_short25() const noexcept
     {
@@ -287,6 +290,7 @@ private:
     FrameCoordinate last_canonical_capture_coordinate_{};
     std::uint32_t last_restore_difference_mask_{};
     std::uint32_t last_restore_operation_failure_mask_{};
+    NativeCandidateValidationDiagnostic last_native_restore_diagnostic_{};
     bool configured_{};
     bool bound_{};
 };

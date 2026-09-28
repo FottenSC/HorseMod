@@ -135,6 +135,9 @@ dist/
 # Regenerable from a local UnrealPak dump.
 /dump/
 
+# --- Old game data ---------------------------------------------------------
+/OldGames/
+
 # --- BlueprintToCpp generated pseudocode -----------------------------------
 # Decompiled SC6 Blueprint output is analysis evidence only; never commit it.
 /tools/BlueprintToCpp/BlueprintToCpp/bin/

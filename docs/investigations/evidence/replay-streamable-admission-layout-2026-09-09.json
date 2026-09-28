@@ -1,0 +1,80 @@
+{
+  "date": "2026-09-09",
+  "program": "SoulcaliburVI.exe",
+  "language": "x86:LE:64:default",
+  "type": "FStreamableResourceRecord_RollbackPartial",
+  "size": 48,
+  "fields": [
+    {
+      "name": "target",
+      "type": "void *",
+      "offset": 0
+    },
+    {
+      "name": "asyncOutstanding",
+      "type": "byte",
+      "offset": 8
+    },
+    {
+      "name": "loadFailed",
+      "type": "byte",
+      "offset": 9
+    },
+    {
+      "name": "unknown0A",
+      "type": "byte[6]",
+      "offset": 10
+    },
+    {
+      "name": "waitingHandles",
+      "type": "void *",
+      "offset": 16
+    },
+    {
+      "name": "waitingCount",
+      "type": "int",
+      "offset": 24
+    },
+    {
+      "name": "waitingCapacity",
+      "type": "int",
+      "offset": 28
+    },
+    {
+      "name": "weakHandles",
+      "type": "void *",
+      "offset": 32
+    },
+    {
+      "name": "weakCount",
+      "type": "int",
+      "offset": 40
+    },
+    {
+      "name": "weakCapacity",
+      "type": "int",
+      "offset": 44
+    }
+  ],
+  "mutation": {
+    "function": "142143AD0",
+    "before": "void FUN_142143ad0(undefined8 param_1, undefined8 param_2, longlong param_3)",
+    "after": "void FUN_142143ad0(void *manager, void *assetPath, FStreamableResourceRecord_RollbackPartial *record)",
+    "scope": "Only this parameter base was applied; no global propagation. Exact byte offsets; alignment setting is not an ABI packing claim."
+  },
+  "evidence": {
+    "allocation": "142151EA0 allocates 0x30, initializes bytes8/9, arrays10/20; sets byte8 before async request",
+    "completion": "142142F80 clears outstanding8, invokes record drain142143AD0",
+    "drain": "142143AD0 consumes 16-byte handle/controller pairs at10/count18, clears waiting array before completion callbacks; increments/decrements1443B1F10",
+    "registry": "14213E130 registers streamable manager in14429EAC8, vtable1439C4F90.140E42ED0 locks registry38 and appends owner to28.",
+    "request": "14214F930 allocates130-byte handle, immediate resource requests, seven arguments; fifth32bit priority, sixthbyte manage flag, seventhpointer string.",
+    "handle_membership": "142142590 appends weak controller ref(+C increment) pair at record20 and strong waiting pair(+8 increment) at10, increments handleF0 pending resource count."
+  },
+  "unknown": [
+    "complete handle lifecycle outside the admitted completed/cancelled resource domain",
+    "foreign-thread owner mutation/retirement",
+    "load requests outside streamable-manager path",
+    "general async cancellation/re-entry"
+  ],
+  "runtime": "Admission restriction only; no streamable resources or callbacks restored."
+}

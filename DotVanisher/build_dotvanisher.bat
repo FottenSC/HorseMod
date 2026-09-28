@@ -37,6 +37,7 @@ if defined MYMODS_FAST_DEV_UNSAFE (
 )
 
 cmake -S "%REPO_ROOT%" -B "%BUILD_DIR%" -G Ninja -DCMAKE_BUILD_TYPE=LessEqual421__Shipping__Win64 %FAST_DEV_ARGS% %SCCACHE_ARGS%
+if errorlevel 1 exit /b %ERRORLEVEL%
 cmake --build "%BUILD_DIR%" --target DotVanisher --parallel %NUMBER_OF_PROCESSORS%
 
 if %ERRORLEVEL% NEQ 0 (

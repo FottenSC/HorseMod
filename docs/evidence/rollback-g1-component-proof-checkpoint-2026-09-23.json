@@ -1,0 +1,220 @@
+{
+  "result": "G1 NO-GO for suspension/recovery; tested terminal enforcement and concrete native owner census PASS",
+  "proof_result": "docs/evidence/rollback-g1-component-proof-result-2026-09-23.md",
+  "sources_logs_native_maps": {
+    "HorseMod/CMakeLists.txt": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\5f9d28e5cc3c8619b5b5d3bac93d94c3b050cdf18cc79a6b8fc801d1f5f67e54.txt",
+      "sha256": "5f9d28e5cc3c8619b5b5d3bac93d94c3b050cdf18cc79a6b8fc801d1f5f67e54",
+      "bytes": 15186
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayTaskGroup.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\cc4c9d4593e99ed51aac5ec852cdc5d41253a9c9841f742a1ab7573909bfcd20.hpp",
+      "sha256": "cc4c9d4593e99ed51aac5ec852cdc5d41253a9c9841f742a1ab7573909bfcd20",
+      "bytes": 3402
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayTaskGroup.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\ff2e14cb371be02ce55c113a209622746100ce8f54301542792c49df3ad5abdf.cpp",
+      "sha256": "ff2e14cb371be02ce55c113a209622746100ce8f54301542792c49df3ad5abdf",
+      "bytes": 18056
+    },
+    "HorseMod/horselib/deterministic/ReplayComponentTickConsumer.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8fdb0c1052fed5b807b5d90f66a4587b18c62eff6270365344022bcd8cc431aa.hpp",
+      "sha256": "8fdb0c1052fed5b807b5d90f66a4587b18c62eff6270365344022bcd8cc431aa",
+      "bytes": 1119
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplaySchedulerState.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\839a64f85928e1325203aaf478a60bf0237c8897c5ff455bfe3c34086636335f.cpp",
+      "sha256": "839a64f85928e1325203aaf478a60bf0237c8897c5ff455bfe3c34086636335f",
+      "bytes": 31697
+    },
+    "tools/native_candidate_regions_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\87aa118306e0320db5c3b68ad9ed14f56ab099e274b404e2c72f6cbc3a9842e9.cpp",
+      "sha256": "87aa118306e0320db5c3b68ad9ed14f56ab099e274b404e2c72f6cbc3a9842e9",
+      "bytes": 413733
+    },
+    "tools/replay_component_dispatch_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7dd12c87c98dab291e2b7efd5e73a02db2e455697d6009e5409d1759d437685a.cpp",
+      "sha256": "7dd12c87c98dab291e2b7efd5e73a02db2e455697d6009e5409d1759d437685a",
+      "bytes": 5501
+    },
+    "tools/replay_scheduler_consumer_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d30bbfc800a2c7720038e2e9abc424b819349b63a62cfbc76fc031a40927fd87.cpp",
+      "sha256": "d30bbfc800a2c7720038e2e9abc424b819349b63a62cfbc76fc031a40927fd87",
+      "bytes": 4532
+    },
+    "tools/deterministic_qualification/tests/test_replay_run.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4ebbcb8bb9421bc60a25b860e92d8c441c6db567132544d8cf55cd51bd74085d.py",
+      "sha256": "4ebbcb8bb9421bc60a25b860e92d8c441c6db567132544d8cf55cd51bd74085d",
+      "bytes": 507616
+    },
+    "tools/replay_test.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\5e2eb8090eda76cc184c6c0ab976164a29ab2f63543a0a5f145909ae81fe07f4.py",
+      "sha256": "5e2eb8090eda76cc184c6c0ab976164a29ab2f63543a0a5f145909ae81fe07f4",
+      "bytes": 416284
+    },
+    "tools/replay_qualification_mod/ReplayBoundaryObserver.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a7909f435224f55c8928750cd053996d72d5bc941b7993707c1c1a042f70ff39.hpp",
+      "sha256": "a7909f435224f55c8928750cd053996d72d5bc941b7993707c1c1a042f70ff39",
+      "bytes": 35317
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/component-final-local-20260923.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\85b65201be7e0bfe0c1a3646ba387847b518a23bf9e9c3732e905544535a6579.log",
+      "sha256": "85b65201be7e0bfe0c1a3646ba387847b518a23bf9e9c3732e905544535a6579",
+      "bytes": 117
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/component-census-preflight-20260923.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8f49e32c3282d11bd1e8062b4b2e39ab9206ce4fc3ad4f4413db7498f52f02c4.log",
+      "sha256": "8f49e32c3282d11bd1e8062b4b2e39ab9206ce4fc3ad4f4413db7498f52f02c4",
+      "bytes": 271
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/component-census-live-20260923.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\275890a9032b0781a1eeaf13724d199afe73147b6dc9139211fad5dc702976d8.log",
+      "sha256": "275890a9032b0781a1eeaf13724d199afe73147b6dc9139211fad5dc702976d8",
+      "bytes": 1176
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/component-census360-live-20260923.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\dbcee33effaa29ce242e82c621c1ce31e084ea35a77ea8d4406558c2ce67b3df.log",
+      "sha256": "dbcee33effaa29ce242e82c621c1ce31e084ea35a77ea8d4406558c2ce67b3df",
+      "bytes": 615
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/build-stage.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f29198816b0e26e0d91e89788fe927cdd70368e053b4ac41a79a458034e8bb78.json",
+      "sha256": "f29198816b0e26e0d91e89788fe927cdd70368e053b4ac41a79a458034e8bb78",
+      "bytes": 6238
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/build-provenance.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\694735cfd41f341b0c44ff45feb48ad73fe95eb58f0f5cc40a006519ee08fba2.json",
+      "sha256": "694735cfd41f341b0c44ff45feb48ad73fe95eb58f0f5cc40a006519ee08fba2",
+      "bytes": 2373
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/local-regressions.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d8d22167cff78f376d86d8a3c300ba013580ac0f28baafb006176c61264d4fd4.json",
+      "sha256": "d8d22167cff78f376d86d8a3c300ba013580ac0f28baafb006176c61264d4fd4",
+      "bytes": 2141
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/consumer-census.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8a8442bde0494057c494427f49bfc9123965cd87c2832ce13489b98b5134f9a6.json",
+      "sha256": "8a8442bde0494057c494427f49bfc9123965cd87c2832ce13489b98b5134f9a6",
+      "bytes": 9892
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/consumer-census-stage.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1f8a0d9e5775d2e8e04efaf5e3c44e4f9c4458f71dd144b6b3816c9da190e176.json",
+      "sha256": "1f8a0d9e5775d2e8e04efaf5e3c44e4f9c4458f71dd144b6b3816c9da190e176",
+      "bytes": 38439
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/consumer-census.UE4SS.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0a96e674d37683b03c0737d032ce61a61c7b598e1ec15d5d75c9b0abdb326197.log",
+      "sha256": "0a96e674d37683b03c0737d032ce61a61c7b598e1ec15d5d75c9b0abdb326197",
+      "bytes": 5307843
+    },
+    "docs\\evidence\\rollback-g1-component-census-cleanup-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f2ce5c06c2b28367fa62b004a27600efe5b00c462e0af498b15e3c2e5e8a8d0a.json",
+      "sha256": "f2ce5c06c2b28367fa62b004a27600efe5b00c462e0af498b15e3c2e5e8a8d0a",
+      "bytes": 1991
+    },
+    "docs\\evidence\\rollback-g1-component-pre-tick-getter-native-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\221e550ecbf66d0ca23bede2ac84ba6a4176a3b6bdb241765860401caaf8d49c.json",
+      "sha256": "221e550ecbf66d0ca23bede2ac84ba6a4176a3b6bdb241765860401caaf8d49c",
+      "bytes": 1999
+    },
+    "docs\\evidence\\rollback-g1-component-pre-tick-query-native-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\87d86c19588bf3ee5a89d94ed62aa274f5332ad86ef9f128e654dc4856c9bee0.json",
+      "sha256": "87d86c19588bf3ee5a89d94ed62aa274f5332ad86ef9f128e654dc4856c9bee0",
+      "bytes": 6972
+    },
+    "docs\\evidence\\rollback-g1-component-proof-result-2026-09-23.md": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d90f7f2e0aa2125072393d3f4016c66aee0f41f8f2114334bce00e9e8a66591e.md",
+      "sha256": "d90f7f2e0aa2125072393d3f4016c66aee0f41f8f2114334bce00e9e8a66591e",
+      "bytes": 6208
+    },
+    "docs\\evidence\\rollback-g1-consumer-boundaries-subagent-2026-09-23.md": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\640f6c709178b854ecf7446700393aa85db0c9508519c424669cbeb1b60c9884.md",
+      "sha256": "640f6c709178b854ecf7446700393aa85db0c9508519c424669cbeb1b60c9884",
+      "bytes": 9169
+    },
+    "docs\\evidence\\rollback-g1-cri-worker-config-native-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8029f87c669c0960dcf9df0ca19364a6565768ed075285f40a7b738039fe84cf.json",
+      "sha256": "8029f87c669c0960dcf9df0ca19364a6565768ed075285f40a7b738039fe84cf",
+      "bytes": 63700
+    },
+    "docs\\evidence\\rollback-g1-destruction-monitor-native-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\cb8e34fdd762e1bf985c91a5368f120e7f7021c375bb9e3f3e3bd68f3929df53.json",
+      "sha256": "cb8e34fdd762e1bf985c91a5368f120e7f7021c375bb9e3f3e3bd68f3929df53",
+      "bytes": 47374
+    },
+    "docs\\evidence\\rollback-g1-exact-component-family-native-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f42dc6d708bb4a662ba0a6de6561373efea415a3c2dbd605ca10ac878ccc53ca.json",
+      "sha256": "f42dc6d708bb4a662ba0a6de6561373efea415a3c2dbd605ca10ac878ccc53ca",
+      "bytes": 35903
+    },
+    "docs\\evidence\\rollback-g1-linebatch-engine-post-exclusion-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c664e1de95dc461a7446f066fe5dd690e25e93c5cdd726d2e77af760d80d0fea.json",
+      "sha256": "c664e1de95dc461a7446f066fe5dd690e25e93c5cdd726d2e77af760d80d0fea",
+      "bytes": 11173
+    },
+    "docs\\evidence\\rollback-g1-linebatch-family-native-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9e11dd96f85c03aa007a907a66c388d91ee347b472070ceb4b6a9b6e5452c5e3.json",
+      "sha256": "9e11dd96f85c03aa007a907a66c388d91ee347b472070ceb4b6a9b6e5452c5e3",
+      "bytes": 57128
+    },
+    "docs\\evidence\\rollback-g1-physical-lifetime-native-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f3c4376c31a4a1ffc7cfaf6e2cc82bb1e2c433dcd5d86c7fd2df48c877ab540a.json",
+      "sha256": "f3c4376c31a4a1ffc7cfaf6e2cc82bb1e2c433dcd5d86c7fd2df48c877ab540a",
+      "bytes": 84040
+    },
+    "docs\\evidence\\rollback-g1-production-dispatch-native-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\65a2c80de72138a06c6cee482dfb9e5a2ab7a842527d85fa9165b2ccde041972.json",
+      "sha256": "65a2c80de72138a06c6cee482dfb9e5a2ab7a842527d85fa9165b2ccde041972",
+      "bytes": 2791
+    },
+    "docs\\evidence\\rollback-g1-singlethread-native-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\2f36abd685e13423bb8aed69632867184a1d2ea999b0b421325bfd3304c99006.json",
+      "sha256": "2f36abd685e13423bb8aed69632867184a1d2ea999b0b421325bfd3304c99006",
+      "bytes": 446299
+    },
+    "docs\\evidence\\rollback-g1-strict-task-hold-native-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b853c6d4024081d17ac2c6ff40dcd429bc64e5bd08555802122214a8bbb9f36e.json",
+      "sha256": "b853c6d4024081d17ac2c6ff40dcd429bc64e5bd08555802122214a8bbb9f36e",
+      "bytes": 177572
+    },
+    "docs\\evidence\\rollback-g1-task-dispatch-native-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c6d0f221e8384712942b7b6dd1a92c62b58f646d23f3c3d5b66d44330eb458b8.json",
+      "sha256": "c6d0f221e8384712942b7b6dd1a92c62b58f646d23f3c3d5b66d44330eb458b8",
+      "bytes": 37519
+    },
+    "docs\\evidence\\rollback-g1-task-lifetime-native-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d042a728400c9401724493e15a9793371ecf23a3bfd347ecce423959274b5c56.json",
+      "sha256": "d042a728400c9401724493e15a9793371ecf23a3bfd347ecce423959274b5c56",
+      "bytes": 60900
+    },
+    "docs\\evidence\\rollback-g1-task-ownership-no-go-2026-09-23.md": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7dc2079eff03aa6d4d3cd7008525544971b6dd09a85d5bee32b2c227526ea10a.md",
+      "sha256": "7dc2079eff03aa6d4d3cd7008525544971b6dd09a85d5bee32b2c227526ea10a",
+      "bytes": 8498
+    },
+    "docs\\evidence\\rollback-g1-terminal-dispatch-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\61247fb9bb14190a894fc3262c5fa7c53706fda4dd699c48279fb7a2b198a050.json",
+      "sha256": "61247fb9bb14190a894fc3262c5fa7c53706fda4dd699c48279fb7a2b198a050",
+      "bytes": 5530
+    }
+  },
+  "stock_census_red": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\530c22e7a8310c1bbcf8aa2c70173095ad44271b53600212325679b8e706e7ea.json",
+    "sha256": "530c22e7a8310c1bbcf8aa2c70173095ad44271b53600212325679b8e706e7ea"
+  },
+  "stock_census_green": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\7be0a187867bc7acce818c8dd5bf79704f281870b4b08b2f576e1200a8b587ac.json",
+    "sha256": "7be0a187867bc7acce818c8dd5bf79704f281870b4b08b2f576e1200a8b587ac",
+    "bytes": 40600,
+    "summary": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\314130510535932d4b50525bf562b2fa594d3d95a36d588df6de8d32d4d021d9.md",
+      "sha256": "314130510535932d4b50525bf562b2fa594d3d95a36d588df6de8d32d4d021d9",
+      "bytes": 535
+    }
+  },
+  "old_status": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\98dc6a1477b068b49321826789c5ca20a98dc1e5862cbb06176177e8a5ddef23.md",
+    "sha256": "98dc6a1477b068b49321826789c5ca20a98dc1e5862cbb06176177e8a5ddef23",
+    "bytes": 172799
+  }
+}

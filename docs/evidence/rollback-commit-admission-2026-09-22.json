@@ -1,0 +1,57 @@
+{
+  "native_red_manifest": "57cca60be64d5b2330c28a94275c0c4b65a90fc18eb93d30d5375557262135d4",
+  "runner_red": {
+    "log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\82dffec33767906c93d6486af5758c069e1bfe42184aafe17ef87b6d2514e757.log",
+      "sha256": "82dffec33767906c93d6486af5758c069e1bfe42184aafe17ef87b6d2514e757",
+      "bytes": 3054
+    },
+    "test_source": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0991f70ebf47349c7cf6987c94bf4e2e53f2ab008d1a95fad3a7775e01f31839.py",
+      "sha256": "0991f70ebf47349c7cf6987c94bf4e2e53f2ab008d1a95fad3a7775e01f31839",
+      "bytes": 480666
+    },
+    "production_source": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\47e6338937514845b02532168643f0602c96b31926453a3f6ff83cb816f1ab51.py",
+      "sha256": "47e6338937514845b02532168643f0602c96b31926453a3f6ff83cb816f1ab51",
+      "bytes": 60526
+    }
+  },
+  "current_owner_red": {
+    "log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a37d068f19023a9d549938222011eac27d2681d371516d07fee46c10eb0daf08.log",
+      "sha256": "a37d068f19023a9d549938222011eac27d2681d371516d07fee46c10eb0daf08",
+      "bytes": 1896
+    },
+    "test_source": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c10b91a635125c56a628323fd99271c371017f0edb7ddcd2343bea3b07b648c8.inl",
+      "sha256": "c10b91a635125c56a628323fd99271c371017f0edb7ddcd2343bea3b07b648c8",
+      "bytes": 113394
+    },
+    "production_source": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\08350243e43e9ee098a9b2cee8d356051cb55eff35ffbc95e92c84d95784d78c.inl",
+      "sha256": "08350243e43e9ee098a9b2cee8d356051cb55eff35ffbc95e92c84d95784d78c",
+      "bytes": 37296
+    }
+  },
+  "admission_green_manifest": "4871cee47e67bb6b1ac12c3369396283a47c478f3875327294c48e87a223053d",
+  "precommit_live_manifest": "3f90a5fa3db9f39fb64bf1dcc3369f8543c71cccf1ff9297d7d4dac4d7726a24",
+  "current_owner_green": {
+    "native_log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e879c37cad9ae67719dfb24865d715fd0f2b65bc21155d4db8c6c9c4941d2928.log",
+      "sha256": "e879c37cad9ae67719dfb24865d715fd0f2b65bc21155d4db8c6c9c4941d2928",
+      "bytes": 3011
+    },
+    "build_report": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\484c7eb4f0d3391495f58f56a1653ace07ea9a0414e5d49a9b8e3ad9e762b7b5.json",
+      "sha256": "484c7eb4f0d3391495f58f56a1653ace07ea9a0414e5d49a9b8e3ad9e762b7b5",
+      "bytes": 5870
+    },
+    "local_regression_report": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a3ecde3bdf781b9de453c0972b09b6e250379b22d4ce01126699375d69a47202.json",
+      "sha256": "a3ecde3bdf781b9de453c0972b09b6e250379b22d4ce01126699375d69a47202",
+      "bytes": 2141
+    }
+  },
+  "scope": "Commit validates current C SAP/marker graph without requiring historical shape/rigid IDs. Undo restrictions unchanged. No live success yet."
+}

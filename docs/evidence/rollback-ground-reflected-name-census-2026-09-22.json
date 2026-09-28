@@ -1,0 +1,23 @@
+{
+  "created_utc": "2026-09-22T13:05:05.951829+00:00",
+  "root": "C:\\Users\\prest\\Documents\\SoulcaliburModding\\SCVI Sound Tools\\dump\\SoulcaliburVI\\Content",
+  "asset_name_table_inventory": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\43fed0bf6f8e8db92b6e58a47ab36da75313bd46e3281e21d0494422f9bb4706.txt",
+    "sha256": "43fed0bf6f8e8db92b6e58a47ab36da75313bd46e3281e21d0494422f9bb4706",
+    "bytes": 7004753
+  },
+  "packages": 48575,
+  "scan": [
+    "rg",
+    "-a",
+    "-l",
+    "-F",
+    "GetGroundDebris",
+    "C:\\Users\\prest\\Documents\\SoulcaliburModding\\SCVI Sound Tools\\dump\\SoulcaliburVI\\Content",
+    "-g",
+    "*.uasset"
+  ],
+  "scan_exit": 1,
+  "matches": [],
+  "interpretation": "No ASCII GetGroundDebris reference found in supplied dumped game-content uasset name tables. This does not establish dump completeness, absence of dynamic reflection, or absence of direct native transform readers. No motion exclusion granted."
+}

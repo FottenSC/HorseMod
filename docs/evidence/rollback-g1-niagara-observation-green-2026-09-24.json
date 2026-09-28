@@ -1,0 +1,49 @@
+{
+  "stage": "GREEN",
+  "result": "6 passed in 9.00s",
+  "source_retention": {
+    "manifest_sha256": "fdd2896e5f0a4ebab29735ec8031a07817cf6aca3f656c437345ebfa9b23b70f",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-fdd2896e5f0a4ebab29735ec8031a07817cf6aca3f656c437345ebfa9b23b70f.zip",
+    "archive_sha256": "688c97fa7159793587b6d1e64e55215540d41befc150a98ad109b22610740d5a",
+    "files": 17314,
+    "uncompressed_bytes": 127306710,
+    "reconstructible": true
+  },
+  "log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\3befb5480d164ebe90741d163603fe0bbb56b0aaf116411ac4fe313cfbf212a8.log",
+    "sha256": "3befb5480d164ebe90741d163603fe0bbb56b0aaf116411ac4fe313cfbf212a8",
+    "bytes": 100
+  },
+  "native": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0c5195dcb582886149b05e20a15a75da6509cbdc539f2092a6106e200ccd1144.json",
+    "sha256": "0c5195dcb582886149b05e20a15a75da6509cbdc539f2092a6106e200ccd1144",
+    "bytes": 15382
+  },
+  "red": "docs/evidence/rollback-g1-niagara-observation-red-2026-09-24.json",
+  "command": "PYTHONPATH=tools python -m pytest -q -x tools/deterministic_qualification/tests/test_niagara_observation.py tools/deterministic_qualification/tests/test_consumer_host.py::test_second_consumer_failure_preserves_actual_recovery_witness tools/deterministic_qualification/tests/test_consumer_host.py::test_prepared_owner_retirement_after_finish_and_predicate_witness tools/deterministic_qualification/tests/test_startup_failure.py::test_consumer_preopened_empty_cleanup_uses_durable_runner_permission",
+  "production_boundaries": [
+    "Actual initial constructor must install both observer hooks (RED exit81, GREEN succeeds)",
+    "Actual forwarding wrappers and writer compiled against external detour and indexed object-table probes",
+    "Both Win64 ABIs preserve all arguments and exact pointer/null returns, including nested calls",
+    "Disabled, duplicate, concurrent, invalid indexed input, serial-zero output, zero-hit, and writer failure cases",
+    "Actual runner collection preserves bounded raw bytes and original failure; journal restores prior report"
+  ],
+  "architecture": [
+    "Two dedicated entry hooks at RVAs 1bcc5a0 and 1bcc730, initial-constructor-only native domain and 32-byte signatures checked; module and detours retained for process lifetime",
+    "Every original call forwards; no admission veto, hold, callback suppression, replacement result, or retirement policy",
+    "One entry/return pair per helper per scope, eight pairs/sixteen records maximum, own nonrecursive writer lock held only during bounded file operations",
+    "Scope 0 before any transaction publication, 1 actual ExecutionActive, 2 other actual published phases, 3 actual Recovered; no inferred recovery",
+    "Entry records input indexed identity and current bound host-world identity; returned component does not exist at entry. Return records snapshot returned component and its world at +0x1c8, preserving entry tick/epoch/phase/caller in the pair",
+    "Indexed snapshots are read-only and not leases; serial zero is explicitly marked indexed but generation unassigned. No object-array scans or serial allocation",
+    "Sidecar CREATE_NEW per run/process, initial valid empty JSON, WriteFile and FlushFileBuffers for each appended record; normal trajectory completion verifies live writer health",
+    "Runner journals ninth file niagara_observation.json and retains raw bytes before cleanup even on failure; bounded malformed/partial file is evidence only"
+  ],
+  "limits": [
+    "G1 admission and safe Niagara cancellation remain unproven; zero observed calls does not close a consumer route",
+    "Fixture native dependencies are probes; real detour installation, real GUObject snapshots and forwarded native execution require coordinated build/native/live checks",
+    "Synchronous disk observation can affect timing; diagnostic is bounded and cannot certify performance",
+    "A crash during rewrite can leave partial raw bytes; collection records parse error and does not claim complete observation",
+    "No build or live test was launched by code owner; source freeze is for parent orchestration"
+  ],
+  "next_live_question": "In the existing shortest A210/B217 consumer mutation and 120-tick continuation, do either of these two script-reachable Niagara helpers execute, in which actual transaction scope, from which caller, and with which indexed input/returned component/world snapshots? Stop at first failure; do not change admission from zero or positive hits."
+}

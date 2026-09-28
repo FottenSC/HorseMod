@@ -1,0 +1,60 @@
+{
+  "live_failure_manifest": "73e0c259d8bd7201241142c4d239b6cb4853eb8b7cd8a6f06832af107eb03497",
+  "invalid_initial_fixture_red": {
+    "log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a127687948646e69dcd115cac8bc0ce5e4a00f502bba3bd5130f4655112e158e.log",
+      "sha256": "a127687948646e69dcd115cac8bc0ce5e4a00f502bba3bd5130f4655112e158e",
+      "bytes": 3237
+    },
+    "test_source": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\52b247c8d772898187a0ca4f039f9ed8de399c967704aa387f73697127b4aadb.inl",
+      "sha256": "52b247c8d772898187a0ca4f039f9ed8de399c967704aa387f73697127b4aadb",
+      "bytes": 6731
+    },
+    "production_header": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\042d6fba900dba8c0bd5e83dbfad5fd0551619d2e72ab4f0b7f2e6161bb1911a.hpp",
+      "sha256": "042d6fba900dba8c0bd5e83dbfad5fd0551619d2e72ab4f0b7f2e6161bb1911a",
+      "bytes": 23950
+    },
+    "production_source": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8411ec62db6b0fb2d2d4ccf044888fa93b1e89665feb724a2b50f25fb70e3657.cpp",
+      "sha256": "8411ec62db6b0fb2d2d4ccf044888fa93b1e89665feb724a2b50f25fb70e3657",
+      "bytes": 136546
+    }
+  },
+  "red": {
+    "log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1764b4e66f31689ace6569bc9fb9cf0693f400a7955cf990c3155f819b80a5fa.log",
+      "sha256": "1764b4e66f31689ace6569bc9fb9cf0693f400a7955cf990c3155f819b80a5fa",
+      "bytes": 3142
+    },
+    "test_source": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\fd42b70fdbc50b6cdb211c129835b6cd85a92269e29c515b9963ca53b8d7e594.inl",
+      "sha256": "fd42b70fdbc50b6cdb211c129835b6cd85a92269e29c515b9963ca53b8d7e594",
+      "bytes": 7190
+    },
+    "production_header": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\292bf3f08cea825cdb5890ad704d368e970804db05d6159d94adf15741eb84df.hpp",
+      "sha256": "292bf3f08cea825cdb5890ad704d368e970804db05d6159d94adf15741eb84df",
+      "bytes": 24102
+    },
+    "production_source": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8411ec62db6b0fb2d2d4ccf044888fa93b1e89665feb724a2b50f25fb70e3657.cpp",
+      "sha256": "8411ec62db6b0fb2d2d4ccf044888fa93b1e89665feb724a2b50f25fb70e3657",
+      "bytes": 136546
+    }
+  },
+  "fixture_correction": "First fixture assumed flag transition woke a stationary body; it did not. Corrected fixture applies identical authored linear velocity/autowake through native v130/RVA3AB40 after clearing kinematic. Verified writes +15C/160/164 and calls E0890/3B4B0; physical DLL c3c7bd6e13260ee5f850552b6e9a15f69e58e0b41cd4f4bcb48e1b419719b5a2.",
+  "green": {
+    "build_report": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\319380191927b9a3fabceacc1ad1d61311358d5a9bd7c9719dbf7999ea0337f1.json",
+      "sha256": "319380191927b9a3fabceacc1ad1d61311358d5a9bd7c9719dbf7999ea0337f1",
+      "bytes": 5870
+    },
+    "native_report": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a633881712daca3d48826ebf188ebcf23492d01f7c117d533d56e88e5584eace.json",
+      "sha256": "a633881712daca3d48826ebf188ebcf23492d01f7c117d533d56e88e5584eace",
+      "bytes": 2141
+    }
+  }
+}

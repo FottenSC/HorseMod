@@ -3,6 +3,7 @@
 #include "DeterministicHookSet.hpp"
 
 #include <chrono>
+#include <DynamicOutput/DynamicOutput.hpp>
 
 #include "Schema.hpp"
 
@@ -187,6 +188,14 @@ class Sc6CandidateCheckpointCapture::ProcessStageWindAllocator final
     : public IStageWindAllocator
 {
 public:
+    std::size_t AllocationBytes(std::size_t requested) noexcept override
+    {
+        if (GetCurrentThreadId() != owner_thread_id_) return 0;
+        __try {
+            return reinterpret_cast<std::size_t (*)(std::size_t, unsigned)>(
+                image_base_ + 0xd50dc0)(requested, 0);
+        } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+    }
     ProcessStageWindAllocator(
         std::uintptr_t image_base, std::uint32_t owner_thread_id) noexcept
         : image_base_(image_base), owner_thread_id_(owner_thread_id)
@@ -224,7 +233,7 @@ private:
     std::uint32_t owner_thread_id_{};
 };
 
-Sc6CandidateCheckpointCapture::Sc6CandidateCheckpointCapture()
+Sc6CandidateCheckpointCapture::Sc6CandidateCheckpointCapture(CaptureMode mode)
     : memory_(std::make_unique<ProcessMemory>()),
       regions_(std::make_unique<NativeCandidateRegions>(*memory_)),
       battle_audio_selector_(
@@ -236,12 +245,30 @@ Sc6CandidateCheckpointCapture::Sc6CandidateCheckpointCapture()
       callback_probe_(std::make_unique<CallbackTopologyProbe>(*memory_)),
       wind_probe_(std::make_unique<StageWindTopologyProbe>(*memory_)),
       adapter_(std::make_unique<CandidateGameStateAdapter>(*regions_, hgcpu_)),
+      landing_snapshots_(Schema::replay_landing_checkpoint_memory_budget,
+          mode == CaptureMode::LegacyBatch ? maximum_landing_checkpoints : 0, CapacityPolicy::RejectNew),
+      batch_entry_snapshots_(Schema::replay_batch_entry_checkpoint_memory_budget,
+          mode == CaptureMode::LegacyBatch ? maximum_batch_entry_checkpoints : 0, CapacityPolicy::RejectNew),
       auxiliary_decode_scratch_(
           std::make_unique<CandidateCheckpointImage>())
 {
+    resumable_core_ = mode == CaptureMode::ResumableCore;
 }
 
 Sc6CandidateCheckpointCapture::~Sc6CandidateCheckpointCapture() = default;
+
+std::size_t Sc6CandidateCheckpointCapture::transient_initial_storage_bytes() noexcept
+{
+    // These constructors bind references and value-initialize fixed storage;
+    // Configure/Bind allocate their dynamic scratch separately. No legacy
+    // history slots are allocated by the transient constructor.
+    return sizeof(Sc6CandidateCheckpointCapture) + sizeof(ProcessMemory)
+        + sizeof(NativeCandidateRegions) + sizeof(BattleAudioSelectorState)
+        + sizeof(MotionBankSnapshot) + sizeof(MoveDispatchState)
+        + sizeof(SecondaryEventState) + sizeof(CharaAnimationState)
+        + sizeof(CallbackTopologyProbe) + sizeof(StageWindTopologyProbe)
+        + sizeof(CandidateGameStateAdapter) + sizeof(CandidateCheckpointImage);
+}
 
 std::size_t Sc6CandidateCheckpointCapture::owned_scratch_bytes() const noexcept
 {
@@ -260,6 +287,8 @@ Sc6CandidateCheckpointCapture::owned_scratch_status() const noexcept
         return bytes;
     };
     CandidateCheckpointScratchStatus status{};
+    status.fixed_subsystems = sizeof(Sc6CandidateCheckpointCapture)
+        + landing_snapshots_.BytesUsed() + batch_entry_snapshots_.BytesUsed();
     if (memory_) status.fixed_subsystems += sizeof(ProcessMemory);
     if (regions_) status.fixed_subsystems += sizeof(NativeCandidateRegions);
     if (battle_audio_selector_)
@@ -279,7 +308,7 @@ Sc6CandidateCheckpointCapture::owned_scratch_status() const noexcept
     if (wind_allocator_)
         status.fixed_subsystems += sizeof(ProcessStageWindAllocator);
     if (wind_transaction_)
-        status.fixed_subsystems += sizeof(StageWindGraphTransaction);
+        status.fixed_subsystems += sizeof(StageWindGraphTransaction) + wind_transaction_->owned_bytes();
     if (adapter_)
         status.adapter = sizeof(CandidateGameStateAdapter)
             + adapter_->owned_scratch_bytes();
@@ -604,6 +633,10 @@ Status Sc6CandidateCheckpointCapture::bind(
     {
         return Status::failure(FailureCode::ContextUnavailable);
     }
+    if (resumable_core_) {
+        addresses.mt_rng = image_base_ + 0x4100ea0;
+        addresses.replay_camera_publication=true;
+    }
     const Status bound = regions_->Bind(addresses);
     if (!bound.ok()) return bound;
     const NativeContext context{
@@ -649,7 +682,9 @@ Status Sc6CandidateCheckpointCapture::bind(
         image_base_ + hgcpu_writer_rva);
     adapter_binding.hgcpu_reader = reinterpret_cast<HgCpuExecFn>(
         image_base_ + hgcpu_reader_rva);
+    adapter_binding.hgcpu_stat_fighters=fighter_roots;
     adapter_binding.battle_audio_selector = battle_audio_selector_.get();
+    adapter_binding.restore_audio_selector = resumable_core_;
     adapter_binding.motion_banks = motion_banks_.get();
     adapter_binding.move_dispatch = move_dispatch_.get();
     adapter_binding.secondary_events = secondary_events_.get();
@@ -662,16 +697,23 @@ Status Sc6CandidateCheckpointCapture::bind(
     const BattleAudioSelectorBinding audio_selector_binding{
         image_base_, image_size_, adapter_binding.hgcpu_context,
         &resolve_observed_battle_audio_handler,
-        &battle_audio_handler_overflowed, nullptr};
+        &battle_audio_handler_overflowed, nullptr, resumable_core_};
     Status adapter_status = battle_audio_selector_->Bind(
         audio_selector_binding);
-    if (adapter_status.ok()) adapter_status = motion_banks_->Bind(
-        fighter_roots, adapter_binding.hgcpu_context);
+    if (adapter_status.ok()) adapter_status = chara_animation_->Bind(
+        fighter_roots, coordinate.generation);
+    if (adapter_status.ok()) {
+        adapter_status = motion_banks_->Bind(fighter_roots, adapter_binding.hgcpu_context,
+            chara_animation_.get());
+        if (!adapter_status.ok()) {
+            const auto diagnostic=motion_banks_->binding_diagnostic();
+            RC::Output::send<RC::LogLevel::Warning>(STR("[HorseMod] motion skeleton binding rejected line={} address={:x} observed={} code={}\n"),
+                diagnostic.line,diagnostic.address,diagnostic.observed,static_cast<unsigned>(adapter_status.code));
+        }
+    }
     if (adapter_status.ok()) adapter_status = move_dispatch_->Bind(
         move_dispatch, coordinate.generation);
     if (adapter_status.ok()) adapter_status = secondary_events_->Bind(
-        fighter_roots, coordinate.generation);
-    if (adapter_status.ok()) adapter_status = chara_animation_->Bind(
         fighter_roots, coordinate.generation);
     if (adapter_status.ok()) adapter_status = adapter_->Configure(adapter_binding);
     if (adapter_status.ok()) adapter_status = adapter_->BindContext(context);
@@ -709,13 +751,20 @@ Status Sc6CandidateCheckpointCapture::Capture(
     std::uintptr_t battle_manager,
     FrameCoordinate coordinate,
     std::uint64_t session_generation,
-    std::uint32_t simulation_thread_id) noexcept
+    std::uint32_t simulation_thread_id,
+    CandidateTransientCaptureDiagnostic* output_diagnostic) noexcept
 {
+    CandidateTransientCaptureDiagnostic diagnostic{};
+    const auto finish = [&](Status result) noexcept {
+        diagnostic.failure = result.code;
+        if (output_diagnostic != nullptr) *output_diagnostic = diagnostic;
+        return result;
+    };
     if (image_base_ == 0 || battle_manager == 0
         || coordinate.generation == 0 || session_generation == 0
         || simulation_thread_id == 0)
     {
-        return Status::failure(FailureCode::ContextUnavailable);
+        return finish(Status::failure(FailureCode::ContextUnavailable));
     }
     CandidateCheckpointCaptureStatus& capture_status = role
             == CandidateCheckpointRole::Landing
@@ -740,21 +789,32 @@ Status Sc6CandidateCheckpointCapture::Capture(
                 chara_animation_->topology_observed();
             capture_status.animation_fighters = chara_animation_->fighters();
             capture_status.capture_phase = adapter_->last_capture_phase();
-            return rebound;
+            diagnostic.phase = capture_status.capture_phase;
+            diagnostic.validation = capture_status.validation;
+            diagnostic.animation_topology_issue = capture_status.animation_topology_issue;
+            diagnostic.animation_topology_observed = capture_status.animation_topology_observed;
+            return finish(rebound);
         }
     }
 
     CameraTopology camera_topology{};
-    const Status camera_status = capture_camera_topology(camera_topology);
+    diagnostic.phase = CandidateCapturePhase::CameraTopology;
+    const Status camera_status = capture_camera_topology(camera_topology, &diagnostic.camera);
     if (!camera_status.ok() || camera_topology != bound_camera_topology_)
     {
         const auto failure = camera_status.ok()
             ? FailureCode::IdentityMismatch : camera_status.code;
+        if (camera_status.ok())
+            diagnostic.camera = camera_topology.DifferenceFrom(bound_camera_topology_);
+        diagnostic.identity_issue = 1;
+        diagnostic.identity_expected = bound_camera_topology_.camera_root;
+        diagnostic.identity_observed = camera_topology.camera_root;
         ReleaseBinding();
         capture_status.failure = failure;
-        return Status::failure(failure);
+        return finish(Status::failure(failure));
     }
 
+    diagnostic.phase = CandidateCapturePhase::CallbackTopology;
     const Status callback_status = capture_callback_topology(
         callback_topology_scratch_);
     if (!callback_status.ok()
@@ -762,18 +822,22 @@ Status Sc6CandidateCheckpointCapture::Capture(
     {
         const auto failure = callback_status.ok()
             ? FailureCode::IdentityMismatch : callback_status.code;
+        diagnostic.identity_issue = 2;
+        diagnostic.identity_expected = bound_callback_topology_.signature;
+        diagnostic.identity_observed = callback_topology_scratch_.signature;
         ReleaseBinding();
         capture_status.failure = failure;
-        return Status::failure(failure);
+        return finish(Status::failure(failure));
     }
 
+    diagnostic.phase = CandidateCapturePhase::Adapter;
     StageWindTopologyImage wind_topology{};
     const Status wind_status = wind_probe_->Capture(wind_topology);
     if (!wind_status.ok())
     {
         ReleaseBinding();
         capture_status.failure = wind_status.code;
-        return wind_status;
+        return finish(wind_status);
     }
 
     Snapshot& snapshot = role == CandidateCheckpointRole::Landing
@@ -817,7 +881,12 @@ Status Sc6CandidateCheckpointCapture::Capture(
             chara_animation_->topology_observed();
         capture_status.animation_fighters = chara_animation_->fighters();
         capture_status.capture_phase = adapter_->last_capture_phase();
-        return captured;
+        diagnostic.phase = capture_status.capture_phase;
+        diagnostic.validation = capture_status.validation;
+        diagnostic.animation_topology_issue = capture_status.animation_topology_issue;
+        diagnostic.animation_topology_observed = capture_status.animation_topology_observed;
+        if (captured.code == FailureCode::IdentityMismatch) diagnostic.identity_issue = 3;
+        return finish(captured);
     }
     capture_status.failure = FailureCode::None;
     capture_status.validation = {};
@@ -829,7 +898,36 @@ Status Sc6CandidateCheckpointCapture::Capture(
     ++capture_status.captured;
     capture_status.bytes_used = snapshots.BytesUsed();
     capture_status.wind_node_count = wind_topology.nodes.size();
-    return Status::success();
+    diagnostic.phase = CandidateCapturePhase::None;
+    return finish(Status::success());
+}
+
+bool Sc6CandidateCheckpointCapture::RequiresCaptureBinding(
+    std::uintptr_t battle_manager,FrameCoordinate coordinate,
+    std::uint64_t session_generation) const noexcept
+{
+    return !regions_->IsBound() || bound_manager_ != battle_manager
+        || bound_session_generation_ != session_generation
+        || bound_round_generation_ != coordinate.generation;
+}
+
+std::size_t Sc6CandidateCheckpointCapture::CaptureAllocationEnvelopeBytes(
+    std::uintptr_t battle_manager,FrameCoordinate coordinate,
+    std::uint64_t session_generation) const noexcept
+{
+    const auto full=transient_allocation_envelope_bytes();
+    if(RequiresCaptureBinding(battle_manager,coordinate,session_generation)) return full;
+    return BoundAllocationEnvelopeBytes();
+}
+
+std::size_t Sc6CandidateCheckpointCapture::BoundAllocationEnvelopeBytes() noexcept
+{
+    // Capture/decode on an existing binding never calls MotionBankSnapshot::Bind.
+    // Its retained topology capacity remains in adapter scratch accounting;
+    // all other growth and old/new coexistence allowances remain reserved.
+    const auto full=transient_allocation_envelope_bytes();
+    const auto binding=MotionBankSnapshot::BindAllocationEnvelopeBytes();
+    return full>=binding?full-binding:full;
 }
 
 Status Sc6CandidateCheckpointCapture::BindForCanonicalCapture(
@@ -844,9 +942,7 @@ Status Sc6CandidateCheckpointCapture::BindForCanonicalCapture(
     {
         return Status::failure(FailureCode::ContextUnavailable);
     }
-    if (!regions_->IsBound() || bound_manager_ != battle_manager
-        || bound_session_generation_ != session_generation
-        || bound_round_generation_ != coordinate.generation)
+    if (RequiresCaptureBinding(battle_manager,coordinate,session_generation))
     {
         return bind(battle_manager, coordinate, session_generation,
             simulation_thread_id);
@@ -893,8 +989,7 @@ Status Sc6CandidateCheckpointCapture::CaptureTransient(
     if (!camera.ok() || camera_topology != bound_camera_topology_)
     {
         if (camera.ok())
-            diagnostic.camera = {FailureCode::IdentityMismatch,
-                CameraTopologyCaptureStage::BoundTopology};
+            diagnostic.camera = camera_topology.DifferenceFrom(bound_camera_topology_);
         diagnostic.identity_issue = 1;
         diagnostic.identity_expected = bound_camera_topology_.camera_root;
         diagnostic.identity_observed = camera_topology.camera_root;
@@ -921,6 +1016,19 @@ Status Sc6CandidateCheckpointCapture::CaptureTransient(
         && adapter_->last_capture_phase() != CandidateCapturePhase::None)
     {
         diagnostic.phase = adapter_->last_capture_phase();
+        if(diagnostic.phase==CandidateCapturePhase::CharaAnimation) {
+            const auto& section=chara_animation_->section_diagnostic();
+            RC::Output::send<RC::LogLevel::Warning>(STR("[HorseMod] animation capture rejected issue={} observed={:x} player={} root={:x} pointer={:x} header={:x},{:x},{:x},{:x},{:x} sections={}\n"),
+                RC::to_generic_string(chara_animation_topology_issue_name(chara_animation_->topology_issue())),
+                chara_animation_->topology_observed(),section.player,section.root,section.pointer,
+                section.header[0],section.header[1],section.header[2],section.header[3],section.header[4],section.count);
+        }
+        if(diagnostic.phase==CandidateCapturePhase::MotionBanks) {
+            const auto failure=motion_banks_->binding_diagnostic();
+            RC::Output::send<RC::LogLevel::Warning>(STR("[HorseMod] motion skeleton capture rejected line={} address={:x} fighter_offset={:x} expected={:x} observed={:x} kind={}\n"),
+                failure.line,failure.address,failure.fighter_offset,failure.expected,failure.observed,
+                RC::to_generic_string(failure.kind?failure.kind:"unknown"));
+        }
     }
     if (captured.code == FailureCode::IdentityMismatch)
         diagnostic.identity_issue = 3;
@@ -943,6 +1051,18 @@ Status Sc6CandidateCheckpointCapture::PrepareOnlineOwnedStorage(
     if (status.ok())
         status = PrepareSnapshotCaptureStorage(
             batch_entry_capture_scratch_, prototype);
+    if (status.ok())
+        status = landing_snapshots_.PrewarmCaptureSlots(prototype);
+    if (status.ok())
+        status = batch_entry_snapshots_.PrewarmCaptureSlots(prototype);
+    if (status.ok())
+    {
+        // Status 4 snapshots owned_storage_status(). Publish the prewarm
+        // allocation now rather than making the next checkpoint capture look
+        // like post-ownership growth when it merely refreshes these mirrors.
+        landing_status_.bytes_used = landing_snapshots_.BytesUsed();
+        batch_entry_status_.bytes_used = batch_entry_snapshots_.BytesUsed();
+    }
     return status;
 }
 
@@ -977,8 +1097,7 @@ Status Sc6CandidateCheckpointCapture::CaptureCanonical(
     if (!camera.ok() || camera_topology != bound_camera_topology_)
     {
         if (camera.ok())
-            diagnostic.camera = {FailureCode::IdentityMismatch,
-                CameraTopologyCaptureStage::BoundTopology};
+            diagnostic.camera = camera_topology.DifferenceFrom(bound_camera_topology_);
         diagnostic.identity_issue = 1;
         diagnostic.identity_expected = bound_camera_topology_.camera_root;
         diagnostic.identity_observed = camera_topology.camera_root;
@@ -1093,6 +1212,83 @@ Status Sc6CandidateCheckpointCapture::EnsureRestoreOwnership(
     return ucrt_broker_->EnsureOwnership(simulation_thread_id);
 }
 
+Status Sc6CandidateCheckpointCapture::PrepareEnclosingWind(const Snapshot& snapshot, std::size_t budget) noexcept
+{
+    if (!wind_transaction_ || !auxiliary_decode_scratch_ || snapshot.coordinate.generation != bound_round_generation_)
+        return Status::failure(FailureCode::GenerationMismatch);
+    const auto decode_envelope = BoundAllocationEnvelopeBytes();
+    const auto wind_envelope = wind_transaction_->AllocationEnvelopeBytes();
+    if (decode_envelope > budget || wind_envelope > budget - decode_envelope)
+        return Status::failure(FailureCode::CapacityExceeded);
+    const auto status = CandidateCheckpointCodec::Decode(snapshot, *auxiliary_decode_scratch_);
+    if (!status.ok()) return status;
+    return wind_transaction_->Prepare({image_base_, image_size_, image_base_ + wind_root_pointer_rva,
+        bound_round_generation_}, auxiliary_decode_scratch_->wind, true, budget - decode_envelope);
+}
+
+std::size_t Sc6CandidateCheckpointCapture::transient_allocation_envelope_bytes() noexcept
+{
+    std::size_t wind_semantic{}, wind_derived{};
+    for (const auto kind : {StageWindNodeKind::Parallel, StageWindNodeKind::RingOut,
+            StageWindNodeKind::RingIn, StageWindNodeKind::ShockWave}) {
+        const auto* layout = FindStageWindNodeLayout(kind);
+        if (!layout) return Schema::replay_timeline_memory_limit;
+        wind_semantic = (std::max)(wind_semantic, StageWindSemanticStateSize(*layout));
+        wind_derived = (std::max)(wind_derived, StageWindDerivedStateSize(*layout));
+    }
+    const auto emitter = native_stage_wind_emitter_max_count * native_stage_wind_emitter_state_size;
+    const auto wind = stage_wind_max_nodes * (wind_semantic + wind_derived);
+    // Existing MoveDispatch admission: 1024 sub-elements, 16 pending windows.
+    // Both the active variant and its inactive capacity owner are included.
+    const auto move = 1024 * sizeof(MoveDispatchSubElementState)
+        + 2 * 16 * sizeof(MoveDispatchPendingWindow);
+    const auto local = maximum_local_reconstruction_images * sizeof(LocalReconstructionImage)
+        + hgcpu_stream_capacity + motion_bank_image_bytes;
+    const auto image = emitter + wind + move + local;
+    // Four adapter images plus auxiliary decode, output and short-lived
+    // validation images. Three envelopes cover old/new vector coexistence;
+    // already-retained storage remains charged independently by the host.
+    return MotionBankSnapshot::BindAllocationEnvelopeBytes()
+        + 3 * (7 * image + 2 * move + 3 * emitter
+            + 2 * 5 * 64 * sizeof(CallbackTopologyRecord))
+        + 2 * sizeof(CandidateCheckpointImage) + 2 * sizeof(NativeCandidateImage)
+        + sizeof(ProcessStageWindAllocator) + sizeof(StageWindGraphTransaction)
+        + 3 * candidate_checkpoint_capture_byte_capacity;
+}
+Status Sc6CandidateCheckpointCapture::UndoEnclosingWind() noexcept
+{
+    return wind_transaction_ ? wind_transaction_->Undo() : Status::failure(FailureCode::ContextUnavailable);
+}
+Status Sc6CandidateCheckpointCapture::ValidateEnclosingWind() const noexcept
+{
+    return wind_transaction_ ? wind_transaction_->ValidateCommit() : Status::failure(FailureCode::ContextUnavailable);
+}
+Status Sc6CandidateCheckpointCapture::BeginEnclosingWindExecution(std::size_t retirement_budget) noexcept
+{
+    return wind_transaction_ ? wind_transaction_->BeginExecution(retirement_budget) : Status::failure(FailureCode::ContextUnavailable);
+}
+Status Sc6CandidateCheckpointCapture::SettleEnclosingWindExecution() noexcept
+{
+    return wind_transaction_ ? wind_transaction_->SettleExecution() : Status::failure(FailureCode::ContextUnavailable);
+}
+Status Sc6CandidateCheckpointCapture::ReopenEnclosingWindForUndo() noexcept
+{
+    return wind_transaction_ ? wind_transaction_->ReopenExecutionForUndo() : Status::failure(FailureCode::ContextUnavailable);
+}
+std::size_t Sc6CandidateCheckpointCapture::EnclosingWindExecutionBudget() const noexcept
+{
+    return wind_transaction_ ? wind_transaction_->AllocationEnvelopeBytes() : SIZE_MAX;
+}
+Status Sc6CandidateCheckpointCapture::FinishEnclosingWind() noexcept
+{
+    if (!wind_transaction_) return Status::failure(FailureCode::ContextUnavailable);
+    return wind_transaction_->pending() ? wind_transaction_->Commit() : Status::success();
+}
+bool Sc6CandidateCheckpointCapture::PendingEnclosingWind() const noexcept
+{
+    return wind_transaction_ && wind_transaction_->pending();
+}
+
 Status Sc6CandidateCheckpointCapture::RestoreAndVerify(
     const Snapshot& snapshot) noexcept
 {
@@ -1119,7 +1315,37 @@ Status Sc6CandidateCheckpointCapture::RestoreAndVerify(
         status = adapter_->VerifyRestoredState(snapshot);
     }
     if (status.ok()) restore_failure_phase_ = 0;
+    else {
+        const auto failure=motion_banks_->binding_diagnostic();
+        const auto native=adapter_->last_native_restore_diagnostic();
+        if(adapter_->last_restore_operation_failure_mask()&(1u<<2))
+            RC::Output::send<RC::LogLevel::Warning>(STR("[HorseMod] checkpoint native first failure issue={} index={} observed_a={} observed_b={} expected_a={} expected_b={}\n"),
+                RC::to_generic_string(native_candidate_validation_issue_name(native.issue)),native.index,
+                native.observed_a,native.observed_b,native.expected_a,native.expected_b);
+        RC::Output::send<RC::LogLevel::Warning>(STR("[HorseMod] checkpoint restore participant failure code={} phase={} operations={} differences={} motion_line={} motion_offset={:x} motion_expected={:x} motion_observed={:x}\n"),
+            static_cast<unsigned>(status.code),restore_failure_phase_,adapter_->last_restore_operation_failure_mask(),
+            adapter_->last_restore_difference_mask(),failure.line,failure.fighter_offset,failure.expected,failure.observed);
+    }
     return status;
+}
+
+Status Sc6CandidateCheckpointCapture::ValidateSnapshotUcrt(
+    const Snapshot& snapshot, const UcrtRandBrokerImage& expected) noexcept
+{
+    if (!auxiliary_decode_scratch_) return Status::failure(FailureCode::ContextUnavailable);
+    const auto decoded = CandidateCheckpointCodec::Decode(snapshot, *auxiliary_decode_scratch_);
+    if (!decoded.ok()) return decoded;
+    if (auxiliary_decode_scratch_->ucrt != expected || !ucrt_broker_)
+        return Status::failure(FailureCode::RestorePreflightFailed);
+    // This runs before participant preparation/publication, while restore
+    // permission may still be released. Reject old native seed epochs here;
+    // the adapter rechecks permission, TLS and the full image before writes.
+    UcrtRandBrokerImage current{};
+    const auto captured = ucrt_broker_->Capture(::GetCurrentThreadId(), current);
+    if (!captured.ok()) return captured;
+    return current.epoch == expected.epoch && current.seed_state == expected.seed_state
+            && current.warmup_draws == expected.warmup_draws
+        ? Status::success() : Status::failure(FailureCode::RestorePreflightFailed);
 }
 
 Status Sc6CandidateCheckpointCapture::RestoreBattleAudioSelectorForPresentation(
@@ -1145,22 +1371,52 @@ Status Sc6CandidateCheckpointCapture::RestoreInputLogForReplay(
         auxiliary_decode_scratch_->native);
 }
 
-Status Sc6CandidateCheckpointCapture::RestoreMoveDispatchMasksForReplay(
-    const Snapshot& snapshot) noexcept
+namespace
 {
-    const Status decoded = CandidateCheckpointCodec::Decode(
-        snapshot, *auxiliary_decode_scratch_);
-    if (!decoded.ok()) return decoded;
-    return regions_->RestoreMoveDispatchMasksTransactional(
-        auxiliary_decode_scratch_->native);
+Status QueryNativeTutorialProvider(void* user, std::uintptr_t owner,
+    std::uint32_t& selected) noexcept
+{
+    const auto image_base = reinterpret_cast<std::uintptr_t>(user);
+    selected = 0;
+    __try
+    {
+        using Active = bool (__fastcall*)(std::uintptr_t, std::int32_t);
+        using State = bool (__fastcall*)(std::uintptr_t, std::int32_t, std::uint32_t);
+        if (reinterpret_cast<Active>(image_base + 0x426890)(owner, 0))
+            for (std::uint32_t index = 1; index <= 2; ++index)
+                if (reinterpret_cast<State>(image_base + 0x426780)(owner, 0, index))
+                { selected = index; break; }
+        return Status::success();
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    { return Status::failure(FailureCode::AdvanceFailed); }
+}
 }
 
-Status Sc6CandidateCheckpointCapture::RestoreMoveDispatchMasksForReplay(
-    const CanonicalMoveDispatchDiagnostic& diagnostic) noexcept
+Status Sc6CandidateCheckpointCapture::ReplayTutorialConsumer(
+    const TutorialConsumerObservation& expected, bool verify_recorded,
+    TutorialConsumerObservation& observed) noexcept
 {
-    const std::array<std::uint64_t, 2> masks{
-        diagnostic[0], diagnostic[1]};
-    return regions_->RestoreMoveDispatchMasksTransactional(masks);
+    if (!OwnsTutorialConsumer(expected.before.owner) || !expected.parent.inert)
+        return Status::failure(FailureCode::RestorePreflightFailed);
+    std::uint32_t native_frame{};
+    if (expected.thread_id != ::GetCurrentThreadId()
+        || !memory_->Read(image_base_ + Schema::Sc6FrameLayout::frame_counter_rva,
+            std::as_writable_bytes(std::span{&native_frame, 1}))
+        || native_frame != expected.native_frame)
+        return Status::failure(FailureCode::IdentityMismatch);
+    TutorialParentGuard current{};
+    if (!DeterministicHookSet::CaptureTutorialParentGuard(
+            reinterpret_cast<void*>(bound_move_dispatch_), image_base_, current,
+            expected.parent.receive_tick)
+        || !current.inert || current.actor_class != expected.parent.actor_class
+        || current.receive_tick != expected.parent.receive_tick
+        || current.object_index != expected.parent.object_index
+        || current.object_serial != expected.parent.object_serial
+        || current.latent_manager != expected.parent.latent_manager)
+        return Status::failure(FailureCode::RestorePreflightFailed);
+    return move_dispatch_->ReplayIdleConsumer(expected, QueryNativeTutorialProvider,
+        reinterpret_cast<void*>(image_base_), verify_recorded, observed);
 }
 
 Status Sc6CandidateCheckpointCapture::CaptureCameraSourceFrame(

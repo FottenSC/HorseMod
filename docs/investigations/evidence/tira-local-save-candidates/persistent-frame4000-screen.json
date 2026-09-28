@@ -1,0 +1,65 @@
+{
+  "kind": "noncertifying_persistent_frame4000_tira_screen",
+  "created_utc": "2026-09-01T10:34:34.562113+00:00",
+  "watch_frames": 4000,
+  "immutable_replay_mod_sha256": "d5c201c9acc6afdafa7246d674ef90ed0ebb693e0b02211c4acb763fa1658411",
+  "candidate_inventory_sha256": "f2a51efbea66dabbf41e9acc77fc67c573b3a43d9b8227a756b9c7ce445e8b42",
+  "rows": [
+    {
+      "payload": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\REPLAY-BattleLog00-32-e2e158373113.bin",
+      "payload_sha256": "e2e158373113f90c72ccba6433031b70bbdeac37bbf057288989c2b03b014d27",
+      "run_id": "c83215e7a9324e0d850877c8b1f54e41",
+      "display_map_name": "Snow-Capped Showdown",
+      "stage_package_root": "/Game/Stage/STG009",
+      "metadata": {
+        "stage": 9,
+        "map": 9,
+        "left_character": 12,
+        "right_character": 16,
+        "state_reset_records": 4
+      },
+      "rng": {
+        "xorshift_draws": 7297,
+        "known_callers": 7318418130735493,
+        "unknown_callers": 0,
+        "weighted_draws": 3,
+        "if_draws": 13,
+        "short25_p0": 0,
+        "short25_p1": 3,
+        "probability_transition_batches": 4,
+        "state_changes_p0": 3226,
+        "state_changes_p1": 3581,
+        "probability_state_mask_p0": 883430272375871531175020321138288627503634205238512117411335603352568068,
+        "probability_state_mask_p1": 323519360007404552880303286497357967543253033796247842986994383786249,
+        "transition07_calls": 275,
+        "tira_random_transitions": 0,
+        "tira_probability_batches": 0,
+        "tira_targets": 0,
+        "xorshift_sequence": 4204184766793908153,
+        "transition07_sequence": 2790175797867081007,
+        "tira_sequence": 0,
+        "tira_stance_batches": 0,
+        "tira_slot_mask": 0,
+        "state19_sequence_p0": 0,
+        "state19_sequence_p1": 15926108880413116780,
+        "state19_initial_p0": 0,
+        "state19_initial_p1": 0,
+        "state19_final_p0": 0,
+        "state19_final_p1": 1,
+        "xorshift_landing": [
+          779961739,
+          155827921,
+          1521566392
+        ],
+        "state19_at_tira_transition_p0": 0,
+        "state19_at_tira_transition_p1": 0,
+        "state19_initial_valid": true,
+        "tira_last_target": 0,
+        "resolved_hit_calls": 1,
+        "resolved_hit_sequence": 3916850903770333216
+      }
+    }
+  ],
+  "transition_candidate": null,
+  "error": "Traceback (most recent call last):\n  File \"<stdin>\", line 35, in <module>\n  File \"E:\\myMods\\tools\\deterministic_qualification\\replay_entry.py\", line 191, in wait_for_replay_entry\n    raise TimeoutError(\"native replay entry did not request launch before the timeout\")\nTimeoutError: native replay entry did not request launch before the timeout\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"E:\\myMods\\tools\\deterministic_qualification\\replay_entry.py\", line 49, in __exit__\n    self._dll.unlink(missing_ok=True)\n  File \"C:\\Program Files\\Python311\\Lib\\pathlib.py\", line 1147, in unlink\n    os.unlink(self)\nPermissionError: [WinError 5] Access is denied: 'E:\\\\SteamLibrary\\\\steamapps\\\\common\\\\SoulcaliburVI\\\\SoulcaliburVI\\\\Binaries\\\\Win64\\\\ue4ss\\\\Mods\\\\ReplayQualificationMod\\\\dlls\\\\main.dll'\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"<stdin>\", line 29, in <module>\n  File \"E:\\myMods\\tools\\deterministic_qualification\\replay_entry.py\", line 55, in __exit__\n    raise RuntimeError(\nRuntimeError: failed to remove temporary qualification mod: E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\n"
+}

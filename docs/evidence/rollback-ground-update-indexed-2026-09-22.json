@@ -1,0 +1,34 @@
+{
+  "red": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4a77a6824bb4225e689fd194014decdd1c8b64d047d19c01c82976c724974363.log",
+    "sha256": "4a77a6824bb4225e689fd194014decdd1c8b64d047d19c01c82976c724974363",
+    "bytes": 3452
+  },
+  "red_source": {
+    "manifest_sha256": "74f375f27b8d649768b588210415cf21e3631c4c2cc74b6c5a662eaa2e5db2d3",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-74f375f27b8d649768b588210415cf21e3631c4c2cc74b6c5a662eaa2e5db2d3.zip",
+    "archive_sha256": "7e58c46d71f55077bb8dd5be2b8c85a42ee42bd315bacbc50600d7d38cac68d2",
+    "files": 16571,
+    "uncompressed_bytes": 92341575,
+    "reconstructible": true
+  },
+  "green": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d025e667db8f5bb8c937b783f19dc92e20a694ef7f3318113e5ddc3d14be2363.log",
+    "sha256": "d025e667db8f5bb8c937b783f19dc92e20a694ef7f3318113e5ddc3d14be2363",
+    "bytes": 100
+  },
+  "final_green": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\afd5470f1144bc1bf4cca78819194383bb090ece4745472e59ebc6cd87ec1930.log",
+    "sha256": "afd5470f1144bc1bf4cca78819194383bb090ece4745472e59ebc6cd87ec1930",
+    "bytes": 100
+  },
+  "green_source": {
+    "manifest_sha256": "ddc9eaf36d2a4f064a775cba97a126568b5d94904103812bf073f2032bd81df9",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-ddc9eaf36d2a4f064a775cba97a126568b5d94904103812bf073f2032bd81df9.zip",
+    "archive_sha256": "65ea497ca2231e882febe6f31ef62e8bbec8a8dfc1eda3f4bcd825d935f1d810",
+    "files": 16571,
+    "uncompressed_bytes": 92346239,
+    "reconstructible": true
+  },
+  "scope": "Production predicates through controlled SDK/native lookup edges. Build/native/live pending for this source; no consumer exclusion or B recovery qualification."
+}

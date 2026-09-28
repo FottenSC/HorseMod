@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <exception>
 #include <cstdint>
+#include <optional>
+#include <tuple>
 
 #include <polyhook2/Detour/x64Detour.hpp>
 #include <Unreal/Hooks/CallbackIterationData.hpp>
@@ -38,6 +40,9 @@ namespace RC::Unreal::Hook
 
 namespace RC::Unreal::Hook::Internal
 {
+    enum class EngineTickDisposition : std::uint8_t { Native, Complete, Deferred };
+    bool EngineTickPostPendingFor(UEngine* Context) noexcept;
+    EngineTickDisposition TryEngineTickOverride(UEngine* Context, float DeltaSeconds, bool bIdleMode) noexcept;
     template<EDetourTarget DetourTarget, typename InHookSig>
     class TDetourInstance;
 
@@ -343,6 +348,9 @@ namespace RC::Unreal::Hook::Internal
         //                  2. Semantics of TCallbackIterationDataImpl are respected, especially where it involves the final return value.
         InHookReturnType Invoke(InArgs... Args)
         {
+            if constexpr (DetourTarget == EDetourTarget::EngineTick)
+                if (EngineTickPostPendingFor(std::get<0>(std::tuple{Args...})))
+                    std::terminate(); // A second logical entry cannot replace pending work.
             // Make the ICallbackIterationData that gets passed by reference to each callback
             TCallbackIterationData<InHookReturnType> IterationData{ DetourName };
 
@@ -354,7 +362,18 @@ namespace RC::Unreal::Hook::Internal
                 // Call the original function if none of the prehooks prevented it
                 if(!IterationData.OriginalFunctionCallPrevented()) [[likely]]
                 {
-                    PLH::FnCast(Trampoline, TargetFunction->get_function_pointer())(Args...);
+                    if constexpr (DetourTarget == EDetourTarget::EngineTick)
+                    {
+                        const auto Disposition = TryEngineTickOverride(Args...);
+                        if (Disposition == EngineTickDisposition::Native)
+                            PLH::FnCast(Trampoline, TargetFunction->get_function_pointer())(Args...);
+                        else if (Disposition == EngineTickDisposition::Deferred)
+                        {
+                            DeferredEngine.Args.emplace(Args...);
+                            return;
+                        }
+                    }
+                    else PLH::FnCast(Trampoline, TargetFunction->get_function_pointer())(Args...);
                 }
 
                 // Call posthook callbacks
@@ -379,6 +398,20 @@ namespace RC::Unreal::Hook::Internal
 
             // TODO: (not super important) might be a good idea to 'invalidate' the TCallbackIterationDataImpl so if someone
             // kept a reference/pointer to it, despite the documentation, the functions become inert
+        }
+
+        bool HasDeferredEngineTickPost() const requires (DetourTarget == EDetourTarget::EngineTick)
+        { return DeferredEngine.Args.has_value(); }
+
+        void CompleteDeferredEngineTickPost() requires (DetourTarget == EDetourTarget::EngineTick)
+        {
+            const auto Args = *DeferredEngine.Args;
+            DeferredEngine.Args.reset();
+            // This is a void hook whose prehooks allowed the body. Its only
+            // observable iteration flag is therefore false. Callback metadata
+            // is rebound by InvokeCallbacks; no stack or metadata pointer is kept.
+            TCallbackIterationData<void> IterationData{DetourName};
+            std::apply([&](auto... Values) { InvokeCallbacks(EHookType::Post, IterationData, Values...); }, Args);
         }
 
     UE_HOOK_PROTECTED:
@@ -461,6 +494,10 @@ namespace RC::Unreal::Hook::Internal
 
         // The name of the detour ('reflected' enum name as string)
         StringViewType DetourName;
+        struct DeferredEngineState { std::optional<std::tuple<UEngine*, float, bool>> Args; };
+        struct NoDeferredEngineState {};
+        [[no_unique_address]] std::conditional_t<DetourTarget == EDetourTarget::EngineTick,
+            DeferredEngineState, NoDeferredEngineState> DeferredEngine;
 
         // A pointer to the boolean in the Config object that corresponds to whether this detour should be hooked,
         // or a pointer to an always-true boolean if there is no config option.

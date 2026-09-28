@@ -1,0 +1,43 @@
+{
+  "metadata": {
+    "status": "fulfilled",
+    "value": {
+      "content": [
+        {
+          "type": "text",
+          "text": "Program Name: SoulcaliburVI.exe\nExecutable Path: /E:/SteamLibrary/steamapps/common/SoulcaliburVI/SoulcaliburVI/Binaries/Win64/SoulcaliburVI.exe\nArchitecture: x86\nCompiler: windows\nLanguage: x86:LE:64:default\nEndian: Little\nAddress Size: 64 bits\nBase Address: 140000000\nMemory Blocks: 11\nTotal Memory Size: 79290848 bytes\nFunction Count: 141562\nSymbol Count: 1317975\n"
+        }
+      ],
+      "structuredContent": {
+        "result": "Program Name: SoulcaliburVI.exe\nExecutable Path: /E:/SteamLibrary/steamapps/common/SoulcaliburVI/SoulcaliburVI/Binaries/Win64/SoulcaliburVI.exe\nArchitecture: x86\nCompiler: windows\nLanguage: x86:LE:64:default\nEndian: Little\nAddress Size: 64 bits\nBase Address: 140000000\nMemory Blocks: 11\nTotal Memory Size: 79290848 bytes\nFunction Count: 141562\nSymbol Count: 1317975\n"
+      },
+      "isError": false
+    }
+  },
+  "existing_type_annotation": {
+    "status": "fulfilled",
+    "value": {
+      "content": [
+        {
+          "type": "text",
+          "text": "Structure: FWeakUObjectCallbackWithByte_Partial\nSize: 48 bytes\nAlignment: 1\n\nLayout:\nOffset | Size | Type | Name\n-------|------|------|-----\n     0 |    8 | WeakUObjectCallbackWithByteVtablePtr64_Union | vtableSlot\n     8 |    8 | FWeakObjectPtr_Partial | weakTarget\n    16 |    8 | WeakUObjectCallbackWithByteFn * | pCallbackFunction\n    24 |    1 | byte                 | bBoundByte\n    25 |    7 | byte[7]              | pReserved19To1F\n    32 |    8 | ulonglong            | qwDelegateHandle\n    40 |    8 | byte[8]              | pUnknown28\n"
+        }
+      ],
+      "structuredContent": {
+        "result": "Structure: FWeakUObjectCallbackWithByte_Partial\nSize: 48 bytes\nAlignment: 1\n\nLayout:\nOffset | Size | Type | Name\n-------|------|------|-----\n     0 |    8 | WeakUObjectCallbackWithByteVtablePtr64_Union | vtableSlot\n     8 |    8 | FWeakObjectPtr_Partial | weakTarget\n    16 |    8 | WeakUObjectCallbackWithByteFn * | pCallbackFunction\n    24 |    1 | byte                 | bBoundByte\n    25 |    7 | byte[7]              | pReserved19To1F\n    32 |    8 | ulonglong            | qwDelegateHandle\n    40 |    8 | byte[8]              | pUnknown28\n"
+      },
+      "isError": false
+    }
+  },
+  "installed_game": {
+    "status": "fulfilled",
+    "value": {
+      "chunk_id": "6439bd",
+      "wall_time_seconds": 0.3376509,
+      "exit_code": 0,
+      "original_token_count": 79,
+      "output": "\r\nAlgorithm       Hash                                                                   Path\r\n---------       ----                                                                   ----\r\nSHA256          F8904E4B04BCA3B47BC52A683F6190365D2EB89EE8F44F8072759E9C5E04A553       E:\\SteamLibrary\\steamapps\\commo…\r\n\r\n"
+    }
+  },
+  "note": "Annotations checked against retained instructions; no Ghidra database mutation."
+}

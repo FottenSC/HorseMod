@@ -129,7 +129,16 @@ struct CandidateTransientCaptureDiagnostic
 class Sc6CandidateCheckpointCapture final
 {
 public:
-    Sc6CandidateCheckpointCapture();
+    enum class CaptureMode { LegacyBatch, ResumableCore };
+    explicit Sc6CandidateCheckpointCapture(CaptureMode mode = CaptureMode::LegacyBatch);
+    // Constructor allocation envelope for the host-owned transient path.
+    [[nodiscard]] static std::size_t transient_initial_storage_bytes() noexcept;
+    [[nodiscard]] static std::size_t transient_allocation_envelope_bytes() noexcept;
+    [[nodiscard]] static std::size_t BoundAllocationEnvelopeBytes() noexcept;
+    [[nodiscard]] bool RequiresCaptureBinding(std::uintptr_t battle_manager,
+        FrameCoordinate coordinate,std::uint64_t session_generation) const noexcept;
+    [[nodiscard]] std::size_t CaptureAllocationEnvelopeBytes(std::uintptr_t battle_manager,
+        FrameCoordinate coordinate,std::uint64_t session_generation) const noexcept;
     ~Sc6CandidateCheckpointCapture();
 
     Status Initialize(
@@ -139,7 +148,8 @@ public:
         std::uintptr_t battle_manager,
         FrameCoordinate coordinate,
         std::uint64_t session_generation,
-        std::uint32_t simulation_thread_id) noexcept;
+        std::uint32_t simulation_thread_id,
+        CandidateTransientCaptureDiagnostic* diagnostic = nullptr) noexcept;
     Status BindForCanonicalCapture(
         std::uintptr_t battle_manager,
         FrameCoordinate coordinate,
@@ -156,13 +166,25 @@ public:
     Status StoreSynchronizedBatchEntry(const Snapshot& snapshot) noexcept;
     Status EnsureRestoreOwnership(std::uint32_t simulation_thread_id) noexcept;
     Status RestoreAndVerify(const Snapshot& snapshot) noexcept;
+    Status PrepareEnclosingWind(const Snapshot& snapshot, std::size_t budget) noexcept;
+    Status UndoEnclosingWind() noexcept;
+    Status ValidateEnclosingWind() const noexcept;
+    Status BeginEnclosingWindExecution(std::size_t retirement_budget) noexcept;
+    Status SettleEnclosingWindExecution() noexcept;
+    Status ReopenEnclosingWindForUndo() noexcept;
+    std::size_t EnclosingWindExecutionBudget() const noexcept;
+    Status FinishEnclosingWind() noexcept;
+    bool PendingEnclosingWind() const noexcept;
+    Status ValidateSnapshotUcrt(const Snapshot& snapshot, const UcrtRandBrokerImage& expected) noexcept;
     Status RestoreBattleAudioSelectorForPresentation(
         const Snapshot& snapshot) noexcept;
     Status RestoreInputLogForReplay(const Snapshot& snapshot) noexcept;
-    Status RestoreMoveDispatchMasksForReplay(
-        const Snapshot& snapshot) noexcept;
-    Status RestoreMoveDispatchMasksForReplay(
-        const CanonicalMoveDispatchDiagnostic& diagnostic) noexcept;
+    [[nodiscard]] bool OwnsTutorialConsumer(std::uintptr_t owner) const noexcept
+    {
+        return owner != 0 && owner == bound_move_dispatch_;
+    }
+    Status ReplayTutorialConsumer(const TutorialConsumerObservation& expected,
+        bool verify_recorded, TutorialConsumerObservation& observed) noexcept;
     Status CaptureCameraSourceFrame(
         NativeCameraSourceFrameImage& output) noexcept;
     Status RestoreCameraSourceFrameForReplay(
@@ -236,6 +258,17 @@ private:
         std::uintptr_t action_backing{};
         std::array<std::uintptr_t, 17> action_vtables{};
         std::array<std::uint32_t, 17> action_types{};
+
+        [[nodiscard]] CameraTopologyCaptureDiagnostic DifferenceFrom(
+            const CameraTopology& expected) const noexcept
+        {
+            const bool root_changed = camera_root != expected.camera_root;
+            return {FailureCode::IdentityMismatch,
+                CameraTopologyCaptureStage::BoundTopology,
+                root_changed ? 0u : 1u,
+                root_changed ? camera_root : action_backing,
+                root_changed ? expected.camera_root : expected.action_backing};
+        }
 
         friend bool operator==(const CameraTopology& left,
             const CameraTopology& right) noexcept
@@ -313,6 +346,7 @@ private:
     std::unique_ptr<ProcessMemory> memory_;
     std::unique_ptr<NativeCandidateRegions> regions_;
     std::unique_ptr<BattleAudioSelectorState> battle_audio_selector_;
+    bool resumable_core_{};
     std::unique_ptr<MotionBankSnapshot> motion_banks_;
     std::unique_ptr<MoveDispatchState> move_dispatch_;
     std::unique_ptr<SecondaryEventState> secondary_events_;

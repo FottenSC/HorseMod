@@ -1,6 +1,7 @@
 #pragma once
 
 #include "NativeReplayMaterializer.hpp"
+#include "ReplaySourceState.hpp"
 
 namespace Horse::Deterministic
 {
@@ -17,12 +18,24 @@ struct Sc6ReplayResolvers
     ResolveReplayObjectFn stage{};
     SetBattleManagerMoveStateFn set_move_state{};
     bool set_move_state_signature_valid{};
+    std::uintptr_t image_base{};
 };
 
 class Sc6ReplayNativeBridge final : public IReplayNativeBridge
 {
 public:
     explicit Sc6ReplayNativeBridge(Sc6ReplayResolvers resolvers) noexcept;
+
+    Status CapturePlaybackSource(ReplaySourceState& output, bool include_inactive = false) const noexcept;
+    enum class SourceRestoreScope { CurrentRound, RetainedReplay };
+    // RetainedReplay covers only the native tracker continuation. Its caller
+    // must own the enclosing historical world/round transaction and complete B.
+    Status ValidatePlaybackSourceTransition(const ReplaySourceState& expected_current,
+        const ReplaySourceState& target, bool include_inactive = false,
+        SourceRestoreScope scope = SourceRestoreScope::CurrentRound) const noexcept;
+    Status RestorePlaybackSource(const ReplaySourceState& expected_current,
+        const ReplaySourceState& target, bool include_inactive = false,
+        SourceRestoreScope scope = SourceRestoreScope::CurrentRound) const noexcept;
 
     Status InspectRound(
         std::uint32_t native_round_index,

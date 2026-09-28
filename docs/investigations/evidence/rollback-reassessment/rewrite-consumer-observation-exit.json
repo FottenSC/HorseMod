@@ -1,0 +1,49 @@
+{
+  "artifacts": {
+    "loaded_horsemod": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll",
+      "pid": 43920,
+      "process_created": 1788603343.8266883,
+      "sha256": "be71b337c5cdb783e7d9e89281b01abd2d1a958db0df19eebb2c5a0de659fb5a",
+      "verification": "owned_process_mapped_file_and_sha256"
+    },
+    "raw_log": {
+      "complete_within_bound": true,
+      "path": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\rewrite-consumer-observation-exit.UE4SS.log",
+      "sha256": "e3f50fd4f52440648226b84addbb1b9a22d77546b64b6ee85567fc5fa5b0133f"
+    }
+  },
+  "case_id": "",
+  "certifying": false,
+  "cleanup": {
+    "deployment_restored": true,
+    "diagnostic_flags_restored_false": {
+      "correction_probe": true,
+      "forced_depth7_qualification": true,
+      "trace": true
+    },
+    "process_absent": true
+  },
+  "created_utc": "2026-09-05T10:15:48.371850+00:00",
+  "display_map_name": "",
+  "failure": {
+    "bounded_log": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\rewrite-consumer-observation-exit.failure.log",
+    "bounded_log_lines": 54,
+    "field_or_mask": null,
+    "fields": {},
+    "first_failing_frame": null,
+    "first_failure_line": "",
+    "graph_provenance": null,
+    "lifecycle_phase": null,
+    "owner_pointer": null,
+    "owner_selector": null,
+    "requested_target": null,
+    "return_rva": null
+  },
+  "kind": "replay_entry_failure",
+  "reason": "owned game exited before evidence completed: pid=43920 exit_code=1 exit_hex=0x00000001",
+  "report_schema": 2,
+  "result": "fail",
+  "row_id": "",
+  "stage_package_root": ""
+}

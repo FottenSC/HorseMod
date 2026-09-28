@@ -1,6 +1,7 @@
 #pragma once
 
 #include "NativeCandidateRegions.hpp"
+#include "TutorialConsumer.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -64,6 +65,10 @@ struct MoveDispatchImage
     MoveDispatchPhaseState phase{};
     std::uint32_t saved_input_and_gates{};
     std::int32_t completion_delay{};
+    // TutorialManager Tick 140437F50 owns these +4B8/+4BC values.
+    // They survive manager calls and participate in provider transitions.
+    std::uint32_t stable_provider_state{};
+    std::uint32_t stable_provider_ticks{};
     std::vector<MoveDispatchSubElementState> sub_elements;
     // Capacity owner for the inactive variant. It prevents action/pending
     // phase transitions from destroying and reallocating the bounded window
@@ -79,6 +84,8 @@ struct MoveDispatchImage
             && a.phase == b.phase
             && a.saved_input_and_gates == b.saved_input_and_gates
             && a.completion_delay == b.completion_delay
+            && a.stable_provider_state == b.stable_provider_state
+            && a.stable_provider_ticks == b.stable_provider_ticks
             && a.sub_elements == b.sub_elements;
     }
 };
@@ -94,6 +101,11 @@ public:
     Status Capture(MoveDispatchImage& output) noexcept;
     Status PreflightRestore(const MoveDispatchImage& image) noexcept;
     Status RestoreTransactional(const MoveDispatchImage& image) noexcept;
+    using QueryProvider = Status (*)(void* user, std::uintptr_t owner,
+        std::uint32_t& selected_state) noexcept;
+    Status ReplayIdleConsumer(const TutorialConsumerObservation& expected,
+        QueryProvider query, void* user, bool verify_recorded,
+        TutorialConsumerObservation& observed) noexcept;
     [[nodiscard]] std::size_t ScratchCapacityBytes() const noexcept;
 
     [[nodiscard]] static std::vector<std::byte> CanonicalBytes(

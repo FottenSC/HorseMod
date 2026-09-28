@@ -8,7 +8,7 @@
 namespace Horse::Deterministic::Schema
 {
 inline constexpr std::uint32_t protocol_version = 2;
-inline constexpr std::uint32_t snapshot_schema_version = 53;
+inline constexpr std::uint32_t snapshot_schema_version = 111;
 inline constexpr std::size_t maximum_transport_payload = 1200;
 inline constexpr std::size_t maximum_presentation_payload = 256;
 inline constexpr std::uint64_t checkpoint_interval = 30;
@@ -35,8 +35,12 @@ inline constexpr std::size_t online_presentation_event_capacity = 8192;
 inline constexpr std::size_t online_presentation_payload_budget =
     online_presentation_event_capacity * maximum_presentation_payload;
 inline constexpr std::size_t maximum_correction_presentation_events = 8192;
+// Production aggregate ceiling, including simultaneous undo and in-flight ownership.
 inline constexpr std::size_t replay_timeline_memory_limit =
-    512ull * 1024ull * 1024ull;
+    1024ull * 1024ull * 1024ull;
+// Explicit bounded experiments only; this does not increase production admission.
+inline constexpr std::size_t replay_debug_memory_limit =
+    2ull * 1024ull * 1024ull * 1024ull;
 inline constexpr std::size_t replay_input_memory_budget =
     16ull * 1024ull * 1024ull;
 inline constexpr std::size_t replay_native_batch_memory_budget =
@@ -65,7 +69,11 @@ inline constexpr std::size_t replay_input_entry_budget = 128;
 // backing, and four camera scalars to each batch. The aggregate native-batch
 // allocation remains capped at 224 MiB, so the larger fixed entry ceiling
 // reduces retained batch capacity rather than allowing unbounded growth.
-inline constexpr std::size_t replay_native_batch_entry_budget = 37888;
+// Completed-outer continuation and mismatch fingerprints share that same
+// aggregate ceiling; the capacity formula below absorbs this fixed metadata.
+// Includes bounded between-manager producer observations. Capacity is derived
+// below from the unchanged total timeline budget.
+inline constexpr std::size_t replay_native_batch_entry_budget = 47104;
 inline constexpr std::size_t replay_native_batch_coordinate_budget = 32;
 // Reserve envelopes and their worst-case coordinate membership as one bounded
 // unit.  A 50/50 byte split stranded almost the entire coordinate half while
@@ -355,13 +363,15 @@ inline constexpr std::array<std::byte, 16> particle_finished_bind_signature{
 
 namespace Sc6UcrtLayout
 {
-inline constexpr std::uint32_t algorithm_version = 1;
-inline constexpr std::uint32_t allowlist_version = 1;
+inline constexpr std::uint32_t algorithm_version = 3; // Native PTD + private MoveVM LCG.
+inline constexpr std::uint32_t allowlist_version = 2;
 inline constexpr std::uintptr_t rand_iat_rva = 0x322d800;
 inline constexpr std::uintptr_t srand_iat_rva = 0x322d818;
 inline constexpr std::uintptr_t rng_init_srand_return_rva = 0x34f634;
 inline constexpr std::uintptr_t rng_init_rand_return_rva = 0x34f658;
 inline constexpr std::uintptr_t movevm_rand_return_rva = 0x366ff4;
+// Existing GameplayXorshift96Detour; CRT warmup has finished before this call.
+inline constexpr std::uintptr_t rng_init_xorshift_return_rva = 0x34f915;
 }
 
 enum class RegionClass : std::uint8_t

@@ -1,0 +1,14 @@
+{
+  "report": "replay-source-handoff.json",
+  "run_id": "545c4a6ee86748e9b9d2975af639675a",
+  "classification": "invalid_binary_identity",
+  "user_observation": "The same position and missed-hit failure remained.",
+  "claimed_dll_sha256": "0fae162c0a3a064405936bea0307a17d6ea6b6b513a7b2c1743abc4c672892f4",
+  "installed_dll_sha256_after_run": "b583b65388616e4fc6bbac841a1de6bc7d87467e67132a0983c69eb5d0c40c2b",
+  "reason": "The replay runner hashed --dll without deploying it or proving the process loaded it. The source trace was absent and the old source_end=target log behavior remained. This run did not test the requested binary.",
+  "raw_log": {
+    "path": "replay-source-handoff.invalid-binary.UE4SS.log",
+    "sha256": "c5412e732f0dab69151bd2e311d0c891c8a097f881d648c2909a3213cd75cb1b",
+    "bytes": 80985
+  }
+}

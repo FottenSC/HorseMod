@@ -35,7 +35,6 @@ INPUT_PREFIXES = (
 
 TOOL_PREFIXES = (
     "tools/deterministic_",
-    "tools/generate_compiled_release_identities.py",
     "tools/generate_production_candidate_manifest.py",
     "tools/generate_production_regions.py",
     "tools/gekko_rollback_session_selftest.cpp",

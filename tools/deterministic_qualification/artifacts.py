@@ -20,29 +20,28 @@ DETERMINISTIC_EXACT_PATHS = {
     "CMakeLists.txt",
     "HorseMod/CMakeLists.txt",
     "HorseMod/dllmain.cpp",
-    "HorseMod/OnlineQualificationService.inl",
     "HorseMod/rollback.ini.example",
     "docs/investigations/deterministic-production-candidate-manifest.json",
     "docs/investigations/deterministic-production-region-manifest.json",
     "docs/investigations/deterministic-tira-qualification-manifest.json",
     "tools/deterministic_qualification.py",
+    "tools/replay_test.py",
 }
 
 DETERMINISTIC_PREFIXES = (
+    "HorseMod/",
+    "RE-UE4SS/",
+    "DotVanisher/",
+    "RuntimeOracle/",
+    "tools/replay_",
     "HorseMod/HorseModService.",
     "HorseMod/horselib/deterministic/",
     "tools/deterministic_qualification/",
     "tools/replay_qualification_mod/",
     "tools/deterministic_",
-    "tools/generate_compiled_release_identities.py",
     "tools/generate_production_candidate_manifest.py",
     "tools/generate_production_regions.py",
-    "tools/gekko_rollback_session_selftest.cpp",
     "tools/native_candidate_regions_selftest.cpp",
-    "tools/online_coordinator_selftest.cpp",
-    "tools/production_release_loader_selftest.cpp",
-    "tools/sc6_online_",
-    "tools/steam_p2p_transport_selftest.cpp",
 )
 
 # Files which can change how a replay request is launched, observed, parsed,
@@ -59,11 +58,13 @@ CAPTURE_HARNESS_PATHS = (
     "tools/deterministic_qualification/offline_spec.py",
     "tools/deterministic_qualification/process_control.py",
     "tools/deterministic_qualification/replay_entry.py",
+    "tools/deterministic_qualification/replay_run.py",
+    "tools/deterministic_qualification/replay_control.py",
     "tools/deterministic_qualification/report.py",
     "tools/deterministic_qualification/runner.py",
     "tools/deterministic_qualification/trace_parser.py",
-    "tools/replay_qualification_mod/OnlineRoomAutomation.cpp",
-    "tools/replay_qualification_mod/OnlineRoomAutomation.hpp",
+    "tools/replay_test.py",
+    "tools/replay_qualification_mod/ReplayTrajectoryObserver.hpp",
     "tools/replay_qualification_mod/ReplayPayloadImporter.cpp",
     "tools/replay_qualification_mod/ReplayPayloadImporter.hpp",
     "tools/replay_qualification_mod/ReplayQualificationMod.cpp",
@@ -75,7 +76,6 @@ OFFLINE_EVALUATOR_PATHS = (
     "tools/deterministic_qualification/offline_campaign.py",
     "tools/deterministic_qualification/offline_matrix.py",
 )
-
 
 def _deterministic_path(path: str) -> bool:
     normalized = path.replace("\\", "/")
@@ -256,6 +256,10 @@ def _build_identity(root: Path) -> dict[str, object]:
 
 
 def source_identity(root: Path) -> dict[str, object]:
+    from .source_retention import retain_sources
+    build = root / "build_cmake_LessEqual421__Shipping__Win64"
+    retained = retain_sources(root, build / "replay-tests" / "source-archives",
+                              build if (build / "build.ninja").is_file() else None)
     result = subprocess.run(
         ["git", "status", "--porcelain=v2", "-z", "--untracked-files=all"],
         cwd=root, check=True, capture_output=True, text=True,
@@ -280,6 +284,7 @@ def source_identity(root: Path) -> dict[str, object]:
         "deterministic_binary_patch_bytes": len(binary_patch.encode(
             "utf-8", errors="surrogateescape")),
         "build": _build_identity(root),
+        "source_retention": retained,
     }
 
 

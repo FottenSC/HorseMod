@@ -1,0 +1,119 @@
+{
+  "scope": "original startup native exception, no consumer hold reached",
+  "run_id": "replay-9f0445f638f94103b9c2121a0b05d0f7",
+  "native_failure": {
+    "error": "",
+    "error_at_capacity": false,
+    "error_source": "native_exception_context",
+    "exception": {
+      "address": "0x00007ff707a3922b",
+      "code": "0x00000000c0000005",
+      "flags": "0x0000000000000000",
+      "parameters": [
+        "0x0000000000000000",
+        "0x0000000000000000"
+      ],
+      "r10": "0x00007ffc2caa0000",
+      "r11": "0x000000ef41ecc570",
+      "r12": "0x000000ef41ecc740",
+      "r13": "0x000000ef41ecc7a0",
+      "r14": "0x0000027052283200",
+      "r15": "0x000000ef41ecc750",
+      "r8": "0x0000000000000020",
+      "r9": "0x000002707b320000",
+      "rax": "0x0000000000000001",
+      "rbp": "0x000000ef41ecc699",
+      "rbx": "0x000002705157d4a0",
+      "rcx": "0x0000000000000000",
+      "rdi": "0x0000000000000000",
+      "rdx": "0x0000027052283200",
+      "rip": "0x00007ff707a3922b",
+      "rsi": "0xffffffffffffffff",
+      "rsp": "0x000000ef41ecc5d0",
+      "valid": true
+    },
+    "fatal_flag": false,
+    "framework_base": "0x00007ff9dd9c0000",
+    "game_base": "0x00007ff706bd0000",
+    "observer_base": "0x00007ffb6a8c0000",
+    "raw": {
+      "bytes": 1652,
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0cc7db8b6868120eabdca7a85484146a0377ca1714d395d59c91ebfa95afb77c.json",
+      "sha256": "0cc7db8b6868120eabdca7a85484146a0377ca1714d395d59c91ebfa95afb77c"
+    },
+    "run_id": "replay-9f0445f638f94103b9c2121a0b05d0f7",
+    "site": "140E0D330",
+    "stack": [
+      "0x00007ffb6a9643f2",
+      "0x00007ffb6a926c52",
+      "0x00007ff709dadabe",
+      "0x00007ffc2caba9c0",
+      "0x00007ffc4e964abf",
+      "0x00007ffc4e845e97",
+      "0x00007ffc4e9643fe",
+      "0x00007ff707a3922b",
+      "0x00007ff7099b176f",
+      "0x00007ff7099aba02",
+      "0x00007ff7099ac359",
+      "0x00007ff7099abfeb",
+      "0x00007ff707471e54",
+      "0x00007ff707123b7d",
+      "0x00007ff70712430a",
+      "0x00007ff707a461f2",
+      "0x00007ff707b3a320",
+      "0x00007ff707b40f20",
+      "0x00007ff707b4196f",
+      "0x00007ff9ddd65e97",
+      "0x00007ff707b3a615",
+      "0x00007ff707b4196f",
+      "0x00007ff9ddd65e97",
+      "0x00007ff707a461f2",
+      "0x00007ff707b417f0",
+      "0x00007ff709b24bcd",
+      "0x00007ff709ac775f",
+      "0x00007ff709ad2cb0",
+      "0x00007ff709b4bdfa",
+      "0x00007ff707a461f2",
+      "0x00007ff707b3a320",
+      "0x00007ff707b40f20"
+    ],
+    "thread": "0x000000000000a1e4",
+    "ucrt_base": "0x00007ffc4bc20000"
+  },
+  "preferred_fault_rip": "140E6922B",
+  "access": "read address0",
+  "cleanup": {
+    "complete": true,
+    "games_remaining": 0
+  },
+  "report": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d7cd55674058d1e97c8c727a46adc09f5a7d5b08c5611b0b68bbf1ff7ff5d442.json",
+    "sha256": "d7cd55674058d1e97c8c727a46adc09f5a7d5b08c5611b0b68bbf1ff7ff5d442",
+    "bytes": 12094
+  },
+  "stage": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\61ff835579a2a8c7cd2cea76894cd888bd83783cfd63277251b3cc7f413a287f.json",
+    "sha256": "61ff835579a2a8c7cd2cea76894cd888bd83783cfd63277251b3cc7f413a287f",
+    "bytes": 11597
+  },
+  "raw_log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b73ae66dfefb22635d650155e06b696692c03b966d1e4b7427bec4c6578e6e46.log",
+    "sha256": "b73ae66dfefb22635d650155e06b696692c03b966d1e4b7427bec4c6578e6e46",
+    "bytes": 67955
+  },
+  "journal": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4d63f9ec15745aac6850a626e11eb924b9824c9f41ba14db2c62aea6210a619a.json",
+    "sha256": "4d63f9ec15745aac6850a626e11eb924b9824c9f41ba14db2c62aea6210a619a",
+    "bytes": 5490
+  },
+  "ownership_map": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1f1039ed511be443031a093b667350325e8ac43b7ae7a2732af94f949a21a540.md",
+    "sha256": "1f1039ed511be443031a093b667350325e8ac43b7ae7a2732af94f949a21a540",
+    "bytes": 5578
+  },
+  "immutable": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\faf58865338471c88fb63af10058f75d824dd02bf698a9032e436ccc33e69d01.json",
+    "sha256": "faf58865338471c88fb63af10058f75d824dd02bf698a9032e436ccc33e69d01",
+    "bytes": 4222
+  }
+}

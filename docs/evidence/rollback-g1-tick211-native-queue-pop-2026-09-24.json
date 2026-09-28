@@ -1,0 +1,67 @@
+{
+  "scope": "Priority-token fix live retry, first new failure at native GT queue pop; read-only matching crash/native call-chain investigation",
+  "run_id": "replay-750ba2ce876046479362a979a7539775",
+  "evidence": {
+    "build": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\build-stage.json",
+      "sha256": "466753c2900bfaf4ebf9a7df2c3421d9c85592385595e88909f9be83e6760336",
+      "bytes": 6239
+    },
+    "run": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\9e4066aef65bf04d2ad1410e426a7c6b69327665f01ec5c9bd21db957cf3f5d5.json",
+      "sha256": "9e4066aef65bf04d2ad1410e426a7c6b69327665f01ec5c9bd21db957cf3f5d5",
+      "bytes": 21915
+    },
+    "raw_failure": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\ecfffeec62879efa049ad26b8707a7f0f3549b3ac8d5f9fd84f04eb200e6ec02.json",
+      "sha256": "ecfffeec62879efa049ad26b8707a7f0f3549b3ac8d5f9fd84f04eb200e6ec02",
+      "bytes": 408
+    },
+    "dump": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\404dff2a4507b9f49f8c4e1e3593b4d07a2f39228de326c8504dc9e6dfe5fd91.dmp",
+      "sha256": "404dff2a4507b9f49f8c4e1e3593b4d07a2f39228de326c8504dc9e6dfe5fd91",
+      "bytes": 80169864
+    }
+  },
+  "observed": {
+    "site": 5,
+    "name": "NativeBefore",
+    "native_site": 24,
+    "native_entry": "140D2B9F0 queue pop",
+    "native_started": 0,
+    "tick": 211,
+    "epoch": 2338,
+    "transaction_phase": 2,
+    "protocol_phase": 4,
+    "native_queue_argument": "0x24175e86178",
+    "current_thread": 28796,
+    "original_thread": 28796,
+    "mutation_injected": true,
+    "mutation_api_returned": true,
+    "selected_protocol_completed": true
+  },
+  "matching_dump": {
+    "pid": 51088,
+    "thread": 28796,
+    "timestamp_local": "2026-09-24 01:50:56",
+    "exception": "0xc0000409 argument5",
+    "horsemod_base": "0x7ffb8d280000",
+    "exception_rip": "0x7ffb8d284e9e",
+    "queue_argument": "RBP 0x24175e86178",
+    "named_thread": "R15 0x24175e86140 (queue argument -0x38)"
+  },
+  "native_call_chain": {
+    "source": "existing Ghidra SoulcaliburVI.exe read-only decompilation and matching dump stack",
+    "addresses": [
+      "Sc6ReplayWorld.cpp:365 calls tick-task manager virtual+0x18",
+      "142167C50 starts tick-group sequence",
+      "142167D10 cleans prior group and invokes graph virtual+0x48",
+      "140D2D160 enters named-thread pump",
+      "140D2CED0 calls 140D2B9F0 queue pop for two priority queues, then executes returned task virtually"
+    ],
+    "limit": "Stack addresses are return-site evidence; exact queued contents are absent from dump. The first-failure record was written before original queue-pop entry, so no task dequeue/completion is claimed."
+  },
+  "ownership": "The native pump can dequeue outside Sc6ReplayTaskGroup::PumpOne PopScope. Existing guard rejects before entry, which is a terminal containment result, not complete-B recovery. Do not allow the nested pop blindly; first establish queue contents, selected-task/consumer coverage, and a safe disposition.",
+  "cleanup": "Journal clean, eight previous file hashes independently match, no game or runner remains. Steam unchanged.",
+  "next_resolving_test": "Astra high code owner investigates an owned native nested-pump boundary, adds bounded pre-entry/return diagnostics or a verified mechanism with RED/GREEN production-boundary regression, required build/native checks, then shortest live retry. Preserve callbacks and complete B."
+}

@@ -1,0 +1,54 @@
+{
+  "case_id": "siegfried-cervantes-murakumo-shrine-grounds",
+  "certifying": false,
+  "cleanup": {
+    "diagnostic_flags_restored_false": {
+      "correction_probe": true,
+      "forced_depth7_qualification": true,
+      "trace": true
+    },
+    "process_absent": true
+  },
+  "created_utc": "2026-08-31T09:49:20.444361+00:00",
+  "display_map_name": "Murakumo Shrine Grounds",
+  "failure": {
+    "bounded_log": "E:\\myMods\\docs\\investigations\\evidence\\immutable-c54f36a9-offline-rows\\raw\\siegfried-cervantes-murakumo-shrine-grounds__baseline-first.failure.log",
+    "bounded_log_lines": 69,
+    "field_or_mask": "0x1",
+    "fields": {
+      "batch": "5909",
+      "caller_rva": "0x0",
+      "dispatches": "17",
+      "failures": "1",
+      "frame": "5910->5911",
+      "graph_provenance": "0x3fec86ebe2cb6720",
+      "journal": "16/16",
+      "mask": "0x1",
+      "owner_bindings": "0",
+      "owner_epoch": "0",
+      "owner_selector": "unresolved",
+      "owner_stage": "0",
+      "remap_journal": "2/8",
+      "remaps": "2",
+      "source_journal": "2/16",
+      "sources": "2",
+      "stop_all": "0",
+      "stop_all_journal": "0/16",
+      "stop_all_owners": "0",
+      "unresolved_owner": "0x0"
+    },
+    "first_failing_frame": "5910->5911",
+    "first_failure_line": "[2026-08-31 11:49:15.8640834] [HorseMod] authoritative battle-audio capture failed batch=5909 frame=5910->5911 failures=1 mask=0x1 dispatches=17 journal=16/16 sources=2 source_journal=2/16 remaps=2 remap_journal=2/8 stop_all=0 stop_all_journal=0/16 stop_all_owners=0 owner_selector=unresolved unresolved_owner=0x0 caller_rva=0x0 owner_epoch=0 owner_bindings=0 owner_stage=0 graph_provenance=0x3fec86ebe2cb6720",
+    "graph_provenance": "0x3fec86ebe2cb6720",
+    "lifecycle_phase": "0",
+    "owner_pointer": "0x0",
+    "owner_selector": "unresolved",
+    "return_rva": "0x0"
+  },
+  "kind": "replay_entry_failure",
+  "reason": "native replay entry failed: horsemod_fail_fast_health",
+  "report_schema": 2,
+  "result": "fail",
+  "row_id": "siegfried-cervantes-murakumo-shrine-grounds__baseline",
+  "stage_package_root": "/Game/DLC/11/Stage/STG017"
+}

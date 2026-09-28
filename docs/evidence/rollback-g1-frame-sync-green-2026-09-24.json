@@ -1,0 +1,92 @@
+{
+  "result": "PASS six focused production-boundary tests in29.71seconds",
+  "log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\17edfd4d5fe85a131c0f40160c2c8381600546c27420bb1b1e588428249b65ef.json",
+    "sha256": "17edfd4d5fe85a131c0f40160c2c8381600546c27420bb1b1e588428249b65ef",
+    "bytes": 101
+  },
+  "source_retention": {
+    "manifest_sha256": "a3b383b5165e8ea3811ee5ef3dbff6c0a2f9fee8aae9cba953a43d79c6441466",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-a3b383b5165e8ea3811ee5ef3dbff6c0a2f9fee8aae9cba953a43d79c6441466.zip",
+    "archive_sha256": "1c8bb575fbf45662049a445c7ff7be359092dd23eff8b07c154bc88b49b6f3ff",
+    "files": 16605,
+    "uncompressed_bytes": 92813660,
+    "reconstructible": true
+  },
+  "red": "docs/evidence/rollback-g1-frame-sync-red-2026-09-24.json",
+  "native_manifest": "fa4d6ff8c570c628d11e856a473dd2727167f4d0e9d81bc27ec3e8aaccacf692",
+  "native_reads": {
+    "rollback-g1-frame-sync-1415e9e30-2026-09-24.txt": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\95335b857a10e955fe164ca40b265d366416897e0053cb13eb5c033b491d925d.json",
+      "sha256": "95335b857a10e955fe164ca40b265d366416897e0053cb13eb5c033b491d925d",
+      "bytes": 1041
+    },
+    "rollback-g1-frame-sync-1415ed580-2026-09-24.txt": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\90add0410c80d6400d84d35f0a2ae9e2b533d6e80204beec2b3a657f6c84f41f.json",
+      "sha256": "90add0410c80d6400d84d35f0a2ae9e2b533d6e80204beec2b3a657f6c84f41f",
+      "bytes": 2887
+    },
+    "rollback-g1-frame-sync-1415ed580_asm-2026-09-24.txt": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\944262f81774da27510d0b6491c20e76ad682a856d741073ec3625ad2642a8a5.json",
+      "sha256": "944262f81774da27510d0b6491c20e76ad682a856d741073ec3625ad2642a8a5",
+      "bytes": 4812
+    },
+    "rollback-g1-frame-sync-1415ef6f0-2026-09-24.txt": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\98ea63235791dc50b488cddebf755817d65d0864ab7b7a3be1b4e34805d44ef9.json",
+      "sha256": "98ea63235791dc50b488cddebf755817d65d0864ab7b7a3be1b4e34805d44ef9",
+      "bytes": 1135
+    },
+    "rollback-g1-frame-sync-1415efd70-2026-09-24.txt": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\5297af2307b18bbc191fe1eba4153c680c0fa145d5e10fa93d9e41ccb3ee477a.json",
+      "sha256": "5297af2307b18bbc191fe1eba4153c680c0fa145d5e10fa93d9e41ccb3ee477a",
+      "bytes": 1429
+    },
+    "rollback-g1-frame-sync-1415efec0-2026-09-24.txt": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8f9cad77696640ab26382f12d0cf0c99d027cc5b3c0a2c5b3f45122f5c110121.json",
+      "sha256": "8f9cad77696640ab26382f12d0cf0c99d027cc5b3c0a2c5b3f45122f5c110121",
+      "bytes": 2544
+    },
+    "rollback-g1-frame-sync-1415efec0_asm-2026-09-24.txt": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c1f7266721436fdb5d7f8ad5b43a6f252df58899b3d5e02f931b1774c950794c.json",
+      "sha256": "c1f7266721436fdb5d7f8ad5b43a6f252df58899b3d5e02f931b1774c950794c",
+      "bytes": 1084
+    },
+    "rollback-g1-frame-sync-1421876d0-2026-09-24.txt": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\353f355fad785c7b00f2a635d60c2fe541df419b168d9dfb61cd4703e1f497cd.json",
+      "sha256": "353f355fad785c7b00f2a635d60c2fe541df419b168d9dfb61cd4703e1f497cd",
+      "bytes": 1916
+    },
+    "rollback-g1-frame-sync-1421876d0_asm-2026-09-24.txt": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0e207f7ea4c68128cb2e8de0b67f5dc235e09a5f202f69bbddae9590e764dad3.json",
+      "sha256": "0e207f7ea4c68128cb2e8de0b67f5dc235e09a5f202f69bbddae9590e764dad3",
+      "bytes": 1379
+    }
+  },
+  "harness_extraction_failure_log_sha256": "18ded6c703057bb3105465fb565321b7c6e8430e8fbb47664234db7c79e82d7e",
+  "harness_fix": "Preserved existing PumpDepth extraction boundary by placing new helpers after ParallelTasks; no assertion removed.",
+  "implementation": [
+    "Synchronous application tail retains its stack payloads and previous-cleanup ownership.",
+    "Native fence Begin, two-slot cursor/lag, completion OS-event bridge/pool, health/message processing and timeout cache/policy/log/error calls retained.",
+    "Only eligible native GT drains replaced by existing admitted PumpOne(true), including every pending wait slice.",
+    "Already-complete fence path clears/releases; pending helper path retains slot/ref exactly as native tail jump. No event return until native signal and real fence complete.",
+    "Busy/nested native no-pump wait retained. Hold, invalid cursor, changed fence slot and premature signal fail with ownership retained."
+  ],
+  "local_cases": [
+    "pending native event bridge",
+    "already complete fence release",
+    "one-frame-lag opposite-slot selection",
+    "threaded rendering disabled unchanged slot",
+    "busy GT native no-pump wait",
+    "nested native wait",
+    "native timeout keeps in-flight event/fence",
+    "nothreadtimeout disables timeout",
+    "negative initialized CRT cache epoch retained",
+    "OS signal without real completion rejected",
+    "fence-slot mutation rejected",
+    "invalid cursor before native submission"
+  ],
+  "command": "PYTHONPATH=tools python -m pytest -q -x tools/deterministic_qualification/tests/test_consumer_host.py::test_application_frame_sync_preserves_admitted_waits tools/deterministic_qualification/tests/test_consumer_host.py::test_engine_context_worlds_preserve_owned_dispatch tools/deterministic_qualification/tests/test_consumer_host.py::test_world_start_preserves_owned_prior_cleanup_wait tools/deterministic_qualification/tests/test_consumer_host.py::test_prerequisite_guard_reads_and_pre_native_witness tools/deterministic_qualification/tests/test_consumer_host.py::test_consumer_retirement_entries_stop_before_native_effects tools/deterministic_qualification/tests/test_replay_run.py::test_component_dispatch_revalidates_admitted_consumer",
+  "ghidra_annotation": "Corrected 1415EFEC0 plate comment against assembly via native MCP, read back and saved existing SoulcaliburVI.exe program; no prototype/type edits.",
+  "limits": "Local external-service probes establish production ordering/rejection only. Native callbacks/GPU/B recovery require coordinated live evidence. G1 remains OPEN.",
+  "remaining": "Parent required build/native/twoCTests and shortest bounded G1 run."
+}

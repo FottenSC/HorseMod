@@ -3,6 +3,7 @@
 
 #include <bit>
 #include <cstring>
+#include <limits>
 
 #if defined(_MSC_VER)
 #include <Windows.h>
@@ -12,6 +13,26 @@ namespace Horse::Deterministic
 {
 namespace
 {
+bool read_empty_stat_tree(std::uintptr_t fighter,std::uintptr_t& tree) noexcept
+{
+#if defined(_MSC_VER)
+    __try {
+#endif
+        if(!fighter)return false;
+        std::memcpy(&tree,reinterpret_cast<void*>(fighter+0x3590),8);
+        if(!tree || (tree&7))return false;
+        std::array<std::uintptr_t,2> owner{};
+        std::memcpy(owner.data(),reinterpret_cast<void*>(tree),16);
+        if(!owner[0] || (owner[0]&7) || owner[1])return false;
+        std::array<std::uintptr_t,3> links{};std::uint16_t flags{};
+        std::memcpy(links.data(),reinterpret_cast<void*>(owner[0]),24);
+        std::memcpy(&flags,reinterpret_cast<void*>(owner[0]+0x18),2);
+        // Native382010 creates the self-linked, black/nil empty sentinel.
+        return flags==0x101 && links[0]==owner[0] && links[1]==owner[0] && links[2]==owner[0];
+#if defined(_MSC_VER)
+    } __except(EXCEPTION_EXECUTE_HANDLER) {return false;}
+#endif
+}
 bool invoke_exec(HgCpuExecFn function, HgCpuStreamShim* shim, void*& result) noexcept
 {
 #if defined(_MSC_VER)
@@ -53,6 +74,41 @@ const HgCpuStreamShim::VTable HgCpuStreamShim::vtable_{
 HgCpuStreamShim::HgCpuStreamShim() noexcept
     : vtable_pointer_(&vtable_)
 {
+}
+
+bool HgCpuStreamShim::PrepareStatOwners() noexcept
+{
+    stat_seen_=0;stat_trees_={};
+    if(!stat_fighters_[0] && !stat_fighters_[1])return true;
+    return stat_fighters_[0]!=stat_fighters_[1]
+        && read_empty_stat_tree(stat_fighters_[0],stat_trees_[0])
+        && read_empty_stat_tree(stat_fighters_[1],stat_trees_[1])
+        && stat_trees_[0]!=stat_trees_[1];
+}
+
+bool HgCpuStreamShim::ValidateStatOwners() const noexcept
+{
+    if(!stat_fighters_[0] && !stat_fighters_[1])return true;
+    if(stat_seen_!=3)return false;
+    for(unsigned i=0;i<2;++i) {
+        std::uintptr_t tree{};
+        if(!read_empty_stat_tree(stat_fighters_[i],tree) || tree!=stat_trees_[i])return false;
+    }
+    return true;
+}
+
+int HgCpuStreamShim::StatTransfer(void* address,std::size_t bytes) noexcept
+{
+    const auto start=reinterpret_cast<std::uintptr_t>(address);
+    if(bytes>(std::numeric_limits<std::uintptr_t>::max)()-start)return -2;
+    for(unsigned i=0;i<2;++i) {
+        if(!stat_fighters_[i])continue;
+        const auto field=stat_fighters_[i]+0x3590;
+        if(start>=field+8 || start+bytes<=field)continue;
+        if(start!=stat_fighters_[i]+0x90 || bytes!=0x3510 || (stat_seen_&(1u<<i)))return -2;
+        stat_seen_|=1u<<i;return static_cast<int>(i);
+    }
+    return -1;
 }
 
 void HgCpuStreamShim::Retarget(std::byte* data, std::size_t capacity) noexcept
@@ -103,6 +159,7 @@ Status HgCpuStreamShim::Capture(
     }
     if (writer == nullptr || !ValidContext(context))
         return Status::failure(FailureCode::ContextUnavailable);
+    if(!PrepareStatOwners())return Status::failure(FailureCode::UnsupportedContent);
     try { output.bytes.resize(hgcpu_stream_capacity); }
     catch (...) { return Status::failure(FailureCode::CapacityExceeded); }
     Retarget(output.bytes.data(), output.bytes.size());
@@ -115,7 +172,7 @@ Status HgCpuStreamShim::Capture(
         return Status::failure(FailureCode::CaptureFailed);
     }
     if (result != this || overflow_ || cursor_ == 0
-        || cursor_ > output.bytes.size())
+        || cursor_ > output.bytes.size() || !ValidateStatOwners())
     {
         const bool overflowed = overflow_;
         Retarget(nullptr, 0);
@@ -149,6 +206,7 @@ Status HgCpuStreamShim::Restore(
     {
         return Status::failure(FailureCode::RestorePreflightFailed);
     }
+    if(!PrepareStatOwners())return Status::failure(FailureCode::RestorePreflightFailed);
     Retarget(const_cast<std::byte*>(image.bytes.data()), image.bytes.size());
     trace_ = nullptr;
     void* result = nullptr;
@@ -157,7 +215,7 @@ Status HgCpuStreamShim::Restore(
         Retarget(nullptr, 0);
         return Status::failure(FailureCode::RestoreWriteFailed);
     }
-    const bool valid = result == this && !overflow_ && cursor_ == image.cursor;
+    const bool valid = result == this && !overflow_ && cursor_ == image.cursor && ValidateStatOwners();
     Retarget(nullptr, 0);
     return valid
         ? Status::success()
@@ -209,7 +267,12 @@ std::int64_t __fastcall HgCpuStreamShim::Write(
             trace.truncated = true;
         }
     }
+    const auto stat=self->StatTransfer(source,bytes);
+    if(stat==-2){self->overflow_=true;return 0;}
     std::memcpy(self->data_ + self->cursor_, source, bytes);
+    // The independently verified empty table has no node/payload state.
+    // Its process-local allocation address must never enter the image.
+    if(stat>=0)std::memset(self->data_+self->cursor_+0x3500,0,8);
     self->cursor_ += bytes;
     return static_cast<std::int64_t>(previous);
 }
@@ -225,7 +288,18 @@ std::int64_t __fastcall HgCpuStreamShim::Read(
         return 0;
     }
     const auto previous = self->cursor_;
-    std::memcpy(destination, self->data_ + self->cursor_, bytes);
+    const auto stat=self->StatTransfer(destination,bytes);
+    if(stat==-2){self->overflow_=true;return 0;}
+    if(stat>=0) {
+        std::uintptr_t token{};
+        std::memcpy(&token,self->data_+self->cursor_+0x3500,8);
+        if(token){self->overflow_=true;return 0;}
+        // Native30AE80 consumes this owner again before returning. Preserve
+        // the validated live binding during the bulk read, never repair a
+        // dangling historical pointer after native callbacks have used it.
+        std::memcpy(destination,self->data_+self->cursor_,0x3500);
+        std::memcpy(static_cast<std::byte*>(destination)+0x3508,self->data_+self->cursor_+0x3508,8);
+    } else std::memcpy(destination, self->data_ + self->cursor_, bytes);
     self->cursor_ += bytes;
     return static_cast<std::int64_t>(previous);
 }

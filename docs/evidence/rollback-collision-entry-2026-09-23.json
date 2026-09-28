@@ -1,0 +1,228 @@
+{
+  "scope": "Current application-entry collision admission only; no debris motion exclusion or mid-application enforcement claimed",
+  "red": "docs/evidence/rollback-handover-checkpoint-2026-09-22-2212.json; reproduced exit46 before the fix on 2026-09-23",
+  "targeted_green": "test_ground_capture_uses_native_scene_transform passed after the fix and after shared-predicate extraction",
+  "required_build": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\83c07fe3ab56072cb3e6ef31ca432920b211604eef8b17fcbfca8d70bade34e6.json",
+    "sha256": "83c07fe3ab56072cb3e6ef31ca432920b211604eef8b17fcbfca8d70bade34e6",
+    "bytes": 6433,
+    "summary": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\0a2634817ff9323ad8ac6e764bf5961a28878fb7ad10c60757aed9662415e20e.md",
+      "sha256": "0a2634817ff9323ad8ac6e764bf5961a28878fb7ad10c60757aed9662415e20e",
+      "bytes": 533
+    }
+  },
+  "identities": {
+    "runtime": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\HorseMod.dll",
+      "sha256": "2e21955916e6919e804581935142bddbfebc51a47170ad275a8e390a7b6596fa"
+    },
+    "observer": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\ReplayQualificationMod.dll",
+      "sha256": "fa828c8b94e3da0269eb856fc1977ccf857db4572dc76f95f384505fa87544d7"
+    },
+    "framework": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\LessEqual421__Shipping__Win64\\bin\\UE4SS.dll",
+      "sha256": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6"
+    },
+    "core_test": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\DeterministicCoreSelfTest.exe",
+      "sha256": "97c1bd21bc3d089e1fa13efea33c4926356bf812b551e607a628f58f56738533"
+    },
+    "native_test": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\NativeCandidateRegionsSelfTest.exe",
+      "sha256": "a2a3a682c54f2192b882e33e45c4e38f281ea02ba3d42e3e88eeb3ab6836d970"
+    }
+  },
+  "source_retention": {
+    "manifest_sha256": "7ae4ecc2ef0dcc537c1878da56e8c6f4eba1e5f34b8a2727660db68f5483af98",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-7ae4ecc2ef0dcc537c1878da56e8c6f4eba1e5f34b8a2727660db68f5483af98.zip",
+    "archive_sha256": "a633365d0ce5304ad93b1fdf25eaf2ea2cf8739c8f782c506437f8ae625a1886",
+    "files": 17282,
+    "uncompressed_bytes": 126884911,
+    "reconstructible": true
+  },
+  "files": {
+    "HorseMod/horselib/deterministic/Sc6ReplayHost.GroundDebris.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7185609e613a7ad3aaab883341bbd8728934bf6927f51c55548b0f49732f8984.inl",
+      "sha256": "7185609e613a7ad3aaab883341bbd8728934bf6927f51c55548b0f49732f8984",
+      "bytes": 90822
+    },
+    "HorseMod/horselib/deterministic/ReplayGroundCollisionDomain.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e7122ced46229f6318e4ff7c4cc130972fd2f2f87239c4b93588f6971db10e0a.inl",
+      "sha256": "e7122ced46229f6318e4ff7c4cc130972fd2f2f87239c4b93588f6971db10e0a",
+      "bytes": 8538
+    },
+    "HorseMod/horselib/deterministic/ReplayPhysicsRemovalGuard.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\486331c4deda60199b479600cec4312cbde9e9a5e6717a439648b9d5d474efc4.hpp",
+      "sha256": "486331c4deda60199b479600cec4312cbde9e9a5e6717a439648b9d5d474efc4",
+      "bytes": 33290
+    },
+    "tools/replay_physics_markers_selftest.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f723cc03aac47810f9192991953c3367b9dba40fc932b0306937aa26501485c8.inl",
+      "sha256": "f723cc03aac47810f9192991953c3367b9dba40fc932b0306937aa26501485c8",
+      "bytes": 138264
+    },
+    "tools/native_candidate_regions_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c5c9aa6bc12fc2506fe30d5dcd9b76b49272f7545f4a41b3b99c4d7a9d67d27f.cpp",
+      "sha256": "c5c9aa6bc12fc2506fe30d5dcd9b76b49272f7545f4a41b3b99c4d7a9d67d27f",
+      "bytes": 400020
+    },
+    "tools/deterministic_qualification/tests/test_replay_run.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\be1e6509111972a31d3f172b93c7b840814da4a139e69b75d74a30ed134db5b3.py",
+      "sha256": "be1e6509111972a31d3f172b93c7b840814da4a139e69b75d74a30ed134db5b3",
+      "bytes": 501798
+    }
+  },
+  "native_fixture_failure": {
+    "manifest": "e9c37cf207e7857951f8bc0c691dd82bf691b21a733559a197b1109c5fd138a1",
+    "reason": "SDK default equal zero owner IDs entered real game filter engine-context lookup without engine constant block",
+    "fix": "Authored distinct logical owner IDs/mutual masks in real native filter records; restored every record before native continuation; production predicate unchanged"
+  },
+  "local_coverage": [
+    "real SDK scenes/bodies/shapes and shipped game filter",
+    "unrelated dynamic body",
+    "query handle and shape query flag",
+    "native constraint enumeration",
+    "instance notification and external owner routes",
+    "scene filter/callback/sleep notification",
+    "notification flags from either collider",
+    "aggregate registry/free-list/members/dirty/pending/self-owner/tags/SAP endpoints",
+    "existing nonzero scene-ID regression preserved"
+  ],
+  "live": {
+    "profile": "changed-rolling407-ground-repro",
+    "run_id": "replay-80b84faf48e94796a9100136e2c51c60",
+    "state": "pass: independently compared every traversal and120 continuation ticks; cleanup complete",
+    "interrupted_manifest": "build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/manifests/d9ae1577c1f64d73ab1605e9b645803d4ace72ed23500b582bf6feb0993d4a04.json",
+    "candidate_cleanup": {
+      "complete": true,
+      "games_remaining": 0
+    },
+    "retained_evidence": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\77931b691dd61efbea4b76e980c22437362b4d5c499108f293741275c670cbb4.json",
+      "sha256": "77931b691dd61efbea4b76e980c22437362b4d5c499108f293741275c670cbb4",
+      "bytes": 234408,
+      "summary": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\60dc69dc498ca8822f239d0df6cb7ce137149b8b25aae8531a8f4c9fc4c9339b.md",
+        "sha256": "60dc69dc498ca8822f239d0df6cb7ce137149b8b25aae8531a8f4c9fc4c9339b",
+        "bytes": 518
+      }
+    },
+    "independent_controls": {
+      "0": {
+        "run_id": "replay-16e9f888221b4bd5983e9cc6eef80d13",
+        "reuse": null
+      },
+      "1": {
+        "run_id": "replay-d0bad749e9774ed5a34735cfae633873",
+        "reuse": null
+      },
+      "2": {
+        "run_id": "replay-1aa59c90380d4e548051150d9cc0058f",
+        "reuse": null
+      },
+      "3": {
+        "run_id": "replay-7c091b8a79174392a9e32c04aa07d1f9",
+        "reuse": null
+      }
+    },
+    "rolling_cycles": 407,
+    "continuation_ticks": 120,
+    "native_callbacks_compared": 14364,
+    "tracked_peak_bytes": 906437896,
+    "acceptance_results": {
+      "observer_validity": "pass",
+      "simulation": "pass"
+    },
+    "correction_cost_us": {
+      "median": 290346,
+      "p95": 405627,
+      "maximum": 1044547,
+      "over_16700": 407,
+      "scope": "correction-only diagnostic; already exceeds full-update budget; not a full-update performance qualification"
+    }
+  },
+  "open": [
+    "mid-application consumer enforcement",
+    "Niagara reader route",
+    "A617 to C624 publication",
+    "changed births/deaths",
+    "complete-B recovery/cancellation120",
+    "epoch/reset",
+    "normal-renderer coherence",
+    "complete simultaneous ownership",
+    "16.7ms full-update performance",
+    "local adapter/support matrix"
+  ],
+  "niagara_native_evidence": "docs/evidence/rollback-niagara-repeat-reader-2026-09-23.json",
+  "niagara_retained": {
+    "docs\\evidence\\rollback-niagara-repeat-reader-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\2e140a650c6c0f7ee5bc6dddb994ae99a942027dd38652ffd6a57b74ca18b073.json",
+      "sha256": "2e140a650c6c0f7ee5bc6dddb994ae99a942027dd38652ffd6a57b74ca18b073",
+      "bytes": 28919
+    },
+    "docs\\evidence\\rollback-niagara-component-tick-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\3f48b1db3ddeb90725873a82f8b8153d80168f4a4f70e84967a85a15f4bab57b.json",
+      "sha256": "3f48b1db3ddeb90725873a82f8b8153d80168f4a4f70e84967a85a15f4bab57b",
+      "bytes": 1114
+    }
+  },
+  "integration": {
+    "retained_receipt": {
+      "bytes": 1485,
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\87b94999be98552adcf5963636ca0e9db2c4523a8c0756fff9e442e5ef4d789f.json",
+      "sha256": "87b94999be98552adcf5963636ca0e9db2c4523a8c0756fff9e442e5ef4d789f"
+    },
+    "result": "pass",
+    "raw_log": {
+      "bytes": 752,
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0cfe12df8e37db400312e392e18f50ddf408d65a2e2f3b8f511df1019c086db8.log",
+      "sha256": "0cfe12df8e37db400312e392e18f50ddf408d65a2e2f3b8f511df1019c086db8"
+    },
+    "elapsed_seconds": 277.0,
+    "tests": "625 passed in273.47s"
+  },
+  "affected30": {
+    "result": "pass",
+    "elapsed_seconds": 235.469,
+    "retained_evidence": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\95ad65c764a6099500c8a5fb665365e6edfe0f92a88974921d0679e60ba5aadb.json",
+      "sha256": "95ad65c764a6099500c8a5fb665365e6edfe0f92a88974921d0679e60ba5aadb",
+      "bytes": 42087,
+      "summary": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\217d9876af0794c94cf9e16680e0468d8dcb6f1d32407709f5d26391d2b2c208.md",
+        "sha256": "217d9876af0794c94cf9e16680e0468d8dcb6f1d32407709f5d26391d2b2c208",
+        "bytes": 518
+      }
+    },
+    "rolling_cycles": 30,
+    "continuation_ticks": 120,
+    "native_callbacks_compared": 2300,
+    "acceptance_results": {
+      "observer_validity": "pass",
+      "simulation": "pass"
+    },
+    "build_identities": {
+      "runtime": "2e21955916e6919e804581935142bddbfebc51a47170ad275a8e390a7b6596fa",
+      "observer": "fa828c8b94e3da0269eb856fc1977ccf857db4572dc76f95f384505fa87544d7",
+      "framework": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6"
+    }
+  },
+  "local_transaction_contract": {
+    "recorded_resimulation_inputs": "Sc6ReplayInputSource retains authored ReplaySourceState plus immutable revision overrides; resimulation uses selected recording/revision. This batch did not change input sourcing.",
+    "delayed_corrections": "407 diagnostic preserves A210 and sample arrivals at217/218/219, delays1/4/7, compared against separate revision0..3 controls. Production prediction and duplicate/out-of-order adapter acceptance remains open.",
+    "validity": "Existing session, source index/serial, expected revision and checkpoint-generation validation retained; epoch/reset qualification remains open.",
+    "logical_events": "Stable epoch/tick/producer/sequence identities and corrected debris event reconciliation remain unimplemented; raw native owner addresses are not an accepted event identity.",
+    "bounded_history": "Existing bounded checkpoint window retained; InputTimeline has maximum_entries and DiscardBefore; native replay override storage cap65536 is not proof of a complete production rolling input-history policy."
+  },
+  "checkpoint_cleanup": {
+    "journal": "clean",
+    "restored_files_verified": 6,
+    "games_remaining": 0,
+    "owned_builds_suites_remaining": 0,
+    "steam_pid": 98544,
+    "workspace_fingerprint": "46cb6df813a0e23d6dbe649739958fad8ec2dfffc4cb0b489efd06689ff71a51",
+    "matches_build": true
+  }
+}

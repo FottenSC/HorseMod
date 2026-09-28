@@ -1,0 +1,42 @@
+{
+  "run_id": "replay-3e2c56c23dc14d9d8fade309fc28cc9a",
+  "result": "Completed application205 pause reached after surfacefix; firstfailure application_scheduler_inventory_invalid; preceding trace check=lease",
+  "scope": "Surface fallback demonstrated; no consumer arm/hold or recovery",
+  "cleanup": {
+    "complete": true,
+    "games_remaining": 0
+  },
+  "restored_files": 8,
+  "files": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\60cd86c370405a51cfbfffdcf84c849d3959e98f439a5ccd1d9dbc6b49a8934c.json",
+      "sha256": "60cd86c370405a51cfbfffdcf84c849d3959e98f439a5ccd1d9dbc6b49a8934c",
+      "bytes": 9455
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4cdf998ecb3061c3ff5e4d249ae0a3a9440ba5cd709ff82fca4667adf625ec48.json",
+      "sha256": "4cdf998ecb3061c3ff5e4d249ae0a3a9440ba5cd709ff82fca4667adf625ec48",
+      "bytes": 11596
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\88edc67dbff2c8ce7fc2213cb32b1fa201160cade8e79210fdfca5033eee7702.log",
+      "sha256": "88edc67dbff2c8ce7fc2213cb32b1fa201160cade8e79210fdfca5033eee7702",
+      "bytes": 4488161
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d84dd7cd99851c141a3992fc45eb4888aa44f3b94e64d6a01f5b32c0458b5f2b.json",
+      "sha256": "d84dd7cd99851c141a3992fc45eb4888aa44f3b94e64d6a01f5b32c0458b5f2b",
+      "bytes": 5491
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\02ff4b0659e88748f16c08797a00a860059d2c8d60b9b20e79ee2748469862e9.hpp",
+      "sha256": "02ff4b0659e88748f16c08797a00a860059d2c8d60b9b20e79ee2748469862e9",
+      "bytes": 53767
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b55df2c9f35b28f970b7a7f6b7efd0fdde9250f7a702d386fa902905b85ce14b.cpp",
+      "sha256": "b55df2c9f35b28f970b7a7f6b7efd0fdde9250f7a702d386fa902905b85ce14b",
+      "bytes": 18445
+    }
+  ]
+}

@@ -80,6 +80,7 @@ Status CandidateGameStateAdapter::Configure(
         return Status::failure(FailureCode::InvalidConfiguration);
     }
     binding_ = binding;
+    hgcpu_.BindStatOwners(binding.hgcpu_stat_fighters);
     try
     {
         if (transaction_target_scratch_ == nullptr)
@@ -114,6 +115,7 @@ Status CandidateGameStateAdapter::Configure(
 void CandidateGameStateAdapter::Reset() noexcept
 {
     binding_ = {};
+    hgcpu_.BindStatOwners({});
     total_capture_timing_ = {};
     typed_capture_timing_ = {};
     local_capture_timing_ = {};
@@ -570,13 +572,17 @@ Status CandidateGameStateAdapter::decode_and_preflight(
     {
         return Status::failure(FailureCode::IllegalTransition);
     }
-    Status status = regions_.PreflightRestore(output.native);
+    Status status = binding_.ucrt_broker->PreflightRestore(
+        binding_.simulation_thread_id, output.ucrt);
+    if (status.ok()) status = regions_.PreflightRestore(output.native);
     // Battle-audio alternation is presentation-handler state whose source
     // boundary is a native outer batch, not a coordinate checkpoint. Its
     // independently observed entry value is restored by DeterministicHookSet
     // immediately before the corresponding owned batch executes.
     if (status.ok())
         status = binding_.move_dispatch->PreflightRestore(output.move_dispatch);
+    if (status.ok())
+        status = binding_.chara_animation->PreflightRestore(output.chara_animation);
     return status;
 }
 
@@ -592,6 +598,7 @@ Status CandidateGameStateAdapter::Restore(const Snapshot& snapshot) noexcept
 {
     const auto total_begin = std::chrono::steady_clock::now();
     last_restore_operation_failure_mask_ = 0;
+    last_native_restore_diagnostic_ = {};
     if (transaction_target_scratch_ == nullptr
         || transaction_scratch_ == nullptr)
     {
@@ -609,14 +616,6 @@ Status CandidateGameStateAdapter::Restore(const Snapshot& snapshot) noexcept
     Status restored = capture_image(*transaction_scratch_);
     const bool undo_captured = restored.ok();
     if (!undo_captured) last_restore_operation_failure_mask_ = 1u << 8;
-    if (undo_captured)
-    {
-        // Camera component internals are presentation-local and the decoded
-        // peer image leaves them untouched.  Exclude them from the enclosing
-        // undo transaction as well; restoring bytes that this transaction did
-        // not write is both unnecessary and unsafe for live camera objects.
-        transaction_scratch_->native.camera_components = {};
-    }
     if (restored.ok()) restored = restore_image(*transaction_target_scratch_);
     if (!restored.ok() && undo_captured
         && !undo_image(*transaction_scratch_))
@@ -645,6 +644,15 @@ Status CandidateGameStateAdapter::restore_image(
     if (!status.ok()) last_restore_operation_failure_mask_ = 1u << 0;
     if (status.ok())
     {
+        // HgCpu's 14030AE80 reader resets the AI slots, temporarily replacing
+        // fighter+0x2B270 (motion overlay 5's bank). Repair the animation owner
+        // before motion-bank membership checks; the enclosing undo owns B.
+        status = binding_.chara_animation->RestoreUnderEnclosingTransaction(
+            image.chara_animation);
+        if (!status.ok()) last_restore_operation_failure_mask_ = 1u << 5;
+    }
+    if (status.ok())
+    {
         status = binding_.motion_banks->RestoreTransactional(
             image.local_images[1]);
         if (!status.ok()) last_restore_operation_failure_mask_ = 1u << 1;
@@ -656,11 +664,14 @@ Status CandidateGameStateAdapter::restore_image(
     if (status.ok())
     {
         const auto typed_begin = std::chrono::steady_clock::now();
-        // Do not write the diagnostic battle-audio capture here. A coordinate
-        // may own several native batches, so the per-batch journal is the only
-        // qualified restore boundary for that selector.
-        status = regions_.RestoreTransactional(image.native);
-        if (!status.ok()) last_restore_operation_failure_mask_ = 1u << 2;
+        // The resumable host owns this exact boundary and has no legacy
+        // batch journal. Preserve that journal's policy only for its callers.
+        if (binding_.restore_audio_selector)
+            status = binding_.battle_audio_selector->RestoreTransactional(image.battle_audio_selector);
+        if (!status.ok()) last_restore_operation_failure_mask_ = 1u << 6;
+        if (status.ok()) status = regions_.RestoreTransactional(image.native);
+        if(!status.ok() && !last_restore_operation_failure_mask_)last_native_restore_diagnostic_=regions_.validation_diagnostic();
+        if (!status.ok() && !last_restore_operation_failure_mask_) last_restore_operation_failure_mask_ = 1u << 2;
         if (status.ok()) status = binding_.move_dispatch->RestoreTransactional(
             image.move_dispatch);
         if (!status.ok() && last_restore_operation_failure_mask_ == 0)
@@ -669,10 +680,6 @@ Status CandidateGameStateAdapter::restore_image(
             image.secondary_events);
         if (!status.ok() && last_restore_operation_failure_mask_ == 0)
             last_restore_operation_failure_mask_ = 1u << 4;
-        if (status.ok()) status = binding_.chara_animation->RestoreTransactional(
-            image.chara_animation);
-        if (!status.ok() && last_restore_operation_failure_mask_ == 0)
-            last_restore_operation_failure_mask_ = 1u << 5;
         const auto typed_end = std::chrono::steady_clock::now();
         typed_restore_timing_.Record(static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -711,22 +718,22 @@ bool CandidateGameStateAdapter::undo_image(
     const Status hgcpu = hgcpu_.Restore(
         binding_.hgcpu_reader, binding_.hgcpu_context,
         image.local_images[0]);
+    const Status chara_animation =
+        binding_.chara_animation->RestoreUnderEnclosingTransaction(image.chara_animation);
     const Status motion = binding_.motion_banks->RestoreTransactional(
         image.local_images[1]);
-    // The selector journal is replayed by the native-batch owner and therefore
-    // is intentionally absent from coordinate-level undo as well.
+    const Status audio = binding_.restore_audio_selector
+        ? binding_.battle_audio_selector->RestoreTransactional(image.battle_audio_selector) : Status::success();
     const Status native = regions_.RestoreTransactional(image.native);
     const Status move_dispatch =
         binding_.move_dispatch->RestoreTransactional(image.move_dispatch);
     const Status secondary = binding_.secondary_events->RestoreTransactional(
         image.secondary_events);
-    const Status chara_animation =
-        binding_.chara_animation->RestoreTransactional(image.chara_animation);
     const Status wind = binding_.wind_transaction->Restore(
         binding_.wind_addresses, image.wind);
     const Status ucrt = binding_.ucrt_broker->Restore(
         binding_.simulation_thread_id, image.ucrt);
-    return hgcpu.ok() && motion.ok() && native.ok()
+    return hgcpu.ok() && motion.ok() && native.ok() && audio.ok()
         && move_dispatch.ok()
         && secondary.ok()
         && chara_animation.ok()
@@ -767,17 +774,9 @@ Status CandidateGameStateAdapter::VerifyRestoredState(
     // while producing the same typed gameplay state. Capture above still proves
     // that the current serializer is bounded and valid; verification compares
     // only pointer-free typed state and explicitly admitted value supplements.
-    // Battle-audio selector identity is verified against each native-batch
-    // envelope during replay, rather than against this coordinate capture.
-    for (std::size_t index = 0;
-         index < transaction_target_scratch_->native.camera_components.size();
-         ++index)
-    {
-        if (transaction_target_scratch_->native.camera_components[index].present
-            == 0)
-            transaction_scratch_->native.camera_components[index] =
-                transaction_target_scratch_->native.camera_components[index];
-    }
+    if (binding_.restore_audio_selector && transaction_scratch_->battle_audio_selector
+        != transaction_target_scratch_->battle_audio_selector)
+        last_restore_difference_mask_ |= 64;
     if (transaction_scratch_->native != transaction_target_scratch_->native)
         last_restore_difference_mask_ |= 1;
     if (transaction_scratch_->move_dispatch

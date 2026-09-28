@@ -1,0 +1,37 @@
+{
+  "result": "fail",
+  "scope": "first unchanged consumer suspension attempt; game exited during startup before consumer guard installation",
+  "run_id": "replay-554947d378a443049fe69f67f876b0a5",
+  "failure": "owned control process exited (0x00000003)",
+  "process_exit": {
+    "code": 3,
+    "hex": "0x00000003",
+    "observed_before_owned_cleanup": true,
+    "pid": 56552
+  },
+  "cleanup": {
+    "complete": true,
+    "games_remaining": 0
+  },
+  "report": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8e895ffb1371897b622278bf0cadae7cded05d5b45e4a518a1a712620ae08c4a.json",
+    "sha256": "8e895ffb1371897b622278bf0cadae7cded05d5b45e4a518a1a712620ae08c4a",
+    "bytes": 9206
+  },
+  "raw_log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\010055262f6b2caefac5b3924a402de43e19dff985c8432394c19b61ae33405a.log",
+    "sha256": "010055262f6b2caefac5b3924a402de43e19dff985c8432394c19b61ae33405a",
+    "bytes": 67955
+  },
+  "stage": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6466e602f04f034d7f9f91aba387b849d808964f721449ec6b2e05ffeb6b5cfb.json",
+    "sha256": "6466e602f04f034d7f9f91aba387b849d808964f721449ec6b2e05ffeb6b5cfb",
+    "bytes": 10844
+  },
+  "next_falsifiable_change": "Diagnostic-only native error Serialize entry140E0ED30 captures incoming text and stack while forwarding original ABI; no guard weakened.",
+  "immutable": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\775a0f3fc4465f103ddb313ff5e316d5b07d1d5c0e4b0588e2f36e5a153278d4.json",
+    "sha256": "775a0f3fc4465f103ddb313ff5e316d5b07d1d5c0e4b0588e2f36e5a153278d4",
+    "bytes": 1495
+  }
+}

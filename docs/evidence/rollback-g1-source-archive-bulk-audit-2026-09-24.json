@@ -1,0 +1,12 @@
+{
+  "utc": "2026-09-24T19:51:05.3316449Z",
+  "source_root": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives",
+  "destination_root": "C:\\Users\\prest\\Documents\\myMods-source-archives-20260924",
+  "source_archives": 1083,
+  "symbolic_links": 551,
+  "plain_archives": 532,
+  "broken_links": 0,
+  "plain_with_destination_collision": 0,
+  "active_three_receipt": "rollback-g1-source-archive-relocation-2026-09-24.json",
+  "note": "Additional older archives were moved through the same per-file before/after SHA-256 verification loop before it ended; this audit verifies current link resolution and absence of duplicate plain targets."
+}

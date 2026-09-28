@@ -1,0 +1,675 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-28",
+  "purpose": "Narrative consolidation; original bytes preserved separately; archived Markdown links rebased. No raw native/run artifacts moved.",
+  "original_zip": "original-notes.zip",
+  "original_zip_sha256": "f4ac0f18af65a4e3dfc44e1ab34b4eb6518bea933dd1774fd714d66daff6e6d9",
+  "documents": [
+    {
+      "original_path": "docs/README.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/notes/README.md",
+      "original_sha256": "3836ece1e33d5f809ce1ef92f996c0f456bd22d2f846a35456f57cbdd6223735",
+      "archive_sha256": "ee9ddba71b948b012748fb8a2cbc58d6ad4458096a0a9b650343a6cba0a84daa",
+      "original_bytes": 1105
+    },
+    {
+      "original_path": "docs/deterministic-simulation-goal.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/notes/deterministic-simulation-goal.md",
+      "original_sha256": "e16eee714825ddf25eb0a234e40fe41ea84fdce6d3ca569473b568aad4ed3a2c",
+      "archive_sha256": "dc16cf5b9b24ac0268f85909d92d87ae5ce8fdddef61de637cbd8252ea5a235b",
+      "original_bytes": 14355
+    },
+    {
+      "original_path": "docs/investigations/2026-08-20-frame-meter-static-handoff.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/2026-08-20-frame-meter-static-handoff.md",
+      "original_sha256": "31f3d943a235e4b6183c8e7b35bcb8c93e031bab605185d12fd59b9ac26a7583",
+      "archive_sha256": "9264b5cbce975117fd5b109789cd1c97bba23c2e0ebdd6a35ec80037347f58d3",
+      "original_bytes": 8299
+    },
+    {
+      "original_path": "docs/investigations/AGENTS-stale-replay-guidance-2026-09-13-8c3b7d58.txt",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/AGENTS-stale-replay-guidance-2026-09-13-8c3b7d58.txt",
+      "original_sha256": "8c3b7d5888f75bd7328954a3ecb786ac1348285b8cfa39512ee69ad259084937",
+      "archive_sha256": "8c3b7d5888f75bd7328954a3ecb786ac1348285b8cfa39512ee69ad259084937",
+      "original_bytes": 32829
+    },
+    {
+      "original_path": "docs/investigations/Manual_Investigations/removeDelay.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/Manual_Investigations/removeDelay.md",
+      "original_sha256": "d661d42710016e5fc8096f1e1c57cd568405cf07c5b01469b76c9242e7595d6c",
+      "archive_sha256": "1510fdf4ce6cb81e8924fbe559d0e19c14fbc846ba13245959653367fecc3040",
+      "original_bytes": 44671
+    },
+    {
+      "original_path": "docs/investigations/deterministic-native-bulk-snapshot-hybrid-2026-08-24.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/deterministic-native-bulk-snapshot-hybrid-2026-08-24.md",
+      "original_sha256": "f8af3c2f5114b826cf37dd791af2ee166c4e25a27f21baf18a5092187ed4e0ce",
+      "archive_sha256": "c88b3b572e309fe4494f24437df6aae709100f800d6a15c9fc854e5472de5d39",
+      "original_bytes": 14166
+    },
+    {
+      "original_path": "docs/investigations/deterministic-native-contract-agent-plan-2026-08-23.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/deterministic-native-contract-agent-plan-2026-08-23.md",
+      "original_sha256": "608f1195b8e395bc7d481f3261532b2f18168d8afebef11105b36dd5493dd409",
+      "archive_sha256": "df5a2ee44242dfd61cf9f9094c91ef12f04d5289712a6ec766bc8bfa2bea18ad",
+      "original_bytes": 19092
+    },
+    {
+      "original_path": "docs/investigations/deterministic-native-contract-results-2026-08-23.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/deterministic-native-contract-results-2026-08-23.md",
+      "original_sha256": "6d663866f0baee0b76d22c778222dd4c0eea8e9faa17cf45bea54180e62fbd1b",
+      "archive_sha256": "c344c8cba64c588f6da2eff1296c6b44ad07882fc502e5dec3667f0c9b0914e0",
+      "original_bytes": 168675
+    },
+    {
+      "original_path": "docs/investigations/deterministic-online-coordinator-2026-08-24.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/deterministic-online-coordinator-2026-08-24.md",
+      "original_sha256": "909a6563fe1bd108b313bbe2af9ead22e2215d22ccdefa462d4991abb9d69bff",
+      "archive_sha256": "098d129411219742c01a3174e908c8d81ae1467c425863f376dca29fac487a04",
+      "original_bytes": 3384
+    },
+    {
+      "original_path": "docs/investigations/deterministic-online-round361-gate-2026-09-04.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/deterministic-online-round361-gate-2026-09-04.md",
+      "original_sha256": "64565f93e8a638b3af29d7b77c346aea4ba1e10eecb1067051b86cf116521bf8",
+      "archive_sha256": "207344033437d3c853b1696da02fddd3443b2f7a30b2b2b428d65ac1c9fa2fc2",
+      "original_bytes": 5801
+    },
+    {
+      "original_path": "docs/investigations/deterministic-simulation-contract-2026-08-23.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/deterministic-simulation-contract-2026-08-23.md",
+      "original_sha256": "20409e3784b8a883809ba429d17d52338d28e224d7a7458e98f1d734b3309486",
+      "archive_sha256": "9f65d08e76ddc1b1c92a6d582048f684b60324f3da1832f5b9eff1bb068ebddb",
+      "original_bytes": 19526
+    },
+    {
+      "original_path": "docs/investigations/deterministic-simulation-failure-ledger-2026-08-30.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/deterministic-simulation-failure-ledger-2026-08-30.md",
+      "original_sha256": "eb392be07aeb4f97d0bb42a49565dd0b462ac1ecff6e81a4ebe7c061ce32e68d",
+      "archive_sha256": "4373750def85559d3e4ad484ff3616a05351f4b05788a98e6ceff01640911272",
+      "original_bytes": 37423
+    },
+    {
+      "original_path": "docs/investigations/deterministic-simulation-final-takeover-plan-2026-08-28.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/deterministic-simulation-final-takeover-plan-2026-08-28.md",
+      "original_sha256": "28b6a3b95cccfc6ded37f0984c86c3c7339f40a12b85e1b1be0be6b95cf2ce9f",
+      "archive_sha256": "771811c4a5a51faf68e9d397c4f290e1a7a88ab186ea8353e4bcd68ce5584db3",
+      "original_bytes": 25084
+    },
+    {
+      "original_path": "docs/investigations/deterministic-simulation-outstanding-plan-2026-08-25.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/deterministic-simulation-outstanding-plan-2026-08-25.md",
+      "original_sha256": "c3838faae7a9211cf6b172168f09bc76b7be288f48140e0740c3aa145459124f",
+      "archive_sha256": "99c3f0074ac4c2701cef3bb8db33eccff6398db563e5cdab9d1238a76d86c75a",
+      "original_bytes": 20371
+    },
+    {
+      "original_path": "docs/investigations/deterministic-simulation-takeover-handoff-2026-08-24.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/deterministic-simulation-takeover-handoff-2026-08-24.md",
+      "original_sha256": "f11f9a7f50c18713be0c8213a66e705dbdf6ba304113479a21b33c020c16c902",
+      "archive_sha256": "6ec00188ed768235194b3a347e37dd061065d5ade63c4dab9ddc4d1f987c05fa",
+      "original_bytes": 28726
+    },
+    {
+      "original_path": "docs/investigations/dotvanisher-audit-2026-09-13.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/dotvanisher-audit-2026-09-13.md",
+      "original_sha256": "acc90ac13b05d6484d7f34cafd6e4404f02ece5e9a3a8c7811309bdcaae431b1",
+      "archive_sha256": "d513ef89588584883cdb9a23e5280a2a287fd0df02764ed8ea06cf4fcd268732",
+      "original_bytes": 6392
+    },
+    {
+      "original_path": "docs/investigations/dotvanisher-general-fix-2026-09-13.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/dotvanisher-general-fix-2026-09-13.md",
+      "original_sha256": "31468dfff094f7e927f9727b62d6ed3341dfd8bc44cb456261d482eca98105a2",
+      "archive_sha256": "b82fda0bf9d7e91d7ad3c68029d8b0571e8896acd37d8e1abd049895090423f7",
+      "original_bytes": 14207
+    },
+    {
+      "original_path": "docs/investigations/dotvanisher-recovery-implementation-2026-09-13.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/dotvanisher-recovery-implementation-2026-09-13.md",
+      "original_sha256": "af19c1df49048d1dc4869451ec44a672be181c54119c1a09c56cab5266931ef2",
+      "archive_sha256": "c4175b0cc9aef64cb15246ee2ffbdb4eb39c023838a65a61ce01f85b1af547c6",
+      "original_bytes": 5294
+    },
+    {
+      "original_path": "docs/investigations/original-viewport-rollback-2026-09-15.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/original-viewport-rollback-2026-09-15.md",
+      "original_sha256": "4aeb82b130efb617932549123343df56b06a98c20e6dfe4f8fd0995e208df7b5",
+      "archive_sha256": "29479bef53362b6a52011e9538d340deed84231f378adc1842e72a955e2b1300",
+      "original_bytes": 2744
+    },
+    {
+      "original_path": "docs/investigations/replay-acceptance-status-history-through-2026-09-13.txt",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-acceptance-status-history-through-2026-09-13.txt",
+      "original_sha256": "441403390e5e35382589b3756e869c638fe42c2d5ab083022faea53fe7134bcc",
+      "archive_sha256": "441403390e5e35382589b3756e869c638fe42c2d5ab083022faea53fe7134bcc",
+      "original_bytes": 44399
+    },
+    {
+      "original_path": "docs/investigations/replay-active-hud-checkpoint-2026-09-12.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-active-hud-checkpoint-2026-09-12.md",
+      "original_sha256": "97779db7ee85393f640de3815fa0a28f4fad8527c35411012ba6335db4f68107",
+      "archive_sha256": "0f897d1e352c7aba25e168f1a281bd73748a10a2c10ff637221d6e7e5543cb97",
+      "original_bytes": 20313
+    },
+    {
+      "original_path": "docs/investigations/replay-advance-undo-ownership-2026-09-10.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-advance-undo-ownership-2026-09-10.md",
+      "original_sha256": "5c1d217d9f70cc5421b0eed618705fdffb275b081977d3f9b160b4802fcff3ff",
+      "archive_sha256": "16a545cf8200e3fc3f999976ae8c516ffee7ee22b1235744b24c2c606e06f0c7",
+      "original_bytes": 42847
+    },
+    {
+      "original_path": "docs/investigations/replay-announcement-ownership-2026-09-13.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-announcement-ownership-2026-09-13.md",
+      "original_sha256": "45d12317064bea2eec9ca8878097e02b5ab5a9a9869e484530b7fce3a11b62e8",
+      "archive_sha256": "10c5010b3d4d505f7aaf59710b830a82d7e95d8aba42eef4680014b484249c43",
+      "original_bytes": 11749
+    },
+    {
+      "original_path": "docs/investigations/replay-checkpoint-coverage-next-2026-09-13.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-checkpoint-coverage-next-2026-09-13.md",
+      "original_sha256": "aad9c7778328a516a6883e495831b276538af2f1e8fcc5270360e43b5d502364",
+      "archive_sha256": "2ec16239e31021f51b9bd5d9603c3c92c51d9533dd4047a2a6852885ee2c459a",
+      "original_bytes": 7984
+    },
+    {
+      "original_path": "docs/investigations/replay-checkpoint-preparation-fallback-2026-09-12.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-checkpoint-preparation-fallback-2026-09-12.md",
+      "original_sha256": "12a6194d295d12648b33f9bd5213cfe954ee70da8393df27b7cc4dae6124a979",
+      "archive_sha256": "e79f6d76bdcbde92b6874be3fa72e634e95602595fe0addecdf5867bfcbf220f",
+      "original_bytes": 8533
+    },
+    {
+      "original_path": "docs/investigations/replay-checkpoint-static-audit-2026-09-06.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-checkpoint-static-audit-2026-09-06.md",
+      "original_sha256": "a997c7a24f0feb32a4f0a59035eceb44ecc3559a74a8f88ebdb79923459ec885",
+      "archive_sha256": "6bb6e9ce60af563f111401e0a30eea345642eaa26fce8bd6e6314b41bc6ab38b",
+      "original_bytes": 17107
+    },
+    {
+      "original_path": "docs/investigations/replay-checkpoint-static-followup-2026-09-06.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-checkpoint-static-followup-2026-09-06.md",
+      "original_sha256": "630847a644881b48d4ac8633501bc9d3feb6918232539805bc14c148d7334ac4",
+      "archive_sha256": "ffb0d8ba405d4015a45dda844f77a40aea295dff453a0568d0fa561a153b84ff",
+      "original_bytes": 11723
+    },
+    {
+      "original_path": "docs/investigations/replay-clean-request-failure-ui-2026-09-11.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-clean-request-failure-ui-2026-09-11.md",
+      "original_sha256": "fe59aa1711275341b50689f20e0a1db9893c1d649236449228d4a679decbbcd8",
+      "archive_sha256": "ce69f1d38d44655f69ef74c6a44df1a1830ddae4bfe95c358552d9c120dcc87a",
+      "original_bytes": 2199
+    },
+    {
+      "original_path": "docs/investigations/replay-cross-round-physics-restore-plan-2026-09-10.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-cross-round-physics-restore-plan-2026-09-10.md",
+      "original_sha256": "6b5a147e8bb385cf187a7a5ad7d37a138e5fdc03697f7f87e96f4a94a381a3d1",
+      "archive_sha256": "34aad255dd8acbc8f8f50f25d6660280969f97a6666e3de0ec48ef6badc1ced0",
+      "original_bytes": 37269
+    },
+    {
+      "original_path": "docs/investigations/replay-ground-debris-restore-plan-2026-09-14.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-ground-debris-restore-plan-2026-09-14.md",
+      "original_sha256": "d5d2e556f69f31e03fe0f804854179ceccdd2148843ba3c0029222ff99facf08",
+      "archive_sha256": "0c04d88d71d7c93f19f5153ec1c0fcc061746b57007e2105893547084c7c0d2f",
+      "original_bytes": 27028
+    },
+    {
+      "original_path": "docs/investigations/replay-host-seek-qualification-2026-09-09.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-host-seek-qualification-2026-09-09.md",
+      "original_sha256": "9c338bf90e40cf093d70ac23a6c091e393d5166f73702b2db6aef5087b83cc0e",
+      "archive_sha256": "e5d07c00e9d0b4502578b01cb716fa6cdc9ea24f2abff3dba22bdcf779bb3e56",
+      "original_bytes": 80555
+    },
+    {
+      "original_path": "docs/investigations/replay-initial-hud-ownership-2026-09-12.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-initial-hud-ownership-2026-09-12.md",
+      "original_sha256": "6420787f1a12ced2448ade38ddd6285ab6d420ac146e2765ee610a6a3ea72c57",
+      "archive_sha256": "7e58c6ac27a54e2da9609ad00075427e7ca317043a821fbe70af540eb9e291e2",
+      "original_bytes": 23984
+    },
+    {
+      "original_path": "docs/investigations/replay-live-reopening-2026-09-11.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-live-reopening-2026-09-11.md",
+      "original_sha256": "5bec944232d50778c837478a2ac0165b4b2e29a873b2f463006bd05199c6a164",
+      "archive_sha256": "71add301efc2ed4af749e777391c6d3ae75ea2402d2767982236724f698d931c",
+      "original_bytes": 11642
+    },
+    {
+      "original_path": "docs/investigations/replay-marker-broadphase-ownership-2026-09-11.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-marker-broadphase-ownership-2026-09-11.md",
+      "original_sha256": "9429ec1287a6f686c586fecddbfffa614269a5efb86770eb0f5cbfa84a49ce77",
+      "archive_sha256": "21281b61c164084860f4f2c114ff01b07d2d045841deab9761730d6d8b89d6ba",
+      "original_bytes": 62743
+    },
+    {
+      "original_path": "docs/investigations/replay-native-emitter-retirement-2026-09-12.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-native-emitter-retirement-2026-09-12.md",
+      "original_sha256": "50c3325f455c458dcc7782ff15bfe9ed63468cd217cbefda3388220579e22a2a",
+      "archive_sha256": "3c57a914b918700a78d9c6c26ca80f18c4d415b0a05f25de9bd10b8e3d9ae66d",
+      "original_bytes": 5093
+    },
+    {
+      "original_path": "docs/investigations/replay-native-session-entry-2026-09-12.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-native-session-entry-2026-09-12.md",
+      "original_sha256": "a2ec4a20f46dcfbd7442219992da1d75f994a29013540f589577e8299a5fe600",
+      "archive_sha256": "ce7a3af423a98d83454c343d5497efdae1239de6fcaef641a90882065b6bd7a1",
+      "original_bytes": 3536
+    },
+    {
+      "original_path": "docs/investigations/replay-native-session-exit-2026-09-12.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-native-session-exit-2026-09-12.md",
+      "original_sha256": "ef7c486554c30ef1403ace371dc9f8a8f8836514f76acca5de6e1e304033a3da",
+      "archive_sha256": "99de94d394e972b0b70927ce625abf19931b5d8c30e18e03b7c73a0a5247521a",
+      "original_bytes": 5832
+    },
+    {
+      "original_path": "docs/investigations/replay-particle-checkpoint-storage-2026-09-12.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-particle-checkpoint-storage-2026-09-12.md",
+      "original_sha256": "1de199e74617bd3f0b0332392e0ff7799f5199925a78b0c2b157d54d59519ed5",
+      "archive_sha256": "2e9bc41474d093a47c5059796efeda6232b2e8d26a8fc100e12436026aa6a2b7",
+      "original_bytes": 9824
+    },
+    {
+      "original_path": "docs/investigations/replay-preparation-retry-2026-09-14.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-preparation-retry-2026-09-14.md",
+      "original_sha256": "0d07d7469c93c316a0e8db491db599b89c243908cca8a7a49706c703b23b6bd8",
+      "archive_sha256": "5c37578d688f43989645f1e1d086909112226ae5a3f122584cc036dbc188f85f",
+      "original_bytes": 4730
+    },
+    {
+      "original_path": "docs/investigations/replay-private-active-HUD-B-2026-09-13.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-private-active-HUD-B-2026-09-13.md",
+      "original_sha256": "5e19d7947e8f96f027135d5a07ade7efb6b773eeb279a5a3d35863ccc9d20b8c",
+      "archive_sha256": "8993db44729333ccd658fd92bf4a3e654135fdc95a36a4445fc1615cd04cbd28",
+      "original_bytes": 7593
+    },
+    {
+      "original_path": "docs/investigations/replay-private-trace-child-B-2026-09-13.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-private-trace-child-B-2026-09-13.md",
+      "original_sha256": "1ef3e4ced96cb2f001ae9fd1b4cc1aea1f0e0c90d03ebcb6a1c4e51333851d04",
+      "archive_sha256": "069df1674d81767bf76c2a2eda3ebd1bfceca17ec53128b3e306bd394288fe06",
+      "original_bytes": 8695
+    },
+    {
+      "original_path": "docs/investigations/replay-render-drained-cancellation-2026-09-11.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-render-drained-cancellation-2026-09-11.md",
+      "original_sha256": "33a5f61a5226772d7d2801270500154cd313151d128226fd5c03f341d37803ee",
+      "archive_sha256": "5a4c20cb29167d48fe0e807a3a23a1582389da34c1ac91383ba535f39bc8d04c",
+      "original_bytes": 3131
+    },
+    {
+      "original_path": "docs/investigations/replay-render-reopen-atomic-2026-09-11.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-render-reopen-atomic-2026-09-11.md",
+      "original_sha256": "43acb825e879a31bf86c9d1256028c82b21fe29540ffa2d62de99ee4fed466e0",
+      "archive_sha256": "e7f591d7487fb4c148b3d82745752db10c46b3c41e609f9f59321d1a63e6e7ee",
+      "original_bytes": 3473
+    },
+    {
+      "original_path": "docs/investigations/replay-reopening-recovery-2026-09-11.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-reopening-recovery-2026-09-11.md",
+      "original_sha256": "104df20db274881270f2f38df54a23c36df74f6c9eb0d5936f5106599151f28e",
+      "archive_sha256": "eadd62d21710557c5c32a7a18055dddb1c931b2c221146c99a9a06e836b92898",
+      "original_bytes": 5102
+    },
+    {
+      "original_path": "docs/investigations/replay-retained-end-native-finish-2026-09-12.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-retained-end-native-finish-2026-09-12.md",
+      "original_sha256": "cebf3193a628cf4e40703d2fcfd7e6eb0280711579afab2701fae9cde2297016",
+      "archive_sha256": "e173666af7ec125577dc00284f851f9ebec844c788b649ff23c412be43f13460",
+      "original_bytes": 10504
+    },
+    {
+      "original_path": "docs/investigations/replay-seeker-implementation-handoff-2026-09-08.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-seeker-implementation-handoff-2026-09-08.md",
+      "original_sha256": "cf7c679a597777432935fb1db5cf87fd5b235993e31908e18b02046a973273a3",
+      "archive_sha256": "13f0829d98d9ae48acd0ca627e19a45f711afd6e86c8e0e598568ebe2f3f1928",
+      "original_bytes": 38528
+    },
+    {
+      "original_path": "docs/investigations/replay-seeker-static-deepening-2026-09-08.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-seeker-static-deepening-2026-09-08.md",
+      "original_sha256": "d18a0778d2fb9fe7088cb3905479b411f0a70671bc8763d9ab2dba8ebfd184e6",
+      "archive_sha256": "4339089537d705996495556540415fb7f6a2b6b60a08e6184f875231e41db3cc",
+      "original_bytes": 144308
+    },
+    {
+      "original_path": "docs/investigations/replay-stage-tick-registration-2026-09-11.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-stage-tick-registration-2026-09-11.md",
+      "original_sha256": "1b34c1c114da9e95d18b66a7b7cdd3eebbaedbe3ae6b060a4c16d98ef7be2c54",
+      "archive_sha256": "a67401d59dca5e3377f7f8b89f15e5b023b7b48e9144d9b494c0185fd8689027",
+      "original_bytes": 4603
+    },
+    {
+      "original_path": "docs/investigations/replay-status-history-through-2026-09-13.txt",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-status-history-through-2026-09-13.txt",
+      "original_sha256": "37ccb8fc046ec27598382d6552fe3d2b914b4b20f301358b007f19e2f380b0a3",
+      "archive_sha256": "37ccb8fc046ec27598382d6552fe3d2b914b4b20f301358b007f19e2f380b0a3",
+      "original_bytes": 290263
+    },
+    {
+      "original_path": "docs/investigations/replay-tps-audit-2026-09-11.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-tps-audit-2026-09-11.md",
+      "original_sha256": "e4d42ef6e5ae0d81f41129d74a7897422bb6ac82e9b8db3cb29761411f534ff2",
+      "archive_sha256": "8005ac359ec9694ceb40283ba27c2909b5fde575e45bc274fb27aad2655bc1ba",
+      "original_bytes": 7383
+    },
+    {
+      "original_path": "docs/investigations/replay-trace-retirement-integration-2026-09-12.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-trace-retirement-integration-2026-09-12.md",
+      "original_sha256": "5c4fc1e118d9eb29331bf26aec05a71b12e7b9905b07d261aa83d994a0544ec2",
+      "archive_sha256": "ac4ddec6b505bea4dcd672874417c770ebe144e80a85be0fda16995901d1bc08",
+      "original_bytes": 10098
+    },
+    {
+      "original_path": "docs/investigations/replay-trace-visible-B-reconstruction-2026-09-13.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-trace-visible-B-reconstruction-2026-09-13.md",
+      "original_sha256": "871d0459558c4b777df3271fe4dbb0cbe37fe88f0406801a4a3228e9637dccfe",
+      "archive_sha256": "afd63df47b7e0e39bcf740c3af8eb86be0771e842410ac49beb38d86ce54e775",
+      "original_bytes": 6393
+    },
+    {
+      "original_path": "docs/investigations/replay-unpaced-application-2026-09-09.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-unpaced-application-2026-09-09.md",
+      "original_sha256": "98fcfe8eb61b28d1d2c99d81c45512d5c4652c3b05f9146e18e850a5fcf36b7a",
+      "archive_sha256": "7431f335fff500ac811510969eb5c44b6569a14096fbca5243818d1b67f5ce5c",
+      "original_bytes": 5756
+    },
+    {
+      "original_path": "docs/investigations/replay-vfx-handler-history-2026-09-09.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-vfx-handler-history-2026-09-09.md",
+      "original_sha256": "bd447a8e32ce642d70876c46d7ebd1b933791314d18eca8f70016c3393bfbca8",
+      "archive_sha256": "ebbff6098f45b245d3291998c01b336f256de9f4a93c57f325d0de70ae28dc5b",
+      "original_bytes": 4330
+    },
+    {
+      "original_path": "docs/investigations/replay-visibility-release-fault-2026-09-11.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-visibility-release-fault-2026-09-11.md",
+      "original_sha256": "b3f66924f5bf541c25582b9825638399065bcbe09a574e223ca9e028f17bba2d",
+      "archive_sha256": "3eb0eff45f93885bab03db9c8515386426010e779af80b5f37720dac06121096",
+      "original_bytes": 3286
+    },
+    {
+      "original_path": "docs/investigations/replay-world-ownership.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/replay-world-ownership.md",
+      "original_sha256": "36e72544249774d26d7bf3be162ba668fa125a55eaa3dc37792b6a9dee927789",
+      "archive_sha256": "10289bab62d762127acf22ee1f91c87bda3d1a68f8af777eede34ea36e3c1228",
+      "original_bytes": 323235
+    },
+    {
+      "original_path": "docs/investigations/rollback-beta-remaining-native-boundaries-re-investigation-2026-08-05.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/rollback-beta-remaining-native-boundaries-re-investigation-2026-08-05.md",
+      "original_sha256": "14b661101d93162a5de93dc7f9886ce6b6d0d8d567a723cfafdb9fa7098bd8e3",
+      "archive_sha256": "c88a6d2e35f75ae6973f1e7a77a75ada155db27cadedf80b143649e3df5bfa04",
+      "original_bytes": 70987
+    },
+    {
+      "original_path": "docs/investigations/rollback-effects-event-hub-investigation.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/rollback-effects-event-hub-investigation.md",
+      "original_sha256": "5fdcef06d10c4e54e2fc3077414605034dbee24d79c02518391db666af8df9c3",
+      "archive_sha256": "68ad69154843e34ffb6b4c19e55d8882e4e21e99c0bfb5cc891578b3aafa4eef",
+      "original_bytes": 265731
+    },
+    {
+      "original_path": "docs/investigations/rollback-forward-blockers-2026-09-15.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/rollback-forward-blockers-2026-09-15.md",
+      "original_sha256": "928d877d38464c5c4da6e718c3c462ae82b4eee54ca3e6ece6a8bc4002f73442",
+      "archive_sha256": "73ac46633c134c75ac9c606e9e230b8139046e025e17cd51267feeb866a087df",
+      "original_bytes": 4671
+    },
+    {
+      "original_path": "docs/investigations/rollback-live-adoption-blocker-2026-09-15.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/rollback-live-adoption-blocker-2026-09-15.md",
+      "original_sha256": "c1958b2f660cd800fddd596c22fa1bf2f42a71ec5242c2a652fdd63038ba05c0",
+      "archive_sha256": "3319c89ccb372a41c3c507d92a0caff6c48172346182cd47a75b469b5b842d95",
+      "original_bytes": 4399
+    },
+    {
+      "original_path": "docs/investigations/rollback-particle-lifetime-2026-09-14.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/rollback-particle-lifetime-2026-09-14.md",
+      "original_sha256": "1cad8fca82fed6169b669ac9aa6c789d5f4a6199822208ea7941eae606193082",
+      "archive_sha256": "db82a2bef5ef664ab6f9b7177ed3fbc925153d6c4b4d6410d2d475f62da716c0",
+      "original_bytes": 15610
+    },
+    {
+      "original_path": "docs/investigations/rollback-reassessment-progress-2026-09-05.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/rollback-reassessment-progress-2026-09-05.md",
+      "original_sha256": "3832b0fd0cefbdc62acde132a68827d047657c8048eb86e85ca6fe36d927219c",
+      "archive_sha256": "ce608a785f8f97cb384038817331b18c05b2b88993da29e59f21c7aabb405454",
+      "original_bytes": 28966
+    },
+    {
+      "original_path": "docs/investigations/rollback-remediation-handoff-2026-08-06.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/rollback-remediation-handoff-2026-08-06.md",
+      "original_sha256": "25a8239fddedefc668ac2640efe6e6f2192c773af11aabbd3cfa5761197d237d",
+      "archive_sha256": "6b254e3098fa15012a72fbeb1102beaf05890197942f91c6b291fd0c5a3ae43d",
+      "original_bytes": 13088
+    },
+    {
+      "original_path": "docs/investigations/rollback-runtime-rewrite-2026-09-05.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/rollback-runtime-rewrite-2026-09-05.md",
+      "original_sha256": "c41a5c7bd8084a575ce3986047672f26715906e1ea669a045069234c0a31e2f5",
+      "archive_sha256": "92c63032626b0f6eb8fa85619a73041f25159b995cc813e74976eb799c7b91dd",
+      "original_bytes": 63436
+    },
+    {
+      "original_path": "docs/investigations/rollback-support-epoch-recovery-2026-09-22.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/rollback-support-epoch-recovery-2026-09-22.md",
+      "original_sha256": "2f5bb1fb88896e1887a864100f528246e8ac8d2d647634c5be32a4b7f7a68df6",
+      "archive_sha256": "2bbcba1a462bbac7b889f84e199fa554d02551db2a78bca2200c98bf00b92ed9",
+      "original_bytes": 6664
+    },
+    {
+      "original_path": "docs/investigations/rolling-historical-trace-children-2026-09-15.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/rolling-historical-trace-children-2026-09-15.md",
+      "original_sha256": "5eaffcfb9728b1f1c3a42dd406ade3ed67d7595822d2e59254e8c38da0aeda3e",
+      "archive_sha256": "d5cc46b9d3e92b6ac3057115ac0f56975e0e3f8e0b7c2ccddc8773c01bde16b7",
+      "original_bytes": 9855
+    },
+    {
+      "original_path": "docs/investigations/round-end-replay-2026-09-15.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/round-end-replay-2026-09-15.md",
+      "original_sha256": "beee78693b0e939802a075ee2bfeec37b25984560b0e0a01d54c1dd053595526",
+      "archive_sha256": "558d946f8ccf13f218f238fbeca1bf84503282561a3137741e6dc0188735a68a",
+      "original_bytes": 9218
+    },
+    {
+      "original_path": "docs/investigations/round-end-replay-rollback-coverage-2026-09-15.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/round-end-replay-rollback-coverage-2026-09-15.md",
+      "original_sha256": "dbbf953242e44ea0bd5cf73a03747964dd124302b8437831925791b963fc744c",
+      "archive_sha256": "5ef088835511c92cad2f440a5956ab39c1bada1b5ac734d871fa62c3b5b4476c",
+      "original_bytes": 5977
+    },
+    {
+      "original_path": "docs/investigations/standalone-combat-re-ledger.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/standalone-combat-re-ledger.md",
+      "original_sha256": "b94d913b2efa3f9927ae4ca25318bac68ba4d78b21d8e686f7f52b45174201bb",
+      "archive_sha256": "575900db742e1595c3ed0aefc6f02b7bf8386b6f01115ff260bb9ba870faf0a9",
+      "original_bytes": 3919
+    },
+    {
+      "original_path": "docs/investigations/standalone-combat-simulation-re-plan-2026-08-16.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/standalone-combat-simulation-re-plan-2026-08-16.md",
+      "original_sha256": "fdcceef574c337900030de3d74a319233b197b6c04198451e898ba5230ffbe02",
+      "archive_sha256": "4c75c9ff4973d00f75d636d17da5c7f379996e4fdb3d1760eed051cbe04e1ed4",
+      "original_bytes": 19427
+    },
+    {
+      "original_path": "docs/investigations/tira-shared-rng-determinism-2026-08-27.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/investigations/tira-shared-rng-determinism-2026-08-27.md",
+      "original_sha256": "1cbc99c45d7663ac1e00af3808fe4979e52fc9e6590f5bc278d2461c508a1e14",
+      "archive_sha256": "6413e4c11ba944886b0aa0d7a10d2e3bcf13d6c924bffaaef8cfb2a34b84c28f",
+      "original_bytes": 10693
+    },
+    {
+      "original_path": "docs/replay-acceptance-matrix.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/notes/replay-acceptance-matrix.md",
+      "original_sha256": "65fe3563ff2668239ded6057ea1435b43ec3847aa8e80efced9b63dd67a04702",
+      "archive_sha256": "8a4a61cda195e790ee59135bd5b89dc4c1de5f0510c4ad35f8880386d00e9f34",
+      "original_bytes": 547
+    },
+    {
+      "original_path": "docs/replay-acceptance.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/notes/replay-acceptance.md",
+      "original_sha256": "6b8920dd85ea0bf654f494adf4955c64ce20860614601a96cd818ec62662f807",
+      "archive_sha256": "87d60a86fc679c5cff0665da8c1f92dd62ba579c2bcc3218630ed151ffa7e5ab",
+      "original_bytes": 540
+    },
+    {
+      "original_path": "docs/replay-review-ownership-2026-09-12.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/notes/replay-review-ownership-2026-09-12.md",
+      "original_sha256": "36f79a4369ee907e796bd843fbeb2890314f9d97811ff3cb1645b615f024df81",
+      "archive_sha256": "41fda0509f7a91a1da76d3884297ea980a0f9117356c54c4f7be5a757a4e2daa",
+      "original_bytes": 10351
+    },
+    {
+      "original_path": "docs/replay-seeking-acceptance-deferred-2026-09-14.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/notes/replay-seeking-acceptance-deferred-2026-09-14.md",
+      "original_sha256": "e7ccfd35d8be64cfffe18d039d9221d17c5eec3a503b61aba090002d83c985e4",
+      "archive_sha256": "beecf62259b0b4989080fd4e50218f4e3a56645b9811f078a06f91e3fb80406c",
+      "original_bytes": 14338
+    },
+    {
+      "original_path": "docs/replay-testing.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/notes/replay-testing.md",
+      "original_sha256": "137677f8d272e9b30ce7c7a374fe33b13a044231dbe0610891bae8f3495a3ea2",
+      "archive_sha256": "0331ec7d97c84e3be95526115229b0923d156c62349b94968c2c9a69f1a40cfc",
+      "original_bytes": 6768
+    },
+    {
+      "original_path": "docs/replay-tool-output.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/notes/replay-tool-output.md",
+      "original_sha256": "a2b109e143fb272b31899291c8ceaa2fa9be44c4402ffcc38a4e49997c68fa3c",
+      "archive_sha256": "196f86fb6e98e244dbe8c46bb637b893f78e43a57f807eaf8b29ace6e9a26c45",
+      "original_bytes": 6198
+    },
+    {
+      "original_path": "docs/rollback-body-tracking-plan-2026-09-28.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/notes/rollback-body-tracking-plan-2026-09-28.md",
+      "original_sha256": "3cc4b3fe6ac6ddaa42b50eac63125ef86028e420407bd90d94f8d7252c5224f1",
+      "archive_sha256": "8d88c0a4f70e7e134c70347c0d0514359f617b61dc933c15d38a3e25018de9d9",
+      "original_bytes": 4664
+    },
+    {
+      "original_path": "docs/rollback-local-readiness-handover-2026-09-22-2212.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/notes/rollback-local-readiness-handover-2026-09-22-2212.md",
+      "original_sha256": "8986c09864e1783248a89723216106d3e2a311fcd252e1c631b90c4caeca6c87",
+      "archive_sha256": "6fc2c51252e63feaaf0675df6ddef078b8a094bef16a24659d0444bb42b8d04f",
+      "original_bytes": 20340
+    },
+    {
+      "original_path": "docs/rollback-netcode-readiness-review-2026-09-22.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/notes/rollback-netcode-readiness-review-2026-09-22.md",
+      "original_sha256": "644b5e641cdd81e192f0767e22f207cc5737c1673a7779a74b9a5bc3dbb2f76c",
+      "archive_sha256": "588cff1dcd0ab7f2e83291f2b039ec48a2846b9419134f6091335bf95a2e9db8",
+      "original_bytes": 6676
+    },
+    {
+      "original_path": "docs/rollback-next-phase-handover-2026-09-21.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/notes/rollback-next-phase-handover-2026-09-21.md",
+      "original_sha256": "9850d13f2cacb7f548acf2d33e5897ac1e65f88a14b4efff7da8dba1a7bcd31e",
+      "archive_sha256": "9283b7bdace3e2db0c40b336df9765d5b0d0ea884c307109ae2014e09397e436",
+      "original_bytes": 20129
+    },
+    {
+      "original_path": "docs/rollback-next-phase-handover-2026-09-22-private-physics.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/notes/rollback-next-phase-handover-2026-09-22-private-physics.md",
+      "original_sha256": "53fb23bba9142d08892141294ae0b21c37e444b1f18a67720f8b4226825deb96",
+      "archive_sha256": "47aec757f07156dece535a602d9165da4ed6765dc9ca3b2d7657e88b96b6984a",
+      "original_bytes": 14947
+    },
+    {
+      "original_path": "docs/rollback-next-phase-handover-2026-09-22.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/notes/rollback-next-phase-handover-2026-09-22.md",
+      "original_sha256": "58de3343da0de849f1baac6e30695650134d7f0a0841d84bb4511c45fe4c0a03",
+      "archive_sha256": "4ffc7acb147970ef1fccf569e0a778d90d4eac56c0a3d715e9de0be8aee12207",
+      "original_bytes": 20441
+    },
+    {
+      "original_path": "docs/rollback-rolling600-coverage.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/notes/rollback-rolling600-coverage.md",
+      "original_sha256": "5286539d50c77b3f83f43139f2a21683a1d67bd8343e4e37873b0e0dad8de338",
+      "archive_sha256": "8ed295b01b97ebeebd7f87326e2acedfa7bf1d0db99451ef749ece2c69d41517",
+      "original_bytes": 7047
+    },
+    {
+      "original_path": "docs/rollback-status-history-2026-09-20.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/notes/rollback-status-history-2026-09-20.md",
+      "original_sha256": "912ff91218f817bc6a8e425002a4f2cbc69d0ba580c21d12c7770c6ab056a06d",
+      "archive_sha256": "387abf75e52c95fbb717f68f51263d91ebc4959116cb5f17b8315ed68a774b79",
+      "original_bytes": 206040
+    },
+    {
+      "original_path": "docs/rollback-status-history-2026-09-26.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/notes/rollback-status-history-2026-09-26.md",
+      "original_sha256": "9607462ce946e16386647597b53f190fcf97d82335a0149f36d963ddcb72717a",
+      "archive_sha256": "2c946964a70721153501c0d4b83e54d9262ba44464cd07f092248192e5d48535",
+      "original_bytes": 277507
+    },
+    {
+      "original_path": "docs/rollback-status-history-2026-09-27.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/notes/rollback-status-history-2026-09-27.md",
+      "original_sha256": "c2f95afb79f816df0726a43e038597fcc15ad71391a7d552d9220390f3cd89f4",
+      "archive_sha256": "3a2010bfe8c338e6a8ecc615d9b642947ff4edd1a0dae5dc75f7887742b0cfcf",
+      "original_bytes": 48687
+    },
+    {
+      "original_path": "docs/rollback-status.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/notes/rollback-status.md",
+      "original_sha256": "3d88ac427ea2fe747e5bf704d2ddb13ff3af737b1ca0b3349571b35a3dcec74f",
+      "archive_sha256": "112029d2681181d6d3b4abb8858c8bb582a9e23bda454d52b55265ab249eec45",
+      "original_bytes": 60961
+    },
+    {
+      "original_path": "docs/rollback-test-workflow-2026-09-27.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/notes/rollback-test-workflow-2026-09-27.md",
+      "original_sha256": "1f5c6bb5f2c5983d72d83e6dcc85bfffeedf38b6e76f5985bb0abd76ed7b6987",
+      "archive_sha256": "500bb3ff8789186aa0cfa72bd71608a62411e3eece451477988632cf9d14a9b9",
+      "original_bytes": 5656
+    },
+    {
+      "original_path": "docs/rollback-testing-handover-2026-09-21.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/notes/rollback-testing-handover-2026-09-21.md",
+      "original_sha256": "87ac41a4cc1edbd7abf44d39cbf39a9a3e69738a2e9df7865f675d80558c31fe",
+      "archive_sha256": "a280b5d67ed365b3f392ae5774cd5678b80a2d7457182916a1571191e3dbcf00",
+      "original_bytes": 13696
+    },
+    {
+      "original_path": "docs/rollback-tooling-validation-2026-09-26.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/notes/rollback-tooling-validation-2026-09-26.md",
+      "original_sha256": "7ed9d3569d34be3237175cd17c994bb77366ae4b7af03683b5dcece6d93c96f3",
+      "archive_sha256": "780a58af82ab75bc00ba2d51b780eb4affbda71963e7b9f518c8885be6e4e690",
+      "original_bytes": 17362
+    },
+    {
+      "original_path": "docs/rollback-tooling.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/notes/rollback-tooling.md",
+      "original_sha256": "e7940ddd7d73e50e2f119613b756214bcba09d5c12e7e6211d043950c20b722f",
+      "archive_sha256": "ddba5612b8d9dc0c75cd38663fa44b0746e5b5f727465192c8f18785b7fc68fc",
+      "original_bytes": 11148
+    },
+    {
+      "original_path": "docs/rollback-work-block-2026-09-28.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/notes/rollback-work-block-2026-09-28.md",
+      "original_sha256": "395479fdc3bdd92d07905e4b0576c85e6067b79448c9f0bbcf6eeda6c607df01",
+      "archive_sha256": "7fb6285c64cf67e91fcb949f91f98ce30ad30d853f0e0346aaf0ffecd6e6c344",
+      "original_bytes": 2044
+    },
+    {
+      "original_path": "docs/testing-improvements-2026-09-20.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/notes/testing-improvements-2026-09-20.md",
+      "original_sha256": "fea5b1845f1f0eafa9832ab3b27c52a4646997cbe2fa39735f8a73e36ab633b1",
+      "archive_sha256": "6fd072befcd2f536ff1493ad0957edef671a324f837e33a361ec35757689f406",
+      "original_bytes": 8271
+    },
+    {
+      "original_path": "docs/testing-startup-hypothesis.md",
+      "archive_path": "docs/history/2026-09-28-consolidation/notes/testing-startup-hypothesis.md",
+      "original_sha256": "d7dccc93fff8ce39c76115639a4b7355e20788e2762eaeaca5fd7edc2b769251",
+      "archive_sha256": "b226d294964f2d539064ff5924f557a179b5b5b88e803096cd9575c403136ffb",
+      "original_bytes": 2127
+    }
+  ],
+  "native_dump_relocations": "native-dump-relocations.json"
+}

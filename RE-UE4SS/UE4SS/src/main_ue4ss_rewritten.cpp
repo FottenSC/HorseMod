@@ -1,5 +1,6 @@
 #define NOMINMAX
 #include <Windows.h>
+#include <atomic>
 #include <cstdio>
 #include <future>
 #include <iostream>
@@ -7,6 +8,7 @@
 #include <tlhelp32.h>
 
 #include "UE4SSProgram.hpp"
+#include <Mod/CppUserModBase.hpp>
 #include <DynamicOutput/DynamicOutput.hpp>
 #include <Helpers/String.hpp>
 
@@ -41,13 +43,30 @@ auto thread_dll_start(UE4SSProgram* program) -> unsigned long
 }
 
 static bool s_wait_for_ue4ss{};
+static std::atomic<DWORD> s_initial_cpp_mod_thread{};
+
+auto RC::IsInitialCppModStartupThread() noexcept -> bool
+{
+    return s_initial_cpp_mod_thread.load(std::memory_order_acquire) == GetCurrentThreadId();
+}
 
 auto process_initialized(HMODULE moduleHandle) -> void
 {
     wchar_t moduleFilenameBuffer[1024]{'\0'};
     GetModuleFileNameW(moduleHandle, moduleFilenameBuffer, sizeof(moduleFilenameBuffer) / sizeof(wchar_t));
 
-    auto program = new UE4SSProgram(moduleFilenameBuffer, {});
+    UE4SSProgram* program{};
+    {
+        struct InitialModScope
+        {
+            explicit InitialModScope(bool proxy_startup)
+            {
+                if (proxy_startup) s_initial_cpp_mod_thread.store(GetCurrentThreadId(), std::memory_order_release);
+            }
+            ~InitialModScope() { s_initial_cpp_mod_thread.store(0, std::memory_order_release); }
+        } initial_mod_scope(s_wait_for_ue4ss);
+        program = new UE4SSProgram(moduleFilenameBuffer, {});
+    }
     if (HANDLE handle = CreateThread(nullptr, 0, reinterpret_cast<LPTHREAD_START_ROUTINE>(thread_dll_start), (LPVOID)program, 0, nullptr); handle)
     {
         CloseHandle(handle);

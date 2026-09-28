@@ -1,0 +1,90 @@
+{
+  "created_utc": "2026-09-22T14:46:00.478080+00:00",
+  "report": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6b2d8033a05c0d50d048f0e449a89cc60549346f0552a1028d6eae70357b9ed2.json",
+    "sha256": "6b2d8033a05c0d50d048f0e449a89cc60549346f0552a1028d6eae70357b9ed2",
+    "bytes": 37750
+  },
+  "console": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\63f49e9c7b5a8ccdd3316e6df00245c65568a919ad29021a03d0ad276aafa361.log",
+    "sha256": "63f49e9c7b5a8ccdd3316e6df00245c65568a919ad29021a03d0ad276aafa361",
+    "bytes": 663
+  },
+  "preflight": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b104a72bbe52f8602138248554d823a716784a1250d4a90da0f415ab1bce446d.log",
+    "sha256": "b104a72bbe52f8602138248554d823a716784a1250d4a90da0f415ab1bce446d",
+    "bytes": 314
+  },
+  "summary": {
+    "result": "pass",
+    "profile": {
+      "path": "E:\\myMods\\tools\\deterministic_qualification\\replay_profiles\\changed-rolling30-startup-serial.json",
+      "sha256": "c3e4d0e3474430564dd3f41857ebb2bb551f973cb0977d7f98dce48b29540806"
+    },
+    "rolling_cycles": 30,
+    "continuation_ticks": 120,
+    "traversals": [
+      {
+        "result": "pass",
+        "cycles": 30,
+        "pose_traversals": 8,
+        "lifecycle_events": 7,
+        "receiver_traversals": 8,
+        "receiver_calls": 8,
+        "continuation_ticks": 120,
+        "scope": "independent complete Lux poses, ordered lifecycle and native receiver return/state/RNG receipts; downstream coherence and performance separate"
+      },
+      {
+        "result": "pass",
+        "cycles": 30,
+        "pose_traversals": 8,
+        "lifecycle_events": 7,
+        "receiver_traversals": 8,
+        "receiver_calls": 8,
+        "continuation_ticks": 120,
+        "scope": "independent complete Lux poses, ordered lifecycle and native receiver return/state/RNG receipts; downstream coherence and performance separate"
+      },
+      {
+        "result": "pass",
+        "cycles": 30,
+        "pose_traversals": 343,
+        "lifecycle_events": 388,
+        "receiver_traversals": 343,
+        "receiver_calls": 343,
+        "continuation_ticks": 120,
+        "scope": "independent complete Lux poses, ordered lifecycle and native receiver return/state/RNG receipts; downstream coherence and performance separate"
+      }
+    ],
+    "acceptance_results": {
+      "observer_validity": "pass",
+      "simulation": "pass"
+    },
+    "build_identities": {
+      "runtime": "99de67b51a185cb601713a59b5ca9e4599eeaf6805d53afd4010ee4ff25c48e8",
+      "observer": "21ca6864bc05d683e5cba50b1f595087587b66373ca98e36ca1c18256f36c3b5",
+      "framework": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6"
+    }
+  },
+  "charged_peak_bytes": 906358952,
+  "timings_us": {
+    "capture_us": {
+      "median": 94322.0,
+      "p95": 158503,
+      "max": 185604,
+      "over_16700_us": 30
+    },
+    "correction_us": {
+      "median": 610773.0,
+      "p95": 1739959,
+      "max": 1838750,
+      "over_16700_us": 30
+    },
+    "preceding_forward_us": {
+      "median": 59605.5,
+      "p95": 228390,
+      "max": 241855,
+      "over_16700_us": 30
+    }
+  },
+  "limitations": "Receiver output/ordered lifecycle and simulation pass for the observed route. Full lifecycle, recovery, epoch/reset, coherence, complete simultaneous ownership, full-update performance and A617/C624 publication remain open. No motion exclusion or 408 retry."
+}

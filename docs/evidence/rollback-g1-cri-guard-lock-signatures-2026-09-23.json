@@ -1,0 +1,47 @@
+{
+  "program": "SoulcaliburVI.exe",
+  "date": "2026-09-23",
+  "scope": "Verified raw signatures for existing native CRI mutex enter/leave calls used by trace guard hook installation/removal; not detours on these entries.",
+  "abi": {
+    "enter": "void __fastcall1431CD1F4(void* existingCriticalSection) RCX",
+    "leave": "void __fastcall1431CD24C(void* existingCriticalSection) RCX",
+    "mutexGlobal": "1444379E0"
+  },
+  "raw": [
+    {
+      "status": "fulfilled",
+      "value": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"address\":\"1431cd1f4\",\"length\":32,\"data\":[64,83,72,131,236,32,72,139,217,72,133,201,117,21,68,141,65,254,72,141,21,155,55,203,0,72,131,196,32,91,233,225],\"hex\":\"40534883ec20488bd94885c97515448d41fe488d159b37cb004883c4205be9e1\"}"
+          }
+        ],
+        "structuredContent": {
+          "result": "{\"address\":\"1431cd1f4\",\"length\":32,\"data\":[64,83,72,131,236,32,72,139,217,72,133,201,117,21,68,141,65,254,72,141,21,155,55,203,0,72,131,196,32,91,233,225],\"hex\":\"40534883ec20488bd94885c97515448d41fe488d159b37cb004883c4205be9e1\"}"
+        },
+        "isError": false
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"address\":\"1431cd24c\",\"length\":32,\"data\":[72,131,236,40,72,133,201,117,20,68,141,65,254,72,141,21,144,55,203,0,72,131,196,40,233,143,201,245,255,131,105,44],\"hex\":\"4883ec284885c97514448d41fe488d159037cb004883c428e98fc9f5ff83692c\"}"
+          }
+        ],
+        "structuredContent": {
+          "result": "{\"address\":\"1431cd24c\",\"length\":32,\"data\":[72,131,236,40,72,133,201,117,20,68,141,65,254,72,141,21,144,55,203,0,72,131,196,40,233,143,201,245,255,131,105,44],\"hex\":\"4883ec284885c97514448d41fe488d159037cb004883c428e98fc9f5ff83692c\"}"
+        },
+        "isError": false
+      }
+    }
+  ],
+  "limitations": [
+    "Requires original native game thread and live initialized CRI mutex; no concurrent engine/audio finalization.",
+    "No build/live tests by investigation subagent. Parent owns regression/build validation.",
+    "Callbacks stay registered. Native outer lock held only during hook patching/unpatching, not through resumed gameplay callbacks."
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "scope": "The settings lookup used by owner bounds must remain observational. If the first streaming row is present, native1421BC760 calls1421B32A0 which calls1425A1A00. Require already initialized1443C1EC0 before invoking that path; otherwise the class getter can call UE4_RegisterClassEx.",
+  "program": "SoulcaliburVI.exe",
+  "class_getter": {
+    "content": [
+      {
+        "type": "text",
+        "text": "\r\nlonglong FUN_1425a1a00(void)\r\n\r\n{\r\n  wchar_t *pwVar1;\r\n  void *pvVar2;\r\n  undefined8 uVar3;\r\n  \r\n  if (DAT_1443c1ec0 == 0) {\r\n    pwVar1 = GetEngineModuleName();\r\n    pvVar2 = GetNullPointerStub();\r\n    uVar3 = FUN_1425c9460();\r\n    UE4_RegisterClassEx(uVar3,L\"LevelStreamingPersistent\",&DAT_1443c1ec0,ReturnImmediately,0x160,\r\n                        0x10000008,pvVar2,pwVar1,&LAB_14259fdd0,GetNullPointerStub,\r\n                        HandleLuxNoOpVirtual,thunk_FUN_1425a1760,UObject_StaticClass,0);\r\n  }\r\n  return DAT_1443c1ec0;\r\n}\r\n\r\n"
+      }
+    ],
+    "structuredContent": {
+      "result": "\r\nlonglong FUN_1425a1a00(void)\r\n\r\n{\r\n  wchar_t *pwVar1;\r\n  void *pvVar2;\r\n  undefined8 uVar3;\r\n  \r\n  if (DAT_1443c1ec0 == 0) {\r\n    pwVar1 = GetEngineModuleName();\r\n    pvVar2 = GetNullPointerStub();\r\n    uVar3 = FUN_1425c9460();\r\n    UE4_RegisterClassEx(uVar3,L\"LevelStreamingPersistent\",&DAT_1443c1ec0,ReturnImmediately,0x160,\r\n                        0x10000008,pvVar2,pwVar1,&LAB_14259fdd0,GetNullPointerStub,\r\n                        HandleLuxNoOpVirtual,thunk_FUN_1425a1760,UObject_StaticClass,0);\r\n  }\r\n  return DAT_1443c1ec0;\r\n}\r\n\r\n"
+    },
+    "isError": false
+  }
+}

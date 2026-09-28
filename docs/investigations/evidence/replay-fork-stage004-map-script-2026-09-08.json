@@ -1,0 +1,739 @@
+[
+  {
+    "Type": "InstancedFoliageActor",
+    "Name": "InstancedFoliageActor_0",
+    "Flags": "RF_Transactional | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'InstancedFoliageActor'",
+    "Outer": {
+      "ObjectName": "Level'STG004:PersistentLevel'",
+      "ObjectPath": "Stage/STG004/Maps/STG004.4"
+    },
+    "Properties": {
+      "RootComponent": {
+        "ObjectName": "SceneComponent'STG004:PersistentLevel.InstancedFoliageActor_0.RootComponent0'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.14"
+      }
+    },
+    "FoliageMeshes_Deprecated2": {}
+  },
+  {
+    "Type": "LBP_StageIndex_C",
+    "Name": "DevStageIndex",
+    "Flags": "RF_Transactional | RF_WasLoaded | RF_LoadCompleted",
+    "Outer": {
+      "ObjectName": "Level'STG004:PersistentLevel'",
+      "ObjectPath": "Stage/STG004/Maps/STG004.4"
+    },
+    "Properties": {
+      "DefaultSceneRoot": {
+        "ObjectName": "SceneComponent'STG004:PersistentLevel.DevStageIndex.DefaultSceneRoot'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.13"
+      },
+      "StageIndexStr": "004",
+      "RootComponent": {
+        "ObjectName": "SceneComponent'STG004:PersistentLevel.DevStageIndex.DefaultSceneRoot'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.13"
+      },
+      "BlueprintCreatedComponents": [
+        {
+          "ObjectName": "SceneComponent'STG004:PersistentLevel.DevStageIndex.DefaultSceneRoot'",
+          "ObjectPath": "Stage/STG004/Maps/STG004.13"
+        }
+      ]
+    }
+  },
+  {
+    "Type": "LBP_StageShipCamera_C",
+    "Name": "LBP_StageShipCamera_2",
+    "Flags": "RF_Transactional | RF_WasLoaded | RF_LoadCompleted",
+    "Outer": {
+      "ObjectName": "Level'STG004:PersistentLevel'",
+      "ObjectPath": "Stage/STG004/Maps/STG004.4"
+    },
+    "Properties": {
+      "ScendParamX": {
+        "RollCoeffMin": 0.005,
+        "RollCoeffMax": 0.02,
+        "CycleMin": 240,
+        "CycleMax": 300
+      },
+      "ScendParamZ": {
+        "RollCoeffMin": 0.005,
+        "RollCoeffMax": 0.02,
+        "CycleMin": 240,
+        "CycleMax": 300
+      },
+      "RootComponent": null
+    }
+  },
+  {
+    "Type": "LBP_StageWind_C",
+    "Name": "LBP_StageWind_2",
+    "Flags": "RF_Transactional | RF_WasLoaded | RF_LoadCompleted",
+    "Outer": {
+      "ObjectName": "Level'STG004:PersistentLevel'",
+      "ObjectPath": "Stage/STG004/Maps/STG004.4"
+    },
+    "Properties": {
+      "BaseInterval": 2.0,
+      "NoiseInterval": 3.0,
+      "Power": 8.0,
+      "LifeTime": 3.0,
+      "NearReduceScale": 5.0,
+      "FarDistance": 10.0,
+      "FarScale": 2.0,
+      "RootComponent": null
+    }
+  },
+  {
+    "Type": "Level",
+    "Name": "PersistentLevel",
+    "Flags": "RF_Transactional | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'Level'",
+    "Outer": {
+      "ObjectName": "World'STG004'",
+      "ObjectPath": "Stage/STG004/Maps/STG004.23"
+    },
+    "Properties": {
+      "Model": {
+        "ObjectName": "Model'STG004:PersistentLevel.Model_0'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.12"
+      },
+      "LevelBuildDataId": "15367000-4C52B916-B352D4AC-18BA24E3",
+      "MapBuildData": {
+        "ObjectName": "MapBuildDataRegistry'STG004_BuiltData'",
+        "ObjectPath": "/Game/Stage/STG004/Maps/STG004_BuiltData"
+      },
+      "WorldSettings": {
+        "ObjectName": "LuxWorldSettings'STG004:PersistentLevel.LuxWorldSettings'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.11"
+      }
+    },
+    "Actors": [
+      {
+        "ObjectName": "LuxWorldSettings'STG004:PersistentLevel.LuxWorldSettings'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.11"
+      },
+      null,
+      {
+        "ObjectName": "LBP_StageIndex_C'STG004:PersistentLevel.DevStageIndex'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.1"
+      },
+      {
+        "ObjectName": "LBP_StageShipCamera_C'STG004:PersistentLevel.LBP_StageShipCamera_2'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.2"
+      },
+      {
+        "ObjectName": "InstancedFoliageActor'STG004:PersistentLevel.InstancedFoliageActor_0'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.0"
+      },
+      {
+        "ObjectName": "LBP_StageWind_C'STG004:PersistentLevel.LBP_StageWind_2'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.3"
+      },
+      {
+        "ObjectName": "StaticMeshActor'STG004:PersistentLevel.stg004_hit_ringout_floor_5'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.18"
+      },
+      {
+        "ObjectName": "StaticMeshActor'STG004:PersistentLevel.stg004_hit_gaiheki_7'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.15"
+      },
+      {
+        "ObjectName": "StaticMeshActor'STG004:PersistentLevel.stg004_hit_naraku_floor_9'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.16"
+      },
+      {
+        "ObjectName": "StaticMeshActor'STG004:PersistentLevel.stg004_hit_ring_floor_11'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.17"
+      },
+      null
+    ],
+    "URL": {
+      "Protocol": "unreal",
+      "Host": "",
+      "Port": 7777,
+      "Valid": true,
+      "Map": "/Game/Boot/Boot",
+      "Op": [],
+      "Portal": ""
+    },
+    "Model": {
+      "ObjectName": "Model'STG004:PersistentLevel.Model_0'",
+      "ObjectPath": "Stage/STG004/Maps/STG004.12"
+    },
+    "ModelComponents": [],
+    "LevelScriptActor": null,
+    "NavListStart": null,
+    "NavListEnd": null,
+    "PrecomputedVisibilityHandler": {
+      "PrecomputedVisibilityCellBucketOriginXY": {
+        "X": 0.0,
+        "Y": 0.0
+      },
+      "PrecomputedVisibilityCellSizeXY": 0.0,
+      "PrecomputedVisibilityCellSizeZ": 0.0,
+      "PrecomputedVisibilityCellBucketSizeXY": 0,
+      "PrecomputedVisibilityNumCellBuckets": 0,
+      "PrecomputedVisibilityCellBuckets": []
+    },
+    "PrecomputedVolumeDistanceField": {
+      "VolumeMaxDistance": 0.0,
+      "VolumeBox": {
+        "Min": {
+          "X": 0.0,
+          "Y": 0.0,
+          "Z": 0.0
+        },
+        "Max": {
+          "X": 0.0,
+          "Y": 0.0,
+          "Z": 0.0
+        },
+        "IsValid": 0
+      },
+      "VolumeSizeX": 0,
+      "VolumeSizeY": 0,
+      "VolumeSizeZ": 0,
+      "Data": []
+    }
+  },
+  {
+    "Type": "LevelStreamingAlwaysLoaded",
+    "Name": "LevelStreamingAlwaysLoaded_0",
+    "Flags": "RF_Transactional | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'LevelStreamingAlwaysLoaded'",
+    "Outer": {
+      "ObjectName": "World'STG004'",
+      "ObjectPath": "Stage/STG004/Maps/STG004.23"
+    },
+    "Properties": {
+      "WorldAsset": "/Game/Stage/STG004/Maps/STG004_BGBase.STG004_BGBase",
+      "LevelColor": {
+        "R": 0.45413607,
+        "G": 0.0,
+        "B": 0.37154493,
+        "A": 1.0,
+        "Hex": "B400A4"
+      }
+    }
+  },
+  {
+    "Type": "LevelStreamingAlwaysLoaded",
+    "Name": "LevelStreamingAlwaysLoaded_1",
+    "Flags": "RF_Transactional | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'LevelStreamingAlwaysLoaded'",
+    "Outer": {
+      "ObjectName": "World'STG004'",
+      "ObjectPath": "Stage/STG004/Maps/STG004.23"
+    },
+    "Properties": {
+      "WorldAsset": "/Game/Stage/STG004/Maps/STG004_Lighting.STG004_Lighting",
+      "LevelColor": {
+        "R": 0.5024484,
+        "G": 0.0,
+        "B": 0.32265747,
+        "A": 1.0,
+        "Hex": "BC009A"
+      }
+    }
+  },
+  {
+    "Type": "LevelStreamingAlwaysLoaded",
+    "Name": "LevelStreamingAlwaysLoaded_2",
+    "Flags": "RF_Transactional | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'LevelStreamingAlwaysLoaded'",
+    "Outer": {
+      "ObjectName": "World'STG004'",
+      "ObjectPath": "Stage/STG004/Maps/STG004.23"
+    },
+    "Properties": {
+      "WorldAsset": "/Game/Stage/STG004/Maps/STG004_BGVFX.STG004_BGVFX",
+      "bLocked": true,
+      "LevelColor": {
+        "R": 0.57974815,
+        "G": 0.24156174,
+        "B": 0.0,
+        "A": 1.0,
+        "Hex": "C98700"
+      }
+    }
+  },
+  {
+    "Type": "LevelStreamingAlwaysLoaded",
+    "Name": "LevelStreamingAlwaysLoaded_3",
+    "Flags": "RF_Transactional | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'LevelStreamingAlwaysLoaded'",
+    "Outer": {
+      "ObjectName": "World'STG004'",
+      "ObjectPath": "Stage/STG004/Maps/STG004.23"
+    },
+    "Properties": {
+      "WorldAsset": "/Game/Stage/STG004/Maps/STG004_Sound.STG004_Sound",
+      "bLocked": true,
+      "LevelColor": {
+        "R": 0.8019849,
+        "G": 0.019324938,
+        "B": 0.0,
+        "A": 1.0,
+        "Hex": "E82600"
+      }
+    }
+  },
+  {
+    "Type": "LevelStreamingAlwaysLoaded",
+    "Name": "LevelStreamingAlwaysLoaded_4",
+    "Flags": "RF_Transactional | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'LevelStreamingAlwaysLoaded'",
+    "Outer": {
+      "ObjectName": "World'STG004'",
+      "ObjectPath": "Stage/STG004/Maps/STG004.23"
+    },
+    "Properties": {
+      "WorldAsset": "/Game/Stage/STG004/Maps/STG004_Gimmicks.STG004_Gimmicks",
+      "LevelColor": {
+        "R": 0.4154862,
+        "G": 0.0,
+        "B": 0.41065493,
+        "A": 1.0,
+        "Hex": "AD00AC"
+      }
+    }
+  },
+  {
+    "Type": "LevelStreamingAlwaysLoaded",
+    "Name": "LevelStreamingAlwaysLoaded_6",
+    "Flags": "RF_Transactional | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'LevelStreamingAlwaysLoaded'",
+    "Outer": {
+      "ObjectName": "World'STG004'",
+      "ObjectPath": "Stage/STG004/Maps/STG004.23"
+    },
+    "Properties": {
+      "WorldAsset": "/Game/Stage/STG004/Maps/STG004_Gimmicks2.STG004_Gimmicks2",
+      "LevelColor": {
+        "R": 0.0,
+        "G": 0.63772297,
+        "B": 0.18358691,
+        "A": 1.0,
+        "Hex": "00D177"
+      }
+    }
+  },
+  {
+    "Type": "LuxWorldSettings",
+    "Name": "LuxWorldSettings",
+    "Flags": "RF_Transactional | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'LuxWorldSettings'",
+    "Outer": {
+      "ObjectName": "Level'STG004:PersistentLevel'",
+      "ObjectPath": "Stage/STG004/Maps/STG004.4"
+    },
+    "Properties": {
+      "DefaultGameMode": {
+        "ObjectName": "BlueprintGeneratedClass'BPLuxBattleGameMode_C'",
+        "ObjectPath": "/Game/System/BPLuxBattleGameMode"
+      },
+      "LightmassSettings": {
+        "IndirectLightingQuality": 2.0,
+        "bUseAmbientOcclusion": true,
+        "IndirectIlluminationOcclusionFraction": 0.7,
+        "VolumeLightSamplePlacementScale": 2.0
+      }
+    }
+  },
+  {
+    "Type": "Model",
+    "Name": "Model_0",
+    "Flags": "RF_Transactional | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'Model'",
+    "Outer": {
+      "ObjectName": "Level'STG004:PersistentLevel'",
+      "ObjectPath": "Stage/STG004/Maps/STG004.4"
+    },
+    "Bounds": {
+      "Origin": {
+        "X": 0.0,
+        "Y": 0.0,
+        "Z": 0.0
+      },
+      "BoxExtent": {
+        "X": 0.0,
+        "Y": 0.0,
+        "Z": 0.0
+      },
+      "SphereRadius": 0.0
+    },
+    "Vectors": [],
+    "Points": [],
+    "Nodes": [],
+    "Surfs": [],
+    "NumSharedSides": 4,
+    "VertexBuffer": {
+      "Vertices": []
+    },
+    "LightingGuid": "3AADD46C-4993A693-511400B7-E70B4AC0",
+    "LightmassSettings": []
+  },
+  {
+    "Type": "SceneComponent",
+    "Name": "DefaultSceneRoot",
+    "Flags": "RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'SceneComponent'",
+    "Outer": {
+      "ObjectName": "LBP_StageIndex_C'STG004:PersistentLevel.DevStageIndex'",
+      "ObjectPath": "Stage/STG004/Maps/STG004.1"
+    },
+    "Properties": {
+      "bNetAddressable": true,
+      "CreationMethod": "EComponentCreationMethod::SimpleConstructionScript"
+    }
+  },
+  {
+    "Type": "SceneComponent",
+    "Name": "RootComponent0",
+    "Flags": "RF_Transactional | RF_DefaultSubObject | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'SceneComponent'",
+    "Outer": {
+      "ObjectName": "InstancedFoliageActor'STG004:PersistentLevel.InstancedFoliageActor_0'",
+      "ObjectPath": "Stage/STG004/Maps/STG004.0"
+    }
+  },
+  {
+    "Type": "StaticMeshActor",
+    "Name": "stg004_hit_gaiheki_7",
+    "Flags": "RF_Transactional | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'StaticMeshActor'",
+    "Outer": {
+      "ObjectName": "Level'STG004:PersistentLevel'",
+      "ObjectPath": "Stage/STG004/Maps/STG004.4"
+    },
+    "Properties": {
+      "StaticMeshComponent": {
+        "ObjectName": "StaticMeshComponent'STG004:PersistentLevel.stg004_hit_gaiheki_7.StaticMeshComponent0'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.19"
+      },
+      "RootComponent": {
+        "ObjectName": "StaticMeshComponent'STG004:PersistentLevel.stg004_hit_gaiheki_7.StaticMeshComponent0'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.19"
+      }
+    }
+  },
+  {
+    "Type": "StaticMeshActor",
+    "Name": "stg004_hit_naraku_floor_9",
+    "Flags": "RF_Transactional | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'StaticMeshActor'",
+    "Outer": {
+      "ObjectName": "Level'STG004:PersistentLevel'",
+      "ObjectPath": "Stage/STG004/Maps/STG004.4"
+    },
+    "Properties": {
+      "StaticMeshComponent": {
+        "ObjectName": "StaticMeshComponent'STG004:PersistentLevel.stg004_hit_naraku_floor_9.StaticMeshComponent0'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.20"
+      },
+      "RootComponent": {
+        "ObjectName": "StaticMeshComponent'STG004:PersistentLevel.stg004_hit_naraku_floor_9.StaticMeshComponent0'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.20"
+      }
+    }
+  },
+  {
+    "Type": "StaticMeshActor",
+    "Name": "stg004_hit_ring_floor_11",
+    "Flags": "RF_Transactional | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'StaticMeshActor'",
+    "Outer": {
+      "ObjectName": "Level'STG004:PersistentLevel'",
+      "ObjectPath": "Stage/STG004/Maps/STG004.4"
+    },
+    "Properties": {
+      "StaticMeshComponent": {
+        "ObjectName": "StaticMeshComponent'STG004:PersistentLevel.stg004_hit_ring_floor_11.StaticMeshComponent0'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.21"
+      },
+      "RootComponent": {
+        "ObjectName": "StaticMeshComponent'STG004:PersistentLevel.stg004_hit_ring_floor_11.StaticMeshComponent0'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.21"
+      }
+    }
+  },
+  {
+    "Type": "StaticMeshActor",
+    "Name": "stg004_hit_ringout_floor_5",
+    "Flags": "RF_Transactional | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'StaticMeshActor'",
+    "Outer": {
+      "ObjectName": "Level'STG004:PersistentLevel'",
+      "ObjectPath": "Stage/STG004/Maps/STG004.4"
+    },
+    "Properties": {
+      "StaticMeshComponent": {
+        "ObjectName": "StaticMeshComponent'STG004:PersistentLevel.stg004_hit_ringout_floor_5.StaticMeshComponent0'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.22"
+      },
+      "RootComponent": {
+        "ObjectName": "StaticMeshComponent'STG004:PersistentLevel.stg004_hit_ringout_floor_5.StaticMeshComponent0'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.22"
+      }
+    }
+  },
+  {
+    "Type": "StaticMeshComponent",
+    "Name": "StaticMeshComponent0",
+    "Flags": "RF_Transactional | RF_DefaultSubObject | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'StaticMeshComponent'",
+    "Outer": {
+      "ObjectName": "StaticMeshActor'STG004:PersistentLevel.stg004_hit_gaiheki_7'",
+      "ObjectPath": "Stage/STG004/Maps/STG004.15"
+    },
+    "Properties": {
+      "StaticMesh": {
+        "ObjectName": "StaticMesh'stg004_hit_gaiheki'",
+        "ObjectPath": "/Game/Stage/STG004/AnselCollision/stg004_hit_gaiheki"
+      },
+      "bUseDefaultCollision": false,
+      "BodyInstance": {
+        "CollisionProfileName": "Ansel",
+        "CollisionResponses": {
+          "ResponseArray": [
+            {
+              "Channel": "WorldStatic",
+              "Response": "ECR_Ignore"
+            },
+            {
+              "Channel": "WorldDynamic",
+              "Response": "ECR_Ignore"
+            },
+            {
+              "Channel": "Pawn",
+              "Response": "ECR_Ignore"
+            },
+            {
+              "Channel": "Visibility",
+              "Response": "ECR_Ignore"
+            },
+            {
+              "Channel": "PhysicsBody",
+              "Response": "ECR_Ignore"
+            },
+            {
+              "Channel": "Vehicle",
+              "Response": "ECR_Ignore"
+            },
+            {
+              "Channel": "Destructible",
+              "Response": "ECR_Ignore"
+            }
+          ]
+        },
+        "CollisionEnabled": "ECollisionEnabled::QueryOnly"
+      },
+      "bVisible": false
+    }
+  },
+  {
+    "Type": "StaticMeshComponent",
+    "Name": "StaticMeshComponent0",
+    "Flags": "RF_Transactional | RF_DefaultSubObject | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'StaticMeshComponent'",
+    "Outer": {
+      "ObjectName": "StaticMeshActor'STG004:PersistentLevel.stg004_hit_naraku_floor_9'",
+      "ObjectPath": "Stage/STG004/Maps/STG004.16"
+    },
+    "Properties": {
+      "StaticMesh": {
+        "ObjectName": "StaticMesh'stg004_hit_naraku_floor'",
+        "ObjectPath": "/Game/Stage/STG004/AnselCollision/stg004_hit_naraku_floor"
+      },
+      "bUseDefaultCollision": false,
+      "BodyInstance": {
+        "CollisionProfileName": "Ansel",
+        "CollisionResponses": {
+          "ResponseArray": [
+            {
+              "Channel": "WorldStatic",
+              "Response": "ECR_Ignore"
+            },
+            {
+              "Channel": "WorldDynamic",
+              "Response": "ECR_Ignore"
+            },
+            {
+              "Channel": "Pawn",
+              "Response": "ECR_Ignore"
+            },
+            {
+              "Channel": "Visibility",
+              "Response": "ECR_Ignore"
+            },
+            {
+              "Channel": "PhysicsBody",
+              "Response": "ECR_Ignore"
+            },
+            {
+              "Channel": "Vehicle",
+              "Response": "ECR_Ignore"
+            },
+            {
+              "Channel": "Destructible",
+              "Response": "ECR_Ignore"
+            }
+          ]
+        },
+        "CollisionEnabled": "ECollisionEnabled::QueryOnly"
+      },
+      "bVisible": false
+    }
+  },
+  {
+    "Type": "StaticMeshComponent",
+    "Name": "StaticMeshComponent0",
+    "Flags": "RF_Transactional | RF_DefaultSubObject | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'StaticMeshComponent'",
+    "Outer": {
+      "ObjectName": "StaticMeshActor'STG004:PersistentLevel.stg004_hit_ring_floor_11'",
+      "ObjectPath": "Stage/STG004/Maps/STG004.17"
+    },
+    "Properties": {
+      "StaticMesh": {
+        "ObjectName": "StaticMesh'stg004_hit_ring_floor'",
+        "ObjectPath": "/Game/Stage/STG004/AnselCollision/stg004_hit_ring_floor"
+      },
+      "bUseDefaultCollision": false,
+      "BodyInstance": {
+        "CollisionProfileName": "Ansel",
+        "CollisionResponses": {
+          "ResponseArray": [
+            {
+              "Channel": "WorldStatic",
+              "Response": "ECR_Ignore"
+            },
+            {
+              "Channel": "WorldDynamic",
+              "Response": "ECR_Ignore"
+            },
+            {
+              "Channel": "Pawn",
+              "Response": "ECR_Ignore"
+            },
+            {
+              "Channel": "Visibility",
+              "Response": "ECR_Ignore"
+            },
+            {
+              "Channel": "PhysicsBody",
+              "Response": "ECR_Ignore"
+            },
+            {
+              "Channel": "Vehicle",
+              "Response": "ECR_Ignore"
+            },
+            {
+              "Channel": "Destructible",
+              "Response": "ECR_Ignore"
+            }
+          ]
+        },
+        "CollisionEnabled": "ECollisionEnabled::QueryOnly"
+      },
+      "bVisible": false
+    }
+  },
+  {
+    "Type": "StaticMeshComponent",
+    "Name": "StaticMeshComponent0",
+    "Flags": "RF_Transactional | RF_DefaultSubObject | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'StaticMeshComponent'",
+    "Outer": {
+      "ObjectName": "StaticMeshActor'STG004:PersistentLevel.stg004_hit_ringout_floor_5'",
+      "ObjectPath": "Stage/STG004/Maps/STG004.18"
+    },
+    "Properties": {
+      "StaticMesh": {
+        "ObjectName": "StaticMesh'stg004_hit_ringout_floor'",
+        "ObjectPath": "/Game/Stage/STG004/AnselCollision/stg004_hit_ringout_floor"
+      },
+      "bUseDefaultCollision": false,
+      "BodyInstance": {
+        "CollisionProfileName": "Ansel",
+        "CollisionResponses": {
+          "ResponseArray": [
+            {
+              "Channel": "WorldStatic",
+              "Response": "ECR_Ignore"
+            },
+            {
+              "Channel": "WorldDynamic",
+              "Response": "ECR_Ignore"
+            },
+            {
+              "Channel": "Pawn",
+              "Response": "ECR_Ignore"
+            },
+            {
+              "Channel": "Visibility",
+              "Response": "ECR_Ignore"
+            },
+            {
+              "Channel": "PhysicsBody",
+              "Response": "ECR_Ignore"
+            },
+            {
+              "Channel": "Vehicle",
+              "Response": "ECR_Ignore"
+            },
+            {
+              "Channel": "Destructible",
+              "Response": "ECR_Ignore"
+            }
+          ]
+        },
+        "CollisionEnabled": "ECollisionEnabled::QueryOnly"
+      },
+      "bVisible": false
+    }
+  },
+  {
+    "Type": "World",
+    "Name": "STG004",
+    "Flags": "RF_Public | RF_Standalone | RF_Transactional | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'World'",
+    "Package": "Stage/STG004/Maps/STG004",
+    "Properties": {
+      "DefaultPhysicsVolume": null
+    },
+    "PersistentLevel": {
+      "ObjectName": "Level'STG004:PersistentLevel'",
+      "ObjectPath": "Stage/STG004/Maps/STG004.4"
+    },
+    "ExtraReferencedObjects": [],
+    "StreamingLevels": [
+      {
+        "ObjectName": "LevelStreamingAlwaysLoaded'STG004:LevelStreamingAlwaysLoaded_0'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.5"
+      },
+      {
+        "ObjectName": "LevelStreamingAlwaysLoaded'STG004:LevelStreamingAlwaysLoaded_1'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.6"
+      },
+      {
+        "ObjectName": "LevelStreamingAlwaysLoaded'STG004:LevelStreamingAlwaysLoaded_2'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.7"
+      },
+      {
+        "ObjectName": "LevelStreamingAlwaysLoaded'STG004:LevelStreamingAlwaysLoaded_3'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.8"
+      },
+      {
+        "ObjectName": "LevelStreamingAlwaysLoaded'STG004:LevelStreamingAlwaysLoaded_4'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.9"
+      },
+      {
+        "ObjectName": "LevelStreamingAlwaysLoaded'STG004:LevelStreamingAlwaysLoaded_6'",
+        "ObjectPath": "Stage/STG004/Maps/STG004.10"
+      }
+    ]
+  }
+]

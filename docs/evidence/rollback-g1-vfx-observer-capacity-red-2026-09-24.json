@@ -1,0 +1,16 @@
+{
+  "created_utc": "2026-09-24T06:32:44.643774+00:00",
+  "stage": "RED",
+  "focused_command": "PYTHONPATH=tools python -m pytest -q -x -s tools/deterministic_qualification/tests/test_vfx_completion_observation.py",
+  "exit_code": 1,
+  "observed_failure": "capacity-window forwarded all 60 dispatches but production retained 32 records, dropped 45 calls, expected 122 complete records; first failure only",
+  "source_archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\170c118676b248e1174374c293ee732461775b5471bfc8b5261159a8d2c4c66c.zip",
+  "source_sha256": "170c118676b248e1174374c293ee732461775b5471bfc8b5261159a8d2c4c66c",
+  "raw_log": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\12d84ae3c6ddce24fc132815772261bf958606fb4f802751e9ff37e5140d551d.log",
+  "raw_log_sha256": "12d84ae3c6ddce24fc132815772261bf958606fb4f802751e9ff37e5140d551d",
+  "source_files": {
+    "tools/deterministic_qualification/tests/test_vfx_completion_observation.py": "8bdc790a089220bc808202ebb04e1ddeffe03ffc480e5d5a09a05174f349bf6d",
+    "tools/replay_vfx_completion_observation_selftest.cpp": "97049cc380106739fe34be472007757ba54d7f871ba8802c7d7208c2bb7be20d"
+  },
+  "antecedent_live": "docs/evidence/rollback-g1-vfx-completion-observer-live-2026-09-24.json"
+}

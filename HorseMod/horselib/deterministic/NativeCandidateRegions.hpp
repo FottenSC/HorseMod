@@ -51,6 +51,9 @@ struct NativeCandidateAddresses
     std::array<std::uintptr_t, 2> fighter_roots{};
     std::uint64_t session_generation{};
     std::uint64_t round_generation{};
+    std::uintptr_t mt_rng{};
+    // Resumable local archives own publication; fixed native slot backing is a binding.
+    bool replay_camera_publication{};
 };
 
 struct NativeFrameBoundaryImage
@@ -109,6 +112,7 @@ enum class NativeCandidateValidationIssue : std::uint8_t
     InputLogClock,
     CandidateRegionRead,
     CandidateRegionWrite,
+    CandidateRegionVerification,
 };
 
 struct NativeCandidateValidationDiagnostic
@@ -126,6 +130,7 @@ struct NativeCandidateValidationDiagnostic
 {
     switch (issue)
     {
+    case NativeCandidateValidationIssue::CandidateRegionVerification: return "candidate_region_verification";
     case NativeCandidateValidationIssue::None: return "none";
     case NativeCandidateValidationIssue::IdentityRead: return "identity_read";
     case NativeCandidateValidationIssue::InputLogScalarRead: return "input_log_scalar_read";
@@ -146,6 +151,9 @@ struct NativeRngImage
     std::uint32_t lfsr_index{};
     std::array<std::uint32_t, 3> xorshift{};
     std::array<std::uint32_t, 6> wind{};
+    std::uint8_t mt_present{};
+    // Cursor,1248 state words,temper mask,range min/max: native144100EA0..14410222F.
+    std::array<std::uint32_t, 1252> mt{};
 
     friend bool operator==(const NativeRngImage&, const NativeRngImage&) = default;
 };
@@ -354,6 +362,9 @@ struct NativeCandidateImage
     NativeFrameInputLogImage input_log{};
     std::array<std::uint64_t, 2> move_dispatch_masks{};
     NativeVfxEdgeDiagnostic vfx_edges{};
+    // 140310DC0 consumes these three persistent edge latches at fighter+95774.
+    // Preserve captured values, not values derived from the current gameplay flags.
+    std::array<std::array<std::uint32_t, 3>, 2> contact_side_latches{};
     NativeMoveVmStateShortImage movevm_state_shorts{};
     NativePumpImage pump{};
     std::array<NativeSchedulerImage, 2> schedulers{};
@@ -395,10 +406,6 @@ public:
     Status RestoreTransactional(const NativeCandidateImage& image) noexcept;
     Status RestoreInputLogTransactional(
         const NativeCandidateImage& image) noexcept;
-    Status RestoreMoveDispatchMasksTransactional(
-        const NativeCandidateImage& image) noexcept;
-    Status RestoreMoveDispatchMasksTransactional(
-        const std::array<std::uint64_t, 2>& masks) noexcept;
     Status CaptureCameraSourceFrame(
         NativeCameraSourceFrameImage& output) noexcept;
     Status RestoreCameraSourceFrameTransactional(
@@ -460,6 +467,7 @@ private:
                 const CameraComponentIdentity&) = default;
         };
 
+        std::array<std::uintptr_t, native_camera_component_count> camera_slot_backing{};
         std::uintptr_t input_log{};
         std::uintptr_t input_log_class{};
         std::uintptr_t previous_input_array{};
@@ -486,6 +494,7 @@ private:
             const BoundIdentities&) = default;
     };
 
+    bool camera_slot_object(std::size_t index,std::uintptr_t& object) noexcept;
     bool read_bytes(std::uintptr_t address, std::span<std::byte> out) noexcept;
     bool write_bytes(
         std::uintptr_t address,

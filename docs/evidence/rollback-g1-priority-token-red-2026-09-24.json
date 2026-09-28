@@ -1,0 +1,18 @@
+{
+  "result": "expected RED exit92",
+  "scope": "Production NativeReplayPrerequisiteGuard Observe/ReadTask/Admit rejects exact native GT priority token 0x202 with tick flags0x5e",
+  "native_evidence": "docs/evidence/rollback-g1-tick211-prerequisite-thread-token-2026-09-24.json",
+  "log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9ae474bebb2098c7022c387ff1e5e711212d1b2da2794fd45a7cd99d2c425ee9.json",
+    "sha256": "9ae474bebb2098c7022c387ff1e5e711212d1b2da2794fd45a7cd99d2c425ee9",
+    "bytes": 2610
+  },
+  "source_retention": {
+    "manifest_sha256": "2eafa49e0dbdd639cd3114a0cbf66084702e8f18e0a4123bf9cd7f12dcddf3ab",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-2eafa49e0dbdd639cd3114a0cbf66084702e8f18e0a4123bf9cd7f12dcddf3ab.zip",
+    "archive_sha256": "01260423b2c1c61920d4bce1e764e6f49adb97024851af81e1705434b254aa1b",
+    "files": 16601,
+    "uncompressed_bytes": 92771376,
+    "reconstructible": true
+  }
+}

@@ -1,0 +1,162 @@
+{
+  "scope": "Production predicates and entry routing with controlled external services; no detour installation, independent worker exclusion, live hold or B recovery proof",
+  "archived_red": [
+    {
+      "case": "missing_exact_class",
+      "result": "red",
+      "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-4d8a685f92d4dc0f4a0cd911a1494a524592175a3090ed63bde23fe6bcf952db.zip",
+      "archive_manifest": "4d8a685f92d4dc0f4a0cd911a1494a524592175a3090ed63bde23fe6bcf952db",
+      "test": "test_consumer_guard_checks_real_indexed_contract_before_owner_reads",
+      "raw": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9fc5e5608ef17f0245508660cf0b51b13cdb2545314d5ce9c49708d8c8f78347.log",
+        "sha256": "9fc5e5608ef17f0245508660cf0b51b13cdb2545314d5ce9c49708d8c8f78347",
+        "bytes": 389
+      },
+      "artifacts": {
+        "compile.cmd": {
+          "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6c8d6eca651d8f844a2847fc4aeb70e7bed84c8dac0db80d4c62b1315e4cf589.cmd",
+          "sha256": "6c8d6eca651d8f844a2847fc4aeb70e7bed84c8dac0db80d4c62b1315e4cf589",
+          "bytes": 245
+        },
+        "consumer-guard.exe": {
+          "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e7a33f903aee5e5a05b6e501932a4ff279e0438788f8a7d74b700e457d199be5.exe",
+          "sha256": "e7a33f903aee5e5a05b6e501932a4ff279e0438788f8a7d74b700e457d199be5",
+          "bytes": 111616
+        },
+        "consumer_guard.cpp": {
+          "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a5bc6a998a5cf6e409f2285250aabd25d857860daf37599b5bff1db004a2d947.cpp",
+          "sha256": "a5bc6a998a5cf6e409f2285250aabd25d857860daf37599b5bff1db004a2d947",
+          "bytes": 7379
+        },
+        "HorseMod\\horselib\\deterministic\\NativeReplayTraceTaskGuard.hpp": {
+          "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b763a5bf6d8cfe80a624372400412ded28eda6e3f341ce83d40c6ee2f10f8807.hpp",
+          "sha256": "b763a5bf6d8cfe80a624372400412ded28eda6e3f341ce83d40c6ee2f10f8807",
+          "bytes": 22094
+        },
+        "HorseMod\\horselib\\deterministic\\NativeReplayTraceTaskGuard.Signatures.inl": {
+          "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a071862c8dc3378c7fcac8c217a00a41f6e2e08098c5aa3a37fbd94bc7147eb8.inl",
+          "sha256": "a071862c8dc3378c7fcac8c217a00a41f6e2e08098c5aa3a37fbd94bc7147eb8",
+          "bytes": 3906
+        }
+      }
+    },
+    {
+      "case": "missing_entries",
+      "result": "red",
+      "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-4d8a685f92d4dc0f4a0cd911a1494a524592175a3090ed63bde23fe6bcf952db.zip",
+      "archive_manifest": "4d8a685f92d4dc0f4a0cd911a1494a524592175a3090ed63bde23fe6bcf952db",
+      "test": "test_consumer_retirement_entries_stop_before_native_effects",
+      "raw": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\5a322f82440477824f09939730eacbc759f5b482956479ae3b64714018fd9220.log",
+        "sha256": "5a322f82440477824f09939730eacbc759f5b482956479ae3b64714018fd9220",
+        "bytes": 436
+      },
+      "artifacts": {
+        "compile.cmd": {
+          "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\140e677619a565e502af39ea7d88dd19d94f3d64fdc2f852045e7a12ee7278a8.cmd",
+          "sha256": "140e677619a565e502af39ea7d88dd19d94f3d64fdc2f852045e7a12ee7278a8",
+          "bytes": 352
+        },
+        "retirement-entries.exe": {
+          "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\17e14a1b57bd29f6078ee16f24af776a01f0dedc6385dd62fc9a37596080252c.exe",
+          "sha256": "17e14a1b57bd29f6078ee16f24af776a01f0dedc6385dd62fc9a37596080252c",
+          "bytes": 181248
+        },
+        "retirement_entries.cpp": {
+          "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0f5eef6dd4921f2195a991fc6df2e955a17be78f64b759333087042f75f0d823.cpp",
+          "sha256": "0f5eef6dd4921f2195a991fc6df2e955a17be78f64b759333087042f75f0d823",
+          "bytes": 7178
+        },
+        "HorseMod\\horselib\\deterministic\\NativeReplayTraceTaskGuard.hpp": {
+          "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b763a5bf6d8cfe80a624372400412ded28eda6e3f341ce83d40c6ee2f10f8807.hpp",
+          "sha256": "b763a5bf6d8cfe80a624372400412ded28eda6e3f341ce83d40c6ee2f10f8807",
+          "bytes": 22094
+        },
+        "HorseMod\\horselib\\deterministic\\NativeReplayTraceTaskGuard.Signatures.inl": {
+          "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a071862c8dc3378c7fcac8c217a00a41f6e2e08098c5aa3a37fbd94bc7147eb8.inl",
+          "sha256": "a071862c8dc3378c7fcac8c217a00a41f6e2e08098c5aa3a37fbd94bc7147eb8",
+          "bytes": 3906
+        }
+      }
+    },
+    {
+      "case": "foreign_retirement_handoff",
+      "result": "red",
+      "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-953568a3e904d089aa0b2b01db4412d0c64cc920f63bbed933cbaacedf449f69.zip",
+      "archive_manifest": "953568a3e904d089aa0b2b01db4412d0c64cc920f63bbed933cbaacedf449f69",
+      "test": "test_consumer_retirement_entries_stop_before_native_effects",
+      "raw": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\5a322f82440477824f09939730eacbc759f5b482956479ae3b64714018fd9220.log",
+        "sha256": "5a322f82440477824f09939730eacbc759f5b482956479ae3b64714018fd9220",
+        "bytes": 436
+      },
+      "artifacts": {
+        "compile.cmd": {
+          "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\04e7306f59bbe72fd919587cd0f54013e0fcb597da24a860dfe5b4badfa91411.cmd",
+          "sha256": "04e7306f59bbe72fd919587cd0f54013e0fcb597da24a860dfe5b4badfa91411",
+          "bytes": 352
+        },
+        "retirement-entries.exe": {
+          "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\12bc93b1d0452211c8fc7faff19261021e21890d1e0e8a2a72a2684acfac32df.exe",
+          "sha256": "12bc93b1d0452211c8fc7faff19261021e21890d1e0e8a2a72a2684acfac32df",
+          "bytes": 184320
+        },
+        "retirement_entries.cpp": {
+          "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\378d10a581b0fdab8bc1c1b04ab271fe04bac3cf636cd4cbc99cc6737c6dbe87.cpp",
+          "sha256": "378d10a581b0fdab8bc1c1b04ab271fe04bac3cf636cd4cbc99cc6737c6dbe87",
+          "bytes": 7501
+        },
+        "HorseMod\\horselib\\deterministic\\NativeReplayTraceTaskGuard.hpp": {
+          "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\22a3eed7bf4b18a352383fc07b0db81f2edf0785231dc5a9c9a32381a5b118bb.hpp",
+          "sha256": "22a3eed7bf4b18a352383fc07b0db81f2edf0785231dc5a9c9a32381a5b118bb",
+          "bytes": 22723
+        },
+        "HorseMod\\horselib\\deterministic\\NativeReplayTraceTaskGuard.Signatures.inl": {
+          "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a557a8c07410c276831e3ea9ba63ce8c6324184ebb705f519ca39547afd5030a.inl",
+          "sha256": "a557a8c07410c276831e3ea9ba63ce8c6324184ebb705f519ca39547afd5030a",
+          "bytes": 5258
+        }
+      }
+    }
+  ],
+  "green": {
+    "command": [
+      "C:\\Program Files\\Python311\\python.exe",
+      "-m",
+      "pytest",
+      "tools/deterministic_qualification/tests/test_consumer_host.py",
+      "tools/deterministic_qualification/tests/test_startup_failure.py",
+      "tools/deterministic_qualification/tests/test_replay_workflow.py",
+      "-q",
+      "--tb=short"
+    ],
+    "exit_code": 0,
+    "raw": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\5557eed5b7b6cfbe2363588e37b978934d90fa458406e967162b818ddcd48a73.log",
+      "sha256": "5557eed5b7b6cfbe2363588e37b978934d90fa458406e967162b818ddcd48a73",
+      "bytes": 100
+    }
+  },
+  "tests": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e1d7148f6705e6d4ef7fc3690b8c6b20bb1f804a5b7d65629819393b7041da7e.py",
+    "sha256": "e1d7148f6705e6d4ef7fc3690b8c6b20bb1f804a5b7d65629819393b7041da7e",
+    "bytes": 12995
+  },
+  "production_sources": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\daa518ace47237e48d1e9f204b8830dde76202debec84b3ee3265eef062547b6.hpp",
+      "sha256": "daa518ace47237e48d1e9f204b8830dde76202debec84b3ee3265eef062547b6",
+      "bytes": 23015
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a557a8c07410c276831e3ea9ba63ce8c6324184ebb705f519ca39547afd5030a.inl",
+      "sha256": "a557a8c07410c276831e3ea9ba63ce8c6324184ebb705f519ca39547afd5030a",
+      "bytes": 5258
+    }
+  ],
+  "immutable": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\30d04efeefaebd874f40751c91951954a6697c223bf6af46c491f39604199c7c.json",
+    "sha256": "30d04efeefaebd874f40751c91951954a6697c223bf6af46c491f39604199c7c",
+    "bytes": 9391
+  }
+}

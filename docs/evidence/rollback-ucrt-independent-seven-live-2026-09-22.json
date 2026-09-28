@@ -1,0 +1,86 @@
+{
+  "result": "pass",
+  "build_identities": {
+    "runtime": "1a957688c2c829a598f07e073a28a370cebb90a43cadb2f50fb52cc1450619ee",
+    "observer": "de2ed933529b18cfabe07ea0cbf638f2c3d93e225a53f6f28121a2a71cdbaf44",
+    "framework": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6"
+  },
+  "rolling_cycles": 7,
+  "continuation_ticks": 120,
+  "native_callbacks_compared": 1564,
+  "acceptance_results": {
+    "observer_validity": "pass",
+    "simulation": "pass"
+  },
+  "retained_evidence": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\e2b520f8b0d7c8c0f80d0ec80330731740870628be9c1dae80ad8b5b2a690bcb.json",
+    "sha256": "e2b520f8b0d7c8c0f80d0ec80330731740870628be9c1dae80ad8b5b2a690bcb",
+    "bytes": 45763,
+    "summary": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\e866736af45f24e49ec248289ce991aa5815117474aae966f3ad0ea889d213ee.md",
+      "sha256": "e866736af45f24e49ec248289ce991aa5815117474aae966f3ad0ea889d213ee",
+      "bytes": 518
+    }
+  },
+  "independent_controls": {
+    "0": {
+      "run_id": "replay-a354239b624440f69b425df2a5797feb",
+      "reuse": null
+    },
+    "1": {
+      "run_id": "replay-59acc5b5d1e44241aeba9fa32c442307",
+      "reuse": null
+    },
+    "2": {
+      "run_id": "replay-deafbb50255248a78950b6bfd6977029",
+      "reuse": null
+    },
+    "3": {
+      "run_id": "replay-8aacf22c9b034af4b159724acd0824d7",
+      "reuse": null
+    }
+  },
+  "stage": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\97377f856f150518c6bf8442d5280b950aff2cfc20cb69600c624578eb30ac54.json",
+    "sha256": "97377f856f150518c6bf8442d5280b950aff2cfc20cb69600c624578eb30ac54",
+    "bytes": 26711
+  },
+  "console": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d6c75b8059fdbc08b3fd6e23be3e95497dd8aaba3cdda433f923c54beefa0528.log",
+    "sha256": "d6c75b8059fdbc08b3fd6e23be3e95497dd8aaba3cdda433f923c54beefa0528",
+    "bytes": 667
+  },
+  "clean_journal": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a064aefc5bd9aa81d07a98566012cc2e864b768a9177a46ba735a26a38a1c9c6.json",
+    "sha256": "a064aefc5bd9aa81d07a98566012cc2e864b768a9177a46ba735a26a38a1c9c6",
+    "bytes": 4432
+  },
+  "candidate": {
+    "result": "pass",
+    "cycles": 7,
+    "first_T": 217,
+    "last_T": 223,
+    "resimulated_ticks": 49,
+    "peak_bytes": 906369176,
+    "scope": "native transaction receipts; independent comparison required"
+  },
+  "schema": 4,
+  "scope": "Independent real CRT state required at every boundary. Seven depth7 corrections (1/4/7 delayed authored inputs), four fresh controls and120 continuation pass; no ground-birth/motion-exclusion/full-readiness claim.",
+  "costs": {
+    "capture_us": {
+      "median": 76948,
+      "p95": 94450,
+      "max": 94450
+    },
+    "correction_us": {
+      "median": 294268,
+      "p95": 1054343,
+      "max": 1054343
+    },
+    "preceding_forward_us": {
+      "median": 28987,
+      "p95": 32947,
+      "max": 32947
+    }
+  }
+}

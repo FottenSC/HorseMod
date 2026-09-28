@@ -1,0 +1,13 @@
+{
+  "program": "SoulcaliburVI.exe",
+  "address": "141BCC8E0",
+  "prototype": "void TickNiagaraSystemInstance(void *pSystemInstance, float fDeltaSeconds)",
+  "calling_convention": "__fastcall",
+  "verified_storage": "RCX pointer, XMM1 float; saved XMM6/XMM7 are artifacts",
+  "plate": {
+    "address": "141bcc8e0",
+    "function_name": "TickNiagaraSystemInstance",
+    "comment": "Advance a Niagara system instance, including requested reset/reinitialization and desired-age stepping.\n\nParameters:\n- pSystemInstance: borrowed instance in RCX; generic pointer because the full instance layout is not recovered here.\n- fDeltaSeconds: frame delta in XMM1 (saved to XMM6 at 141BCC8F2), not an integer RDX argument.\n\nAlgorithm:\nMode +0x50 == 0 forwards the frame delta to 141BCE060 after full reinitialization (141BC8620, flag +0x62) or reset (141BCADC0, flag +0x61). Other modes compare current age +0x54 with desired age +0x58, reset on backwards age, and advance in +0x5C steps with a one-second accumulated step limit before a final remainder update. Equal ages still call 141BCE060 with zero delta.\n\nReturns: void.\n\nSide effects / rollback dependency:\nFull reinitialization calls interface rebinding141BCF750 and tick-list rebuilding141BC4D90 during the component update. The caller141BCDB90 checks the active component and system pointer; neither establishes an immutable static-mesh-source binding. An initializer-only guard does not close repeated or rebound Niagara transform readers. No cancellation or motion exclusion contract is established here.\n\nSpecial Cases:\nSaved XMM6/XMM7 stack arrays are register-save artifacts, not owned instance data. Floating register temporaries retain decompiler names. Native disassembly and the component caller verified2026-09-23."
+  },
+  "limitation": "No full instance type recovered; register temporaries retain decompiler names. Native path evidence only; G1 enforcement remains open."
+}

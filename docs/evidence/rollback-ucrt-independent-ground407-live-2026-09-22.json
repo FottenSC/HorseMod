@@ -1,0 +1,96 @@
+{
+  "result": "pass",
+  "build_identities": {
+    "runtime": "1a957688c2c829a598f07e073a28a370cebb90a43cadb2f50fb52cc1450619ee",
+    "observer": "de2ed933529b18cfabe07ea0cbf638f2c3d93e225a53f6f28121a2a71cdbaf44",
+    "framework": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6"
+  },
+  "rolling_cycles": 407,
+  "continuation_ticks": 120,
+  "native_callbacks_compared": 14364,
+  "acceptance_results": {
+    "observer_validity": "pass",
+    "simulation": "pass"
+  },
+  "retained_evidence": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\551081ab4c174441d64800988eb30b10693b3dd76ef8db47b9150bee0d249792.json",
+    "sha256": "551081ab4c174441d64800988eb30b10693b3dd76ef8db47b9150bee0d249792",
+    "bytes": 234053,
+    "summary": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\edef344c1178073d47c77334ca69ed19091630dbe85a4a5f57949b89ccec1839.md",
+      "sha256": "edef344c1178073d47c77334ca69ed19091630dbe85a4a5f57949b89ccec1839",
+      "bytes": 518
+    }
+  },
+  "independent_controls": {
+    "0": {
+      "run_id": "replay-df5dc46f331243efb0866c66bc342ecb",
+      "reuse": null
+    },
+    "1": {
+      "run_id": "replay-b695a5fdff4b422fa9b737ffb16bfc68",
+      "reuse": null
+    },
+    "2": {
+      "run_id": "replay-d0711af65873428096e75d5cee3fa55b",
+      "reuse": null
+    },
+    "3": {
+      "run_id": "replay-7bbb5ceb15a6459aa6b475aa5975793d",
+      "reuse": null
+    }
+  },
+  "candidate": {
+    "result": "pass",
+    "cycles": 407,
+    "first_T": 217,
+    "last_T": 623,
+    "resimulated_ticks": 2849,
+    "peak_bytes": 906369176,
+    "scope": "native transaction receipts; independent comparison required"
+  },
+  "costs": {
+    "capture_us": {
+      "median": 65916,
+      "p95": 84993,
+      "max": 119616
+    },
+    "correction_us": {
+      "median": 253026,
+      "p95": 375123,
+      "max": 833799
+    },
+    "preceding_forward_us": {
+      "median": 27742,
+      "p95": 30269,
+      "max": 48111
+    }
+  },
+  "stage": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c673dd9c2bf6d5deecbae09ac97d56241badc7a8dfb8748c707045f25e51272a.json",
+    "sha256": "c673dd9c2bf6d5deecbae09ac97d56241badc7a8dfb8748c707045f25e51272a",
+    "bytes": 208529
+  },
+  "executor": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e231ced783a9d4564d0eaeb3e8bb8a5f3b638c8f46e57cb508e73a659bfd7b74.json",
+    "sha256": "e231ced783a9d4564d0eaeb3e8bb8a5f3b638c8f46e57cb508e73a659bfd7b74",
+    "bytes": 20956
+  },
+  "console": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4a94fbaba2fb0da1e42f9fee6105a82611e06bc9581d43c3279790507fc9f8fe.log",
+    "sha256": "4a94fbaba2fb0da1e42f9fee6105a82611e06bc9581d43c3279790507fc9f8fe",
+    "bytes": 660
+  },
+  "preflight": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6ba543e275d5042585579d0afab20ce45f368cb2020a94e53f6446b5517c5d4a.log",
+    "sha256": "6ba543e275d5042585579d0afab20ce45f368cb2020a94e53f6446b5517c5d4a",
+    "bytes": 311
+  },
+  "clean_journal": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\56312a55e53f17449af00d6fa621815dfa4267f659793b07c1a905d8e201054a.json",
+    "sha256": "56312a55e53f17449af00d6fa621815dfa4267f659793b07c1a905d8e201054a",
+    "bytes": 4432
+  },
+  "schema": 4,
+  "scope": "407 depth7 corrections throughC623,2849 resimulated ticks and120 independent continuation; actual native CRT state agrees at every compared boundary across four authored controls. No motion exclusion or A617 publication claim."
+}

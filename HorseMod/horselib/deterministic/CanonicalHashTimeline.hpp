@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Types.hpp"
+#include "ReplaySourceState.hpp"
 
 #include <optional>
 #include <span>
@@ -21,6 +22,7 @@ struct CanonicalHashEntry
     CanonicalWindNodeDiagnostic wind_node{};
     CanonicalAnimationFingerprint animation{};
     CanonicalStageEmitterFingerprint stage_emitters{};
+    ReplaySourceState replay_source{};
 };
 
 class CanonicalHashTimeline final
@@ -37,7 +39,8 @@ public:
         const CanonicalWindFingerprint& wind,
         const CanonicalWindNodeDiagnostic& wind_node,
         const CanonicalAnimationFingerprint& animation,
-        const CanonicalStageEmitterFingerprint& stage_emitters) noexcept;
+        const CanonicalStageEmitterFingerprint& stage_emitters,
+        const ReplaySourceState& replay_source = {}) noexcept;
     [[nodiscard]] std::optional<CanonicalHashEntry> GetExact(
         FrameCoordinate coordinate) const noexcept;
     [[nodiscard]] std::optional<CanonicalHashEntry> GetLastInGeneration(

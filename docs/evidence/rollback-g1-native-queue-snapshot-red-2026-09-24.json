@@ -1,0 +1,18 @@
+{
+  "result": "expected RED: generic native site5 lacks queue snapshot site9",
+  "scope": "Production Before and Failure invoked exactly as execution observer; original queue pop never called; queue/node/event bytes unchanged",
+  "native_evidence": "docs/evidence/rollback-g1-tick211-native-queue-pop-2026-09-24.json",
+  "log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\541cde52af49d19b2543a07636aeaa60f3d81ab903afe77a831b8c88c5653b00.json",
+    "sha256": "541cde52af49d19b2543a07636aeaa60f3d81ab903afe77a831b8c88c5653b00",
+    "bytes": 3647
+  },
+  "source_retention": {
+    "manifest_sha256": "d31848bfd73d5305039ae454db1b45321058a5d0d3fba2ea811e2f64e86718b0",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-d31848bfd73d5305039ae454db1b45321058a5d0d3fba2ea811e2f64e86718b0.zip",
+    "archive_sha256": "9517b4452c3f17e127eb4542848a787887055cf671fbff67e6268e76ca239c62",
+    "files": 16601,
+    "uncompressed_bytes": 92776298,
+    "reconstructible": true
+  }
+}

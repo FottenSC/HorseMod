@@ -1,0 +1,80 @@
+{
+  "date": "2026-09-22",
+  "thread": {
+    "id": "01a0c8da-8530-73d2-ad40-79a17dd41fbb",
+    "title": "Continue rollback qualification",
+    "status_at_read": {
+      "type": "idle"
+    }
+  },
+  "notice": "Conversation-derived progress record, not a build or live qualification receipt. Primary receipts and current sources take precedence.",
+  "messages": [
+    {
+      "phase": "commentary",
+      "text": "I’ll read the private-physics handover and latest checkpoint, then continue the implementation and local gates. I’ll verify blocking native behavior and update the relevant Ghidra annotations as I investigate.\n"
+    },
+    {
+      "phase": "commentary",
+      "text": "The current blocker is A617→C624: private ground bodies can be constructed and retired, but historical physics and scene publication remain unfinished. I’ll first test the new captured body state through 120 ticks of native simulation, then work on publication. I’m using the Ghidra function/type skills to verify and save the native ownership findings.\n"
+    },
+    {
+      "phase": "commentary",
+      "text": "The native wrapper separates actor creation, scene insertion and dynamic-property initialization. The current fixture only checks the private body before releasing it. I’m extending it to compare a reconstructed body with an independently authored control through kinematic movement, simulation enablement and impulses—the transitions that consume its captured mass and inertia.\n"
+    },
+    {
+      "phase": "commentary",
+      "text": "The reconstructed body matches the independent native control for all 120 ticks, including two kinematic targets, simulation enablement, and linear and angular impulses. The required build and native checks passed. Fresh preflight is ready, so I’m running the same-anchor 408 diagnostic to test the new capture/install path in-game.\n"
+    },
+    {
+      "phase": "commentary",
+      "text": "I’ve saved the scene-publication function in Ghidra with verified helper/array types and ownership comments. It returns silently when an aggregate belongs to the wrong scene, so publication must verify actual membership. The caller also supplies the scene write locks; that needs to be explicit in the rollback implementation.\n"
+    },
+    {
+      "phase": "commentary",
+      "text": "The candidate is still progressing toward A617→C624. Native filter construction revealed another publication requirement: simulation filters carry the component’s object index, while query filters carry the owning actor’s index. Historical filter bytes therefore need typed rebinding. I’m tracing the shape setters and retaining that evidence before changing the path.\n"
+    },
+    {
+      "phase": "commentary",
+      "text": "The new body-state installation passed live for all five children at A617/B624. The run then stopped at the existing expired-companion rejection, before A publication; private bodies and the graph retired after GPU completion. I’m continuing with captured shape state and typed filter rebinding, which scene publication will need.\n"
+    },
+    {
+      "phase": "commentary",
+      "text": "The new regression reproduced a real gap: body restoration passed, but the reconstructed shape retained its constructor pose (`property=0x3c`). I’ve added owned shape poses, filters, flags and offsets, with explicit component/actor index rebinding. It checks geometry and material dependencies before writing and requires the destination body to remain outside the scene.\n"
+    },
+    {
+      "phase": "commentary",
+      "text": "The shape regression now passes, and the reconstructed body still matches 120 native ticks of independent continuation. The SDK checks also reject stale component indices, wrong owner indices, changed geometry and foreign materials before writing shape state. Build checks and fresh preflight passed; I’m testing this integrated path at the same live boundary.\n"
+    },
+    {
+      "phase": "commentary",
+      "text": "I found a related ownership gap: retaining the same physical-material pointer does not prove its friction, restitution and combine modes stayed unchanged. The native update path can change them in place. I’m adding a value check so reconstruction rejects that mismatch before touching private shapes.\n"
+    },
+    {
+      "phase": "commentary",
+      "text": "The shape-state changes passed private reconstruction in the game, then stopped at the existing scene/render binding guard at cycle 407. Cleanup completed. I’m closing the material-value check next, then continuing with the native publication and binding work; the full depth-seven gate remains open.\n"
+    },
+    {
+      "phase": "commentary",
+      "text": "The native material updater can change friction, restitution and combine modes without changing the material pointer. Its Ghidra annotation is saved and verified. The new regression exercises that exact case; reconstruction must reject it before changing any private shape.\n"
+    },
+    {
+      "phase": "commentary",
+      "text": "The regression failed before the fix, as intended. The fix now compares the material values and user-data identity before any shape write, and the build is running. I’m also tracing every owner reference needed for ground publication: scene insertion alone does not cover scheduler, manager, physics and render bindings.\n"
+    },
+    {
+      "phase": "commentary",
+      "text": "The material fix passed the build and native regressions. I found another concrete gap on the publication path: a nonzero scene ID is not enough for safe retirement. Native teardown resolves that ID, then uses the resulting scene’s lock and owner. I’m adding checks that tie the body, helper, world and resolved scene together before construction is accepted or retirement begins.\n"
+    }
+  ],
+  "changed_files": [
+    "E:\\myMods\\tools\\replay_ground_initial_kinematic_selftest.inl",
+    "E:\\myMods\\docs\\evidence\\rollback-ground-publication-native-2026-09-22.json",
+    "E:\\myMods\\HorseMod\\horselib\\deterministic\\ReplayGroundInitialBodyState.hpp",
+    "E:\\myMods\\HorseMod\\horselib\\deterministic\\ReplayGroundShapeState.hpp",
+    "E:\\myMods\\HorseMod\\horselib\\deterministic\\Sc6ReplayGroundColdPhysics.inl",
+    "E:\\myMods\\HorseMod\\horselib\\deterministic\\Sc6ReplayHost.GroundDebris.inl",
+    "E:\\myMods\\tools\\replay_ground_capture_selftest.cpp",
+    "E:\\myMods\\docs\\evidence\\rollback-ground-shape-native-2026-09-22.md",
+    "E:\\myMods\\tools\\replay_physics_markers_selftest.inl"
+  ]
+}

@@ -92,6 +92,16 @@ bool CharaAnimationState::capture_topology(
         topology_issue_ = CharaAnimationTopologyIssue::PackedData;
         return false;
     }
+    // 1402F8FA0 publishes palette+0 to all seven overlay sample pointers.
+    // The owning fighter/session retains this dictionary; replacement rejects
+    // old snapshots rather than admitting an arbitrary readable address.
+    if (!read_value(memory_, fighter + 0x971E8, output.motion_bank)
+        || (output.motion_bank != 0
+            && !read_value(memory_, output.motion_bank, output.motion_count)))
+    {
+        topology_issue_ = CharaAnimationTopologyIssue::RuntimeSection;
+        return false;
+    }
     if (!read_value(memory_, cue_owner, output.cue_owner_vtable)
         || output.cue_owner_vtable == 0
         || !read_value(memory_, cue_owner + cue_owner_enst_offset,
@@ -189,6 +199,7 @@ Status CharaAnimationState::Bind(
         return Status::failure(FailureCode::AdapterUnqualified);
     }
     bound_ = true;
+    ++binding_serial_;
     return Status::success();
 }
 
@@ -199,7 +210,9 @@ bool CharaAnimationState::topology_matches() noexcept
     {
         PlayerTopology observed{};
         if (!capture_topology(player, observed)) return false;
-        if (observed.packed_data != topology_[player].packed_data)
+        if (observed.packed_data != topology_[player].packed_data
+            || observed.motion_bank != topology_[player].motion_bank
+            || observed.motion_count != topology_[player].motion_count)
         {
             topology_issue_ = CharaAnimationTopologyIssue::PackedData;
             topology_observed_ = observed.packed_data;
@@ -213,11 +226,21 @@ bool CharaAnimationState::topology_matches() noexcept
             return false;
         }
         if (observed.scheduler != topology_[player].scheduler
-            || observed.scheduler_vtable != topology_[player].scheduler_vtable
-            || observed.scheduler_chara != topology_[player].scheduler_chara)
+            || observed.scheduler_vtable != topology_[player].scheduler_vtable)
         {
             topology_issue_ = CharaAnimationTopologyIssue::Scheduler;
             topology_observed_ = observed.scheduler;
+            return false;
+        }
+        // 14038C4A0 leaves +8 dormant; 14038C5D0 assigns the owning fighter
+        // before arming. Retain both local values without treating activation
+        // as replacement of the scheduler allocation. Do not inspect nActive
+        // here: partial-write undo must repair pointer/scalar inconsistency.
+        if (observed.scheduler_chara != topology_[player].scheduler_chara
+            && observed.scheduler_chara != fighters_[player])
+        {
+            topology_issue_ = CharaAnimationTopologyIssue::SchedulerCharacter;
+            topology_observed_ = observed.scheduler_chara;
             return false;
         }
         if (observed.list_head != topology_[player].list_head
@@ -259,13 +282,16 @@ bool CharaAnimationState::identify_section(std::size_t player,
     output = {};
     if (pointer == 0) return true;
     const auto base = topology_[player].packed_data;
+    section_diagnostic_ = {player,base,pointer};
     std::array<std::uint32_t, 5> header{};
-    if (!memory_.Read(base, std::as_writable_bytes(std::span{header}))
-        || header[0] != 3 || header[3] == header[4]) return false;
+    if (!memory_.Read(base, std::as_writable_bytes(std::span{header}))) return false;
+    section_diagnostic_.header = header;
+    if (header[0] != 3 || header[3] == header[4]) return false;
     const auto table = base + header[packed_section_table_offset_index];
     std::uint32_t count{};
-    if (!read_value(memory_, table, count)
-        || count > chara_anim_maximum_packed_sections) return false;
+    if (!read_value(memory_, table, count)) return false;
+    section_diagnostic_.count = count;
+    if (count > chara_anim_maximum_packed_sections) return false;
     for (std::uint32_t index = 0; index < count; ++index)
     {
         std::uint32_t begin{}, end{};
@@ -307,27 +333,55 @@ bool CharaAnimationState::resolve_section(std::size_t player,
     return memory_.Read(output, readable_header);
 }
 
+bool CharaAnimationState::resolve_runtime(std::size_t player,
+    const CharaAnimationPlayerImage& image, std::uintptr_t& output) noexcept
+{
+    if (!image.runtime_motion_bank)
+        return resolve_section(player, image.runtime_section, output);
+    output = topology_[player].motion_bank;
+    return output != 0 && !clip_is_active(image)
+        && !image.runtime_section.present && image.runtime_section.index == 0;
+}
+
+bool CharaAnimationState::ValidateMotionRuntimeBindings() noexcept
+{
+    if (!topology_matches()) return false;
+    for (std::size_t player = 0; player < fighters_.size(); ++player)
+    {
+        std::uintptr_t pointer{};
+        std::uint32_t active{};
+        if (!read_value(memory_, fighters_[player] + chara_anim_runtime_offset, pointer)
+            || !read_value(memory_, fighters_[player] + chara_anim_clip_player_offset + 0x28, active))
+            return false;
+        if (pointer != 0 && pointer == topology_[player].motion_bank && active == 0)
+            continue;
+        PackedSectionIdentity identity{};
+        if (!identify_section(player, pointer, identity)) return false;
+    }
+    return true;
+}
+
 bool CharaAnimationState::Validate(
     const CharaAnimationStateImage& image) noexcept
 {
-    if (image.round_generation == 0) return false;
+    if (image.round_generation == 0 || image.local_binding_serial == 0) return false;
     for (const auto& player : image.players)
     {
         const bool runtime_scalars_clear = std::all_of(
             player.runtime_scalars.begin(), player.runtime_scalars.end(),
             [](std::byte value) { return value == std::byte{}; });
-        if (player.trigger_count > chara_anim_maximum_triggers
+        if ((scheduler_is_active(player) && !player.scheduler_chara_bound)
+            || player.trigger_count > chara_anim_maximum_triggers
             || (!player.clip_section.present && player.clip_section.index != 0)
+            || (player.runtime_motion_bank && (player.runtime_section.present
+                || clip_is_active(player)))
             || (!player.runtime_section.present
                 && player.runtime_section.index != 0)
             || player.clip_section.index >= chara_anim_maximum_packed_sections
             || player.runtime_section.index
                 >= chara_anim_maximum_packed_sections
             || (clip_is_active(player) && !player.runtime_section.present
-                && !runtime_scalars_clear)
-            || (!clip_is_active(player)
-                && (player.runtime_section.present
-                    || !runtime_scalars_clear))) return false;
+                && !runtime_scalars_clear)) return false;
     }
     return true;
 }
@@ -338,9 +392,11 @@ Status CharaAnimationState::capture_unchecked(
     output = {};
     topology_issue_ = CharaAnimationTopologyIssue::None;
     topology_observed_ = 0;
+    section_diagnostic_ = {};
     if (!topology_matches())
         return Status::failure(FailureCode::IdentityMismatch);
     output.round_generation = round_generation_;
+    output.local_binding_serial = binding_serial_;
     for (std::size_t player = 0; player < 2; ++player)
     {
         const auto fighter = fighters_[player];
@@ -358,6 +414,7 @@ Status CharaAnimationState::capture_unchecked(
             || !identify_section(player, clip_pointer, target.clip_section))
         {
             topology_issue_ = CharaAnimationTopologyIssue::ClipSection;
+            topology_observed_ = clip_pointer;
             return Status::failure(FailureCode::CaptureFailed);
         }
         if (!memory_.Read(clip + clip_scalar_offset, target.clip_scalars))
@@ -365,16 +422,22 @@ Status CharaAnimationState::capture_unchecked(
             topology_issue_ = CharaAnimationTopologyIssue::ClipScalars;
             return Status::failure(FailureCode::CaptureFailed);
         }
-        if (clip_is_active(target)
-            && (!read_value(memory_, runtime, runtime_pointer)
-                || !identify_section(player, runtime_pointer,
-                    target.runtime_section)))
+        // The dormant overlay is also overwritten by the HgCpu reader.
+        // Preserve its actual section and frame, rather than treating the
+        // inactive flag as permission to discard state needed by local undo.
+        if (!read_value(memory_, runtime, runtime_pointer))
+            return Status::failure(FailureCode::CaptureFailed);
+        target.runtime_motion_bank = runtime_pointer != 0
+            && runtime_pointer == topology_[player].motion_bank
+            && !clip_is_active(target);
+        if (!target.runtime_motion_bank
+            && !identify_section(player, runtime_pointer, target.runtime_section))
         {
             topology_issue_ = CharaAnimationTopologyIssue::RuntimeSection;
+            topology_observed_ = runtime_pointer;
             return Status::failure(FailureCode::CaptureFailed);
         }
-        if (clip_is_active(target)
-            && !memory_.Read(runtime + 8, target.runtime_scalars))
+        if (!memory_.Read(runtime + 8, target.runtime_scalars))
         {
             topology_issue_ = CharaAnimationTopologyIssue::RuntimeScalars;
             return Status::failure(FailureCode::CaptureFailed);
@@ -387,17 +450,24 @@ Status CharaAnimationState::capture_unchecked(
         }
         if (!read_value(memory_, topology_[player].scheduler + 8,
                 scheduler_chara)
-            || scheduler_chara != topology_[player].scheduler_chara)
+            || (scheduler_chara != topology_[player].scheduler_chara
+                && scheduler_chara != fighter))
         {
             topology_issue_ = CharaAnimationTopologyIssue::Scheduler;
             return Status::failure(FailureCode::CaptureFailed);
         }
-        target.scheduler_chara_bound = scheduler_chara != 0;
+        target.scheduler_chara_bound = scheduler_chara == fighter;
         if (!memory_.Read(topology_[player].scheduler + scheduler_scalar_offset,
                 target.scheduler_scalars))
         {
             topology_issue_ = CharaAnimationTopologyIssue::SchedulerScalars;
             return Status::failure(FailureCode::CaptureFailed);
+        }
+        if (scheduler_is_active(target) && !target.scheduler_chara_bound)
+        {
+            topology_issue_ = CharaAnimationTopologyIssue::SchedulerCharacter;
+            topology_observed_ = scheduler_chara;
+            return Status::failure(FailureCode::IdentityMismatch);
         }
         target.clip_owner_bound = clip_owner != 0;
         for (std::uint32_t index = 0; index < target.trigger_count; ++index)
@@ -420,12 +490,24 @@ Status CharaAnimationState::Capture(CharaAnimationStateImage& output) noexcept
         : Status::failure(FailureCode::AdapterUnqualified);
 }
 
+bool CharaAnimationState::image_matches_binding(
+    const CharaAnimationStateImage& image) const noexcept
+{
+    if (!bound_ || !Validate(image)
+        || image.round_generation != round_generation_
+        || image.local_binding_serial != binding_serial_) return false;
+    for (std::size_t player = 0; player < fighters_.size(); ++player)
+        if (image.players[player].trigger_count != topology_[player].trigger_count
+            || (!image.players[player].scheduler_chara_bound
+                && topology_[player].scheduler_chara == fighters_[player]))
+            return false;
+    return true;
+}
+
 bool CharaAnimationState::write_unchecked(
     const CharaAnimationStateImage& image) noexcept
 {
-    if (!Validate(image) || image.round_generation != round_generation_
-        || image.players[0].trigger_count != topology_[0].trigger_count
-        || image.players[1].trigger_count != topology_[1].trigger_count
+    if (!image_matches_binding(image)
         || !topology_matches()) return false;
     for (std::size_t player = 0; player < 2; ++player)
     {
@@ -435,34 +517,21 @@ bool CharaAnimationState::write_unchecked(
         const auto owner = fighter + pose_event_cue_owner_offset;
         const auto& source = image.players[player];
         std::uintptr_t clip_pointer{}, runtime_pointer{};
-        std::uint32_t current_active{};
         if (!resolve_section(player, source.clip_section, clip_pointer)
-            || (clip_is_active(source)
-                && (!resolve_section(player, source.runtime_section,
-                        runtime_pointer)))
-            || !read_value(memory_, clip + 0x28, current_active)
+            || !resolve_runtime(player, source, runtime_pointer)
             || !write_value(memory_, clip,
                 source.clip_owner_bound ? fighter : std::uintptr_t{})
             || !write_value(memory_, clip + clip_binding_offset, clip_pointer)
             || !memory_.Write(clip + clip_scalar_offset, source.clip_scalars))
             return false;
-        if (clip_is_active(source))
-        {
-            if (!write_value(memory_, runtime, runtime_pointer)
-                || !memory_.Write(runtime + 8, source.runtime_scalars))
-                return false;
-        }
-        else if (current_active != 0)
-        {
-            const std::array<std::byte, 8> cleared{};
-            if (!write_value(memory_, runtime, std::uintptr_t{})
-                || !memory_.Write(runtime + 8, cleared)) return false;
-        }
+        if (!write_value(memory_, runtime, runtime_pointer)
+            || !memory_.Write(runtime + 8, source.runtime_scalars))
+            return false;
         if (!memory_.Write(owner + cue_owner_scalar_offset,
                 source.cue_owner_scalars)
             || !write_value(memory_, topology_[player].scheduler + 8,
                 source.scheduler_chara_bound
-                    ? topology_[player].scheduler_chara : std::uintptr_t{})
+                    ? fighter : topology_[player].scheduler_chara)
             || !memory_.Write(topology_[player].scheduler
                     + scheduler_scalar_offset,
                 source.scheduler_scalars)) return false;
@@ -476,14 +545,39 @@ bool CharaAnimationState::write_unchecked(
     return true;
 }
 
+Status CharaAnimationState::PreflightRestore(
+    const CharaAnimationStateImage& image) noexcept
+{
+    if (!image_matches_binding(image) || !topology_matches())
+        return Status::failure(FailureCode::RestorePreflightFailed);
+    for (std::size_t player = 0; player < 2; ++player)
+    {
+        std::uintptr_t resolved{};
+        if (!resolve_section(player, image.players[player].clip_section, resolved)
+            || !resolve_runtime(player, image.players[player], resolved))
+            return Status::failure(FailureCode::RestorePreflightFailed);
+    }
+    return Status::success();
+}
+
+Status CharaAnimationState::RestoreUnderEnclosingTransaction(
+    const CharaAnimationStateImage& image) noexcept
+{
+    const auto preflight = PreflightRestore(image);
+    if (!preflight.ok()) return preflight;
+    if (!write_unchecked(image)) return Status::failure(FailureCode::RestoreWriteFailed);
+    CharaAnimationStateImage observed{};
+    const auto captured = capture_unchecked(observed);
+    if (!captured.ok()) return captured;
+    return observed == image ? Status::success()
+        : Status::failure(FailureCode::RestoreVerificationFailed);
+}
+
 Status CharaAnimationState::RestoreTransactional(
     const CharaAnimationStateImage& image) noexcept
 {
-    if (!Validate(image) || image.round_generation != round_generation_
-        || image.players[0].trigger_count != topology_[0].trigger_count
-        || image.players[1].trigger_count != topology_[1].trigger_count
-        || !topology_matches())
-        return Status::failure(FailureCode::RestorePreflightFailed);
+    const auto preflight = PreflightRestore(image);
+    if (!preflight.ok()) return preflight;
     CharaAnimationStateImage undo{};
     if (!capture_unchecked(undo).ok())
         return Status::failure(FailureCode::CaptureFailed);
@@ -514,6 +608,7 @@ void CharaAnimationState::CanonicalBytes(
     output.clear();
     if (output.capacity() < 0x1000) output.reserve(0x1000);
     append(output, &image.round_generation, sizeof(image.round_generation));
+    append(output, &image.local_binding_serial, sizeof(image.local_binding_serial));
     for (const auto& player : image.players)
     {
         const std::uint8_t clip_owner_bound = player.clip_owner_bound ? 1 : 0;
@@ -526,7 +621,7 @@ void CharaAnimationState::CanonicalBytes(
         append(output, &player.runtime_section.index,
             sizeof(player.runtime_section.index));
         const std::uint8_t runtime_present =
-            player.runtime_section.present ? 1 : 0;
+            player.runtime_motion_bank ? 2 : player.runtime_section.present ? 1 : 0;
         append(output, &runtime_present, sizeof(runtime_present));
         append(output, player.runtime_scalars.data(),
             player.runtime_scalars.size());
@@ -562,7 +657,7 @@ void CharaAnimationState::PeerCanonicalBytes(
         append(output, &player.runtime_section.index,
             sizeof(player.runtime_section.index));
         const std::uint8_t runtime_present =
-            player.runtime_section.present ? 1 : 0;
+            player.runtime_motion_bank ? 2 : player.runtime_section.present ? 1 : 0;
         append(output, &runtime_present, sizeof(runtime_present));
         append(output, player.runtime_scalars.data(),
             player.runtime_scalars.size());
@@ -595,7 +690,8 @@ Status CharaAnimationState::DecodeCanonicalBytes(
         cursor += size;
         return true;
     };
-    if (!take(&output.round_generation, sizeof(output.round_generation)))
+    if (!take(&output.round_generation, sizeof(output.round_generation))
+        || !take(&output.local_binding_serial, sizeof(output.local_binding_serial)))
         return Status::failure(FailureCode::CaptureFailed);
     for (auto& player : output.players)
     {
@@ -610,7 +706,7 @@ Status CharaAnimationState::DecodeCanonicalBytes(
             || !take(&player.runtime_section.index,
                 sizeof(player.runtime_section.index))
             || !take(&runtime_present, sizeof(runtime_present))
-            || runtime_present > 1
+            || runtime_present > 2
             || !take(player.runtime_scalars.data(),
                 player.runtime_scalars.size())
             || !take(player.cue_owner_scalars.data(),
@@ -627,7 +723,8 @@ Status CharaAnimationState::DecodeCanonicalBytes(
             return Status::failure(FailureCode::CaptureFailed);
         player.clip_owner_bound = clip_owner_bound != 0;
         player.clip_section.present = clip_present != 0;
-        player.runtime_section.present = runtime_present != 0;
+        player.runtime_section.present = runtime_present == 1;
+        player.runtime_motion_bank = runtime_present == 2;
         player.scheduler_chara_bound = scheduler_chara_bound != 0;
     }
     return cursor == bytes.size() && Validate(output)

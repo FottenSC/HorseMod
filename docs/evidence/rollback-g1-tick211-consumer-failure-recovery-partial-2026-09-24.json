@@ -1,0 +1,50 @@
+{
+  "scope": "A210/B217 consumer-mutation retry after owned frame-sync drains",
+  "run_id": "replay-013d640073e54b978f1219a75d4efe50",
+  "evidence": {
+    "build_manifest": {
+      "path": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/manifests/94d99ed64770bfe3b2b435ddfb5c2de4e119219b912f7dd3ec856f12254533e7.json",
+      "sha256": "94d99ed64770bfe3b2b435ddfb5c2de4e119219b912f7dd3ec856f12254533e7",
+      "bytes": 6433
+    },
+    "run_manifest": {
+      "path": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/manifests/a4b176cb56a91644a055ce8c56e9a25c6a409cf7cfee26e79a51e9232c59f106.json",
+      "sha256": "a4b176cb56a91644a055ce8c56e9a25c6a409cf7cfee26e79a51e9232c59f106",
+      "bytes": 16893
+    },
+    "raw_log": {
+      "path": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/ec1955ad39d7cfd02fc29a5a1418e50dfc66ee9424a356098e008dfedd4368a6.log",
+      "sha256": "ec1955ad39d7cfd02fc29a5a1418e50dfc66ee9424a356098e008dfedd4368a6",
+      "bytes": 2483128
+    },
+    "run_report": {
+      "path": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/6a86955baca3b821c80957b86a2d90dda24c4844e78b2c1f219fd39655292096.json",
+      "sha256": "6a86955baca3b821c80957b86a2d90dda24c4844e78b2c1f219fd39655292096",
+      "bytes": 9825
+    },
+    "empty_diagnostic_sidecar": {
+      "path": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855.empty-consumer-failure.json",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "frame_sync_red": "docs/evidence/rollback-g1-frame-sync-red-2026-09-24.json",
+    "frame_sync_green": "docs/evidence/rollback-g1-frame-sync-green-2026-09-24.json"
+  },
+  "checks": "Frame-sync RED/GREEN and six focused tests passed. Required build/native and two CTests passed. Initial preflight lacked 12 MB below 2 GiB; NTFS compression of generated .obj files preserved every file hash and a subsequent preflight was ready.",
+  "first_failure": {
+    "tick": 211,
+    "observer": "consumer_mutation_complete_application_or_B_unproven",
+    "production": "consumer prerequisite changed native_completed=true application_complete=true B_retained=true recovery=false",
+    "mutation": "real native prerequisite removal injected and API returned",
+    "ownership_sequence": [
+      "FailedRecoverable B_retained=true",
+      "RecoveryQuiescing B_retained=true",
+      "Recovering B_retained=true completed_tail_tick=211 executed_intervals=1"
+    ],
+    "render_recovery": "stage render recovery Complete GPU_completed=true B_retained=true",
+    "remaining_observation": "No BRecovered/complete-B or independent continuation marker before observer failure. The initial observer Failed admission passed and cancellation was injected; the later same-reason failure needs exact state/reentry diagnosis."
+  },
+  "cleanup_incident": "The runner stopped recovery because the registered generated consumer_failure.json existed as a zero-byte preopened file, which its JSON run_id predicate rejected. No game/runner remained. The exact empty file was retained, its journal ownership and prior absence verified, then it was removed and the existing locked recover_resources path restored the deployment. Journal clean; all eight prior SHA256/absence states match. Steam untouched.",
+  "gates": "Observer validity, simulation, coherence, recovery and performance remain unmeasured by this failed diagnostic. Corrected tick211 application and consumer mutation are observed, but complete B recovery and 120 independent matching continuation ticks are unproven. G1/G2 open; debris exact/Unresolved; no408 or600 retry.",
+  "next_resolving_test": "Astra high code owner isolates the post-cancellation recovery/observer failure and fixes the empty diagnostic-sidecar cleanup predicate with RED/GREEN. Required build/native checks precede one shortest live retry with first-failure stop."
+}

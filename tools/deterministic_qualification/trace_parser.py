@@ -509,6 +509,12 @@ def wait_for_replay_lifecycle_evidence(
     raise TimeoutError("replay entry and frame-fencepost evidence did not appear")
 
 
+def _verified_rate(count: int, elapsed_us: int, logged: int) -> int:
+    if elapsed_us<=0 or count<0 or logged!=count*1_000_000_000//elapsed_us:
+        raise RuntimeError("logged replay rate disagrees with observed count and wall time")
+    return logged
+
+
 def parse_replay_seek_evidence(text: str) -> tuple[ReplaySeekEvidence, ...]:
     source_matches = list(SOURCE_PATTERN.finditer(text))
     if not source_matches:
@@ -526,7 +532,7 @@ def parse_replay_seek_evidence(text: str) -> tuple[ReplaySeekEvidence, ...]:
             validation_us=int(match.group("validation")),
             resume_window=int(match.group("window")),
             resume_elapsed_us=int(match.group("elapsed")),
-            resume_tick_rate_milli=int(match.group("rate")),
+            resume_tick_rate_milli=_verified_rate(int(match.group("window")),int(match.group("elapsed")),int(match.group("rate"))),
             index=int(match.group("index")),
         )
         for match in REPLAY_SEEK_PATTERN.finditer(current_boot)
@@ -555,6 +561,11 @@ def parse_normal_render_rate_evidence(
         return None
     overall = overall_matches[-1]
     active = active_matches[-1] if active_matches else None
+    for row in (overall,active):
+        if row is None:continue
+        _verified_rate(int(row.group("ticks" if independent else "frames")),int(row.group("elapsed")),int(row.group("rate")))
+        if independent:
+            _verified_rate(int(row.group("frames")),int(row.group("elapsed")),int(row.group("fps")))
     return NormalRenderRateEvidence(
         frames=int(overall.group("frames")),
         elapsed_us=int(overall.group("elapsed")),
@@ -597,8 +608,8 @@ def parse_qualification_stress_rate_evidence(
             forward_ticks=int(match.group("ticks")),
             owned_ticks=int(match.group("owned")),
             elapsed_us=int(match.group("elapsed")),
-            fps_milli=int(match.group("fps")),
-            tick_rate_milli=int(match.group("rate")),
+            fps_milli=_verified_rate(int(match.group("frames")),int(match.group("elapsed")),int(match.group("fps"))),
+            tick_rate_milli=_verified_rate(int(match.group("ticks")),int(match.group("elapsed")),int(match.group("rate"))),
         )
         for match in QUALIFICATION_STRESS_RATE_PATTERN.finditer(current_boot)
     )
@@ -619,7 +630,7 @@ def wait_for_normal_render_rate_evidence(
             progress_guard()
         try:
             evidence = parse_normal_render_rate_evidence(
-                _read_since(log_path, start_offset),
+                _read_since(log_path, start_offset).rpartition("\n")[0],
                 source_bound=source_bound,
                 require_active=require_active,
             )
@@ -644,7 +655,7 @@ def wait_for_replay_seek_evidence(
             progress_guard()
         try:
             evidence = parse_replay_seek_evidence(
-                _read_since(log_path, start_offset)
+                _read_since(log_path, start_offset).rpartition("\n")[0]
             )
         except OSError:
             evidence = ()

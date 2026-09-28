@@ -43,6 +43,7 @@ constexpr std::array<Range, 9> move_command_ranges{{
 }};
 constexpr std::array<std::size_t, 4> vfx_edge_diagnostic_offsets{
     0x4E8, 0x630, 0x510, 0x658};
+constexpr std::ptrdiff_t contact_side_latches_offset = 0x95774;
 constexpr std::ptrdiff_t movevm_state_shorts_offset = 0x197C;
 constexpr std::size_t camera_action_stride = 0x3E0;
 constexpr std::size_t camera_distance_history_offset = 0x25C;
@@ -642,6 +643,17 @@ bool NativeCandidateRegions::capture_identities(BoundIdentities& output) noexcep
     }
     if (addresses_.camera_director != 0)
     {
+        if(addresses_.replay_camera_publication) {
+            std::uintptr_t director{};
+            if(!addresses_.camera_timer_config
+                || !read_value(memory_,addresses_.camera_timer_config+0x90,director)
+                || director!=addresses_.camera_director)return false;
+            for(std::size_t i=0;i<output.camera_slot_backing.size();++i) {
+                auto& backing=output.camera_slot_backing[i];
+                if(!read_value(memory_,addresses_.camera_timer_config+0x10+i*8,backing) || !backing
+                    || std::find(output.camera_slot_backing.begin(),output.camera_slot_backing.begin()+i,backing)!=output.camera_slot_backing.begin()+i)return false;
+            }
+        }
         for (std::size_t index = 0;
              index < output.camera_components.size(); ++index)
         {
@@ -653,6 +665,8 @@ bool NativeCandidateRegions::capture_identities(BoundIdentities& output) noexcep
                     100 + index);
                 return false;
             }
+            if(addresses_.replay_camera_publication && identity.object
+                && identity.object!=output.camera_slot_backing[index])return false;
             if (identity.object == 0) continue;
             if (!read_value(memory_, identity.object, identity.vtable)
                 || identity.vtable == 0
@@ -722,46 +736,54 @@ bool NativeCandidateRegions::capture_identities(BoundIdentities& output) noexcep
 bool NativeCandidateRegions::identities_match() noexcept
 {
     BoundIdentities current{};
-    return capture_identities(current)
-        && current.input_log == identities_.input_log
-        && current.input_log_class == identities_.input_log_class
-        && current.previous_input_array == identities_.previous_input_array
-        && current.input_pair_array == identities_.input_pair_array
-        && current.prior_input_pair_array == identities_.prior_input_pair_array
-        && current.round_sequence_array == identities_.round_sequence_array
-        && current.round_sequence_capacity == identities_.round_sequence_capacity
-        && current.event_mask_owner == identities_.event_mask_owner
-        && current.pump == identities_.pump
-        && current.move_commands == identities_.move_commands
-        // Camera component storage is fixed per slot, but native constructors
-        // clear and rebuild its class in place. Only the object addresses are
-        // generation identity; vtable/serializer are deterministic state.
-        && std::equal(current.camera_components.begin(),
-            current.camera_components.end(),
-            identities_.camera_components.begin(),
-            [](const BoundIdentities::CameraComponentIdentity& left,
-               const BoundIdentities::CameraComponentIdentity& right) {
-                return left.object == right.object;
-            })
-        && current.stage_wind_emitter_sentinel
-            == identities_.stage_wind_emitter_sentinel
-        && current.stage_wind_emitter_nodes
-            == identities_.stage_wind_emitter_nodes
-        && current.stage_wind_emitters == identities_.stage_wind_emitters
-        && current.stage_wind_emitter_ref_controls
-            == identities_.stage_wind_emitter_ref_controls
-        && current.stage_wind_emitter_count
-            == identities_.stage_wind_emitter_count
-        && std::equal(
-            current.sub_vms.begin(), current.sub_vms.end(), identities_.sub_vms.begin(),
-            [](const SubVmIdentity& a, const SubVmIdentity& b) {
-                return a.scheduler == b.scheduler && a.object == b.object
-                    && a.scheduler_vtable == b.scheduler_vtable
-                    && a.scheduler_fighter == b.scheduler_fighter
-                    && a.vtable == b.vtable && a.fighter == b.fighter
-                    && a.opponent == b.opponent
-                    && a.owner_scheduler == b.owner_scheduler && a.extent == b.extent;
-            });
+    if(!capture_identities(current)) return false;
+    // Read-only first-difference witness for the existing identity predicates.
+    // Scalar IDs1..8; pump100+i; move commands200+lane*17+i;
+    // camera300+i; wind400..403 and arrays500/600/700+i; subVM800+lane*16+field.
+    // Each a/b pair contains the low/high32 bits of the same64-bit value.
+    const auto same=[&](std::uint32_t index,std::uint64_t observed,std::uint64_t expected) {
+        if(observed==expected)return true;
+        validation_diagnostic_={NativeCandidateValidationIssue::IdentityRead,index,
+            static_cast<std::int32_t>(observed),static_cast<std::int32_t>(observed>>32),
+            static_cast<std::int32_t>(expected),static_cast<std::int32_t>(expected>>32)};
+        return false;
+    };
+    const auto array=[&](std::uint32_t base,const auto& observed,const auto& expected) {
+        for(std::size_t i=0;i<observed.size();++i)
+            if(!same(base+static_cast<std::uint32_t>(i),observed[i],expected[i]))return false;
+        return true;
+    };
+    if(!same(1,current.input_log,identities_.input_log)
+        || !same(2,current.input_log_class,identities_.input_log_class)
+        || !same(3,current.previous_input_array,identities_.previous_input_array)
+        || !same(4,current.input_pair_array,identities_.input_pair_array)
+        || !same(5,current.prior_input_pair_array,identities_.prior_input_pair_array)
+        || !same(6,current.round_sequence_array,identities_.round_sequence_array)
+        || !same(7,current.round_sequence_capacity,identities_.round_sequence_capacity)
+        || !same(8,current.event_mask_owner,identities_.event_mask_owner)
+        || !array(100,current.pump,identities_.pump))return false;
+    for(std::size_t lane=0;lane<current.move_commands.size();++lane)
+        if(!array(200+static_cast<std::uint32_t>(lane)*17,current.move_commands[lane],identities_.move_commands[lane]))return false;
+    // Native camera constructors rebuild class/serializer in fixed slot storage.
+    // Preserve the existing address-only identity policy, not struct padding.
+    if(addresses_.replay_camera_publication) {
+        if(!array(300,current.camera_slot_backing,identities_.camera_slot_backing))return false;
+    } else for(std::size_t i=0;i<current.camera_components.size();++i)
+        if(!same(300+static_cast<std::uint32_t>(i),current.camera_components[i].object,identities_.camera_components[i].object))return false;
+    if(!same(400,current.stage_wind_emitter_sentinel,identities_.stage_wind_emitter_sentinel)
+        || !array(500,current.stage_wind_emitter_nodes,identities_.stage_wind_emitter_nodes)
+        || !array(600,current.stage_wind_emitters,identities_.stage_wind_emitters)
+        || !array(700,current.stage_wind_emitter_ref_controls,identities_.stage_wind_emitter_ref_controls)
+        || !same(403,current.stage_wind_emitter_count,identities_.stage_wind_emitter_count))return false;
+    for(std::size_t lane=0;lane<current.sub_vms.size();++lane) {
+        const auto& a=current.sub_vms[lane];const auto& b=identities_.sub_vms[lane];
+        const auto base=800+static_cast<std::uint32_t>(lane)*16;
+        if(!same(base,a.scheduler,b.scheduler) || !same(base+1,a.object,b.object)
+            || !same(base+2,a.scheduler_vtable,b.scheduler_vtable) || !same(base+3,a.scheduler_fighter,b.scheduler_fighter)
+            || !same(base+4,a.vtable,b.vtable) || !same(base+5,a.fighter,b.fighter) || !same(base+6,a.opponent,b.opponent)
+            || !same(base+7,a.owner_scheduler,b.owner_scheduler) || !same(base+8,a.extent,b.extent))return false;
+    }
+    return true;
 }
 
 Status NativeCandidateRegions::Bind(const NativeCandidateAddresses& addresses) noexcept
@@ -838,6 +860,7 @@ void NativeCandidateRegions::ReleaseScratchStorage() noexcept
 
 Status NativeCandidateRegions::PreflightCapture() noexcept
 {
+    validation_diagnostic_={};
     if (!bound_) return Status::failure(FailureCode::AdapterUnqualified);
     if (identities_match()) return Status::success();
     validation_diagnostic_.issue = NativeCandidateValidationIssue::IdentityRead;
@@ -853,7 +876,9 @@ std::size_t NativeCandidateRegions::ScratchCapacityBytes() const noexcept
                     native_stage_wind_emitter_state_size>);
     };
     return capacity(restore_undo_scratch_)
-        + capacity(restore_verification_scratch_);
+        + capacity(restore_verification_scratch_)
+        + (restore_undo_scratch_ ? sizeof(NativeCandidateImage) : 0)
+        + (restore_verification_scratch_ ? sizeof(NativeCandidateImage) : 0);
 }
 
 bool NativeCandidateRegions::capture_unchecked(NativeCandidateImage& output) noexcept
@@ -950,6 +975,14 @@ bool NativeCandidateRegions::capture_unchecked(NativeCandidateImage& output) noe
                     + fighter * vfx_edge_diagnostic_offsets.size() + field));
             }
         }
+    }
+    for (std::size_t fighter = 0; fighter < output.contact_side_latches.size(); ++fighter)
+    {
+        auto& latches = output.contact_side_latches[fighter];
+        if (!read_bytes(addresses_.fighter_roots[fighter] + contact_side_latches_offset,
+                std::as_writable_bytes(std::span{latches}))
+            || std::any_of(latches.begin(), latches.end(), [](auto value) { return value > 1; }))
+            return region_read_failed(static_cast<std::uint32_t>(60 + fighter));
     }
     for (std::size_t fighter = 0;
          fighter < output.movevm_state_shorts.fighters.size(); ++fighter)
@@ -1060,6 +1093,10 @@ bool NativeCandidateRegions::capture_unchecked(NativeCandidateImage& output) noe
     {
         return false;
     }
+    output.rng.mt_present = addresses_.mt_rng != 0;
+    if (!output.rng.mt_present) output.rng.mt = {};
+    if (output.rng.mt_present && !read_bytes(addresses_.mt_rng, std::as_writable_bytes(std::span{output.rng.mt})))
+        return region_read_failed(30);
     if (!read_bytes(addresses_.vm_freeze_record, output.vm_freeze_record))
         return region_read_failed(18);
     try
@@ -1075,98 +1112,9 @@ bool NativeCandidateRegions::capture_unchecked(NativeCandidateImage& output) noe
                 output.stage_wind_emitters.states[index]))
             return region_read_failed(static_cast<std::uint32_t>(19 + index));
     }
-    for (std::size_t index = 0;
-         index < output.camera_components.size(); ++index)
-    {
-        const auto& identity = identities_.camera_components[index];
-        auto& component = output.camera_components[index];
-        if (identity.object == 0) continue;
-        component.present = 1;
-        component.serialization = identity.serialization;
-        component.vtable_rva = static_cast<std::uint32_t>(
-            identity.vtable - addresses_.image_base);
-        component.writer_rva = static_cast<std::uint32_t>(
-            identity.writer - addresses_.image_base);
-        component.derived_size = camera_derived_size(identity.serialization);
-        std::size_t cursor{};
-        for (const auto range : camera_component_common_ranges)
-        {
-            if (!read_bytes(identity.object + range.offset,
-                    std::span{component.common}.subspan(cursor, range.size)))
-                return region_read_failed(static_cast<std::uint32_t>(70 + index));
-            cursor += range.size;
-        }
-        switch (identity.serialization)
-        {
-        case NativeCameraComponentSerialization::StateBuffer:
-        {
-            std::array<std::uintptr_t, 2> tracked{};
-            if (!read_bytes(identity.object + 0x1D0,
-                    std::span{component.derived}.first(0x140))
-                || !read_value(memory_, identity.object + 0x310, tracked[0])
-                || !read_value(memory_, identity.object + 0x318, tracked[1]))
-                return region_read_failed(static_cast<std::uint32_t>(90 + index));
-            for (std::size_t slot = 0; slot < tracked.size(); ++slot)
-            {
-                component.state_buffer_chara_slots[slot] = camera_chara_slot(
-                    tracked[slot], addresses_.fighter_roots);
-                if (component.state_buffer_chara_slots[slot] == -2)
-                    return region_read_failed(static_cast<std::uint32_t>(110 + index));
-            }
-            break;
-        }
-        case NativeCameraComponentSerialization::State:
-            if (!read_bytes(identity.object + 0x1D0,
-                    std::span{component.derived}.first(0x1C)))
-                return region_read_failed(static_cast<std::uint32_t>(90 + index));
-            break;
-        case NativeCameraComponentSerialization::CharaReference:
-        {
-            std::uintptr_t tracked{};
-            if (!read_bytes(identity.object + 0x1D0,
-                    std::span{component.derived}.first(0x14))
-                || !read_value(memory_, identity.object + 0x1F0, tracked))
-                return region_read_failed(static_cast<std::uint32_t>(90 + index));
-            component.tracked_chara_slot = tracked == 0 ? -1
-                : tracked == addresses_.fighter_roots[0] ? 0
-                : tracked == addresses_.fighter_roots[1] ? 1 : -2;
-            if (component.tracked_chara_slot == -2)
-                return region_read_failed(static_cast<std::uint32_t>(110 + index));
-            break;
-        }
-        case NativeCameraComponentSerialization::Attention:
-            if (!read_bytes(identity.object + 0x1D0,
-                    std::span{component.derived}.first(0x0C))
-                || !read_bytes(identity.object + 0x1E8,
-                    std::span{component.derived}.subspan(0x0C, 0x04)))
-                return region_read_failed(static_cast<std::uint32_t>(90 + index));
-            break;
-        case NativeCameraComponentSerialization::Stay:
-            if (!read_bytes(identity.object + 0x1D0,
-                    std::span{component.derived}.first(0x0C)))
-                return region_read_failed(static_cast<std::uint32_t>(90 + index));
-            break;
-        case NativeCameraComponentSerialization::PlayerWatchActive:
-        {
-            std::size_t derived_cursor{};
-            for (const auto range : player_watch_active_ranges)
-            {
-                if (!read_bytes(identity.object + range.offset,
-                        std::span{component.derived}.subspan(
-                            derived_cursor, range.size)))
-                    return region_read_failed(static_cast<std::uint32_t>(90 + index));
-                derived_cursor += range.size;
-            }
-            break;
-        }
-        case NativeCameraComponentSerialization::Base:
-            break;
-        default:
-            return region_read_failed(static_cast<std::uint32_t>(90 + index));
-        }
-        if (!valid_camera_component(component))
-            return region_read_failed(static_cast<std::uint32_t>(110 + index));
-    }
+    for (std::size_t index = 0;index < output.camera_components.size();++index)
+        if(!capture_camera_component(index,output.camera_components[index]))
+            return region_read_failed(static_cast<std::uint32_t>(70+index));
     for (std::size_t index = 0;
          addresses_.camera_action_backing != 0
             && index < output.camera_distance_history.size();
@@ -1208,16 +1156,29 @@ Status NativeCandidateRegions::Capture(NativeCandidateImage& output) noexcept
         : Status::failure(FailureCode::CaptureFailed);
 }
 
+bool NativeCandidateRegions::camera_slot_object(std::size_t index,std::uintptr_t& object) noexcept
+{
+    if(index>=identities_.camera_components.size())return false;
+    object=identities_.camera_components[index].object;
+    if(!addresses_.replay_camera_publication)return true;
+    std::uintptr_t backing{};
+    if(!read_value(memory_,addresses_.camera_timer_config+0x10+index*8,backing)
+        || backing!=identities_.camera_slot_backing[index]
+        || !read_value(memory_,addresses_.camera_director+0x270+index*8,object))return false;
+    return !object || object==backing;
+}
+
 bool NativeCandidateRegions::capture_camera_component(
     std::size_t index, NativeCameraComponentImage& output) noexcept
 {
     output = {};
     if (index >= identities_.camera_components.size()) return false;
-    const auto& identity = identities_.camera_components[index];
-    if (identity.object == 0) return true;
+    std::uintptr_t object{};
+    if(!camera_slot_object(index,object))return false;
+    if (!object) return true;
     std::uintptr_t current_vtable{};
     std::uintptr_t current_writer{};
-    if (!read_value(memory_, identity.object, current_vtable)
+    if (!read_value(memory_, object, current_vtable)
         || current_vtable < addresses_.image_base
         || current_vtable - addresses_.image_base
             > std::numeric_limits<std::uint32_t>::max()
@@ -1242,7 +1203,7 @@ bool NativeCandidateRegions::capture_camera_component(
     std::size_t cursor{};
     for (const auto range : camera_component_common_ranges)
     {
-        if (!read_bytes(identity.object + range.offset,
+        if (!read_bytes(object + range.offset,
                 std::span{output.common}.subspan(cursor, range.size)))
             return false;
         cursor += range.size;
@@ -1252,10 +1213,10 @@ bool NativeCandidateRegions::capture_camera_component(
     case NativeCameraComponentSerialization::StateBuffer:
     {
         std::array<std::uintptr_t, 2> tracked{};
-        if (!read_bytes(identity.object + 0x1D0,
+        if (!read_bytes(object + 0x1D0,
                 std::span{output.derived}.first(0x140))
-            || !read_value(memory_, identity.object + 0x310, tracked[0])
-            || !read_value(memory_, identity.object + 0x318, tracked[1]))
+            || !read_value(memory_, object + 0x310, tracked[0])
+            || !read_value(memory_, object + 0x318, tracked[1]))
             return false;
         for (std::size_t slot = 0; slot < tracked.size(); ++slot)
         {
@@ -1266,15 +1227,15 @@ bool NativeCandidateRegions::capture_camera_component(
         break;
     }
     case NativeCameraComponentSerialization::State:
-        if (!read_bytes(identity.object + 0x1D0,
+        if (!read_bytes(object + 0x1D0,
                 std::span{output.derived}.first(0x1C))) return false;
         break;
     case NativeCameraComponentSerialization::CharaReference:
     {
         std::uintptr_t tracked{};
-        if (!read_bytes(identity.object + 0x1D0,
+        if (!read_bytes(object + 0x1D0,
                 std::span{output.derived}.first(0x14))
-            || !read_value(memory_, identity.object + 0x1F0, tracked))
+            || !read_value(memory_, object + 0x1F0, tracked))
             return false;
         output.tracked_chara_slot = tracked == 0 ? -1
             : tracked == addresses_.fighter_roots[0] ? 0
@@ -1283,20 +1244,20 @@ bool NativeCandidateRegions::capture_camera_component(
         break;
     }
     case NativeCameraComponentSerialization::Attention:
-        if (!read_bytes(identity.object + 0x1D0,
+        if (!read_bytes(object + 0x1D0,
                 std::span{output.derived}.first(0x0C))
-            || !read_bytes(identity.object + 0x1E8,
+            || !read_bytes(object + 0x1E8,
                 std::span{output.derived}.subspan(0x0C, 0x04))) return false;
         break;
     case NativeCameraComponentSerialization::Stay:
-        if (!read_bytes(identity.object + 0x1D0,
+        if (!read_bytes(object + 0x1D0,
                 std::span{output.derived}.first(0x0C))) return false;
         break;
     case NativeCameraComponentSerialization::PlayerWatchActive:
         cursor = 0;
         for (const auto range : player_watch_active_ranges)
         {
-            if (!read_bytes(identity.object + range.offset,
+            if (!read_bytes(object + range.offset,
                     std::span{output.derived}.subspan(cursor, range.size)))
                 return false;
             cursor += range.size;
@@ -1320,10 +1281,11 @@ bool NativeCandidateRegions::write_camera_component(
     {
         return false;
     }
-    const auto& identity = identities_.camera_components[index];
+    std::uintptr_t object{};
+    if(!camera_slot_object(index,object))return false;
     const auto target_vtable = addresses_.image_base + image.vtable_rva;
     const auto target_writer = addresses_.image_base + image.writer_rva;
-    if (identity.object == 0
+    if (object == 0
         || camera_serialization_for_identity(addresses_.image_base,
                target_vtable, target_writer) != image.serialization)
     {
@@ -1332,7 +1294,7 @@ bool NativeCandidateRegions::write_camera_component(
     std::uintptr_t current_vtable{};
     std::uintptr_t current_writer{};
     std::uintptr_t observed_target_writer{};
-    if (!read_value(memory_, identity.object, current_vtable)
+    if (!read_value(memory_, object, current_vtable)
         || !read_value(memory_, current_vtable + 0x100, current_writer)
         || camera_serialization_for_identity(addresses_.image_base,
                current_vtable, current_writer)
@@ -1340,7 +1302,7 @@ bool NativeCandidateRegions::write_camera_component(
         || !read_value(memory_, target_vtable + 0x100,
             observed_target_writer)
         || observed_target_writer != target_writer
-        || !write_bytes(identity.object,
+        || !write_bytes(object,
             std::as_bytes(std::span{&target_vtable, 1})))
     {
         return false;
@@ -1369,7 +1331,7 @@ bool NativeCandidateRegions::write_camera_component(
              field < camera_component_common_ranges.size(); ++field)
         {
             const auto range = camera_component_common_ranges[field];
-            if (!write_bytes(identity.object + range.offset,
+            if (!write_bytes(object + range.offset,
                     std::span{image.common}.subspan(
                         common_starts[field], range.size))) return false;
         }
@@ -1382,7 +1344,7 @@ bool NativeCandidateRegions::write_camera_component(
              field-- > 0;)
         {
             const auto range = camera_component_common_ranges[field];
-            ok = write_bytes(identity.object + range.offset,
+            ok = write_bytes(object + range.offset,
                 std::span{image.common}.subspan(
                     common_starts[field], range.size)) && ok;
         }
@@ -1400,21 +1362,21 @@ bool NativeCandidateRegions::write_camera_component(
             const auto tracked1 = camera_chara_pointer(
                 image.state_buffer_chara_slots[1], addresses_.fighter_roots);
             if (!reverse_fields)
-                return write_bytes(identity.object + 0x1D0,
+                return write_bytes(object + 0x1D0,
                         std::span{image.derived}.first(0x140))
-                    && write_bytes(identity.object + 0x310,
+                    && write_bytes(object + 0x310,
                         std::as_bytes(std::span{&tracked0, 1}))
-                    && write_bytes(identity.object + 0x318,
+                    && write_bytes(object + 0x318,
                         std::as_bytes(std::span{&tracked1, 1}));
-            return write_bytes(identity.object + 0x318,
+            return write_bytes(object + 0x318,
                     std::as_bytes(std::span{&tracked1, 1}))
-                && write_bytes(identity.object + 0x310,
+                && write_bytes(object + 0x310,
                     std::as_bytes(std::span{&tracked0, 1}))
-                && write_bytes(identity.object + 0x1D0,
+                && write_bytes(object + 0x1D0,
                     std::span{image.derived}.first(0x140));
         }
         case NativeCameraComponentSerialization::State:
-            return write_bytes(identity.object + 0x1D0,
+            return write_bytes(object + 0x1D0,
                 std::span{image.derived}.first(0x1C));
         case NativeCameraComponentSerialization::CharaReference:
         {
@@ -1422,42 +1384,42 @@ bool NativeCandidateRegions::write_camera_component(
                 ? 0 : addresses_.fighter_roots[static_cast<std::size_t>(
                     image.tracked_chara_slot)];
             if (!reverse_fields)
-                return write_bytes(identity.object + 0x1D0,
+                return write_bytes(object + 0x1D0,
                         std::span{image.derived}.first(0x14))
-                    && write_bytes(identity.object + 0x1E8,
+                    && write_bytes(object + 0x1E8,
                         std::as_bytes(std::span{&null_pointer, 1}))
-                    && write_bytes(identity.object + 0x1F0,
+                    && write_bytes(object + 0x1F0,
                         std::as_bytes(std::span{&tracked, 1}));
-            return write_bytes(identity.object + 0x1F0,
+            return write_bytes(object + 0x1F0,
                     std::as_bytes(std::span{&tracked, 1}))
-                && write_bytes(identity.object + 0x1E8,
+                && write_bytes(object + 0x1E8,
                     std::as_bytes(std::span{&null_pointer, 1}))
-                && write_bytes(identity.object + 0x1D0,
+                && write_bytes(object + 0x1D0,
                     std::span{image.derived}.first(0x14));
         }
         case NativeCameraComponentSerialization::Attention:
             if (!reverse_fields)
-                return write_bytes(identity.object + 0x1D0,
+                return write_bytes(object + 0x1D0,
                         std::span{image.derived}.first(0x0C))
-                    && write_bytes(identity.object + 0x1E8,
+                    && write_bytes(object + 0x1E8,
                         std::span{image.derived}.subspan(0x0C, 0x04))
-                    && write_bytes(identity.object + 0x1E0,
+                    && write_bytes(object + 0x1E0,
                         std::as_bytes(std::span{&null_pointer, 1}));
-            return write_bytes(identity.object + 0x1E0,
+            return write_bytes(object + 0x1E0,
                     std::as_bytes(std::span{&null_pointer, 1}))
-                && write_bytes(identity.object + 0x1E8,
+                && write_bytes(object + 0x1E8,
                     std::span{image.derived}.subspan(0x0C, 0x04))
-                && write_bytes(identity.object + 0x1D0,
+                && write_bytes(object + 0x1D0,
                     std::span{image.derived}.first(0x0C));
         case NativeCameraComponentSerialization::Stay:
             if (!reverse_fields)
-                return write_bytes(identity.object + 0x1D0,
+                return write_bytes(object + 0x1D0,
                         std::span{image.derived}.first(0x0C))
-                    && write_bytes(identity.object + 0x1E0,
+                    && write_bytes(object + 0x1E0,
                         std::as_bytes(std::span{&null_pointer, 1}));
-            return write_bytes(identity.object + 0x1E0,
+            return write_bytes(object + 0x1E0,
                     std::as_bytes(std::span{&null_pointer, 1}))
-                && write_bytes(identity.object + 0x1D0,
+                && write_bytes(object + 0x1D0,
                     std::span{image.derived}.first(0x0C));
         case NativeCameraComponentSerialization::PlayerWatchActive:
             if (!reverse_fields)
@@ -1466,7 +1428,7 @@ bool NativeCandidateRegions::write_camera_component(
                      field < player_watch_active_ranges.size(); ++field)
                 {
                     const auto range = player_watch_active_ranges[field];
-                    if (!write_bytes(identity.object + range.offset,
+                    if (!write_bytes(object + range.offset,
                             std::span{image.derived}.subspan(
                                 derived_starts[field], range.size))) return false;
                 }
@@ -1479,7 +1441,7 @@ bool NativeCandidateRegions::write_camera_component(
                      field-- > 0;)
                 {
                     const auto range = player_watch_active_ranges[field];
-                    ok = write_bytes(identity.object + range.offset,
+                    ok = write_bytes(object + range.offset,
                         std::span{image.derived}.subspan(
                             derived_starts[field], range.size)) && ok;
                 }
@@ -1698,6 +1660,9 @@ bool NativeCandidateRegions::image_matches_binding(
     {
         return false;
     }
+    for (const auto& latches : image.contact_side_latches)
+        if (std::any_of(latches.begin(), latches.end(), [](auto value) { return value > 1; }))
+            return false;
     NativeCandidateValidationDiagnostic diagnostic{};
     if (!validate_input_log_image(image.input_log, image.frame, diagnostic)) return false;
     for (std::size_t lane = 0; lane < image.sub_vms.size(); ++lane)
@@ -1722,7 +1687,7 @@ bool NativeCandidateRegions::image_matches_binding(
             addresses_.image_base + component.writer_rva;
         if (!valid_camera_component(component)
             || (component.present != 0
-                && (identity.object == 0
+                && ((addresses_.replay_camera_publication ? identities_.camera_slot_backing[index] : identity.object) == 0
                     || camera_serialization_for_identity(addresses_.image_base,
                            component_vtable, component_writer)
                         != component.serialization)))
@@ -1740,6 +1705,7 @@ bool NativeCandidateRegions::image_matches_binding(
         && image.round_sequence.count <= native_round_sequence_max_states
         && image.round_sequence.count <= identities_.round_sequence_capacity
         && image.rng.lfsr_index <= image.rng.lfsr.size()
+        && image.rng.mt_present == (addresses_.mt_rng != 0)
         && image.stage_wind_emitters.states.size()
             == identities_.stage_wind_emitter_count;
 }
@@ -1814,6 +1780,7 @@ bool NativeCandidateRegions::write_forward(const NativeCandidateImage& image) no
             std::as_bytes(std::span{&image.pending_hit.transition_flags, 1}))
         || !write_bytes(addresses_.pending_launcher_sync,
             std::as_bytes(std::span{&image.pending_hit.launcher_sync, 1}))
+        || (image.rng.mt_present && !write_bytes(addresses_.mt_rng, std::as_bytes(std::span{image.rng.mt})))
         || !write_bytes(addresses_.wind_rng,
             std::as_bytes(std::span{image.rng.wind}))
         || !write_bytes(addresses_.xorshift_rng,
@@ -1840,6 +1807,10 @@ bool NativeCandidateRegions::write_forward(const NativeCandidateImage& image) no
             identities_.event_mask_owner,
             std::as_bytes(std::span{image.move_dispatch_masks})))
         return write_failed(200);
+    for (std::size_t fighter = 0; fighter < image.contact_side_latches.size(); ++fighter)
+        if (!write_bytes(addresses_.fighter_roots[fighter] + contact_side_latches_offset,
+                std::as_bytes(std::span{image.contact_side_latches[fighter]})))
+            return write_failed(201 + static_cast<std::uint32_t>(fighter));
     if (!write_bytes(addresses_.pump_state + 0x20, image.pump.lane_a)
         || !write_bytes(addresses_.pump_state + 0x50, image.pump.lane_b)
         || !write_bytes(addresses_.pump_state + 0x70, image.pump.controls))
@@ -1981,9 +1952,13 @@ bool NativeCandidateRegions::write_reverse(const NativeCandidateImage& image) no
     ok = write_bytes(addresses_.pump_state + 0x70, image.pump.controls) && ok;
     ok = write_bytes(addresses_.pump_state + 0x50, image.pump.lane_b) && ok;
     ok = write_bytes(addresses_.pump_state + 0x20, image.pump.lane_a) && ok;
+    for (std::size_t fighter = image.contact_side_latches.size(); fighter-- > 0;)
+        ok = write_bytes(addresses_.fighter_roots[fighter] + contact_side_latches_offset,
+            std::as_bytes(std::span{image.contact_side_latches[fighter]})) && ok;
     ok = write_bytes(
         identities_.event_mask_owner,
         std::as_bytes(std::span{image.move_dispatch_masks})) && ok;
+    if (image.rng.mt_present) ok = write_bytes(addresses_.mt_rng, std::as_bytes(std::span{image.rng.mt})) && ok;
     ok = write_bytes(addresses_.lcg_rng,
         std::as_bytes(std::span{&image.rng.lcg, 1})) && ok;
     ok = write_bytes(addresses_.lfsr_rng + 0x64,
@@ -2063,7 +2038,7 @@ Status NativeCandidateRegions::RestoreTransactional(
     const auto forward_write_diagnostic = validation_diagnostic_;
     const bool captured_verification = wrote
         && capture_unchecked(*restore_verification_scratch_);
-    if (captured_verification)
+    if (captured_verification && !addresses_.replay_camera_publication)
     {
         // Decoded peer checkpoints intentionally omit presentation-local camera
         // component internals.  An absent component means "leave the live local
@@ -2081,12 +2056,30 @@ Status NativeCandidateRegions::RestoreTransactional(
     const bool verified = captured_verification
         && *restore_verification_scratch_ == image;
     if (verified) return Status::success();
+    auto first_failure=wrote?validation_diagnostic_:forward_write_diagnostic;
+    if(captured_verification) {
+        // Compare existing semantic fields, never struct padding or a newly
+        // captured expected image. This diagnostic survives every undo read.
+        const auto& actual=*restore_verification_scratch_;
+        unsigned mask{};
+#define REPLAY_REGION_DIFF(field,bit) if(actual.field!=image.field)mask|=1u<<bit
+        REPLAY_REGION_DIFF(frame,0);REPLAY_REGION_DIFF(round_sequence,1);REPLAY_REGION_DIFF(input_log,2);
+        REPLAY_REGION_DIFF(move_dispatch_masks,3);REPLAY_REGION_DIFF(vfx_edges,4);REPLAY_REGION_DIFF(movevm_state_shorts,5);
+        REPLAY_REGION_DIFF(pump,6);REPLAY_REGION_DIFF(schedulers,7);REPLAY_REGION_DIFF(sub_vms,8);
+        REPLAY_REGION_DIFF(move_commands,9);REPLAY_REGION_DIFF(slot_params,10);REPLAY_REGION_DIFF(pending_hit,11);
+        REPLAY_REGION_DIFF(rng,12);REPLAY_REGION_DIFF(vm_freeze_record,13);REPLAY_REGION_DIFF(stage_wind_emitters,14);
+        REPLAY_REGION_DIFF(camera_components,15);REPLAY_REGION_DIFF(camera_distance_history,16);
+        REPLAY_REGION_DIFF(contact_side_latches,17);
+#undef REPLAY_REGION_DIFF
+        first_failure={NativeCandidateValidationIssue::CandidateRegionVerification,mask};
+    }
+    const auto fail=[&](FailureCode code){validation_diagnostic_=first_failure;return Status::failure(code);};
     if (!identities_match() || !write_reverse(*restore_undo_scratch_))
-        return Status::failure(FailureCode::UndoFailed);
+        return fail(FailureCode::UndoFailed);
     if (!capture_unchecked(*restore_verification_scratch_)
         || *restore_verification_scratch_ != *restore_undo_scratch_)
-        return Status::failure(FailureCode::UndoFailed);
-    if (!wrote) validation_diagnostic_ = forward_write_diagnostic;
+        return fail(FailureCode::UndoFailed);
+    validation_diagnostic_ = first_failure;
     return Status::failure(
         wrote ? FailureCode::RestoreVerificationFailed : FailureCode::RestoreWriteFailed);
 }
@@ -2121,54 +2114,6 @@ Status NativeCandidateRegions::RestoreInputLogTransactional(
     if (!undone || !capture_input_log_cache(memory_, addresses_.input_log,
             undo_verified, undo_diagnostic) || undo_verified != undo)
         return Status::failure(FailureCode::UndoFailed);
-    return Status::failure(wrote
-        ? FailureCode::RestoreVerificationFailed
-        : FailureCode::RestoreWriteFailed);
-}
-
-Status NativeCandidateRegions::RestoreMoveDispatchMasksTransactional(
-    const NativeCandidateImage& image) noexcept
-{
-    validation_diagnostic_ = {};
-    if (!bound_ || !image_matches_binding(image) || !identities_match()
-        || identities_.event_mask_owner == 0)
-    {
-        return Status::failure(FailureCode::IdentityMismatch);
-    }
-    return RestoreMoveDispatchMasksTransactional(image.move_dispatch_masks);
-}
-
-Status NativeCandidateRegions::RestoreMoveDispatchMasksTransactional(
-    const std::array<std::uint64_t, 2>& masks) noexcept
-{
-    validation_diagnostic_ = {};
-    if (!bound_ || !identities_match()
-        || identities_.event_mask_owner == 0)
-    {
-        return Status::failure(FailureCode::IdentityMismatch);
-    }
-    std::array<std::uint64_t, 2> undo{};
-    if (!read_bytes(identities_.event_mask_owner,
-            std::as_writable_bytes(std::span{undo})))
-        return Status::failure(FailureCode::CaptureFailed);
-    const bool wrote = write_bytes(identities_.event_mask_owner,
-        std::as_bytes(std::span{masks}));
-    std::array<std::uint64_t, 2> verified{};
-    if (wrote && read_bytes(identities_.event_mask_owner,
-            std::as_writable_bytes(std::span{verified}))
-        && verified == masks)
-    {
-        return Status::success();
-    }
-    const bool undone = write_bytes(identities_.event_mask_owner,
-        std::as_bytes(std::span{undo}));
-    std::array<std::uint64_t, 2> undo_verified{};
-    if (!undone || !read_bytes(identities_.event_mask_owner,
-            std::as_writable_bytes(std::span{undo_verified}))
-        || undo_verified != undo)
-    {
-        return Status::failure(FailureCode::UndoFailed);
-    }
     return Status::failure(wrote
         ? FailureCode::RestoreVerificationFailed
         : FailureCode::RestoreWriteFailed);
@@ -2247,6 +2192,7 @@ void NativeCandidateRegions::CanonicalBytes(
     append_bytes(output, image.move_dispatch_masks.data(), sizeof(image.move_dispatch_masks));
     append_bytes(output, image.vfx_edges.fighters.data(),
         sizeof(image.vfx_edges.fighters));
+    append_bytes(output, image.contact_side_latches.data(), sizeof(image.contact_side_latches));
     append_bytes(output, image.movevm_state_shorts.fighters.data(),
         sizeof(image.movevm_state_shorts.fighters));
     append_bytes(output, image.pump.lane_a.data(), image.pump.lane_a.size());
@@ -2285,6 +2231,8 @@ void NativeCandidateRegions::CanonicalBytes(
     append_bytes(output, &image.rng.lfsr_index, sizeof(image.rng.lfsr_index));
     append_bytes(output, image.rng.xorshift.data(), sizeof(image.rng.xorshift));
     append_bytes(output, image.rng.wind.data(), sizeof(image.rng.wind));
+    append_bytes(output, &image.rng.mt_present, sizeof(image.rng.mt_present));
+    append_bytes(output, image.rng.mt.data(), sizeof(image.rng.mt));
     append_bytes(output, image.vm_freeze_record.data(),
         image.vm_freeze_record.size());
     const auto emitter_count = static_cast<std::uint8_t>(
@@ -2324,13 +2272,17 @@ void NativeCandidateRegions::PeerCanonicalBytes(
     output.clear();
     if (output.capacity() < full_canonical.size())
         output.reserve(full_canonical.size());
-    append_bytes(output, &image.session_generation,
-        sizeof(image.session_generation));
-    append_bytes(output, &image.round_generation,
-        sizeof(image.round_generation));
+    // These are local lifetime guards, not game state. Session generations
+    // can legitimately advance by different amounts when peers retain their
+    // processes across lobby re-entry, while round_generation is already
+    // represented by the exchanged FrameCoordinate. Keep both in the full
+    // checkpoint image for same-process restore validation, but never put
+    // either process-local counter into the portable peer identity.
     append_frame_boundary(output, image.frame);
     append_round_sequence(output, image.round_sequence);
-    const auto full_input_offset = output.size();
+    constexpr std::size_t full_generation_prefix_size =
+        sizeof(image.session_generation) + sizeof(image.round_generation);
+    const auto full_input_offset = full_generation_prefix_size + output.size();
     // Decompiled field writers prove only three parts of FrameInputLog are
     // peer-local: LocalPlayerFlags is derived from the local session role,
     // CurrentInputBySlot is populated only for those local flags, and the
@@ -2452,6 +2404,7 @@ CanonicalNativeFingerprint NativeCandidateRegions::CanonicalFingerprint(
     output[18] = finish();
     append_bytes(bytes, image.vfx_edges.fighters.data(),
         sizeof(image.vfx_edges.fighters));
+    append_bytes(bytes, image.contact_side_latches.data(), sizeof(image.contact_side_latches));
     output[29] = finish();
     append_bytes(bytes, image.movevm_state_shorts.fighters.data(),
         sizeof(image.movevm_state_shorts.fighters));
@@ -2493,6 +2446,8 @@ CanonicalNativeFingerprint NativeCandidateRegions::CanonicalFingerprint(
     append_bytes(bytes, &image.rng.lfsr_index, sizeof(image.rng.lfsr_index));
     append_bytes(bytes, image.rng.xorshift.data(), sizeof(image.rng.xorshift));
     append_bytes(bytes, image.rng.wind.data(), sizeof(image.rng.wind));
+    append_bytes(bytes, &image.rng.mt_present, sizeof(image.rng.mt_present));
+    append_bytes(bytes, image.rng.mt.data(), sizeof(image.rng.mt));
     output[25] = finish();
     append_bytes(bytes, image.vm_freeze_record.data(), image.vm_freeze_record.size());
     output[26] = finish();
@@ -2523,6 +2478,14 @@ CanonicalNativeFingerprint NativeCandidateRegions::CanonicalFingerprint(
         append_bytes(bytes, &history.cursor, sizeof(history.cursor));
     }
     output[28] = finish();
+    // Diagnostic-only: local lifetime guards are deliberately absent from
+    // PeerCanonicalBytes, but exposing them makes an asymmetric persistent-
+    // process re-entry immediately distinguishable from gameplay divergence.
+    append_bytes(bytes, &image.session_generation,
+        sizeof(image.session_generation));
+    append_bytes(bytes, &image.round_generation,
+        sizeof(image.round_generation));
+    output[31] = finish();
     return output;
 }
 
@@ -2594,6 +2557,11 @@ Status NativeCandidateRegions::DecodeCanonicalBytes(
             sizeof(output.move_dispatch_masks))
         || !take(output.vfx_edges.fighters.data(),
             sizeof(output.vfx_edges.fighters))
+        || !take(output.contact_side_latches.data(), sizeof(output.contact_side_latches))
+        || std::any_of(output.contact_side_latches.begin(), output.contact_side_latches.end(),
+            [](const auto& latches) {
+                return std::any_of(latches.begin(), latches.end(), [](auto value) { return value > 1; });
+            })
         || !take(output.movevm_state_shorts.fighters.data(),
             sizeof(output.movevm_state_shorts.fighters))
         || !take(output.pump.lane_a.data(), output.pump.lane_a.size())
@@ -2659,6 +2627,8 @@ Status NativeCandidateRegions::DecodeCanonicalBytes(
         || output.rng.lfsr_index > output.rng.lfsr.size()
         || !take(output.rng.xorshift.data(), sizeof(output.rng.xorshift))
         || !take(output.rng.wind.data(), sizeof(output.rng.wind))
+        || !take(&output.rng.mt_present, sizeof(output.rng.mt_present)) || output.rng.mt_present > 1
+        || !take(output.rng.mt.data(), sizeof(output.rng.mt))
         || !take(output.vm_freeze_record.data(),
             output.vm_freeze_record.size())
         )

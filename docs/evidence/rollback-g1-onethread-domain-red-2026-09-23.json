@@ -1,0 +1,36 @@
+{
+  "result": "RED exit61 worker-enabled completed-physics group5 profile rejected",
+  "scope": "actual production predicates with external controlled memory, not native completion proof",
+  "files": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\01bf6796d339d9e877bf7079cea518735801125c22d511fa37ecc5b3e7ebf446.hpp",
+      "sha256": "01bf6796d339d9e877bf7079cea518735801125c22d511fa37ecc5b3e7ebf446",
+      "bytes": 24256
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a1d4619a00377f71cb69ca7e3c95356368531e29aa87b7fac505da7111993208.py",
+      "sha256": "a1d4619a00377f71cb69ca7e3c95356368531e29aa87b7fac505da7111993208",
+      "bytes": 25316
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\62da3a3e8ca8f4c428947ab6d2a13780ac49e0dae069f2c04963110b5147f7d8.cmd",
+      "sha256": "62da3a3e8ca8f4c428947ab6d2a13780ac49e0dae069f2c04963110b5147f7d8",
+      "bytes": 265
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\48e907b651c10391ca031553bd82b22902b430e3cd8d65a7791a7e9ce4c79bbe.cpp",
+      "sha256": "48e907b651c10391ca031553bd82b22902b430e3cd8d65a7791a7e9ce4c79bbe",
+      "bytes": 4479
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1bb1a564518f1daab5fb4cab0971c39ed1ca28513592145d043084ac7494c8e8.exe",
+      "sha256": "1bb1a564518f1daab5fb4cab0971c39ed1ca28513592145d043084ac7494c8e8",
+      "bytes": 130048
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\97af7a3f2e5b58c32f6c9cd0cb85aa2cef031b6a3e52cd6fd8645754d065ef02.obj",
+      "sha256": "97af7a3f2e5b58c32f6c9cd0cb85aa2cef031b6a3e52cd6fd8645754d065ef02",
+      "bytes": 110740
+    }
+  ]
+}

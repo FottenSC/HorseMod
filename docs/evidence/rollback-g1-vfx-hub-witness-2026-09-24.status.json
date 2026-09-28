@@ -1,0 +1,8 @@
+{
+  "before_sha256": "9e5a2bff3337dbf5e022a1d9804d89c2050439828a04a8872257bba7d1abcc21",
+  "before_bytes": 267253,
+  "prefix_bytes": 1423,
+  "after_sha256": "f7ea5b8cb4a5f350f3484a31580d0c3f5a15ded02cf71c59f021f6a1e56aead7",
+  "after_bytes": 268676,
+  "prior_bytes_preserved": true
+}

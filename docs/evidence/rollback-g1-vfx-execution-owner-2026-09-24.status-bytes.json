@@ -1,0 +1,8 @@
+{
+  "original_bytes": 262291,
+  "original_sha256": "e045dd98b22dceaaaff92cf50f1722ad976bc21a5e45521710829e027c5920af",
+  "original_invalid_utf8": true,
+  "prepended_bytes": 1597,
+  "retained_tail_sha256": "e045dd98b22dceaaaff92cf50f1722ad976bc21a5e45521710829e027c5920af",
+  "updated_sha256": "101e5b0f8347ba0fa8cb729e5598672371d1bc324c3e6859b411883a952af550"
+}

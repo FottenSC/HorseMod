@@ -1,0 +1,32 @@
+{
+  "scope": "Bounded forwarding-only Niagara helper entry observation in selected A210/B217 mutation recovery and 120-tick continuation",
+  "local": {
+    "red": "docs/evidence/rollback-g1-niagara-observation-red-2026-09-24.json",
+    "green": "docs/evidence/rollback-g1-niagara-observation-green-2026-09-24.json",
+    "native_abi": "docs/evidence/rollback-g1-niagara-observation-native-2026-09-24.json",
+    "build_manifest": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/manifests/220cddbd4f2d3aae64184db5e88df2fe4e166268ffd3e5228a6cfda51bcb825c.json",
+    "source_manifest_sha256": "fdd2896e5f0a4ebab29735ec8031a07817cf6aca3f656c437345ebfa9b23b70f",
+    "checks": "six focused GREEN, required build/native and two CTests PASS"
+  },
+  "live": {
+    "manifest": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/manifests/a77eaa4b61f4d594dfb7e5f33c76c13b5a965631b837c1ec6426a7698cdc9ad5.json",
+    "sha256": "a77eaa4b61f4d594dfb7e5f33c76c13b5a965631b837c1ec6426a7698cdc9ad5",
+    "candidate_run_id": "replay-b916152ed0c74cc7b70e8fd6d7eefe3b",
+    "candidate_report": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/07a6200e529ed04854eba33f4042cd1a661b932b1ac3ab671878a8a3c3199dec.json",
+    "candidate_raw_log": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/1838dad86a1a8b7c513dd20b51fa5f5338a36e6fb513fa9fb49020966c3b4bad.log",
+    "niagara_raw_sidecar": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/63ecaea1332aa9c696a0ce3cca083d7e79f74c142454b269df7c48819c6b95a1.json",
+    "control_run_id": "replay-f306e3aeb5e74727881b6e1d6622c238",
+    "control_report": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/78fb098d4b3c66158a888e923e62da5732f387c92e45781da997e75ea0afef90.json",
+    "control_raw_log": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/91952a60a37cee53e418337b0d83d1060248435b4e22c0b7556b775e901c2d3d.log"
+  },
+  "observation": {
+    "startup": "Niagara observation startup=true installed=true process_owned_bytes=197600 forwarding_only=true",
+    "completion": "available=true records=0 persistence_failed=0 admission_proof=false",
+    "sidecar": "valid version1/run-id/pid/field schema with events=[]; 440 bytes retained at the recorded SHA256",
+    "inference_limit": "Neither monitored script-reachable Niagara helper executed in this selected candidate capture; zero hits do not prove all Niagara producers absent or G1 enforcement.",
+    "paired_result": "diagnostic stage PASS: real tick211 prerequisite mutation, complete B217 recovery, 120 independent continuation ticks, 480 native callbacks compared; certifying=false"
+  },
+  "cleanup": "Candidate and stock captures report complete with zero games. Final stock journal clean; six prior file states independently match, no game remains, Steam PID 98544 retained. Generated build LIB and 42 immutable large raw logs were NTFS compressed with SHA256 preserved to pass disk preflight.",
+  "remaining": "G1 Niagara init/pre-spawn ownership and debris consumer closure remain open. G2 and visual coherence/performance gates open; debris exact/Unresolved, no408 without publication change, no600 before G1/G2 close.",
+  "next_resolving_test": "Trace the concrete native/reflective Niagara spawn owner and its pre-construction admissibility/continuation in a supported segment that actually exercises it, or prove a versioned exclusion at the admission boundary. Preserve ordinary callbacks and exact debris."
+}

@@ -1,0 +1,316 @@
+{
+  "program": "SoulcaliburVI.exe",
+  "date": "2026-09-23",
+  "scope": "Read-only native investigation of selected generic component tick physical destruction monitors; no source or Ghidra edits in this follow-up.",
+  "limitation": "Static native evidence only. No live ownership witness or exhaustive indirect-call closure. Destructor monitors alone are not proven sufficient for resumable holds, prerequisite topology mutation, earlier derived-component teardown, logical destruction callbacks, or arbitrary external writes. EBOOT.elf is separate and was not used.",
+  "findings": [
+    "Common tick destructor142157BC0 changes vtable, unregisters at level+48 if tick+C bit40, then frees tick+20 backing; no retained-task wait.",
+    "Component base destructor1403AF1B0 frees component allocations at+1B8,+1A8,+198,+178,+168 before common tick destructor(component+110). Scene component1403AF4B0 tears down additional state before component base. A mutex first acquired at common tick dtor cannot detect these earlier destructor intervals.",
+    "UWorld destructor1421B4E60 is the before-entry physical teardown boundary; wrapper1421B5AE0 calls it then frees allocation when flags&1. Embedded world ticks are destructed only after several earlier world arrays are freed.",
+    "Prerequisite AddTickFunctionPrerequisite142159B90 and Remove142164920->142164960 can reallocate prerequisite backing without tick destruction. QueueTickFunctionWithPrerequisitesForEpoch142163BA0 also prunes invalid entries.",
+    "Native replacement StaticAllocateObject_Internal140F8CB30 invokes existing object virtual slot0 before memset and reconstruction, as retained in rollback-g1-physical-lifetime-native-2026-09-23.json. This supports destruction coverage for normal replacement only; exact selected class deleting/nondeleting destructor entry remains needed before derived teardown.",
+    "Component callback141D43230 dereferences tick+50 and component+188 before helper141D2CAC0 checks object item flags0x30000000 and registration. These checks cannot substitute for physical lifetime.",
+    "GC lease is not a native object replacement barrier. A world physical destructor monitor does not cover logical world/component lifecycle changes or prerequisite mutations."
+  ],
+  "recommendation": "For a bounded supported concrete component class, monitor the earliest verified deleting and nondeleting destructor entries used by its vtable/direct callers, plus world1421B4E60. Record in-progress destruction under shared monitor mutex before any native destructor work; reject admission if in progress and terminal before-entry if a retained hold exists. Forward native work without holding monitor mutex to avoid nested destructor/native wait deadlocks, with scope completion bookkeeping. Do not claim resumability until concrete class entry coverage, prerequisite mutation exclusion or safe copy/revalidation, and no held raw prerequisite-owner lifetime gaps are closed. A common tick destructor monitor remains useful terminal defense in depth but is insufficient by itself.",
+  "raw": [
+    {
+      "key": "monitor_dtor_bodies",
+      "operations": [
+        "decompile1403AF1B0",
+        "decompile1403AF4B0",
+        "decompile141D34350",
+        "decompile1421B4E60",
+        "decompile1421B59E0"
+      ],
+      "results": [
+        {
+          "status": "fulfilled",
+          "value": {
+            "address": "1403AF1B0",
+            "code": {
+              "result": "\r\nvoid FUN_1403af1b0(longlong param_1)\r\n\r\n{\r\n  if (*(void **)(param_1 + 0x1b8) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x1b8));\r\n  }\r\n  if (*(void **)(param_1 + 0x1a8) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x1a8));\r\n  }\r\n  if (*(void **)(param_1 + 0x198) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x198));\r\n  }\r\n  if (*(void **)(param_1 + 0x178) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x178));\r\n  }\r\n  if (*(void **)(param_1 + 0x168) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x168));\r\n  }\r\n  FUN_142157bc0(param_1 + 0x110);\r\n  DestroyCallbackEntryCollection((FCallbackEntryCollection_Partial *)(param_1 + 0xa0));\r\n  DestroyCallbackEntryCollection((FCallbackEntryCollection_Partial *)(param_1 + 0x30));\r\n  *(undefined ***)(param_1 + 0x28) = &PTR_UE4_Dtor_0x08_B_143263c30;\r\n  FUN_140f7b8d0(param_1);\r\n  return;\r\n}\r\n\r\n"
+            }
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "address": "1403AF4B0",
+            "code": {
+              "result": "\r\nvoid FUN_1403af4b0(longlong param_1)\r\n\r\n{\r\n  void *pMemory;\r\n  \r\n  if (*(void **)(param_1 + 0x3d0) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x3d0));\r\n  }\r\n  DestroyCallbackEntryCollection((FCallbackEntryCollection_Partial *)(param_1 + 0x360));\r\n  if (*(void **)(param_1 + 0x348) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x348));\r\n  }\r\n  *(undefined4 *)(param_1 + 0x230) = 0;\r\n  if (*(void **)(param_1 + 0x228) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x228));\r\n  }\r\n  *(undefined4 *)(param_1 + 0x1f0) = 0;\r\n  if (*(int *)(param_1 + 500) != 0) {\r\n    ResizeTArrayAllocationExact16B((FLuxTArrayHeader *)(param_1 + 0x1e8),0);\r\n  }\r\n  *(undefined4 *)(param_1 + 0x218) = 0xffffffff;\r\n  *(undefined4 *)(param_1 + 0x21c) = 0;\r\n  *(undefined4 *)(param_1 + 0x210) = 0;\r\n  if (*(int *)(param_1 + 0x214) != 0) {\r\n    *(undefined4 *)(param_1 + 0x214) = 0;\r\n    TBitArray_Reserve(param_1 + 0x1f8,0);\r\n  }\r\n  if (*(void **)(param_1 + 0x208) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x208));\r\n  }\r\n  pMemory = ((FLuxTArrayHeader *)(param_1 + 0x1e8))->pData;\r\n  if (pMemory != (void *)0x0) {\r\n    FMemory_Free(pMemory);\r\n  }\r\n  if (*(void **)(param_1 + 0x1d8) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x1d8));\r\n  }\r\n  FUN_1403af1b0(param_1);\r\n  return;\r\n}\r\n\r\n"
+            }
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "address": "141D34350",
+            "code": {
+              "result": "\r\nvoid * FUN_141d34350(void *param_1,ulonglong param_2)\r\n\r\n{\r\n  FUN_1403af1b0();\r\n  if ((param_2 & 1) != 0) {\r\n    UE_FMemory_Free(param_1);\r\n  }\r\n  return param_1;\r\n}\r\n\r\n"
+            }
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "address": "1421B4E60",
+            "code": {
+              "result": "\r\nvoid FUN_1421b4e60(undefined8 *param_1)\r\n\r\n{\r\n  void *pvVar1;\r\n  int iVar2;\r\n  longlong lVar3;\r\n  \r\n  *param_1 = &UWorld_vtable;\r\n  param_1[5] = &PTR_FUN_1439efd18;\r\n  iVar2 = *(int *)((longlong)param_1 + 0x9c4);\r\n  while (iVar2 != 0) {\r\n    FUN_140e1fa80(0);\r\n    iVar2 = *(int *)((longlong)param_1 + 0x9c4);\r\n  }\r\n  pvVar1 = (void *)param_1[0x139];\r\n  if (pvVar1 != (void *)0x0) {\r\n    FUN_141e6ec00(pvVar1);\r\n    UE_FMemory_Free(pvVar1);\r\n  }\r\n  if ((void *)param_1[0x133] != (void *)0x0) {\r\n    FMemory_Free((void *)param_1[0x133]);\r\n  }\r\n  if ((void *)param_1[0x130] != (void *)0x0) {\r\n    FMemory_Free((void *)param_1[0x130]);\r\n  }\r\n  *(undefined4 *)(param_1 + 0x123) = 0;\r\n  if ((void *)param_1[0x122] != (void *)0x0) {\r\n    FMemory_Free((void *)param_1[0x122]);\r\n  }\r\n  *(undefined4 *)(param_1 + 0x11b) = 0;\r\n  if (*(int *)((longlong)param_1 + 0x8dc) != 0) {\r\n    ResizeTArrayAllocationExact16B((FLuxTArrayHeader *)(param_1 + 0x11a),0);\r\n  }\r\n  *(undefined4 *)(param_1 + 0x120) = 0xffffffff;\r\n  *(undefined4 *)((longlong)param_1 + 0x904) = 0;\r\n  *(undefined4 *)(param_1 + 0x11f) = 0;\r\n  if (*(int *)((longlong)param_1 + 0x8fc) != 0) {\r\n    *(undefined4 *)((longlong)param_1 + 0x8fc) = 0;\r\n    TBitArray_Reserve();\r\n  }\r\n  if ((void *)param_1[0x11e] != (void *)0x0) {\r\n    FMemory_Free((void *)param_1[0x11e]);\r\n  }\r\n  pvVar1 = ((FLuxTArrayHeader *)(param_1 + 0x11a))->pData;\r\n  if (pvVar1 != (void *)0x0) {\r\n    FMemory_Free(pvVar1);\r\n  }\r\n  if ((void *)param_1[0x118] != (void *)0x0) {\r\n    FMemory_Free((void *)param_1[0x118]);\r\n  }\r\n  FUN_142157bc0(param_1 + 0x107);\r\n  FUN_142157bc0(param_1 + 0xfc);\r\n  FUN_142157bc0(param_1 + 0xf1);\r\n  FUN_141dfe820(param_1 + 0xe0);\r\n  DestroyCallbackEntryCollection((FCallbackEntryCollection_Partial *)(param_1 + 0xd2));\r\n  DestroyCallbackEntryCollection((FCallbackEntryCollection_Partial *)(param_1 + 0xc4));\r\n  DestroyCallbackEntryCollection((FCallbackEntryCollection_Partial *)(param_1 + 0xb6));\r\n  DestroyCallbackEntryCollection((FCallbackEntryCollection_Partial *)(param_1 + 0xa8));\r\n  FUN_141eba300(param_1 + 0x87);\r\n  DestroyCallbackEntryCollection((FCallbackEntryCollection_Partial *)(param_1 + 0x78));\r\n  FUN_140d64c10(param_1 + 0x6c);\r\n  FUN_1421b4c80(param_1 + 0x53);\r\n  DeleteCriticalSection((LPCRITICAL_SECTION)(param_1 + 0x4e));\r\n  *(undefined4 *)(param_1 + 0x4d) = 0;\r\n  if ((void *)param_1[0x4c] != (void *)0x0) {\r\n    FMemory_Free((void *)param_1[0x4c]);\r\n  }\r\n  *(undefined4 *)(param_1 + 0x45) = 0;\r\n  if (*(int *)((longlong)param_1 + 0x22c) != 0) {\r\n    ResizeTArrayAllocationExact16B((FLuxTArrayHeader *)(param_1 + 0x44),0);\r\n  }\r\n  *(undefined4 *)(param_1 + 0x4a) = 0xffffffff;\r\n  *(undefined4 *)((longlong)param_1 + 0x254) = 0;\r\n  *(undefined4 *)(param_1 + 0x49) = 0;\r\n  if (*(int *)((longlong)param_1 + 0x24c) != 0) {\r\n    *(undefined4 *)((longlong)param_1 + 0x24c) = 0;\r\n    TBitArray_Reserve();\r\n  }\r\n  if ((void *)param_1[0x48] != (void *)0x0) {\r\n    FMemory_Free((void *)param_1[0x48]);\r\n  }\r\n  pvVar1 = ((FLuxTArrayHeader *)(param_1 + 0x44))->pData;\r\n  if (pvVar1 != (void *)0x0) {\r\n    FMemory_Free(pvVar1);\r\n  }\r\n  *(undefined4 *)(param_1 + 0x43) = 0;\r\n  if ((void *)param_1[0x42] != (void *)0x0) {\r\n    FMemory_Free((void *)param_1[0x42]);\r\n  }\r\n  *(undefined4 *)(param_1 + 0x3b) = 0;\r\n  if (*(int *)((longlong)param_1 + 0x1dc) != 0) {\r\n    ResizeTArrayAllocationExact16B((FLuxTArrayHeader *)(param_1 + 0x3a),0);\r\n  }\r\n  *(undefined4 *)(param_1 + 0x40) = 0xffffffff;\r\n  *(undefined4 *)((longlong)param_1 + 0x204) = 0;\r\n  *(undefined4 *)(param_1 + 0x3f) = 0;\r\n  if (*(int *)((longlong)param_1 + 0x1fc) != 0) {\r\n    *(undefined4 *)((longlong)param_1 + 0x1fc) = 0;\r\n    TBitArray_Reserve(param_1 + 0x3c,0);\r\n  }\r\n  if ((void *)param_1[0x3e] != (void *)0x0) {\r\n    FMemory_Free((void *)param_1[0x3e]);\r\n  }\r\n  pvVar1 = ((FLuxTArrayHeader *)(param_1 + 0x3a))->pData;\r\n  if (pvVar1 != (void *)0x0) {\r\n    FMemory_Free(pvVar1);\r\n  }\r\n  if ((void *)param_1[0x37] != (void *)0x0) {\r\n    FMemory_Free((void *)param_1[0x37]);\r\n  }\r\n  if ((void *)param_1[0x35] != (void *)0x0) {\r\n    FMemory_Free((void *)param_1[0x35]);\r\n  }\r\n  if ((void *)param_1[0x33] != (void *)0x0) {\r\n    FMemory_Free((void *)param_1[0x33]);\r\n  }\r\n  if ((void *)param_1[0x31] != (void *)0x0) {\r\n    FMemory_Free((void *)param_1[0x31]);\r\n  }\r\n  if ((void *)param_1[0x2f] != (void *)0x0) {\r\n    FMemory_Free((void *)param_1[0x2f]);\r\n  }\r\n  if ((void *)param_1[0x29] != (void *)0x0) {\r\n    FMemory_Free((void *)param_1[0x29]);\r\n  }\r\n  lVar3 = param_1[0x24];\r\n  for (iVar2 = *(int *)(param_1 + 0x25); iVar2 != 0; iVar2 = iVar2 + -1) {\r\n    FUN_1421b4960(lVar3);\r\n    lVar3 = lVar3 + 0x80;\r\n  }\r\n  if ((void *)param_1[0x24] != (void *)0x0) {\r\n    FMemory_Free((void *)param_1[0x24]);\r\n  }\r\n  if ((void *)param_1[0x22] != (void *)0x0) {\r\n    FMemory_Free((void *)param_1[0x22]);\r\n  }\r\n  if ((void *)param_1[0x1a] != (void *)0x0) {\r\n    FMemory_Free((void *)param_1[0x1a]);\r\n  }\r\n  if ((void *)param_1[0x13] != (void *)0x0) {\r\n    FMemory_Free((void *)param_1[0x13]);\r\n  }\r\n  if ((void *)param_1[0x11] != (void *)0x0) {\r\n    FMemory_Free((void *)param_1[0x11]);\r\n  }\r\n  if ((void *)param_1[0xf] != (void *)0x0) {\r\n    FMemory_Free((void *)param_1[0xf]);\r\n  }\r\n  if ((void *)param_1[0xd] != (void *)0x0) {\r\n    FMemory_Free((void *)param_1[0xd]);\r\n  }\r\n  FUN_140f7b8d0(param_1);\r\n  return;\r\n}\r\n\r\n"
+            }
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "address": "1421B59E0",
+            "code": {
+              "result": "\r\nvoid * FUN_1421b59e0(void *param_1,ulonglong param_2)\r\n\r\n{\r\n  FUN_142157bc0();\r\n  if ((param_2 & 1) != 0) {\r\n    UE_FMemory_Free(param_1);\r\n  }\r\n  return param_1;\r\n}\r\n\r\n"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "key": "monitor_world_tick_refs",
+      "operations": [
+        "xrefs1421B4E60",
+        "xrefs142156C20",
+        "xrefs142185090"
+      ],
+      "results": [
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "From 144a010d8 [DATA]\nFrom 1421b5aef in FUN_1421b5ae0 [UNCONDITIONAL_CALL]"
+              }
+            ],
+            "structuredContent": {
+              "result": "From 144a010d8 [DATA]\nFrom 1421b5aef in FUN_1421b5ae0 [UNCONDITIONAL_CALL]"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "From 141c078b0 in AActor_VTableHelperCtor [UNCONDITIONAL_CALL]\nFrom 141d314b4 in FUN_141d31450 [UNCONDITIONAL_CALL]\nFrom 141d8eb1c in FUN_141d8e9c0 [UNCONDITIONAL_CALL]\nFrom 141d8ebd2 in FUN_141d8e9c0 [UNCONDITIONAL_CALL]\nFrom 141d8e0e0 in FUN_141d8df80 [UNCONDITIONAL_CALL]\nFrom 141d31bd2 in FUN_141d31ad0 [UNCONDITIONAL_CALL]\nFrom 14203208d in ConstructPhysics2DScene [UNCONDITIONAL_CALL]\nFrom 1420320a1 in ConstructPhysics2DScene [UNCONDITIONAL_CALL]\nFrom 1421b472b in UWorld_VTableHelperCtor [UNCONDITIONAL_CALL]\nFrom 1421b4745 in UWorld_VTableHelperCtor [UNCONDITIONAL_CALL]\nFrom 1421b475f in UWorld_VTableHelperCtor [UNCONDITIONAL_CALL]\nFrom 1422de16e in FUN_1422de160 [UNCONDITIONAL_CALL]\nFrom 14237f90e in FUN_14237f8f0 [UNCONDITIONAL_CALL]\nFrom 14237f94e in FUN_14237f930 [UNCONDITIONAL_CALL]\nFrom 14237fcce in FUN_14237fcb0 [UNCONDITIONAL_CALL]\nFrom 1427f203e in FUN_1427f2030 [UNCONDITIONAL_CALL]\nFrom 1427f206e in FUN_1427f2060 [UNCONDITIONAL_CALL]\nFrom 14289514e in FUN_142895140 [UNCONDITIONAL_CALL]\nFrom 142895bde in FUN_142895bd0 [UNCONDITIONAL_CALL]\nFrom 142895c0e in FUN_142895c00 [UNCONDITIONAL_CALL]\nFrom 14237fe98 [UNCONDITIONAL_CALL]"
+              }
+            ],
+            "structuredContent": {
+              "result": "From 141c078b0 in AActor_VTableHelperCtor [UNCONDITIONAL_CALL]\nFrom 141d314b4 in FUN_141d31450 [UNCONDITIONAL_CALL]\nFrom 141d8eb1c in FUN_141d8e9c0 [UNCONDITIONAL_CALL]\nFrom 141d8ebd2 in FUN_141d8e9c0 [UNCONDITIONAL_CALL]\nFrom 141d8e0e0 in FUN_141d8df80 [UNCONDITIONAL_CALL]\nFrom 141d31bd2 in FUN_141d31ad0 [UNCONDITIONAL_CALL]\nFrom 14203208d in ConstructPhysics2DScene [UNCONDITIONAL_CALL]\nFrom 1420320a1 in ConstructPhysics2DScene [UNCONDITIONAL_CALL]\nFrom 1421b472b in UWorld_VTableHelperCtor [UNCONDITIONAL_CALL]\nFrom 1421b4745 in UWorld_VTableHelperCtor [UNCONDITIONAL_CALL]\nFrom 1421b475f in UWorld_VTableHelperCtor [UNCONDITIONAL_CALL]\nFrom 1422de16e in FUN_1422de160 [UNCONDITIONAL_CALL]\nFrom 14237f90e in FUN_14237f8f0 [UNCONDITIONAL_CALL]\nFrom 14237f94e in FUN_14237f930 [UNCONDITIONAL_CALL]\nFrom 14237fcce in FUN_14237fcb0 [UNCONDITIONAL_CALL]\nFrom 1427f203e in FUN_1427f2030 [UNCONDITIONAL_CALL]\nFrom 1427f206e in FUN_1427f2060 [UNCONDITIONAL_CALL]\nFrom 14289514e in FUN_142895140 [UNCONDITIONAL_CALL]\nFrom 142895bde in FUN_142895bd0 [UNCONDITIONAL_CALL]\nFrom 142895c0e in FUN_142895c00 [UNCONDITIONAL_CALL]\nFrom 14237fe98 [UNCONDITIONAL_CALL]"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "From 1449fdd78 [DATA]\nFrom 140dce73f in FUN_140dce2f0 [UNCONDITIONAL_CALL]\nFrom 140dce783 in FUN_140dce2f0 [UNCONDITIONAL_CALL]\nFrom 1410bbaee in FUN_1410bb8f0 [UNCONDITIONAL_CALL]\nFrom 140ffe9f2 in FUN_140ffe800 [UNCONDITIONAL_CALL]\nFrom 14102794b in FUN_141027820 [UNCONDITIONAL_CALL]\nFrom 140477fbe in FUN_140477f20 [UNCONDITIONAL_CALL]\nFrom 141107858 in FUN_141107770 [UNCONDITIONAL_CALL]\nFrom 1419ecfcf in FUN_1419ecf00 [UNCONDITIONAL_CALL]\nFrom 142187fbe in FUN_142187e10 [UNCONDITIONAL_CALL]\nFrom 1421acf88 in FUN_1421acd60 [UNCONDITIONAL_CALL]\nFrom 1403d7707 in DispatchMulticastScriptDelegateAndPruneInvalidEntries [UNCONDITIONAL_CALL]\nFrom 1403ea29d in TArray_PruneExpiredWeakPtrs_Stride16 [UNCONDITIONAL_CALL]\nFrom 142007efc in FUN_142007e50 [UNCONDITIONAL_CALL]\nFrom 1403b63b1 in TSet_CompactFreeSlots_Stride16 [UNCONDITIONAL_CALL]\nFrom 1403ba50d in LuxMove_CompactAndPruneActiveSlots [UNCONDITIONAL_CALL]\nFrom 1403ba5fc in LuxMove_CompactAndPruneActiveSlots [UNCONDITIONAL_CALL]\nFrom 1403fde98 in ProcessBattleInputEventHistoryFromManagerCache [UNCONDITIONAL_CALL]\nFrom 141e74193 in FUN_141e74090 [UNCONDITIONAL_CALL]\nFrom 141e74330 in FUN_141e74090 [UNCONDITIONAL_CALL]\nFrom 1421649fb in FUN_142164960 [UNCONDITIONAL_CALL]\nFrom 141e82a34 in FUN_141e82870 [UNCONDITIONAL_CALL]\nFrom 141e82dca in FUN_141e82870 [UNCONDITIONAL_CALL]\nFrom 141e83178 in FUN_141e82870 [UNCONDITIONAL_CALL]\nFrom 140551b14 in FUN_140551a60 [UNCONDITIONAL_CALL]\nFrom 1404e2112 in FUN_1404e1c70 [UNCONDITIONAL_CALL]\nFrom 14051c239 in FUN_14051c1a0 [UNCONDITIONAL_CALL]\nFrom 14051c611 in FUN_14051c590 [UNCONDITIONAL_CALL]\nFrom 14051c8dc in FUN_14051c810 [UNCONDITIONAL_CALL]\nFrom 1404e372f in FUN_1404e3260 [UNCONDITIONAL_CALL]"
+              }
+            ],
+            "structuredContent": {
+              "result": "From 1449fdd78 [DATA]\nFrom 140dce73f in FUN_140dce2f0 [UNCONDITIONAL_CALL]\nFrom 140dce783 in FUN_140dce2f0 [UNCONDITIONAL_CALL]\nFrom 1410bbaee in FUN_1410bb8f0 [UNCONDITIONAL_CALL]\nFrom 140ffe9f2 in FUN_140ffe800 [UNCONDITIONAL_CALL]\nFrom 14102794b in FUN_141027820 [UNCONDITIONAL_CALL]\nFrom 140477fbe in FUN_140477f20 [UNCONDITIONAL_CALL]\nFrom 141107858 in FUN_141107770 [UNCONDITIONAL_CALL]\nFrom 1419ecfcf in FUN_1419ecf00 [UNCONDITIONAL_CALL]\nFrom 142187fbe in FUN_142187e10 [UNCONDITIONAL_CALL]\nFrom 1421acf88 in FUN_1421acd60 [UNCONDITIONAL_CALL]\nFrom 1403d7707 in DispatchMulticastScriptDelegateAndPruneInvalidEntries [UNCONDITIONAL_CALL]\nFrom 1403ea29d in TArray_PruneExpiredWeakPtrs_Stride16 [UNCONDITIONAL_CALL]\nFrom 142007efc in FUN_142007e50 [UNCONDITIONAL_CALL]\nFrom 1403b63b1 in TSet_CompactFreeSlots_Stride16 [UNCONDITIONAL_CALL]\nFrom 1403ba50d in LuxMove_CompactAndPruneActiveSlots [UNCONDITIONAL_CALL]\nFrom 1403ba5fc in LuxMove_CompactAndPruneActiveSlots [UNCONDITIONAL_CALL]\nFrom 1403fde98 in ProcessBattleInputEventHistoryFromManagerCache [UNCONDITIONAL_CALL]\nFrom 141e74193 in FUN_141e74090 [UNCONDITIONAL_CALL]\nFrom 141e74330 in FUN_141e74090 [UNCONDITIONAL_CALL]\nFrom 1421649fb in FUN_142164960 [UNCONDITIONAL_CALL]\nFrom 141e82a34 in FUN_141e82870 [UNCONDITIONAL_CALL]\nFrom 141e82dca in FUN_141e82870 [UNCONDITIONAL_CALL]\nFrom 141e83178 in FUN_141e82870 [UNCONDITIONAL_CALL]\nFrom 140551b14 in FUN_140551a60 [UNCONDITIONAL_CALL]\nFrom 1404e2112 in FUN_1404e1c70 [UNCONDITIONAL_CALL]\nFrom 14051c239 in FUN_14051c1a0 [UNCONDITIONAL_CALL]\nFrom 14051c611 in FUN_14051c590 [UNCONDITIONAL_CALL]\nFrom 14051c8dc in FUN_14051c810 [UNCONDITIONAL_CALL]\nFrom 1404e372f in FUN_1404e3260 [UNCONDITIONAL_CALL]"
+            },
+            "isError": false
+          }
+        }
+      ]
+    },
+    {
+      "key": "monitor_bypass",
+      "operations": [
+        "decompile142164960",
+        "decompile1421B5AE0",
+        "decompile142156C20"
+      ],
+      "results": [
+        {
+          "status": "fulfilled",
+          "value": {
+            "address": "142164960",
+            "code": {
+              "result": "\r\nint FUN_142164960(longlong *param_1,longlong param_2)\r\n\r\n{\r\n  longlong lVar1;\r\n  longlong lVar2;\r\n  char cVar3;\r\n  int iVar4;\r\n  int iVar5;\r\n  longlong lVar6;\r\n  \r\n  lVar2 = param_1[1];\r\n  iVar5 = 0;\r\n  if (0 < (int)lVar2) {\r\n    lVar6 = 0;\r\n    do {\r\n      lVar1 = *param_1;\r\n      cVar3 = FUN_1421b2c70(lVar1 + lVar6,param_2);\r\n      if ((cVar3 != '\\0') && (*(longlong *)(lVar1 + lVar6 + 8) == *(longlong *)(param_2 + 8))) {\r\n        iVar4 = ((int)param_1[1] - iVar5) + -1;\r\n        if (0 < iVar4) {\r\n          iVar4 = 1;\r\n        }\r\n        if (iVar4 != 0) {\r\n          memcpy((void *)((longlong)iVar5 * 0x10 + *param_1),\r\n                 (void *)((longlong)((int)param_1[1] - iVar4) * 0x10 + *param_1),\r\n                 (longlong)iVar4 << 4);\r\n        }\r\n        *(int *)(param_1 + 1) = (int)param_1[1] + -1;\r\n        FUN_142185090(param_1);\r\n        iVar5 = iVar5 + -1;\r\n        lVar6 = lVar6 + -0x10;\r\n      }\r\n      iVar5 = iVar5 + 1;\r\n      lVar6 = lVar6 + 0x10;\r\n    } while (iVar5 < (int)param_1[1]);\r\n  }\r\n  return (int)lVar2 - (int)param_1[1];\r\n}\r\n\r\n"
+            }
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "address": "1421B5AE0",
+            "code": {
+              "result": "\r\nvoid * FUN_1421b5ae0(void *param_1,ulonglong param_2)\r\n\r\n{\r\n  FUN_1421b4e60();\r\n  if ((param_2 & 1) != 0) {\r\n    UE_FMemory_Free(param_1);\r\n  }\r\n  return param_1;\r\n}\r\n\r\n"
+            }
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "address": "142156C20",
+            "code": {
+              "result": "\r\n/* Construct the common tick-function prefix in caller-provided storage.\r\n   \r\n   Algorithm:\r\n   1. Install base vtable 1439CBEC0; clear configured/effective groups; set state 1.\r\n   2. Preserve flags bit 2 and set bit 3, clearing the other flag bits.\r\n   3. Clear admission/queued stamps, prerequisite array, cooldown duration, interval and owning\r\n   level; set last tick time to -1.\r\n   \r\n   Parameters:\r\n   pTickFunction: common 0x50-byte prefix. Component construction 14237F8F0 clears a 0x58-byte\r\n   derived object before calling this entry, then installs component vtable 143865F98. Verified\r\n   actor/component dispatch reads the derived target at +0x50.\r\n   \r\n   Returns:\r\n   The same pTickFunction pointer in RAX.\r\n   \r\n   Ownership:\r\n   This is construction, not reset or assignment. It does not release existing prerequisites. Native\r\n   stores leave task +0x18, cooldown-next +0x30 and unknown ranges +0x0E/+0x44 untouched. Do not\r\n   call on an owning live object to manufacture a checkpoint baseline.\r\n   \r\n   Special Cases:\r\n   FTickFunction_Partial models the independently observed common prefix, not a complete derived\r\n   object. Alignment metadata is not a native packing claim. Flags retain one caller-provided bit.\r\n   \r\n   Source:\r\n   SoulcaliburVI.exe disassembly 142156C20..142156C62, component constructor 14237F8F0, queue\r\n   142163BA0 and dispatch wrappers 141C15C90/141D43230. */\r\n\r\nFTickFunction_Partial * ConstructTickFunction(FTickFunction_Partial *pTickFunction)\r\n\r\n{\r\n  pTickFunction->pVirtualTable = &g_pTickFunctionVtableFirstEntry;\r\n  pTickFunction->bStartGroup = 0;\r\n  pTickFunction->bEndGroup = 0;\r\n  pTickFunction->bActualStartGroup = 0;\r\n  pTickFunction->bActualEndGroup = 0;\r\n  pTickFunction->bState = 1;\r\n  pTickFunction->bFlags = pTickFunction->bFlags & 4 | 8;\r\n  pTickFunction->nAdmissionEpoch = 0;\r\n  pTickFunction->nQueuedEpoch = 0;\r\n  pTickFunction->pPrerequisiteData = (void *)0x0;\r\n  pTickFunction->nPrerequisiteCount = 0;\r\n  pTickFunction->nPrerequisiteCapacity = 0;\r\n  pTickFunction->flRelativeCooldown = 0.0;\r\n  pTickFunction->flTickInterval = 0.0;\r\n  pTickFunction->pLevel = (FTickTaskLevel_Partial *)0x0;\r\n  pTickFunction->flLastTickTime = -1.0;\r\n  return pTickFunction;\r\n}\r\n\r\n"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "key": "monitor_prereq",
+      "operations": [
+        "decompile142159B90",
+        "decompile141D43230",
+        "xrefs142164960"
+      ],
+      "results": [
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "\r\n/* Adds one exact {FWeakObjectPtr owner, prerequisite tick-function pointer} entry to a tick\r\n   function.\r\n   \r\n   Algorithm:\r\n   1. Require both tick functions to have compatible enabled/registration flags.\r\n   2. Construct a weak identity for the prerequisite owner.\r\n   3. Deduplicate the exact owner generation plus prerequisite tick pointer.\r\n   4. Append the 0x10-byte entry to the owning tick function array at +0x20.\r\n   \r\n   Parameters:\r\n   pTickFunction: target tick function receiving the prerequisite.\r\n   pPrerequisiteOwner: UObject owning the prerequisite tick.\r\n   pPrerequisiteTickFunction: exact prerequisite tick function.\r\n   \r\n   Returns:\r\n   void.\r\n   \r\n   Rollback relevance:\r\n   Lux trace actor creation makes skeletal-mesh tick depend on the owning ULuxTraceComponent tick.\r\n   This persistent weak-generation/order edge is part of the fixed-step scheduling topology and must\r\n   be sealed across Load/recreation.\r\n   \r\n   Source: SoulcaliburVI.exe 0x142159B90. */\r\n\r\nvoid AddTickFunctionPrerequisite\r\n               (void *pTickFunction,UObject_Partial *pPrerequisiteOwner,\r\n               void *pPrerequisiteTickFunction)\r\n\r\n{\r\n  int iVar1;\r\n  longlong lVar2;\r\n  char cVar3;\r\n  int iVar4;\r\n  int *piVar5;\r\n  longlong lVar6;\r\n  FWeakObjectPtr_Partial local_18;\r\n  void *local_10;\r\n  \r\n  if (((*(byte *)((longlong)pTickFunction + 0xc) & 0x42) != 0) &&\r\n     ((*(byte *)((longlong)pPrerequisiteTickFunction + 0xc) & 0x42) != 0)) {\r\n    FWeakObjectPtr_FromUObject(&local_18,pPrerequisiteOwner);\r\n    lVar2 = *(longlong *)((longlong)pTickFunction + 0x20);\r\n    iVar1 = *(int *)((longlong)pTickFunction + 0x28);\r\n    local_10 = pPrerequisiteTickFunction;\r\n    for (lVar6 = lVar2; lVar6 != (longlong)iVar1 * 0x10 + lVar2; lVar6 = lVar6 + 0x10) {\r\n      cVar3 = FUN_1421b2c70(lVar6,&local_18);\r\n      if ((cVar3 != '\\0') && (*(void **)(lVar6 + 8) == local_10)) {\r\n        if ((int)(lVar6 - lVar2 >> 4) != -1) {\r\n          return;\r\n        }\r\n        break;\r\n      }\r\n    }\r\n    iVar1 = *(int *)((longlong)pTickFunction + 0x28);\r\n    iVar4 = iVar1 + 1;\r\n    *(int *)((longlong)pTickFunction + 0x28) = iVar4;\r\n    if (*(int *)((longlong)pTickFunction + 0x2c) < iVar4) {\r\n      TArray_ReserveGrow_16B((FLuxTArrayHeader *)((longlong)pTickFunction + 0x20));\r\n    }\r\n    piVar5 = (int *)((longlong)iVar1 * 0x10 + *(longlong *)((longlong)pTickFunction + 0x20));\r\n    if (piVar5 != (int *)0x0) {\r\n      *piVar5 = local_18.nObjectIndex;\r\n      piVar5[1] = local_18.nSerialNumber;\r\n      *(void **)(piVar5 + 2) = local_10;\r\n    }\r\n  }\r\n  return;\r\n}\r\n\r\n"
+              }
+            ],
+            "structuredContent": {
+              "result": "\r\n/* Adds one exact {FWeakObjectPtr owner, prerequisite tick-function pointer} entry to a tick\r\n   function.\r\n   \r\n   Algorithm:\r\n   1. Require both tick functions to have compatible enabled/registration flags.\r\n   2. Construct a weak identity for the prerequisite owner.\r\n   3. Deduplicate the exact owner generation plus prerequisite tick pointer.\r\n   4. Append the 0x10-byte entry to the owning tick function array at +0x20.\r\n   \r\n   Parameters:\r\n   pTickFunction: target tick function receiving the prerequisite.\r\n   pPrerequisiteOwner: UObject owning the prerequisite tick.\r\n   pPrerequisiteTickFunction: exact prerequisite tick function.\r\n   \r\n   Returns:\r\n   void.\r\n   \r\n   Rollback relevance:\r\n   Lux trace actor creation makes skeletal-mesh tick depend on the owning ULuxTraceComponent tick.\r\n   This persistent weak-generation/order edge is part of the fixed-step scheduling topology and must\r\n   be sealed across Load/recreation.\r\n   \r\n   Source: SoulcaliburVI.exe 0x142159B90. */\r\n\r\nvoid AddTickFunctionPrerequisite\r\n               (void *pTickFunction,UObject_Partial *pPrerequisiteOwner,\r\n               void *pPrerequisiteTickFunction)\r\n\r\n{\r\n  int iVar1;\r\n  longlong lVar2;\r\n  char cVar3;\r\n  int iVar4;\r\n  int *piVar5;\r\n  longlong lVar6;\r\n  FWeakObjectPtr_Partial local_18;\r\n  void *local_10;\r\n  \r\n  if (((*(byte *)((longlong)pTickFunction + 0xc) & 0x42) != 0) &&\r\n     ((*(byte *)((longlong)pPrerequisiteTickFunction + 0xc) & 0x42) != 0)) {\r\n    FWeakObjectPtr_FromUObject(&local_18,pPrerequisiteOwner);\r\n    lVar2 = *(longlong *)((longlong)pTickFunction + 0x20);\r\n    iVar1 = *(int *)((longlong)pTickFunction + 0x28);\r\n    local_10 = pPrerequisiteTickFunction;\r\n    for (lVar6 = lVar2; lVar6 != (longlong)iVar1 * 0x10 + lVar2; lVar6 = lVar6 + 0x10) {\r\n      cVar3 = FUN_1421b2c70(lVar6,&local_18);\r\n      if ((cVar3 != '\\0') && (*(void **)(lVar6 + 8) == local_10)) {\r\n        if ((int)(lVar6 - lVar2 >> 4) != -1) {\r\n          return;\r\n        }\r\n        break;\r\n      }\r\n    }\r\n    iVar1 = *(int *)((longlong)pTickFunction + 0x28);\r\n    iVar4 = iVar1 + 1;\r\n    *(int *)((longlong)pTickFunction + 0x28) = iVar4;\r\n    if (*(int *)((longlong)pTickFunction + 0x2c) < iVar4) {\r\n      TArray_ReserveGrow_16B((FLuxTArrayHeader *)((longlong)pTickFunction + 0x20));\r\n    }\r\n    piVar5 = (int *)((longlong)iVar1 * 0x10 + *(longlong *)((longlong)pTickFunction + 0x20));\r\n    if (piVar5 != (int *)0x0) {\r\n      *piVar5 = local_18.nObjectIndex;\r\n      piVar5[1] = local_18.nSerialNumber;\r\n      *(void **)(piVar5 + 2) = local_10;\r\n    }\r\n  }\r\n  return;\r\n}\r\n\r\n"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "\r\n/* Summary: Dispatches a component tick through native liveness, registration, tick-type and owner\r\n   time-dilation guards.\r\n   \r\n   Parameters:\r\n   pTickFunction: process-local tick-function binding with target component at +0x50.\r\n   flDeltaSeconds: engine interval delta in XMM1.\r\n   nLevelTick: engine level-tick selector in R8D.\r\n   \r\n   Algorithm:\r\n   1. Build a 12-byte local call context: tick-function pointer followed by level-tick selector.\r\n   2. Read target component +0x188 bit 11 as the special level-tick admission flag.\r\n   3. Call 141D2CAC0 with component, flag, delta, selector and address of local context.\r\n   4. Return only after the complete guarded component call.\r\n   \r\n   Returns:\r\n   Void.\r\n   \r\n   Source:\r\n   Native assembly 141D43230..141D43269. Vtable slot +8 at 143865FA0, diagnostic-message slot\r\n   141D41E40 emits [TickComponent]. Vtable 143865F98 is installed by 14237F8F0 and 141D31450.\r\n   \r\n   Replay relevance:\r\n   Helper 141D2CAC0 validates UObject flags 0x30000000, invokes component virtual +0x350, checks\r\n   +0x188 bit 0, resolves owner at +0x190, applies special level-tick rules, and scales delta by\r\n   owner +0x80 or 1.0. It invokes component virtual +0x300 with the original tick-function pointer\r\n   in R9. This includes derived particle fade, completion and destruction work; skipping it is not\r\n   presentation-neutral. Any resumable host continuation must retain logical arguments and validated\r\n   bindings, never this function's stack context.\r\n   \r\n   Special Cases:\r\n   Incoming R9 and stack arguments are not consumed by this concrete implementation. The 12-byte\r\n   local context is valid only for the synchronous helper call. local_28 is the outgoing\r\n   fifth-argument slot, not retained state. Secondary/custom tick-function implementations and\r\n   asynchronous component tasks require separate ownership audit. */\r\n\r\nvoid DispatchComponentTickFunction(void *pTickFunction,float flDeltaSeconds,int nLevelTick)\r\n\r\n{\r\n  void *pDispatchTickFunction;\r\n  int nDispatchLevelTick;\r\n  \r\n  pDispatchTickFunction = pTickFunction;\r\n  nDispatchLevelTick = nLevelTick;\r\n  FUN_141d2cac0(*(longlong *)((longlong)pTickFunction + 0x50),\r\n                (byte)(*(uint *)(*(longlong *)((longlong)pTickFunction + 0x50) + 0x188) >> 0xb) & 1,\r\n                flDeltaSeconds,nLevelTick,&pDispatchTickFunction);\r\n  return;\r\n}\r\n\r\n"
+              }
+            ],
+            "structuredContent": {
+              "result": "\r\n/* Summary: Dispatches a component tick through native liveness, registration, tick-type and owner\r\n   time-dilation guards.\r\n   \r\n   Parameters:\r\n   pTickFunction: process-local tick-function binding with target component at +0x50.\r\n   flDeltaSeconds: engine interval delta in XMM1.\r\n   nLevelTick: engine level-tick selector in R8D.\r\n   \r\n   Algorithm:\r\n   1. Build a 12-byte local call context: tick-function pointer followed by level-tick selector.\r\n   2. Read target component +0x188 bit 11 as the special level-tick admission flag.\r\n   3. Call 141D2CAC0 with component, flag, delta, selector and address of local context.\r\n   4. Return only after the complete guarded component call.\r\n   \r\n   Returns:\r\n   Void.\r\n   \r\n   Source:\r\n   Native assembly 141D43230..141D43269. Vtable slot +8 at 143865FA0, diagnostic-message slot\r\n   141D41E40 emits [TickComponent]. Vtable 143865F98 is installed by 14237F8F0 and 141D31450.\r\n   \r\n   Replay relevance:\r\n   Helper 141D2CAC0 validates UObject flags 0x30000000, invokes component virtual +0x350, checks\r\n   +0x188 bit 0, resolves owner at +0x190, applies special level-tick rules, and scales delta by\r\n   owner +0x80 or 1.0. It invokes component virtual +0x300 with the original tick-function pointer\r\n   in R9. This includes derived particle fade, completion and destruction work; skipping it is not\r\n   presentation-neutral. Any resumable host continuation must retain logical arguments and validated\r\n   bindings, never this function's stack context.\r\n   \r\n   Special Cases:\r\n   Incoming R9 and stack arguments are not consumed by this concrete implementation. The 12-byte\r\n   local context is valid only for the synchronous helper call. local_28 is the outgoing\r\n   fifth-argument slot, not retained state. Secondary/custom tick-function implementations and\r\n   asynchronous component tasks require separate ownership audit. */\r\n\r\nvoid DispatchComponentTickFunction(void *pTickFunction,float flDeltaSeconds,int nLevelTick)\r\n\r\n{\r\n  void *pDispatchTickFunction;\r\n  int nDispatchLevelTick;\r\n  \r\n  pDispatchTickFunction = pTickFunction;\r\n  nDispatchLevelTick = nLevelTick;\r\n  FUN_141d2cac0(*(longlong *)((longlong)pTickFunction + 0x50),\r\n                (byte)(*(uint *)(*(longlong *)((longlong)pTickFunction + 0x50) + 0x188) >> 0xb) & 1,\r\n                flDeltaSeconds,nLevelTick,&pDispatchTickFunction);\r\n  return;\r\n}\r\n\r\n"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "From 1449fbcf0 [DATA]\nFrom 143fdd0f4 [DATA]\nFrom 143fdd104 [DATA]\nFrom 142164948 in FUN_142164920 [UNCONDITIONAL_CALL]"
+              }
+            ],
+            "structuredContent": {
+              "result": "From 1449fbcf0 [DATA]\nFrom 143fdd0f4 [DATA]\nFrom 143fdd104 [DATA]\nFrom 142164948 in FUN_142164920 [UNCONDITIONAL_CALL]"
+            },
+            "isError": false
+          }
+        }
+      ]
+    },
+    {
+      "key": "monitor_remove_and_guard",
+      "operations": [
+        "decompile142164920",
+        "xrefs142164920",
+        "decompile141D2CAC0"
+      ],
+      "results": [
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "\r\nvoid FUN_142164920(longlong param_1,UObject_Partial *param_2,undefined8 param_3)\r\n\r\n{\r\n  FWeakObjectPtr_Partial local_18;\r\n  undefined8 local_10;\r\n  \r\n  FWeakObjectPtr_FromUObject(&local_18,param_2);\r\n  local_10 = param_3;\r\n  FUN_142164960(param_1 + 0x20,&local_18);\r\n  return;\r\n}\r\n\r\n"
+              }
+            ],
+            "structuredContent": {
+              "result": "\r\nvoid FUN_142164920(longlong param_1,UObject_Partial *param_2,undefined8 param_3)\r\n\r\n{\r\n  FWeakObjectPtr_Partial local_18;\r\n  undefined8 local_10;\r\n  \r\n  FWeakObjectPtr_FromUObject(&local_18,param_2);\r\n  local_10 = param_3;\r\n  FUN_142164960(param_1 + 0x20,&local_18);\r\n  return;\r\n}\r\n\r\n"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "From 1449fbce4 [DATA]\nFrom 140455c00 in InitializeDemoHumanActorAfterSetupReady [UNCONDITIONAL_CALL]\nFrom 1420274bf in FUN_142027390 [UNCONDITIONAL_CALL]\nFrom 141adb901 in FUN_141adb4a0 [UNCONDITIONAL_CALL]\nFrom 141adb924 in FUN_141adb4a0 [UNCONDITIONAL_CALL]\nFrom 141c275ec in FUN_141c275c0 [UNCONDITIONAL_CALL]\nFrom 141c275fc in FUN_141c275c0 [UNCONDITIONAL_CALL]\nFrom 141d269bd in FUN_141d26990 [UNCONDITIONAL_CALL]\nFrom 141d269f4 in FUN_141d26990 [UNCONDITIONAL_CALL]\nFrom 141d26bb9 in FUN_141d26990 [UNCONDITIONAL_CALL]\nFrom 141d872bc in FUN_141d871b0 [UNCONDITIONAL_CALL]\nFrom 141d99da3 in FUN_141d99ce0 [UNCONDITIONAL_CALL]\nFrom 141dd6fbb in FUN_141dd6e00 [UNCONDITIONAL_CALL]\nFrom 141df1a14 in FUN_141df19e0 [UNCONDITIONAL_CALL]\nFrom 141df1a24 in FUN_141df19e0 [UNCONDITIONAL_CALL]\nFrom 141c27b3d in FUN_141c27b30 [UNCONDITIONAL_CALL]\nFrom 141c27b60 in FUN_141c27b50 [UNCONDITIONAL_CALL]\nFrom 141d58ec0 [UNCONDITIONAL_CALL]\nFrom 141d58ee3 [UNCONDITIONAL_CALL]"
+              }
+            ],
+            "structuredContent": {
+              "result": "From 1449fbce4 [DATA]\nFrom 140455c00 in InitializeDemoHumanActorAfterSetupReady [UNCONDITIONAL_CALL]\nFrom 1420274bf in FUN_142027390 [UNCONDITIONAL_CALL]\nFrom 141adb901 in FUN_141adb4a0 [UNCONDITIONAL_CALL]\nFrom 141adb924 in FUN_141adb4a0 [UNCONDITIONAL_CALL]\nFrom 141c275ec in FUN_141c275c0 [UNCONDITIONAL_CALL]\nFrom 141c275fc in FUN_141c275c0 [UNCONDITIONAL_CALL]\nFrom 141d269bd in FUN_141d26990 [UNCONDITIONAL_CALL]\nFrom 141d269f4 in FUN_141d26990 [UNCONDITIONAL_CALL]\nFrom 141d26bb9 in FUN_141d26990 [UNCONDITIONAL_CALL]\nFrom 141d872bc in FUN_141d871b0 [UNCONDITIONAL_CALL]\nFrom 141d99da3 in FUN_141d99ce0 [UNCONDITIONAL_CALL]\nFrom 141dd6fbb in FUN_141dd6e00 [UNCONDITIONAL_CALL]\nFrom 141df1a14 in FUN_141df19e0 [UNCONDITIONAL_CALL]\nFrom 141df1a24 in FUN_141df19e0 [UNCONDITIONAL_CALL]\nFrom 141c27b3d in FUN_141c27b30 [UNCONDITIONAL_CALL]\nFrom 141c27b60 in FUN_141c27b50 [UNCONDITIONAL_CALL]\nFrom 141d58ec0 [UNCONDITIONAL_CALL]\nFrom 141d58ee3 [UNCONDITIONAL_CALL]"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "\r\nvoid FUN_141d2cac0(longlong *param_1,char param_2,float param_3,int param_4,longlong *param_5)\r\n\r\n{\r\n  longlong *plVar1;\r\n  char cVar2;\r\n  FUObjectItemFlags_Partial *pFVar3;\r\n  float fVar4;\r\n  \r\n  if (param_1 != (longlong *)0x0) {\r\n    if (*(int *)((longlong)param_1 + 0xc) < g_nGUObjectArrayItemCount) {\r\n      pFVar3 = g_pGUObjectArrayItems + *(int *)((longlong)param_1 + 0xc);\r\n    }\r\n    else {\r\n      pFVar3 = (FUObjectItemFlags_Partial *)0x0;\r\n    }\r\n    if ((((pFVar3->dwFlags & 0x30000000) == 0) &&\r\n        ((**(code **)(*param_1 + 0x350))(param_1), (*(byte *)(param_1 + 0x31) & 1) != 0)) &&\r\n       (((plVar1 = (longlong *)param_1[0x32], param_4 != 1 || (param_2 != '\\0')) ||\r\n        ((plVar1 != (longlong *)0x0 &&\r\n         (cVar2 = (**(code **)(*plVar1 + 0x420))(plVar1), cVar2 != '\\0')))))) {\r\n      fVar4 = g_flOne;\r\n      if (plVar1 != (longlong *)0x0) {\r\n        fVar4 = *(float *)(plVar1 + 0x10);\r\n      }\r\n      (**(code **)(**(longlong **)(*param_5 + 0x50) + 0x300))\r\n                (*(longlong **)(*param_5 + 0x50),fVar4 * param_3,(int)param_5[1]);\r\n    }\r\n  }\r\n  return;\r\n}\r\n\r\n"
+              }
+            ],
+            "structuredContent": {
+              "result": "\r\nvoid FUN_141d2cac0(longlong *param_1,char param_2,float param_3,int param_4,longlong *param_5)\r\n\r\n{\r\n  longlong *plVar1;\r\n  char cVar2;\r\n  FUObjectItemFlags_Partial *pFVar3;\r\n  float fVar4;\r\n  \r\n  if (param_1 != (longlong *)0x0) {\r\n    if (*(int *)((longlong)param_1 + 0xc) < g_nGUObjectArrayItemCount) {\r\n      pFVar3 = g_pGUObjectArrayItems + *(int *)((longlong)param_1 + 0xc);\r\n    }\r\n    else {\r\n      pFVar3 = (FUObjectItemFlags_Partial *)0x0;\r\n    }\r\n    if ((((pFVar3->dwFlags & 0x30000000) == 0) &&\r\n        ((**(code **)(*param_1 + 0x350))(param_1), (*(byte *)(param_1 + 0x31) & 1) != 0)) &&\r\n       (((plVar1 = (longlong *)param_1[0x32], param_4 != 1 || (param_2 != '\\0')) ||\r\n        ((plVar1 != (longlong *)0x0 &&\r\n         (cVar2 = (**(code **)(*plVar1 + 0x420))(plVar1), cVar2 != '\\0')))))) {\r\n      fVar4 = g_flOne;\r\n      if (plVar1 != (longlong *)0x0) {\r\n        fVar4 = *(float *)(plVar1 + 0x10);\r\n      }\r\n      (**(code **)(**(longlong **)(*param_5 + 0x50) + 0x300))\r\n                (*(longlong **)(*param_5 + 0x50),fVar4 * param_3,(int)param_5[1]);\r\n    }\r\n  }\r\n  return;\r\n}\r\n\r\n"
+            },
+            "isError": false
+          }
+        }
+      ]
+    },
+    {
+      "key": "monitor_tick_common",
+      "operations": [
+        "xrefs142157BC0",
+        "decompile142157BC0"
+      ],
+      "results": [
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "From 1449fad00 [DATA]\nFrom 1403ae8e5 in FUN_1403ae680 [UNCONDITIONAL_CALL]\nFrom 1403af215 in FUN_1403af1b0 [UNCONDITIONAL_CALL]\nFrom 1403af340 in FUN_1403af330 [UNCONDITIONAL_CALL]\nFrom 1403af621 in FUN_1403af580 [UNCONDITIONAL_CALL]\nFrom 1403af6c1 in FUN_1403af580 [UNCONDITIONAL_CALL]\nFrom 141d32c27 in FUN_141d32be0 [UNCONDITIONAL_CALL]\nFrom 142033075 in FUN_142033020 [UNCONDITIONAL_CALL]\nFrom 14203307e in FUN_142033020 [UNCONDITIONAL_CALL]\nFrom 1421b4f65 in FUN_1421b4e60 [UNCONDITIONAL_CALL]\nFrom 1421b4f71 in FUN_1421b4e60 [UNCONDITIONAL_CALL]\nFrom 1421b4f7d in FUN_1421b4e60 [UNCONDITIONAL_CALL]\nFrom 1421b59ef in FUN_1421b59e0 [UNCONDITIONAL_CALL]"
+              }
+            ],
+            "structuredContent": {
+              "result": "From 1449fad00 [DATA]\nFrom 1403ae8e5 in FUN_1403ae680 [UNCONDITIONAL_CALL]\nFrom 1403af215 in FUN_1403af1b0 [UNCONDITIONAL_CALL]\nFrom 1403af340 in FUN_1403af330 [UNCONDITIONAL_CALL]\nFrom 1403af621 in FUN_1403af580 [UNCONDITIONAL_CALL]\nFrom 1403af6c1 in FUN_1403af580 [UNCONDITIONAL_CALL]\nFrom 141d32c27 in FUN_141d32be0 [UNCONDITIONAL_CALL]\nFrom 142033075 in FUN_142033020 [UNCONDITIONAL_CALL]\nFrom 14203307e in FUN_142033020 [UNCONDITIONAL_CALL]\nFrom 1421b4f65 in FUN_1421b4e60 [UNCONDITIONAL_CALL]\nFrom 1421b4f71 in FUN_1421b4e60 [UNCONDITIONAL_CALL]\nFrom 1421b4f7d in FUN_1421b4e60 [UNCONDITIONAL_CALL]\nFrom 1421b59ef in FUN_1421b59e0 [UNCONDITIONAL_CALL]"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "\r\n/* Destroys the common native tick-function storage.\r\n   \r\n   Algorithm:\r\n   1. Install the base tick vtable.\r\n   2. If registration flag +C bit 0x40 is set, remove this tick from its owning level at +48 and\r\n   clear that flag.\r\n   3. Free prerequisite backing at +20 when non-null; entries themselves are plain\r\n   weak-object/tick-pointer records.\r\n   Parameters:\r\n     param_1: common tick-function base; native derived deleting destructor 1421B59E0 passes the\r\n   same pointer.\r\n   Returns:\r\n     No value.\r\n   Replay ownership:\r\n     This is not a storage-only release operation. Never invoke it on a live tick to replace\r\n   prerequisite backing: it also unregisters the tick and changes its vtable. Prepared restoration\r\n   allocates independent backing and must retire only old backing after a verified transaction.\r\n   Source: SoulcaliburVI.exe 142157BC0, deleting wrapper 1421B59E0, constructor 142156C20 and\r\n   prerequisite traversal 142163BA0.\r\n   Special Cases:\r\n     Targeted ownership annotation; no complete local/type cleanup is claimed. */\r\n\r\nvoid FUN_142157bc0(undefined8 *param_1)\r\n\r\n{\r\n  *param_1 = &g_pTickFunctionVtableFirstEntry;\r\n  if ((*(byte *)((longlong)param_1 + 0xc) & 0x40) != 0) {\r\n    FTickTaskManager_Get();\r\n    FUN_142164b00(param_1[9],param_1);\r\n    *(byte *)((longlong)param_1 + 0xc) = *(byte *)((longlong)param_1 + 0xc) & 0xbf;\r\n  }\r\n  if ((void *)param_1[4] != (void *)0x0) {\r\n    FMemory_Free((void *)param_1[4]);\r\n    return;\r\n  }\r\n  return;\r\n}\r\n\r\n"
+              }
+            ],
+            "structuredContent": {
+              "result": "\r\n/* Destroys the common native tick-function storage.\r\n   \r\n   Algorithm:\r\n   1. Install the base tick vtable.\r\n   2. If registration flag +C bit 0x40 is set, remove this tick from its owning level at +48 and\r\n   clear that flag.\r\n   3. Free prerequisite backing at +20 when non-null; entries themselves are plain\r\n   weak-object/tick-pointer records.\r\n   Parameters:\r\n     param_1: common tick-function base; native derived deleting destructor 1421B59E0 passes the\r\n   same pointer.\r\n   Returns:\r\n     No value.\r\n   Replay ownership:\r\n     This is not a storage-only release operation. Never invoke it on a live tick to replace\r\n   prerequisite backing: it also unregisters the tick and changes its vtable. Prepared restoration\r\n   allocates independent backing and must retire only old backing after a verified transaction.\r\n   Source: SoulcaliburVI.exe 142157BC0, deleting wrapper 1421B59E0, constructor 142156C20 and\r\n   prerequisite traversal 142163BA0.\r\n   Special Cases:\r\n     Targeted ownership annotation; no complete local/type cleanup is claimed. */\r\n\r\nvoid FUN_142157bc0(undefined8 *param_1)\r\n\r\n{\r\n  *param_1 = &g_pTickFunctionVtableFirstEntry;\r\n  if ((*(byte *)((longlong)param_1 + 0xc) & 0x40) != 0) {\r\n    FTickTaskManager_Get();\r\n    FUN_142164b00(param_1[9],param_1);\r\n    *(byte *)((longlong)param_1 + 0xc) = *(byte *)((longlong)param_1 + 0xc) & 0xbf;\r\n  }\r\n  if ((void *)param_1[4] != (void *)0x0) {\r\n    FMemory_Free((void *)param_1[4]);\r\n    return;\r\n  }\r\n  return;\r\n}\r\n\r\n"
+            },
+            "isError": false
+          }
+        }
+      ]
+    }
+  ]
+}

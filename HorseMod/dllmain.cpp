@@ -111,29 +111,18 @@
 #include "horselib/TimeDilationGate.hpp"
 #include "horselib/WindRngGate.hpp"
 #include "horselib/deterministic/Config.hpp"
+#include "horselib/deterministic/NativeReplaySessionEntry.hpp"
+#include "horselib/deterministic/NativeReplayTraceTaskGuard.hpp"
+#include "horselib/deterministic/NativeReplayNiagaraObservation.hpp"
+#include "horselib/deterministic/NativeReplayVfxCompletionObservation.hpp"
+#include "horselib/deterministic/NativeReplayMaterialTaskGuard.hpp"
 #include "horselib/deterministic/DeterministicHookSet.hpp"
+#include "horselib/deterministic/Sc6ReplayInputSource.hpp"
 #include "horselib/deterministic/HgCpuRuntimeDiagnostics.hpp"
 #include "horselib/deterministic/Sc6ReplayRuntime.hpp"
 #include "horselib/deterministic/Schema.hpp"
-#if HORSE_ENABLE_GEKKONET || HORSE_ENABLE_OBSERVER_PROBE
-#include "horselib/deterministic/Sc6BattleSyncOwnerHook.hpp"
-#endif
 #include "horselib/deterministic/StageBreakListenerDiagnostics.hpp"
 #include "horselib/deterministic/UcrtRandBroker.hpp"
-#if HORSE_ENABLE_OBSERVER_PROBE
-#include "horselib/deterministic/Sc6OnlineObserverProbe.hpp"
-#endif
-#if HORSE_ENABLE_GEKKONET
-#include "horselib/deterministic/GekkoRollbackSession.hpp"
-#include "horselib/deterministic/OnlineCoordinator.hpp"
-#include "horselib/deterministic/OnlineLifecycle.hpp"
-#include "horselib/deterministic/OnlineSceneExitGate.hpp"
-#include "horselib/deterministic/OnlineQualificationMetrics.hpp"
-#include "horselib/deterministic/ProductionOnlineAllowlist.hpp"
-#include "horselib/deterministic/ProductionReleaseLoader.hpp"
-#include "horselib/deterministic/Sc6OnlineContractObserver.hpp"
-#include "horselib/deterministic/SteamP2PTransport.hpp"
-#endif
 // Horse::GameImGui replaces UE4SS_ENABLE_IMGUI().  It renders HorseMod's
 // ImGui tab INSIDE the game's own DX11 swap chain via a PolyHook-vtable-
 // swap detour on IDXGISwapChain::Present.  This keeps Steam overlay
@@ -205,17 +194,12 @@
 // approach for the SlipOut policy specifically).
 #include "horselib/HasSubProviderEntryHook.hpp"
 
-// horselib/GamePause.hpp REMOVED - was a 5-site trampoline patching the
-// chara+0x394 audio-state bit instead of the world-tick pause we
-// thought.  Superseded by the SpeedControl freeze-frame mechanism (see
-// the "Freeze frame" UI block below) which writes speedval=0 / 1.0 to
-// engage the dt-scale freeze + sites 1..16 + g_LuxBattle_VMFreezeByte.
-// Removed 2026-04 - see git history for the implementation.
-//
-// horselib/BattlePauseRequest.hpp also REMOVED 2026-04-27 - turned out
-// to invoke the same audio-mute path, breaking Soul Charge mid-move.
-// See the member-list block where m_battle_pause_request used to live
-// for the full forensic.
+// GamePause.hpp and BattlePauseRequest.hpp were retired in April 2026.
+// Their old "audio-only" explanation was disproven during rollback RE:
+// provider+0x394 flows through 140438980 to the Unreal PauserPlayerState
+// query and virtual world-pause setter. It also affects photography policy.
+// Current frame stepping uses the dedicated world/actor/time gates; do not
+// restore the old multi-site patches or confuse VM dt scaling with UE pause.
 
 #include <Mod/CppUserModBase.hpp>
 #include <UE4SSProgram.hpp>
@@ -236,6 +220,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cctype>
 #include <cstdint>
@@ -245,12 +230,14 @@
 #include <limits>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 using namespace RC;
 using namespace RC::Unreal;
 
 // ----------------------------------------------------------------------------
+#include "horselib/deterministic/ReplayConsumerFailure.hpp"
 #ifndef HORSEMOD_VERSION
 #define HORSEMOD_VERSION "dev"
 #endif
@@ -310,9 +297,6 @@ static std::atomic<HMODULE> g_horse_mod_deferred_unload_pin{nullptr};
 static std::atomic<bool> g_horse_mod_unload_guard_ready{false};
 
 class HorseMod final : public CppUserModBase
-#if HORSE_ENABLE_GEKKONET
-    , private Horse::Deterministic::IGekkoSimulationSink
-#endif
 {
 private:
     // Static live-instance pointer so the cockpit hook lambda can safely
@@ -321,8 +305,8 @@ private:
 #include "HorseModService.KHitAudit.inl"
 #include "HorseModService.SettingsAndRequests.inl"
 #include "HorseModService.QualificationDiagnostics.inl"
-#include "HorseModService.OnlineOwnership.inl"
-#include "HorseModService.OnlineCallbacks.inl"
+#include "HorseModService.PresentationDiagnostics.inl"
+#include "HorseModService.ReplayCallbacks.inl"
 #include "HorseModService.PublicApiAndLifetime.inl"
 #include "HorseModService.RuntimeControls.inl"
 #include "HorseModService.PresenceAndOverlay.inl"
@@ -334,29 +318,250 @@ private:
 #define HORSE_MOD_API __declspec(dllexport)
 extern "C"
 {
-#if HORSE_ENABLE_OBSERVER_PROBE
-    HORSE_MOD_API bool horsemod_arm_online_observer_probe(
-        const Horse::Deterministic::OnlineObserverProbeRequest* request)
+    HORSE_MOD_API bool horsemod_start_physics_callback_observation(const wchar_t* path,const char* run)
     {
-        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
-        return mod != nullptr && request != nullptr
-            && mod->ArmOnlineObserverProbe(*request);
+        return Horse::Deterministic::NativeReplayTraceTaskGuard::StartPhysicsObservation(path,run);
     }
-
-    HORSE_MOD_API std::uint32_t horsemod_get_online_observer_probe_report(
-        Horse::Deterministic::OnlineObserverProbeReport* report)
+    HORSE_MOD_API bool horsemod_read_physics_callback_observation_status(std::uint64_t* output,std::size_t count)
     {
-        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
-        return mod != nullptr && report != nullptr
-            ? mod->GetOnlineObserverProbeReport(*report) : 0;
+        return Horse::Deterministic::ReplayPhysicsCallbackObservation::ReadStatus(output,count);
     }
-
-    HORSE_MOD_API void horsemod_disarm_online_observer_probe()
+    HORSE_MOD_API bool horsemod_close_physics_callback_observation_phase(std::uint64_t end_tick)
     {
-        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
-        if (mod != nullptr) mod->DisarmOnlineObserverProbe();
+        return Horse::Deterministic::ReplayPhysicsCallbackObservation::ClosePhase(end_tick);
     }
-#endif
+    HORSE_MOD_API bool horsemod_start_vfx_completion_observation(const wchar_t* path,const char* run)
+    {
+        return Horse::Deterministic::NativeReplayVfxCompletionObservation::Start(path,run);
+    }
+    HORSE_MOD_API bool horsemod_start_collection18_combat_observation(const wchar_t* path,const char* run)
+    {
+        return Horse::Deterministic::NativeReplayVfxCompletionObservation::StartCollection18Combat(path,run);
+    }
+    HORSE_MOD_API std::uint64_t horsemod_arm_collection18_combat_observation(const char* run,
+        std::uintptr_t manager,std::uintptr_t player_slot,std::uintptr_t player,std::uint32_t frame,std::uint64_t epoch)
+    {
+        return Horse::Deterministic::NativeReplayVfxCompletionObservation::ArmCollection18Combat(run,manager,player_slot,player,frame,epoch);
+    }
+    HORSE_MOD_API void horsemod_invalidate_collection18_combat_observation(const char* run)
+    {
+        Horse::Deterministic::NativeReplayVfxCompletionObservation::InvalidateCollection18Combat(run);
+    }
+    HORSE_MOD_API bool horsemod_read_collection18_combat_return(const char* run,std::uint64_t* output,std::size_t count)
+    {
+        return Horse::Deterministic::NativeReplayVfxCompletionObservation::ReadCollection18CombatReturn(run,output,count);
+    }
+    HORSE_MOD_API bool horsemod_read_vfx_completion_observation_status(std::uint64_t* output,std::size_t count)
+    {
+        return Horse::Deterministic::NativeReplayVfxCompletionObservation::ReadStatus(output,count);
+    }
+    HORSE_MOD_API bool horsemod_close_vfx_completion_observation_phase(std::uint64_t end_tick)
+    {
+        return Horse::Deterministic::NativeReplayVfxCompletionObservation::ClosePhase(end_tick);
+    }
+    HORSE_MOD_API bool horsemod_read_collection18_observation_return(std::uint64_t* output,std::size_t count)
+    {
+        return Horse::Deterministic::NativeReplayVfxCompletionObservation::ReadCollection18Return(output,count);
+    }
+    HORSE_MOD_API bool horsemod_start_niagara_observation(const wchar_t* path,const char* run)
+    {
+        return Horse::Deterministic::NativeReplayNiagaraObservation::Start(path,run);
+    }
+    HORSE_MOD_API bool horsemod_read_niagara_observation_status(std::uint64_t* output,std::size_t count)
+    {
+        return Horse::Deterministic::ReplayNiagaraObservation::ReadStatus(output,count);
+    }
+    HORSE_MOD_API bool horsemod_start_consumer_failure_diagnostic(const wchar_t* path,const char* run)
+    {
+        return Horse::Deterministic::ReplayConsumerFailure::Start(path,run);
+    }
+    HORSE_MOD_API bool horsemod_configure_replay_memory_budget(std::size_t bytes, bool diagnostic)
+    {
+        return Horse::Deterministic::Sc6ReplayHost::ConfigureMemoryBudget(bytes, diagnostic);
+    }
+    HORSE_MOD_API bool horsemod_set_replay_executor_enabled(bool enabled, bool yield_every_tick, void* manager)
+    {
+        return Horse::Deterministic::DeterministicHookSet::SetReplayExecutorEnabled(enabled, yield_every_tick, manager);
+    }
+    HORSE_MOD_API bool horsemod_get_replay_executor_status(std::uint64_t* values, std::size_t count)
+    {
+        return Horse::Deterministic::DeterministicHookSet::ReadReplayExecutorStatus(values, count);
+    }
+    HORSE_MOD_API bool horsemod_set_replay_world_paused(bool paused)
+    {
+        return Horse::Deterministic::DeterministicHookSet::SetReplayWorldPaused(paused);
+    }
+    HORSE_MOD_API bool horsemod_arm_replay_application_pause(std::uint64_t tick, void* context,
+        Horse::Deterministic::Sc6ReplayHost::InteriorObserver observer)
+    {
+        return Horse::Deterministic::DeterministicHookSet::ArmReplayApplicationPause(tick, context, observer);
+    }
+    HORSE_MOD_API bool horsemod_arm_consumer_task_probe(const Horse::Deterministic::Sc6ReplayHost::Checkpoint* image,
+        std::uint64_t tick, std::uint32_t hold_ms)
+    {
+        return Horse::Deterministic::Sc6ReplayHost::ArmConsumerTaskProbe(image,tick,hold_ms);
+    }
+    HORSE_MOD_API bool horsemod_read_consumer_mutation_candidate(void* source_task,void** mesh,void** source)
+    {
+        return Horse::Deterministic::Sc6ReplayHost::ReadConsumerMutationCandidate(source_task,mesh,source);
+    }
+    HORSE_MOD_API bool horsemod_particle_copy_experiment(Horse::Deterministic::Sc6ReplayHost::ParticleCopyAction action,
+        Horse::Deterministic::Sc6ReplayParticleCopy::Witness* witness, bool* command_pending)
+    {
+        return Horse::Deterministic::Sc6ReplayHost::ParticleCopyExperiment(action, witness, command_pending);
+    }
+    HORSE_MOD_API bool horsemod_arm_replay_interior_pause(std::uint64_t tick, void* context,
+        Horse::Deterministic::Sc6ReplayHost::InteriorObserver observer)
+    {
+        return Horse::Deterministic::DeterministicHookSet::ArmReplayInteriorPause(tick, context, observer);
+    }
+    HORSE_MOD_API bool horsemod_bind_particle_birth(const Horse::Deterministic::Sc6ReplayVfxState::ParticleBirth* birth,
+        std::size_t budget)
+    {
+        return birth && Horse::Deterministic::Sc6ReplayHost::BindParticleBirth(*birth, budget);
+    }
+    HORSE_MOD_API bool horsemod_get_replay_interior_witness(Horse::Deterministic::Sc6ReplayHost::InteriorWitness* witness)
+    {
+        return Horse::Deterministic::DeterministicHookSet::ReadReplayInteriorWitness(witness);
+    }
+    HORSE_MOD_API std::uint16_t horsemod_resume_replay_execution()
+    {
+        return static_cast<std::uint16_t>(Horse::Deterministic::DeterministicHookSet::ResumeReplayExecution().code);
+    }
+    HORSE_MOD_API bool horsemod_get_replay_host_status(std::uint64_t* values, std::size_t count)
+    {
+        return Horse::Deterministic::DeterministicHookSet::ReadReplayHostStatus(values, count);
+    }
+    HORSE_MOD_API bool horsemod_set_replay_output_observer(void* owner,
+        Horse::GameImGui::PresentHook::ReplayOutputObserver callback)
+    {
+        return Horse::GameImGui::PresentHook::instance().set_replay_output_observer(owner,callback);
+    }
+    HORSE_MOD_API bool horsemod_replay_capture_operation(
+        Horse::Deterministic::Sc6ReplayHost::CaptureAction action,
+        Horse::Deterministic::Sc6ReplayHost::CaptureWitness* witness,
+        Horse::Deterministic::Sc6ReplayHost::CheckpointHandle* output)
+    {
+        return Horse::Deterministic::Sc6ReplayHost::CaptureOperation(action,witness,output);
+    }
+    HORSE_MOD_API std::uint16_t horsemod_capture_replay_checkpoint(Horse::Deterministic::Sc6ReplayHost::Checkpoint* checkpoint)
+    {
+        return static_cast<std::uint16_t>(Horse::Deterministic::DeterministicHookSet::CaptureReplayCheckpoint(checkpoint).code);
+    }
+    // Read-only diagnostic boundary. Lease callback tables belong to this DLL;
+    // consumers must not validate our capture through another compiled copy.
+    HORSE_MOD_API bool horsemod_validate_replay_vfx_capture(std::uintptr_t base,void* battle,
+        const Horse::Deterministic::Sc6ReplayVfxState* capture)
+    {
+        return capture && capture->ValidateHeld(base,battle).ok();
+    }
+    HORSE_MOD_API std::uint16_t horsemod_restore_replay_checkpoint(const Horse::Deterministic::Sc6ReplayHost::Checkpoint* checkpoint)
+    {
+        return static_cast<std::uint16_t>(Horse::Deterministic::DeterministicHookSet::RestoreReplayCheckpoint(checkpoint).code);
+    }
+    HORSE_MOD_API bool horsemod_replay_restore_operation(
+        Horse::Deterministic::Sc6ReplayHost::RestoreOperationAction action,
+        const Horse::Deterministic::Sc6ReplayHost::Checkpoint* target,
+        Horse::Deterministic::Sc6ReplayHost::RestoreOperationWitness* witness)
+    {
+        return Horse::Deterministic::Sc6ReplayHost::RestoreOperation(action, target, witness);
+    }
+    HORSE_MOD_API std::uint16_t horsemod_revise_replay_inputs(const Horse::Deterministic::ReplayInputOverride* edits,
+        std::size_t count,std::uint64_t expected,std::uint64_t* revision)
+    {
+        if(!revision || !edits || !count || count>65536) return static_cast<std::uint16_t>(Horse::Deterministic::FailureCode::IllegalTransition);
+        return static_cast<std::uint16_t>(Horse::Deterministic::DeterministicHookSet::ReviseReplayInputs({edits,count},expected,*revision).code);
+    }
+    HORSE_MOD_API bool horsemod_read_replay_tick(Horse::Deterministic::Sc6ReplayHost::TickAdvanceWitness* witness)
+    {
+        if (!witness) return false;
+        *witness = Horse::Deterministic::DeterministicHookSet::ReadReplayTick();
+        return witness->phase != Horse::Deterministic::Sc6ReplayHost::TickAdvancePhase::Failed;
+    }
+    HORSE_MOD_API bool horsemod_request_replay_tick(std::uint64_t tick, void* context,
+        Horse::Deterministic::Sc6ReplayHost::InteriorObserver observer,
+        Horse::Deterministic::Sc6ReplayHost::TickAdvanceWitness* witness)
+    {
+        if (!witness) return false;
+        *witness = Horse::Deterministic::DeterministicHookSet::RequestReplayTick(tick, context, observer);
+        return witness->phase != Horse::Deterministic::Sc6ReplayHost::TickAdvancePhase::Failed;
+    }
+    HORSE_MOD_API bool horsemod_set_replay_pause_monitor(void* context,
+        Horse::Deterministic::Sc6ReplayHost::PauseMonitor monitor)
+    {
+        return Horse::Deterministic::Sc6ReplayHost::SetPauseMonitor(context,monitor);
+    }
+    HORSE_MOD_API bool horsemod_complete_replay_application(void* context,
+        Horse::Deterministic::Sc6ReplayHost::InteriorObserver observer,
+        Horse::Deterministic::Sc6ReplayHost::TickAdvanceWitness* witness)
+    {
+        if(!witness) return false;
+        *witness=Horse::Deterministic::Sc6ReplayHost::CompleteApplicationToHold(context,observer);
+        return witness->phase!=Horse::Deterministic::Sc6ReplayHost::TickAdvancePhase::Failed;
+    }
+    HORSE_MOD_API bool horsemod_replay_seek_operation(Horse::Deterministic::Sc6ReplayHost::SeekAction action,
+        const Horse::Deterministic::Sc6ReplayHost::Checkpoint* checkpoint,std::uint64_t tick,
+        Horse::Deterministic::Sc6ReplayHost::SeekWitness* witness,void* context,
+        Horse::Deterministic::Sc6ReplayHost::SeekObserver observer)
+    {
+        return Horse::Deterministic::Sc6ReplayHost::SeekOperation(action,checkpoint,tick,witness,context,observer);
+    }
+    HORSE_MOD_API bool horsemod_replay_rolling_operation(Horse::Deterministic::Sc6ReplayHost::RollingAction action,
+        const Horse::Deterministic::Sc6ReplayHost::Checkpoint* first,std::uint64_t cycles,
+        Horse::Deterministic::Sc6ReplayHost::RollingWitness* witness)
+    {
+        return Horse::Deterministic::Sc6ReplayHost::RollingOperation(action,first,cycles,witness);
+    }
+    HORSE_MOD_API bool horsemod_begin_scheduled_rolling(std::uint32_t protocol,
+        const Horse::Deterministic::Sc6ReplayHost::Checkpoint* first,std::uint64_t cycles,
+        const Horse::Deterministic::ReplayCorrectionRequest* corrections,std::size_t count,
+        Horse::Deterministic::Sc6ReplayHost::RollingWitness* witness)
+    {
+        if(!corrections || !count || count>Horse::Deterministic::ReplayCorrectionSchedule::maximum_corrections)return false;
+        return Horse::Deterministic::Sc6ReplayHost::BeginRollingSchedule(protocol,first,cycles,{corrections,count},witness);
+    }
+    HORSE_MOD_API bool horsemod_probe_ground_motion(std::uint32_t protocol,std::uint64_t expected_tick,
+        Horse::Deterministic::Sc6ReplayGroundDebrisState::MotionProbeWitness* witness)
+    {
+        return Horse::Deterministic::Sc6ReplayHost::ProbeGroundMotion(protocol,expected_tick,witness);
+    }
+    HORSE_MOD_API std::uint16_t horsemod_advance_replay_to_tick(std::uint64_t tick)
+    {
+        return static_cast<std::uint16_t>(Horse::Deterministic::DeterministicHookSet::AdvanceReplayToTick(tick).code);
+    }
+    HORSE_MOD_API bool horsemod_replay_index_operation(Horse::Deterministic::Sc6ReplayHost::IndexAction action,
+        Horse::Deterministic::ReplayTickIndex::Witness* witness, std::size_t budget)
+    {
+        return Horse::Deterministic::Sc6ReplayHost::IndexOperation(action, witness, budget);
+    }
+    HORSE_MOD_API bool horsemod_replay_index_entry(std::uint64_t tick, Horse::Deterministic::ReplayTickIndex::Entry* entry)
+    {
+        return Horse::Deterministic::Sc6ReplayHost::ReadIndexEntry(tick, entry);
+    }
+    HORSE_MOD_API std::uint16_t horsemod_request_index_checkpoint(std::uint64_t held_tick)
+    {
+        return static_cast<std::uint16_t>(Horse::Deterministic::Sc6ReplayHost::RequestIndexCheckpoint(held_tick).code);
+    }
+    HORSE_MOD_API bool horsemod_read_index_checkpoint(Horse::Deterministic::Sc6ReplayHost::IndexCheckpointWitness* witness)
+    {
+        return Horse::Deterministic::Sc6ReplayHost::ReadIndexCheckpoint(witness);
+    }
+    HORSE_MOD_API std::uint16_t horsemod_request_indexed_replay_seek(std::uint64_t tick)
+    {
+        return static_cast<std::uint16_t>(Horse::Deterministic::Sc6ReplayHost::RequestIndexedSeek(tick).code);
+    }
+    HORSE_MOD_API std::uint16_t horsemod_replay_checkpoint_ownership(
+        Horse::Deterministic::Sc6ReplayHost::CheckpointOwnership action,
+        const Horse::Deterministic::Sc6ReplayHost::Checkpoint* checkpoint,std::size_t* retained_count)
+    {
+        return static_cast<std::uint16_t>(Horse::Deterministic::Sc6ReplayHost::OwnCheckpoint(action,checkpoint,retained_count).code);
+    }
+    HORSE_MOD_API std::uint16_t horsemod_restore_replay_checkpoint_cancellable(
+        const Horse::Deterministic::Sc6ReplayHost::Checkpoint* checkpoint,
+        const Horse::Deterministic::Sc6ReplayHost::RestoreControl* control)
+    {
+        return static_cast<std::uint16_t>(Horse::Deterministic::DeterministicHookSet::RestoreReplayCheckpoint(checkpoint, control).code);
+    }
     HORSE_MOD_API CppUserModBase* start_mod()
     {
         if (auto* existing = g_horse_mod_instance.load(
@@ -383,24 +588,7 @@ extern "C"
         return mod;
     }
 
-    HORSE_MOD_API void uninstall_mod(CppUserModBase* mod)
-    {
-        auto* expected = static_cast<HorseMod*>(mod);
-#if HORSE_ENABLE_GEKKONET
-        if (expected != nullptr && !expected->PrepareModuleUnload())
-        {
-            return;
-        }
-#endif
-        (void)g_horse_mod_instance.compare_exchange_strong(
-            expected, nullptr, std::memory_order_acq_rel);
-        delete mod;
-        g_horse_mod_unload_guard_ready.store(false,
-            std::memory_order_release);
-        if (auto pin = g_horse_mod_deferred_unload_pin.exchange(
-                nullptr, std::memory_order_acq_rel))
-            FreeLibrary(pin);
-    }
+#include "HorseModService.Uninstall.inl"
 
     HORSE_MOD_API bool horsemod_request_replay_seek(
         std::uint64_t target_frame)
@@ -639,92 +827,4 @@ extern "C"
                 std::string_view(run_id, run_id_size));
     }
 
-#if HORSE_ENABLE_GEKKONET
-    HORSE_MOD_API bool horsemod_arm_online_qualification()
-    {
-        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
-        return mod != nullptr && mod->ArmOnlineQualification();
-    }
-
-    HORSE_MOD_API bool horsemod_arm_online_qualification_v2(
-        const char* run_id, std::size_t run_id_size)
-    {
-        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
-        return mod != nullptr && run_id != nullptr
-            && mod->ArmOnlineQualification(
-                std::string_view(run_id, run_id_size));
-    }
-
-    HORSE_MOD_API bool horsemod_arm_online_qualification_v3(
-        const char* run_id, std::size_t run_id_size, std::uint32_t fault)
-    {
-        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
-        return mod != nullptr && run_id != nullptr
-            && mod->ArmOnlineQualification(
-                std::string_view(run_id, run_id_size), fault);
-    }
-
-    HORSE_MOD_API bool horsemod_arm_online_qualification_v4(
-        const char* run_id, std::size_t run_id_size, std::uint32_t fault,
-        std::uint32_t correction_stimulus_depth)
-    {
-        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
-        const auto depth = static_cast<std::uint8_t>(
-            correction_stimulus_depth);
-        return mod != nullptr && run_id != nullptr
-            && mod->ArmOnlineQualification(
-                std::string_view(run_id, run_id_size), fault,
-                correction_stimulus_depth == 0
-                    ? std::span<const std::uint8_t>{}
-                    : std::span<const std::uint8_t>{&depth, 1});
-    }
-
-    HORSE_MOD_API bool horsemod_arm_online_qualification_v5(
-        const char* run_id, std::size_t run_id_size, std::uint32_t fault,
-        const std::uint8_t* correction_stimulus_depths,
-        std::size_t correction_stimulus_count)
-    {
-        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
-        if (mod == nullptr || run_id == nullptr
-            || (correction_stimulus_count != 0
-                && correction_stimulus_depths == nullptr))
-            return false;
-        return mod->ArmOnlineQualification(
-            std::string_view(run_id, run_id_size), fault,
-            std::span<const std::uint8_t>{correction_stimulus_depths,
-                correction_stimulus_count});
-    }
-
-    HORSE_MOD_API bool horsemod_arm_online_qualification_v6(
-        const char* run_id, std::size_t run_id_size, std::uint32_t fault,
-        const std::uint8_t* correction_stimulus_depths,
-        std::size_t correction_stimulus_count,
-        std::uint32_t correction_stimulus_min_round)
-    {
-        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
-        if (mod == nullptr || run_id == nullptr
-            || (correction_stimulus_count != 0
-                && correction_stimulus_depths == nullptr))
-            return false;
-        return mod->ArmOnlineQualification(
-            std::string_view(run_id, run_id_size), fault,
-            std::span<const std::uint8_t>{correction_stimulus_depths,
-                correction_stimulus_count},
-            correction_stimulus_min_round);
-    }
-
-    HORSE_MOD_API std::uint32_t horsemod_get_online_qualification_status()
-    {
-        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
-        return mod != nullptr ? mod->GetOnlineQualificationStatus() : 0;
-    }
-
-    HORSE_MOD_API std::uint32_t
-    horsemod_get_online_qualification_status_history_v1()
-    {
-        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);
-        return mod != nullptr
-            ? mod->GetOnlineQualificationStatusHistory() : 0;
-    }
-#endif
 }

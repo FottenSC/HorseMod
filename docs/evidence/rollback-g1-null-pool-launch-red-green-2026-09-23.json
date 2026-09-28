@@ -1,0 +1,50 @@
+{
+  "scope": "early rejection before deployment access; no game launched",
+  "cases": [
+    {
+      "result": "red",
+      "exception": "AttributeError",
+      "message": "'types.SimpleNamespace' object has no attribute 'log'",
+      "raw": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1ad6c222206bc6bd716b925677fdcc998f1ce45a76d1f7a72eece57267651236.log",
+        "sha256": "1ad6c222206bc6bd716b925677fdcc998f1ce45a76d1f7a72eece57267651236",
+        "bytes": 361
+      }
+    },
+    {
+      "result": "green",
+      "exception": "RuntimeError",
+      "message": "native queued thread pool is required by raw asset loading; -nothreading is unsupported; G1 worker ownership remains unproved",
+      "raw": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\bdcd3307269b0a58a5ec0ff6e26c793828772c4aa1b98769df000289c17e7001.log",
+        "sha256": "bdcd3307269b0a58a5ec0ff6e26c793828772c4aa1b98769df000289c17e7001",
+        "bytes": 605
+      }
+    }
+  ],
+  "old_launch_flags": [
+    "-FixedSeed",
+    "-NoAsyncLoadingThread",
+    "-nothreading"
+  ],
+  "archived_source": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1371930d85c0038987534ffe2656521354703bd732f462686e5457f8ed9a57e3.py",
+    "sha256": "1371930d85c0038987534ffe2656521354703bd732f462686e5457f8ed9a57e3",
+    "bytes": 64388
+  },
+  "current_source": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\819aa789e29f53a3963e127a2f736b3bab604262daada50de8c0fc801a0ddc92.py",
+    "sha256": "819aa789e29f53a3963e127a2f736b3bab604262daada50de8c0fc801a0ddc92",
+    "bytes": 64871
+  },
+  "tests": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\33f4c761da966556403b2b99d689a53959a45f5a03f34cba9c9d700966e556d1.py",
+    "sha256": "33f4c761da966556403b2b99d689a53959a45f5a03f34cba9c9d700966e556d1",
+    "bytes": 33680
+  },
+  "immutable": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\48ec767aa388ff299bf33df75c9f601ad48d10fb461bd81022b90fe0e22d423c.json",
+    "sha256": "48ec767aa388ff299bf33df75c9f601ad48d10fb461bd81022b90fe0e22d423c",
+    "bytes": 2054
+  }
+}

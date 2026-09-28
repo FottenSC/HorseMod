@@ -1,0 +1,37 @@
+{
+  "case_id": "astaroth-raphael-silver-wolves-haven",
+  "certifying": false,
+  "cleanup": {
+    "diagnostic_flags_restored_false": {
+      "correction_probe": true,
+      "forced_depth7_qualification": true,
+      "trace": true
+    },
+    "process_absent": true
+  },
+  "created_utc": "2026-08-30T10:54:18.107401+00:00",
+  "display_map_name": "Silver Wolves' Haven",
+  "failure": {
+    "bounded_log": "E:\\myMods\\docs\\investigations\\evidence\\iteration-smoke-intentional-rate-failure.failure.log",
+    "bounded_log_lines": 66,
+    "field_or_mask": null,
+    "fields": {
+      "elapsed_us": "2065882",
+      "frames": "120",
+      "minimum": "1000000",
+      "tick_rate_milli": "58086"
+    },
+    "first_failing_frame": "120",
+    "first_failure_line": "[2026-08-30 12:54:13.4698922] [ReplayQualification] normal-render battle rate failed frames=120 elapsed_us=2065882 tick_rate_milli=58086 minimum=1000000",
+    "graph_provenance": null,
+    "owner_pointer": null,
+    "owner_selector": null,
+    "return_rva": null
+  },
+  "kind": "replay_entry_failure",
+  "reason": "native replay entry failed: normal_render_battle_rate_below_minimum",
+  "report_schema": 2,
+  "result": "fail",
+  "row_id": "intentional-rate-failure-artifact-proof",
+  "stage_package_root": "/Game/DLC/07/Stage/STG011_R"
+}

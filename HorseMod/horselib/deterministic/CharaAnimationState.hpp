@@ -28,6 +28,7 @@ enum class CharaAnimationTopologyIssue : std::uint8_t
     CueScalars,
     SchedulerScalars,
     TriggerScalars,
+    SchedulerCharacter,
 };
 
 constexpr std::string_view chara_animation_topology_issue_name(
@@ -48,6 +49,7 @@ constexpr std::string_view chara_animation_topology_issue_name(
     case CharaAnimationTopologyIssue::CueScalars: return "cue_scalars";
     case CharaAnimationTopologyIssue::SchedulerScalars: return "scheduler_scalars";
     case CharaAnimationTopologyIssue::TriggerScalars: return "trigger_scalars";
+    case CharaAnimationTopologyIssue::SchedulerCharacter: return "scheduler_character";
     }
     return "unknown";
 }
@@ -66,8 +68,13 @@ struct CharaAnimationPlayerImage
     PackedSectionIdentity clip_section{};
     std::array<std::byte, 0x20> clip_scalars{};
     PackedSectionIdentity runtime_section{};
+    // Overlay slot 5 aliases the clip runtime. Native AI reset publishes the
+    // owning palette bank here; encode that local binding, never its address.
+    bool runtime_motion_bank{};
     std::array<std::byte, 8> runtime_scalars{};
     std::array<std::byte, 0x20> cue_owner_scalars{};
+    // True reconstructs the owning fighter; false reconstructs the exact
+    // dormant bits retained by this local binding. Neither is a heap lifetime.
     bool scheduler_chara_bound{};
     std::array<std::byte, 0x5C> scheduler_scalars{};
     std::uint32_t trigger_count{};
@@ -80,6 +87,8 @@ struct CharaAnimationPlayerImage
 struct CharaAnimationStateImage
 {
     std::uint64_t round_generation{};
+    // Local reconstruction dictionary identity, omitted from peer hashes.
+    std::uint64_t local_binding_serial{};
     std::array<CharaAnimationPlayerImage, 2> players{};
     friend bool operator==(const CharaAnimationStateImage&,
         const CharaAnimationStateImage&) = default;
@@ -93,6 +102,21 @@ public:
         std::uint64_t round_generation) noexcept;
     void Invalidate() noexcept;
     Status Capture(CharaAnimationStateImage& output) noexcept;
+    struct SectionDiagnostic {
+        std::size_t player{};
+        std::uintptr_t root{}, pointer{};
+        std::array<std::uint32_t,5> header{};
+        std::uint32_t count{};
+    };
+    const SectionDiagnostic& section_diagnostic() const noexcept { return section_diagnostic_; }
+    Status PreflightRestore(const CharaAnimationStateImage& image) noexcept;
+    // MotionBankSnapshot delegates only the aliased overlay pointer to this
+    // owner. Scalar capture and all other motion bindings remain independent.
+    bool ValidateMotionRuntimeBindings() noexcept;
+    std::uint64_t local_binding_serial() const noexcept { return bound_ ? binding_serial_ : 0; }
+    // Caller owns a complete undo captured before any overlapping native writes.
+    // Never attempts to capture an undo from a partially reconstructed fighter.
+    Status RestoreUnderEnclosingTransaction(const CharaAnimationStateImage& image) noexcept;
     Status RestoreTransactional(const CharaAnimationStateImage& image) noexcept;
     [[nodiscard]] CharaAnimationTopologyIssue topology_issue() const noexcept
     {
@@ -136,6 +160,8 @@ private:
     struct PlayerTopology
     {
         std::uintptr_t packed_data{};
+        std::uintptr_t motion_bank{};
+        std::uint32_t motion_count{};
         std::uintptr_t cue_owner_vtable{};
         std::uintptr_t enst_data{};
         std::uintptr_t scheduler{};
@@ -150,10 +176,13 @@ private:
 
     bool capture_topology(std::size_t player, PlayerTopology& output) noexcept;
     bool topology_matches() noexcept;
+    bool image_matches_binding(const CharaAnimationStateImage& image) const noexcept;
     bool identify_section(std::size_t player, std::uintptr_t pointer,
         PackedSectionIdentity& output) noexcept;
     bool resolve_section(std::size_t player,
         PackedSectionIdentity identity, std::uintptr_t& output) noexcept;
+    bool resolve_runtime(std::size_t player,
+        const CharaAnimationPlayerImage& image, std::uintptr_t& output) noexcept;
     Status capture_unchecked(CharaAnimationStateImage& output) noexcept;
     bool write_unchecked(const CharaAnimationStateImage& image) noexcept;
 
@@ -161,8 +190,10 @@ private:
     std::array<std::uintptr_t, 2> fighters_{};
     std::array<PlayerTopology, 2> topology_{};
     std::uint64_t round_generation_{};
+    std::uint64_t binding_serial_{};
     bool bound_{};
     CharaAnimationTopologyIssue topology_issue_{};
     std::uintptr_t topology_observed_{};
+    SectionDiagnostic section_diagnostic_{};
 };
 }

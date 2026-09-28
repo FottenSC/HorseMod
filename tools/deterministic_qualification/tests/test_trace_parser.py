@@ -410,3 +410,55 @@ def test_waiters_restart_at_zero_when_log_is_truncated_and_regrown(
     )
     assert boot.source_commit == "b" * 40
     assert lifecycle.source_commit == "b" * 40
+
+
+def test_rate_parsers_independently_reject_inconsistent_arithmetic():
+    import pytest
+    boot = "[HorseMod] ctor v2.0 source=" + "b" * 40 + "\n"
+    strict = ("[ReplayQualification] strict seek passed percent=10 target=1025 "
+              "source_end=1575 history_verified=550 live_resumed=120 resume_total=670 "
+              "resim=8 validation_us=4966 resume_window=120 resume_elapsed_us=2000000 "
+              "resume_tick_rate_milli=60000 index=0\n")
+    cases = [(parse_replay_seek_evidence, strict,
+              ("resume_window=120", "resume_elapsed_us=2000000", "resume_tick_rate_milli=60000"))]
+    for independent in (False, True):
+        payload = ("viewport_frames=120 native_ticks=120 owned_ticks=0 elapsed_us=2000000 "
+                   "fps_milli=60000 tick_rate_milli=60000" if independent else
+                   "frames=120 elapsed_us=2000000 tick_rate_milli=60000")
+        for active in (False, True):
+            line = "[ReplayQualification] normal-render " + ("active " if active else "") + "battle rate " + payload + "\n"
+            other = "[ReplayQualification] normal-render " + ("" if active else "active ") + "battle rate " + payload + "\n"
+            def parse(text, other=other):
+                return parse_normal_render_rate_evidence(text + other)
+            fields = ("elapsed_us=2000000", "tick_rate_milli=60000", "frames=120")
+            if independent:
+                fields += ("native_ticks=120", "fps_milli=60000")
+            cases.append((parse, line, fields))
+    stress = ("[ReplayQualification] normal-render qualification stress rate "
+              "viewport_frames=120 native_ticks=120 owned_ticks=1800 elapsed_us=2000000 "
+              "fps_milli=60000 tick_rate_milli=60000\n")
+    cases.append((parse_qualification_stress_rate_evidence, stress,
+                  ("viewport_frames=120", "native_ticks=120", "elapsed_us=2000000", "fps_milli=60000", "tick_rate_milli=60000")))
+    for parser, line, fields in cases:
+        assert parser(boot + line) is not None
+        for field in fields:
+            key, value = field.split("=")
+            for replacement in (0, int(value) + 1):
+                with pytest.raises(RuntimeError, match="count and wall time"):
+                    parser(boot + line.replace(field, f"{key}={replacement}"))
+
+
+def test_live_rate_reader_waits_for_complete_record(tmp_path, monkeypatch):
+    from tools.deterministic_qualification import trace_parser as module
+    log = tmp_path / "rate.log"
+    boot = "[HorseMod] ctor v2.0 source=" + "b" * 40 + "\n"
+    line = ("[ReplayQualification] normal-render battle rate viewport_frames=120 "
+            "native_ticks=120 owned_ticks=0 elapsed_us=2000000 fps_milli=60000 tick_rate_milli=60000\n")
+    log.write_text(boot + line[:-4])
+    reads = []
+    def finish(_):
+        reads.append(True)
+        log.write_text(boot + line)
+    monkeypatch.setattr(module.time, "sleep", finish)
+    result = module.wait_for_normal_render_rate_evidence(log, 1, require_active=False)
+    assert reads == [True] and result.tick_rate_milli == 60000

@@ -1,0 +1,40 @@
+{
+  "scope": "RED: startup-installed entry invoked outside active probe crashes before forwarding; actual extracted Invoke/Call",
+  "exit_code": 3221225477,
+  "argv": [
+    "3aeb50",
+    "5"
+  ],
+  "files": {
+    "C:\\Users\\prest\\AppData\\Local\\Temp\\pytest-of-prest\\pytest-2977\\test_consumer_retirement_entri0\\retirement_entries.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f9cadb25d09ca1469adc44edb9486649a69565f8af68291dd1f05512d8ff5d28.cpp",
+      "sha256": "f9cadb25d09ca1469adc44edb9486649a69565f8af68291dd1f05512d8ff5d28",
+      "bytes": 7864
+    },
+    "C:\\Users\\prest\\AppData\\Local\\Temp\\pytest-of-prest\\pytest-2977\\test_consumer_retirement_entri0\\retirement-entries.exe": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\14ee39c75d9e965618f2d274b218445fb19505ee7a47dd72378973ac58253e43.exe",
+      "sha256": "14ee39c75d9e965618f2d274b218445fb19505ee7a47dd72378973ac58253e43",
+      "bytes": 184320
+    },
+    "HorseMod\\horselib\\deterministic\\NativeReplayTraceTaskGuard.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\daa518ace47237e48d1e9f204b8830dde76202debec84b3ee3265eef062547b6.hpp",
+      "sha256": "daa518ace47237e48d1e9f204b8830dde76202debec84b3ee3265eef062547b6",
+      "bytes": 23015
+    },
+    "HorseMod\\horselib\\deterministic\\NativeReplayTraceTaskGuard.Signatures.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a557a8c07410c276831e3ea9ba63ce8c6324184ebb705f519ca39547afd5030a.inl",
+      "sha256": "a557a8c07410c276831e3ea9ba63ce8c6324184ebb705f519ca39547afd5030a",
+      "bytes": 5258
+    },
+    "tools\\deterministic_qualification\\tests\\test_consumer_host.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1d5da9920ce695ec2ea67d2801cde6b2af8499d56239f8bf87a844c2b05835ed.py",
+      "sha256": "1d5da9920ce695ec2ea67d2801cde6b2af8499d56239f8bf87a844c2b05835ed",
+      "bytes": 13132
+    }
+  },
+  "immutable": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1b4066b9e3f7ca301852b56ab5f62daebdb09511ab669a9929a4da2caab50bdc.json",
+    "sha256": "1b4066b9e3f7ca301852b56ab5f62daebdb09511ab669a9929a4da2caab50bdc",
+    "bytes": 2146
+  }
+}

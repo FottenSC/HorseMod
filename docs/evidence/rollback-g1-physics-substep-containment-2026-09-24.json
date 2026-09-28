@@ -1,0 +1,50 @@
+{
+  "scope": "G1 exact PhysX initial/repeat substep graph-task callback admission before native wrapper; terminal containment only",
+  "native_map": "docs/evidence/rollback-g1-physics-substep-task-native-map-2026-09-24.md",
+  "red": "docs/evidence/rollback-g1-physics-substep-dispatch-red-2026-09-24.json",
+  "green": {
+    "focused_command": "$env:PYTHONPATH='tools'; python -m pytest -q -x tools/deterministic_qualification/tests/test_replay_run.py::test_component_dispatch_revalidates_admitted_consumer tools/deterministic_qualification/tests/test_replay_run.py::test_ground_capture_uses_native_scene_transform",
+    "focused_result": "2 passed in 12.30s",
+    "build_manifest": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\e20720c14be1e3c89908a083e9abfe89662d310f441a72774ec0e2bc59d64929.json",
+    "build_manifest_sha256": "e20720c14be1e3c89908a083e9abfe89662d310f441a72774ec0e2bc59d64929",
+    "build_result": "pass",
+    "build_console": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6f4455c26938fbdca7432291c0eb609870c79f68426541313d6eec0811e004df.log",
+    "state_policy_version": 4,
+    "source_archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-b7a1ad9ca39dd89e772ae781e76ad3d24e16a42f08823671f53610fad5f3f75d.zip",
+    "source_archive_sha256": "b99f584d4a53ea9702fe14a72b65f6955f60729c9ddee1e803ecc1f5c0204704",
+    "ctest": "2 passed; 0 failed",
+    "native_checks": "Shipped native candidate and task/event/TLS/physics fixtures PASS in build log",
+    "runtime_sha256": "de298ff428a9b8e3892f764540fa456e5061b1990f9e7e3ad4223baa54058114",
+    "observer_sha256": "15831e1cd3ad35ffeabe8266b296ac37acc244a1f300983f6ec9a63b5e18d258",
+    "framework_sha256": "e1136a410343cc5caad0dfce2b2722002a20d5707ef6077ff794541f48a4847f"
+  },
+  "live": {
+    "manifest": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\afd67b080121994f4e08da7a089df6e7c438a9f861a9ee62d182939943e77ea8.json",
+    "manifest_sha256": "afd67b080121994f4e08da7a089df6e7c438a9f861a9ee62d182939943e77ea8",
+    "candidate_run_id": "replay-eaa26be81435455bb78b16f354e956b9",
+    "candidate_report": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b689742832101dea8ad3e4a86a0429875198c6448689de3c365e10c1c73445fa.json",
+    "candidate_raw_log": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\95524afa5e1957b09df6d0c8df5b98f42f680eb763c763b5e08f964079067553.log",
+    "control_run_id": "replay-ea8f9b24515344beb5d5cd50b5152c0c",
+    "control_report": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\21310981a24f8ea8424da0a15d76e9de764893d6435a63c7c8fc50286c1a8125.json",
+    "control_raw_log": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\3323546fc48437b9473007a26b9b91aaf667adbd0c90e0b7eeed18ea8722b901.log",
+    "result": "pass",
+    "certifying": false,
+    "failure_trigger": "native prerequisite mutation detected before dependent consumption",
+    "ownership_states": ["BRetained", "APublished", "ExecutionActive", "FailedRecoverable", "RecoveryQuiescing", "Recovering", "Recovered"],
+    "B_recovered_tick": 217,
+    "continuation_ticks": 120,
+    "native_callbacks_compared": 480,
+    "native_poses": "pass for prefix20 and continuation120",
+    "visual_coherence": "incomplete",
+    "rollback_cost": "not_measured"
+  },
+  "cleanup": {
+    "journal_state": "clean",
+    "journal_run_id": "replay-ea8f9b24515344beb5d5cd50b5152c0c",
+    "prior_file_states": "all six journaled before hashes or absences independently matched",
+    "game_processes": 0,
+    "steam_pid_retained": 98544
+  },
+  "remaining": "G1 open: changed PhysX substep callback is terminally contained, not recoverable; no concurrent mutation ownership proof, Niagara construction/producer reachability, debris outgoing consumer closure, or complete visual coherence. G2 open. Debris exact/Unresolved; no408 without relevant publication change and no600 before G1/G2 close.",
+  "next_resolving_test": "Prove a resumable owner for the exact substep graph task and completion/event chain, or a generation-stable pre-application callback witness; RED/GREEN changed-callback complete-B recovery and then a bounded live A210/B217 mutation test."
+}

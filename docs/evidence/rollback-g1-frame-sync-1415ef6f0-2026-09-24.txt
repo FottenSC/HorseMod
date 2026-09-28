@@ -1,0 +1,50 @@
+
+void FUN_1415ef6f0(void)
+
+{
+  int *piVar1;
+  int iVar2;
+  FRenderCommandFenceImpl_Partial *pFVar3;
+  longlong lVar4;
+  void *local_18;
+  undefined8 local_10;
+  
+  if ((g_fUseThreadedRendering) &&
+     (g_pSingleThreadedRenderFence != (FRenderCommandFenceImpl_Partial *)0x0)) {
+    FUN_1415ed070(&DAT_144351a30);
+    DAT_14435187e = 0;
+    local_18 = (void *)0x0;
+    local_10 = 0;
+    FUN_140d20a70(DAT_1443518c0,&local_18,0xff);
+    lVar4 = DAT_1443518c0;
+    DAT_1443518c0 = 0;
+    if (lVar4 != 0) {
+      LOCK();
+      piVar1 = (int *)(lVar4 + 0x48);
+      iVar2 = *piVar1;
+      *piVar1 = *piVar1 + -1;
+      UNLOCK();
+      if (iVar2 == 1) {
+        FUN_140d2ebe0();
+      }
+    }
+    pFVar3 = g_pSingleThreadedRenderFence;
+    g_pSingleThreadedRenderFence = (FRenderCommandFenceImpl_Partial *)0x0;
+    if (pFVar3 != (FRenderCommandFenceImpl_Partial *)0x0) {
+      LOCK();
+      piVar1 = &pFVar3->nRefCount;
+      iVar2 = *piVar1;
+      *piVar1 = *piVar1 + -1;
+      UNLOCK();
+      if (iVar2 == 1) {
+        FUN_140d2ebe0();
+      }
+    }
+    if (local_18 != (void *)0x0) {
+      FMemory_Free(local_18);
+    }
+  }
+  return;
+}
+
+

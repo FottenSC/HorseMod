@@ -1,0 +1,29 @@
+{
+  "program": "SoulcaliburVI.exe",
+  "scope": "Pure virtual350 override supplement",
+  "finding": "1408CE370 returns qword at component+808 with no writes or calls. Exact target is pure; subclasses with different slot350 require separate proof.",
+  "decompile": {
+    "content": [
+      {
+        "type": "text",
+        "text": "\r\n/* Algorithm: Return qword component+808 (particle template) directly; no writes, callbacks or\r\n   allocation.\r\n   Parameters: RCX live Lux particle component.\r\n   Returns: particle-template pointer.\r\n   Identity: ULuxParticleSystemComponent vtable14335DB28+350 points here.\r\n   ExecuteParticleSystemTickWork141F701F0 invokes this slot. It is a getter, not a mutating\r\n   pre-emitter update. */\r\n\r\nundefined8 GetLuxParticleComponentTemplate(longlong param_1)\r\n\r\n{\r\n  return *(undefined8 *)(param_1 + 0x808);\r\n}\r\n\r\n"
+      }
+    ],
+    "structuredContent": {
+      "result": "\r\n/* Algorithm: Return qword component+808 (particle template) directly; no writes, callbacks or\r\n   allocation.\r\n   Parameters: RCX live Lux particle component.\r\n   Returns: particle-template pointer.\r\n   Identity: ULuxParticleSystemComponent vtable14335DB28+350 points here.\r\n   ExecuteParticleSystemTickWork141F701F0 invokes this slot. It is a getter, not a mutating\r\n   pre-emitter update. */\r\n\r\nundefined8 GetLuxParticleComponentTemplate(longlong param_1)\r\n\r\n{\r\n  return *(undefined8 *)(param_1 + 0x808);\r\n}\r\n\r\n"
+    },
+    "isError": false
+  },
+  "bytes": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"address\":\"1408ce370\",\"length\":16,\"data\":[72,139,129,8,8,0,0,195,204,204,204,204,204,204,204,204],\"hex\":\"488b8108080000c3cccccccccccccccc\"}"
+      }
+    ],
+    "structuredContent": {
+      "result": "{\"address\":\"1408ce370\",\"length\":16,\"data\":[72,139,129,8,8,0,0,195,204,204,204,204,204,204,204,204],\"hex\":\"488b8108080000c3cccccccccccccccc\"}"
+    },
+    "isError": false
+  }
+}

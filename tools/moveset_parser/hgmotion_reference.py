@@ -163,6 +163,20 @@ ALT_CHANNEL_TYPE_STREAM = bytes(
     ]
 )
 
+# LuxSkillCheck_SampleAndApplyPose @ 0x1402F5E60 passes this independent
+# stream at 0x143E83BD0. A full 0x7FFF authored mask consumes exactly the 25
+# decoded words present in every distinct shipped chr0ff clip.
+SKILL_CHECK_CHANNEL_TYPE_STREAM = bytes(
+    [
+        0x02, 0x06, 0x06,
+        0x02, 0x06, 0x06,
+        0x02, 0x06, 0x06,
+        0x02, 0x06, 0x06,
+        0x02, 0x06, 0x06,
+        0x00,
+    ]
+)
+
 
 class MotionDecodeError(Exception):
     def __init__(self, stage: str, reason: str):
@@ -720,6 +734,34 @@ def _selector02_quaternion(words: list[int], byte_offset: int) -> tuple[float, f
     return (sine * axis_x, sine * axis_y, sine * axis_z, math.cos(half_angle))
 
 
+def _selector06_quaternion(
+    words: list[int],
+    byte_offset: int,
+    secondary_words: list[int] | None = None,
+    alpha: float = 0.0,
+) -> tuple[float, float, float, float]:
+    """Decode selector 0x06's shortest-turn Z-axis quaternion."""
+
+    word_index = byte_offset // 2
+    if word_index >= len(words):
+        raise MotionDecodeError("channel_stream_walk", "selector 0x06 exceeds decoded words")
+    current = words[word_index]
+    following = current
+    if secondary_words is not None:
+        if word_index >= len(secondary_words):
+            raise MotionDecodeError(
+                "channel_stream_walk", "secondary selector 0x06 exceeds decoded words"
+            )
+        following = secondary_words[word_index]
+        while current - following > 0x7FFF:
+            following += 0x10000
+        while current - following < -0x8000:
+            following -= 0x10000
+    turns = ((1.0 - alpha) * current + following * alpha) / 65536.0
+    half_angle = turns * math.pi
+    return (0.0, 0.0, math.sin(half_angle), math.cos(half_angle))
+
+
 def _selector02_rotation(words: list[int], byte_offset: int) -> Mat3:
     return _quat_to_mat3(_selector02_quaternion(words, byte_offset))
 
@@ -893,14 +935,14 @@ def _motion_frame_counts(frame_count: int, flags: int) -> tuple[int, float, int]
 
 
 def parse_motion_clip(raw: bytes, clip_index: int = 0, offset: int = 0) -> MotionClip:
-    if len(raw) < 0x20:
-        raise MotionDecodeError("invalid_clip_header", "clip smaller than 0x20")
+    if len(raw) < 0x1E:
+        raise MotionDecodeError("invalid_clip_header", "clip smaller than 0x1E")
     frame_count = _u16(raw, 0)
     decoded_word_count = _u16(raw, 2) >> 1
     flags = _u32(raw, 4)
     descriptor = _u64(raw, 8)
-    if frame_count == 0 or frame_count > 600:
-        raise MotionDecodeError("invalid_clip_header", f"implausible frame count {frame_count}")
+    if frame_count == 0:
+        raise MotionDecodeError("invalid_clip_header", "zero frame count")
     if decoded_word_count == 0 or decoded_word_count > 0x1000:
         raise MotionDecodeError(
             "invalid_clip_header", f"implausible decoded word count {decoded_word_count}"
@@ -1047,7 +1089,12 @@ def decode_huffman_keyframe_data(
     )
 
 
-def _stream_for_clip(clip: MotionClip) -> tuple[bytes, str]:
+def _stream_for_clip(
+    clip: MotionClip,
+    channel_type_stream: bytes | None = None,
+) -> tuple[bytes, str]:
+    if channel_type_stream is not None:
+        return channel_type_stream, "caller-supplied selector stream"
     if (clip.flags & 0x8000) == 0:
         return DEFAULT_CHANNEL_TYPE_STREAM, "DAT_143e83c00"
     return ALT_CHANNEL_TYPE_STREAM, "DAT_143e83da0"
@@ -1066,6 +1113,18 @@ def _consume_bytes_for_channel(channel_type: int, flags: int) -> int:
     if channel_type == 0x16:
         return 14 if full_precision else 8
     return 0
+
+
+def _decoded_bytes_for_stream(clip: MotionClip, stream: bytes) -> int:
+    bit = 1
+    consumed = 0
+    for channel_type in stream:
+        if channel_type == 0:
+            break
+        if clip.descriptor & bit:
+            consumed += _consume_bytes_for_channel(channel_type, clip.flags)
+        bit = bit >> 1 if channel_type == 0x1B else bit << 1
+    return consumed
 
 
 def _read_vec3(
@@ -1147,8 +1206,19 @@ def _lerp_wrapped_turns(current: float, following: float, alpha: float) -> float
     return (value + 0.5) % 1.0 - 0.5
 
 
-def extract_root_channel(clip: MotionClip, words: list[int]) -> ChannelValue:
-    stream, stream_name = _stream_for_clip(clip)
+def extract_root_channel(
+    clip: MotionClip,
+    words: list[int],
+    channel_type_stream: bytes | None = None,
+) -> ChannelValue:
+    stream, stream_name = _stream_for_clip(clip, channel_type_stream)
+    consumed = _decoded_bytes_for_stream(clip, stream)
+    decoded = clip.decoded_word_count * 2
+    if consumed != decoded:
+        raise MotionDecodeError(
+            "channel_stream_mismatch",
+            f"{stream_name} consumes {consumed // 2} words but clip stores {clip.decoded_word_count}",
+        )
     mask = clip.descriptor
     bit = 1
     byte_offset = 0
@@ -1201,10 +1271,13 @@ def make_lux_world_transform(
     return PoseTransform(rotation, position)
 
 
-def _core_selector_layout(clip: MotionClip) -> dict[int, tuple[int, int, bool]]:
+def _core_selector_layout(
+    clip: MotionClip,
+    channel_type_stream: bytes | None = None,
+) -> dict[int, tuple[int, int, bool]]:
     """Return compact transform -> (selector, decoded-byte-offset, active)."""
 
-    stream, stream_name = _stream_for_clip(clip)
+    stream, stream_name = _stream_for_clip(clip, channel_type_stream)
     mask = clip.descriptor
     bit = 1
     byte_offset = 0
@@ -1247,9 +1320,9 @@ def decode_collision_pose(
 ) -> CollisionPose:
     """Decode and compose requested native collision matrices 0..22.
 
-    Selector 0x02 replaces rotation and preserves the character's rescaled
-    reference translation. Selector 0x06 consumes one decoded word but marks
-    no output dirty and therefore leaves its logical transform unchanged.
+    Selectors 0x02 and 0x06 replace rotation and preserve the character's
+    rescaled reference translation. Selector 0x06 consumes one angular word,
+    interpolates across the signed-turn wrap, and emits a Z-axis quaternion.
     Transform 1's
     horizontal selector-0x16 translation is cleared by ordinary solve mode;
     actor/root travel belongs in ``actor_world`` and is not fed into pose a
@@ -1303,10 +1376,6 @@ def decode_collision_pose(
         selector, byte_offset, active = layout[bone_index]
         if not active:
             continue
-        if selector == 0x06:
-            # Native advances both decoded-word cursors but performs no
-            # FTransform48 write and does not set this channel's dirty bit.
-            continue
         if selector == 0x02:
             quaternion = _selector02_quaternion(primary_words, byte_offset)
             if secondary_words is not None:
@@ -1315,6 +1384,10 @@ def decode_collision_pose(
                     _selector02_quaternion(secondary_words, byte_offset),
                     alpha,
                 )
+        elif selector == 0x06:
+            quaternion = _selector06_quaternion(
+                primary_words, byte_offset, secondary_words, alpha
+            )
         else:
             raise MotionDecodeError(
                 "collision_pose", f"unsupported core selector 0x{selector:02X}"
@@ -1413,7 +1486,7 @@ def decode_four_lane_collision_pose(
         layout = _core_selector_layout(clip)
         for bone_index in range(1, 23):
             selector, _byte_offset, authored = layout[bone_index]
-            if not authored or selector == 0x06:
+            if not authored:
                 continue
             current = local[bone_index]
             incoming = sampled.local[bone_index]
@@ -1451,7 +1524,13 @@ def decode_four_lane_collision_pose(
     )
 
 
-def decode_root_movement_frames(raw: bytes, clip_index: int = 0, offset: int = 0) -> tuple[MotionClip, list[MovementFrame], str]:
+def decode_root_movement_frames(
+    raw: bytes,
+    clip_index: int = 0,
+    offset: int = 0,
+    *,
+    channel_type_stream: bytes | None = None,
+) -> tuple[MotionClip, list[MovementFrame], str]:
     clip = parse_motion_clip(raw, clip_index, offset)
     frames: list[MovementFrame] = []
     prev_x = prev_y = prev_z = 0.0
@@ -1466,14 +1545,14 @@ def decode_root_movement_frames(raw: bytes, clip_index: int = 0, offset: int = 0
         primary_index = int(sample)
         blend = sample - primary_index
         primary_words, _trace = _decode_frame_words(clip, primary_index)
-        primary = extract_root_channel(clip, primary_words)
+        primary = extract_root_channel(clip, primary_words, channel_type_stream)
         if primary.x is None or primary.y is None or primary.z is None:
             raise MotionDecodeError("root_channel_missing", "root channel did not produce XYZ")
         x, y, z = primary.x, primary.y, primary.z
         root_yaw_turns = _selector16_yaw_turns(primary.raw_components)
         if blend and primary_index + 1 < clip.encoded_frame_count:
             secondary_words, _ = _decode_frame_words(clip, primary_index + 1)
-            secondary = extract_root_channel(clip, secondary_words)
+            secondary = extract_root_channel(clip, secondary_words, channel_type_stream)
             if secondary.x is None or secondary.y is None or secondary.z is None:
                 raise MotionDecodeError("root_channel_missing", "root channel did not produce XYZ")
             x += (secondary.x - x) * blend
@@ -1532,5 +1611,5 @@ def decode_root_movement_frames(raw: bytes, clip_index: int = 0, offset: int = 0
     )
     if max_abs > 500.0:
         raise MotionDecodeError("movement_axis_unresolved", f"decoded movement too large: {max_abs}")
-    stream_name = _stream_for_clip(clip)[1]
+    stream_name = _stream_for_clip(clip, channel_type_stream)[1]
     return clip, frames, f"decoded with confirmed channel stream {stream_name}"

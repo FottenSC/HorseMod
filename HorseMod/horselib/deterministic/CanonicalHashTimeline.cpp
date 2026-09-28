@@ -9,14 +9,8 @@ CanonicalHashTimeline::CanonicalHashTimeline(
     std::size_t maximum_entries) noexcept
     : maximum_entries_(maximum_entries)
 {
-    try
-    {
-        entries_.reserve(maximum_entries_);
-    }
-    catch (...)
-    {
-        maximum_entries_ = 0;
-    }
+    // An unused legacy timeline owns no backing. The hard maximum still
+    // applies to allocated capacity as well as retained entry count.
 }
 
 Status CanonicalHashTimeline::Append(
@@ -29,7 +23,8 @@ Status CanonicalHashTimeline::Append(
     const CanonicalWindFingerprint& wind,
     const CanonicalWindNodeDiagnostic& wind_node,
     const CanonicalAnimationFingerprint& animation,
-    const CanonicalStageEmitterFingerprint& stage_emitters) noexcept
+    const CanonicalStageEmitterFingerprint& stage_emitters,
+    const ReplaySourceState& replay_source) noexcept
 {
     const auto found = std::lower_bound(entries_.begin(), entries_.end(),
         coordinate, [](const CanonicalHashEntry& entry, FrameCoordinate value)
@@ -46,6 +41,7 @@ Status CanonicalHashTimeline::Append(
                 && found->wind == wind && found->wind_node == wind_node
                 && found->animation == animation
                 && found->stage_emitters == stage_emitters
+                && found->replay_source == replay_source
             ? Status::success()
             : Status::failure(FailureCode::StateHashMismatch);
     }
@@ -55,8 +51,14 @@ Status CanonicalHashTimeline::Append(
         return Status::failure(FailureCode::CapacityExceeded);
     try
     {
+        if (entries_.size() == entries_.capacity()) {
+            const auto capacity = entries_.capacity();
+            entries_.reserve(capacity ? capacity + (std::min)(capacity, maximum_entries_ - capacity)
+                                     : (std::min)(std::size_t{64}, maximum_entries_));
+        }
         entries_.push_back({coordinate, hash, components, native, move_dispatch,
-            input, wind_semantic, wind, wind_node, animation, stage_emitters});
+            input, wind_semantic, wind, wind_node, animation, stage_emitters,
+            replay_source});
     }
     catch (...)
     {
@@ -111,7 +113,8 @@ Status CanonicalHashTimeline::ReplaceExactRange(
     {
         const auto& current = entries_[first + index];
         if (current.coordinate != expected[index].coordinate
-            || current.coordinate != replacement[index].coordinate)
+            || current.coordinate != replacement[index].coordinate
+            || current.replay_source != replacement[index].replay_source)
             return Status::failure(FailureCode::IdentityMismatch);
         if (current.hash != expected[index].hash
             || current.components != expected[index].components
@@ -122,7 +125,8 @@ Status CanonicalHashTimeline::ReplaceExactRange(
             || current.wind != expected[index].wind
             || current.wind_node != expected[index].wind_node
             || current.animation != expected[index].animation
-            || current.stage_emitters != expected[index].stage_emitters)
+            || current.stage_emitters != expected[index].stage_emitters
+            || current.replay_source != expected[index].replay_source)
             return Status::failure(FailureCode::StateHashMismatch);
     }
     for (std::size_t index = 0; index < replacement.size(); ++index)

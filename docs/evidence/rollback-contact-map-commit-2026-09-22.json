@@ -1,0 +1,53 @@
+{
+  "live_failure": "c0ae4494955962434369d2ea3e9dcf71334ca95aedd19b868f8e77898e897f2a",
+  "red": {
+    "log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\92a1b50aeab945c3c1c8e413c9c442661bd909a4c6e8d036c79862a280056e97.log",
+      "sha256": "92a1b50aeab945c3c1c8e413c9c442661bd909a4c6e8d036c79862a280056e97",
+      "bytes": 5313
+    },
+    "test": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6bc08a5ce88476d772a7a74656dd978a2a517cb4e208e175a855bee79060b10a.inl",
+      "sha256": "6bc08a5ce88476d772a7a74656dd978a2a517cb4e208e175a855bee79060b10a",
+      "bytes": 119659
+    },
+    "graph": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\300bee5e4418f6fcb7d92483b3a18ed0a19a7e5470c6e91ba11eb696823bced4.hpp",
+      "sha256": "300bee5e4418f6fcb7d92483b3a18ed0a19a7e5470c6e91ba11eb696823bced4",
+      "bytes": 8883
+    },
+    "production": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\cca0d4a35998100c767e8a1e05573542e148ea6158f2c6207193d84124ed7db2.inl",
+      "sha256": "cca0d4a35998100c767e8a1e05573542e148ea6158f2c6207193d84124ed7db2",
+      "bytes": 48283
+    }
+  },
+  "native": "11C410 registers arbitrary ElementSimInteraction by shape pair at28/30 and pointer in NPhase+1558. T620 map has2 rows vs1 marker. Commit must read actual map rows and validate each against independently registered C marker/contact.",
+  "green": {
+    "build": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\903547f220fe385f7bce6408ad8942beaed7ddcc2f21a32b8835a6c87be4bf00.json",
+      "sha256": "903547f220fe385f7bce6408ad8942beaed7ddcc2f21a32b8835a6c87be4bf00",
+      "bytes": 5870
+    },
+    "log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\352b19a1f93dec2fea8ed6fb052a1ae08f8591ae422662170121006abc146936.log",
+      "sha256": "352b19a1f93dec2fea8ed6fb052a1ae08f8591ae422662170121006abc146936",
+      "bytes": 3979
+    },
+    "test": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\45c1d3b93d404b8c9e811ed5867c416f4324abb7718d5bfcd2bceb6248aa465c.inl",
+      "sha256": "45c1d3b93d404b8c9e811ed5867c416f4324abb7718d5bfcd2bceb6248aa465c",
+      "bytes": 120279
+    },
+    "graph": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\61f6a79f10bc37bf7fd39c948303937fd27c14a33f17630fde0a93b8a7b117a6.hpp",
+      "sha256": "61f6a79f10bc37bf7fd39c948303937fd27c14a33f17630fde0a93b8a7b117a6",
+      "bytes": 9081
+    },
+    "production": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\bac8a8cbf024d161e04f6eb8fbd5d5bfbaf7cf85e110aa7f02004850e54a0297.inl",
+      "sha256": "bac8a8cbf024d161e04f6eb8fbd5d5bfbaf7cf85e110aa7f02004850e54a0297",
+      "bytes": 49925
+    }
+  }
+}

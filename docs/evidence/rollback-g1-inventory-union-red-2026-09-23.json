@@ -1,0 +1,36 @@
+{
+  "scope": "Actual observer enumeration omits retained dormant trace primary ticks",
+  "result": "RED exit81 expected union1/2/3 actual1/1/1",
+  "files": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\59da0e05e8f1a8b28cff94eafcf9513d9aedcb981943b1772f1861fac62a02e9.cpp",
+      "sha256": "59da0e05e8f1a8b28cff94eafcf9513d9aedcb981943b1772f1861fac62a02e9",
+      "bytes": 518126
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\c8681baa4133f234b2b26a86c1481bdf0eeb74fe412990f6ffd97766493ccb0b.py",
+      "sha256": "c8681baa4133f234b2b26a86c1481bdf0eeb74fe412990f6ffd97766493ccb0b",
+      "bytes": 19467
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\3f20366f65a63e679b209f076c4549d8f3b55a5fb8173923b5e7f0872668a0a4.cmd",
+      "sha256": "3f20366f65a63e679b209f076c4549d8f3b55a5fb8173923b5e7f0872668a0a4",
+      "bytes": 275
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\db02e4fcebc0155fd6f18cbd410b2e573bda7c9d285434e3722e84b8a9bc714b.exe",
+      "sha256": "db02e4fcebc0155fd6f18cbd410b2e573bda7c9d285434e3722e84b8a9bc714b",
+      "bytes": 150528
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\3c47065ed444aa18c8f93577b8d808486abfa0bafb78ed18201c708a3c5da376.obj",
+      "sha256": "3c47065ed444aa18c8f93577b8d808486abfa0bafb78ed18201c708a3c5da376",
+      "bytes": 312338
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\ba0a7f7bf9fc210f91c1ce8fad994ef4e002db7e04ad6e8f9a1b904376a273f6.cpp",
+      "sha256": "ba0a7f7bf9fc210f91c1ce8fad994ef4e002db7e04ad6e8f9a1b904376a273f6",
+      "bytes": 9273
+    }
+  ]
+}

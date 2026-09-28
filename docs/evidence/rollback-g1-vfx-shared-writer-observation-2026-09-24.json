@@ -1,0 +1,205 @@
+{
+  "schema": 1,
+  "date": "2026-09-24",
+  "scope": "G1 bounded VFX shared-writer observation, not mutation enforcement",
+  "source_retention": {
+    "manifest_sha256": "ea867af2f80d56c635106236ade53a837cf9b6afef24deac79c99af8585c2516",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-ea867af2f80d56c635106236ade53a837cf9b6afef24deac79c99af8585c2516.zip",
+    "archive_sha256": "a7321cf92f5cb60e464758d0b315f41290c7172c181a238d13ec39ce1780d408",
+    "files": 17319,
+    "uncompressed_bytes": 127429870,
+    "reconstructible": true
+  },
+  "identities": {
+    "config": "26a017d28e1e3d1c9175fe94712258c816976fbb092a5e0dc6bc7eb13a18eac4",
+    "framework": "e1136a410343cc5caad0dfce2b2722002a20d5707ef6077ff794541f48a4847f",
+    "game": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553",
+    "observer": "020cf538cfc6f595ee12097b83681e3eafcccece09613da1307bf4bd22204ca3",
+    "physx": "c3c7bd6e13260ee5f850552b6e9a15f69e58e0b41cd4f4bcb48e1b419719b5a2",
+    "replay": "95e12e394d35c13d5e0dd3dce692f9e0a4022e2a84205a9ec75f2fa6726d7879",
+    "runtime": "7f1c625d6ac3fc9c1a06a92e3ac9e89e4d3200a01c533358ff3cf4e570f84a63",
+    "ucrt": "5e7709a6b71bb818260b6f05c5bb3b6ca0c3ca9bc2f58c6242c1cd9d826d0079"
+  },
+  "tests": {
+    "writer_red": "expected failure: helpers forwarded but absent from old observer",
+    "writer_green": 25,
+    "writer_build": "pass, two CTests and required native checks",
+    "capacity_red": "expected failure: 128 retained/192 dropped in full-phase fixture",
+    "capacity_green": 26,
+    "capacity_build": "pass, two CTests and required native checks",
+    "preflight": "ready"
+  },
+  "live": {
+    "result": "pass",
+    "certifying": false,
+    "run_id": "replay-9754d834564d4676b9317f6f193a91cf",
+    "anchor_tick": 210,
+    "B_tick": 217,
+    "consumer_mutation": true,
+    "complete_B_recovery": {
+      "result": "pass",
+      "failure": "native prerequisite mutation detected before dependent consumption",
+      "recovered_tick": 217,
+      "independent_continuation_ticks": 120,
+      "ownership": {
+        "states": [
+          "BRetained",
+          "APublished",
+          "ExecutionActive",
+          "FailedRecoverable",
+          "RecoveryQuiescing",
+          "Recovering",
+          "Recovered"
+        ],
+        "completed_C_tick": 211,
+        "executed_ticks": 1,
+        "executed_intervals": 1,
+        "C_only_particles": 1,
+        "B_recovered_tick": 217,
+        "native_destroyed_CPU_members": 1,
+        "cancellation_boundary": "ConsumerPrerequisite"
+      }
+    },
+    "continuation_ticks": 120,
+    "native_callbacks_compared": 480,
+    "visual_coherence": "incomplete",
+    "observer_phase_complete": true,
+    "observer_records": 154,
+    "observer_dropped": 0,
+    "shared_prune_calls": 16,
+    "shared_copy_calls": 0,
+    "prune_caller_rva": "0x8C9232",
+    "observed_threads": 1,
+    "manager_generations": 1,
+    "dispatch_overlap": 0,
+    "writer_coverage_proven": false
+  },
+  "cleanup": {
+    "journal": "clean",
+    "prior_files_matching": 6,
+    "games_remaining": 0,
+    "steam_pid": 98544
+  },
+  "files": {
+    "native_audit": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0aee7c60f4ab6edbdaf4d71c6a435eaafa49e8273eeb589a89ea6750a5b2cb00.md",
+      "sha256": "0aee7c60f4ab6edbdaf4d71c6a435eaafa49e8273eeb589a89ea6750a5b2cb00",
+      "bytes": 10344
+    },
+    "astra_forward_report": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\181e38947798412ad9f00492b3a3ec263fbeacb11c9f9308219ef4445862caf8.txt",
+      "sha256": "181e38947798412ad9f00492b3a3ec263fbeacb11c9f9308219ef4445862caf8",
+      "bytes": 1687
+    },
+    "astra_forward_events": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d5bb1a626b5ba3ccaa38be1a22afebd3ea09eb311ff243c5a7e0b8bcc7f1e9a9.log",
+      "sha256": "d5bb1a626b5ba3ccaa38be1a22afebd3ea09eb311ff243c5a7e0b8bcc7f1e9a9",
+      "bytes": 1428173
+    },
+    "astra_capacity_report": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9324859f8728a53498ed6af3011da4efa47809d3c9591f191f9e9991d5452f50.txt",
+      "sha256": "9324859f8728a53498ed6af3011da4efa47809d3c9591f191f9e9991d5452f50",
+      "bytes": 1556
+    },
+    "astra_capacity_events": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7433db188609763ef3c0cc0c37cd6a98cf709e5533ee5c7b980770f7022a0591.log",
+      "sha256": "7433db188609763ef3c0cc0c37cd6a98cf709e5533ee5c7b980770f7022a0591",
+      "bytes": 603629
+    },
+    "writer_red": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b5193535f175e2db714bca89c8b9e65ae73d7f313517ce6686240179abf66106.log",
+      "sha256": "b5193535f175e2db714bca89c8b9e65ae73d7f313517ce6686240179abf66106",
+      "bytes": 3227
+    },
+    "writer_green": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\dc0e8d85cb077dcba7a6457c8df68fcd4aba5c3862129bd566dac7172feebc93.log",
+      "sha256": "dc0e8d85cb077dcba7a6457c8df68fcd4aba5c3862129bd566dac7172feebc93",
+      "bytes": 323
+    },
+    "writer_build": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\2f5eb1adb2592340e7d8390d8ec675bb7e2bbe1323b25de20f86cb439b32e261.log",
+      "sha256": "2f5eb1adb2592340e7d8390d8ec675bb7e2bbe1323b25de20f86cb439b32e261",
+      "bytes": 334
+    },
+    "writer_live_overflow": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\19e6cd3d5bee3576ac3a26e388c6bd31e57e752272146fd57cb5be26eca79be7.log",
+      "sha256": "19e6cd3d5bee3576ac3a26e388c6bd31e57e752272146fd57cb5be26eca79be7",
+      "bytes": 858
+    },
+    "overflow_sidecar": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6830a3732c446fa3a2cbd98651e7863c8bc28605e9200f3aab0a683ec7e9209e.json",
+      "sha256": "6830a3732c446fa3a2cbd98651e7863c8bc28605e9200f3aab0a683ec7e9209e",
+      "bytes": 136853
+    },
+    "capacity_red": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c69ee7943f65820b12fc9c74744f0490bc8999384e85b089804710c2d15f94cd.log",
+      "sha256": "c69ee7943f65820b12fc9c74744f0490bc8999384e85b089804710c2d15f94cd",
+      "bytes": 915
+    },
+    "capacity_green": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b9b70847719ca5d577778c864e09fb374ff6971c11624045e4ffedf3d8f4d9ae.log",
+      "sha256": "b9b70847719ca5d577778c864e09fb374ff6971c11624045e4ffedf3d8f4d9ae",
+      "bytes": 324
+    },
+    "capacity_build": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8e02229925335a4ea1fd147e241d298010758a0ec2086532d8d6870a869d809a.log",
+      "sha256": "8e02229925335a4ea1fd147e241d298010758a0ec2086532d8d6870a869d809a",
+      "bytes": 335
+    },
+    "capacity_preflight": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e8ef7755c036ebc3dfa5479cc32155df6f689b83d8dc77deaae031d90acd7354.log",
+      "sha256": "e8ef7755c036ebc3dfa5479cc32155df6f689b83d8dc77deaae031d90acd7354",
+      "bytes": 316
+    },
+    "capacity_live": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1729e4f64635b37b646a6198960a5f168570d7465f526df8469d6c99aa6b7ca7.log",
+      "sha256": "1729e4f64635b37b646a6198960a5f168570d7465f526df8469d6c99aa6b7ca7",
+      "bytes": 858
+    },
+    "live_manifest": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\2238ce941e9d8fef2bca6d7ab6908b75f752ce3d1f24657d3b9ca094b7470132.json",
+      "sha256": "2238ce941e9d8fef2bca6d7ab6908b75f752ce3d1f24657d3b9ca094b7470132",
+      "bytes": 43322
+    },
+    "candidate_report": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1e0a609bd46b151d6bf13f9f412be6889a64d34e15643eecbbedecdffab45348.json",
+      "sha256": "1e0a609bd46b151d6bf13f9f412be6889a64d34e15643eecbbedecdffab45348",
+      "bytes": 313834
+    },
+    "candidate_raw_log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\55651ea736e0e6c44abfab0867685f6c0cb27522c1edf6600137b67da20a1619.log",
+      "sha256": "55651ea736e0e6c44abfab0867685f6c0cb27522c1edf6600137b67da20a1619",
+      "bytes": 6340693
+    },
+    "candidate_diagnostic_index": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8a4c0b2d8d0a5d460fd6a0494d58a7c263e668811c0c720d21dee586311ad770.json",
+      "sha256": "8a4c0b2d8d0a5d460fd6a0494d58a7c263e668811c0c720d21dee586311ad770",
+      "bytes": 2578
+    },
+    "control_report": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0e350286a27d8e9137801f27af3bcd998a9b720d8077c3b06918d0e4fab7766e.json",
+      "sha256": "0e350286a27d8e9137801f27af3bcd998a9b720d8077c3b06918d0e4fab7766e",
+      "bytes": 13503
+    },
+    "control_raw_log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\84fb270003e2aeef4f33f930f25241c1c546872e40be77d935b45f8c90edc339.log",
+      "sha256": "84fb270003e2aeef4f33f930f25241c1c546872e40be77d935b45f8c90edc339",
+      "bytes": 5612832
+    },
+    "vfx_raw_sidecar": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\922d13299212011383cf8cb619cc040906c47103fa5131236033d4b1c92d1198.json",
+      "sha256": "922d13299212011383cf8cb619cc040906c47103fa5131236033d4b1c92d1198",
+      "bytes": 165295
+    },
+    "writer_prechange_header": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\901e575801d3dfa42cad21e56cd83afb0c6f5f52e2f06d6cc49988beef32b3f9.hpp",
+      "sha256": "901e575801d3dfa42cad21e56cd83afb0c6f5f52e2f06d6cc49988beef32b3f9",
+      "bytes": 25068
+    },
+    "capacity_prechange_header": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\fda5a1c8ccbbbe63b7fb569d6149f036d20978ecc8a69b721da9ee272dbd9e77.hpp",
+      "sha256": "fda5a1c8ccbbbe63b7fb569d6149f036d20978ecc8a69b721da9ee272dbd9e77",
+      "bytes": 29844
+    }
+  }
+}

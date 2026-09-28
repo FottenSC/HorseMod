@@ -1,0 +1,163 @@
+{
+  "source_retention": {
+    "manifest_sha256": "e0b2292c533a0ba32ec1b856ea35bd0122219aa643540711bdfd885f4067cec1",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-e0b2292c533a0ba32ec1b856ea35bd0122219aa643540711bdfd885f4067cec1.zip",
+    "archive_sha256": "6772c8a265f72c0e8412f85a08cca23a20912d6aba65f6bc36ca16a90918709f",
+    "files": 16620,
+    "uncompressed_bytes": 93103777,
+    "reconstructible": true
+  },
+  "green_manifest": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\259da18b6987dfc43d7bf4fc36117629a2b361ec05fecc6a7d3b2ae70f1b5f96.json",
+    "sha256": "259da18b6987dfc43d7bf4fc36117629a2b361ec05fecc6a7d3b2ae70f1b5f96",
+    "bytes": 1998
+  },
+  "sources": [
+    {
+      "path": "E:\\myMods\\HorseMod\\horselib\\deterministic\\NativeReplayVfxCompletionObservation.hpp",
+      "sha256": "a8233d4bcfe235981b004c286410721fb973586fd12a99a2f620abf4fb3446de",
+      "bytes": 45343
+    },
+    {
+      "path": "E:\\myMods\\HorseMod\\horselib\\deterministic\\ReplayVfxExecutionScope.hpp",
+      "sha256": "96d0839dddde182528ba8ef4f6b589faf3c4bb60a18602352f7dec23a6ca3646",
+      "bytes": 1528
+    },
+    {
+      "path": "E:\\myMods\\HorseMod\\horselib\\deterministic\\Sc6ReplayTaskGroup.cpp",
+      "sha256": "c317807365800851a0ff8824b50f1d43c4d8dcfd4ecd6c984164e482295cdb9e",
+      "bytes": 33847
+    },
+    {
+      "path": "E:\\myMods\\HorseMod\\horselib\\deterministic\\Sc6ReplayTaskGroup.Resume.inl",
+      "sha256": "0c64a86a2c6b6391cd5d6f847324e4f5f8b35bec3785cd60efef2e733016a3ee",
+      "bytes": 1156
+    },
+    {
+      "path": "E:\\myMods\\tools\\replay_vfx_completion_observation_selftest.cpp",
+      "sha256": "eb9a983fe4ff48b38a7dd83764638b668b3ad3b25c7c6726a8f26391a839e836",
+      "bytes": 31649
+    },
+    {
+      "path": "E:\\myMods\\tools\\deterministic_qualification\\tests\\test_vfx_completion_observation.py",
+      "sha256": "9ff16cd253793ad1d0eda3717d48fe9a8a92acc879ed02f493419ce5c54585b7",
+      "bytes": 41047
+    },
+    {
+      "path": "E:\\myMods\\tools\\deterministic_qualification\\replay_control.py",
+      "sha256": "7fd5134126b30bfe39e6984ff09c9b1c144fb8aa1e082366b2d6e2f3aa59ad08",
+      "bytes": 96861
+    }
+  ],
+  "archive_members_byte_match": true,
+  "fixture": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b7a7316135dbcba4d709950d6f4179ab073c8905f7c590627177b12a2c9ee677.exe",
+    "sha256": "b7a7316135dbcba4d709950d6f4179ab073c8905f7c590627177b12a2c9ee677",
+    "bytes": 579584
+  },
+  "fixture_sidecars": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\79295f1d697f00020e0592bab8531763b7a0d05e559002b90b39b01a204c7ca7.json",
+      "sha256": "79295f1d697f00020e0592bab8531763b7a0d05e559002b90b39b01a204c7ca7",
+      "bytes": 19076
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\32dd3ffa691ec3ea5912f2a06d40fe528afa447a16292f1e19668bcc20e9bd4e.json",
+      "sha256": "32dd3ffa691ec3ea5912f2a06d40fe528afa447a16292f1e19668bcc20e9bd4e",
+      "bytes": 17337
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6de64c63c57e32632090aa2ceadafeb2550c07edeb6fcdc3d6a6f95cccbbaccf.json",
+      "sha256": "6de64c63c57e32632090aa2ceadafeb2550c07edeb6fcdc3d6a6f95cccbbaccf",
+      "bytes": 17350
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\60e7fdc975c72734c40690bd4dd1305cc398e123ab51ccbd5a815cb7cfb3504b.json",
+      "sha256": "60e7fdc975c72734c40690bd4dd1305cc398e123ab51ccbd5a815cb7cfb3504b",
+      "bytes": 20062
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\60e7fdc975c72734c40690bd4dd1305cc398e123ab51ccbd5a815cb7cfb3504b.json",
+      "sha256": "60e7fdc975c72734c40690bd4dd1305cc398e123ab51ccbd5a815cb7cfb3504b",
+      "bytes": 20062
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\5d1bfa2d173e1a0612e7604264ad14c798e7e96b28d23f84d452c1eefafe4688.json",
+      "sha256": "5d1bfa2d173e1a0612e7604264ad14c798e7e96b28d23f84d452c1eefafe4688",
+      "bytes": 19009
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9ec1389ef1c5c4d912f992549a43b237df02cf9a7c73e6e6ba1cd67d98ffc963.json",
+      "sha256": "9ec1389ef1c5c4d912f992549a43b237df02cf9a7c73e6e6ba1cd67d98ffc963",
+      "bytes": 17262
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9ec1389ef1c5c4d912f992549a43b237df02cf9a7c73e6e6ba1cd67d98ffc963.json",
+      "sha256": "9ec1389ef1c5c4d912f992549a43b237df02cf9a7c73e6e6ba1cd67d98ffc963",
+      "bytes": 17262
+    }
+  ],
+  "native": {
+    "path": "E:\\myMods\\docs\\evidence\\rollback-g1-vfx-execution-owner-2026-09-24.native-final.json",
+    "sha256": "2be4fa0c3471533c2dcd267e43bde64e5cc95d73332fcc862b0c35ae7dbe477c",
+    "bytes": 253391
+  },
+  "game": {
+    "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\SoulcaliburVI.exe",
+    "sha256": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553",
+    "bytes": 71737344
+  },
+  "selected_live_sidecar": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\42406fa13fcaf0225b26b44608e8bffd25bbc554c642608d865591ebfbf7a194.json",
+    "sha256": "42406fa13fcaf0225b26b44608e8bffd25bbc554c642608d865591ebfbf7a194",
+    "bytes": 192497
+  },
+  "deployment_journal": {
+    "identity": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.qualification-resources.json",
+      "sha256": "cae6183d21c0f3f7b822cf3781b7fc421619fe1b7b37760c27796f32a736c0cd",
+      "bytes": 4431
+    },
+    "state": "clean"
+  },
+  "processes": [
+    {
+      "name": "steam.exe",
+      "cmdline": [
+        "C:\\Program Files (x86)\\Steam\\steam.exe"
+      ],
+      "pid": 98544
+    }
+  ],
+  "project_build_performed": false,
+  "deployment_performed": false,
+  "live_run_performed": false,
+  "ghidra_database_modified": false,
+  "selected_live_summary": {
+    "producer_entry_rvas": {
+      "0x3c5250": 6,
+      "0x1f73990": 39
+    },
+    "producer_callers": {
+      "0x7ff671c2be3e": 6,
+      "0x7ff6737f5b86": 39
+    },
+    "particle_fences": {
+      "0": 39
+    },
+    "selected_manager_dispatches": 45,
+    "phase": {
+      "scope": "startup_to_trajectory_completion",
+      "boundary": "CompleteTrajectory.vfx_status",
+      "state": "closed",
+      "complete": true,
+      "whole_process_coverage": false,
+      "native_quiescence_proven": false,
+      "end_tick": 483,
+      "close_thread": 94196,
+      "close_ms": 2619238671,
+      "pending_at_close": 0
+    },
+    "dropped": 0
+  }
+}

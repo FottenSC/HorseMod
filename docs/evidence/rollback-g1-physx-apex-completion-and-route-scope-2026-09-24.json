@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "date": "2026-09-24",
+  "scope": "Read-only PhysX/APEX completion-chain and selected VFX caller audit; no recovery edit",
+  "identities": {
+    "SoulcaliburVI.exe_sha256": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553",
+    "PhysX3_x64.dll_sha256": "c3c7bd6e13260ee5f850552b6e9a15f69e58e0b41cd4f4bcb48e1b419719b5a2",
+    "APEXFramework_x64.dll_sha256": "6af991a58b258c5433c4c977ac859d560cd7114298356481077e503fd7eaa770"
+  },
+  "files": {
+    "audit": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9997db8f903a26242a98190b140448583d3f83cb1928ca8c1565627fbf0f462d.md",
+      "sha256": "9997db8f903a26242a98190b140448583d3f83cb1928ca8c1565627fbf0f462d",
+      "bytes": 5573
+    },
+    "astra_scene_analysis": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\14874dce46b4d22fc556c6e675a1f3228451350ab8f9c05519c68387e34cb11e.txt",
+      "sha256": "14874dce46b4d22fc556c6e675a1f3228451350ab8f9c05519c68387e34cb11e",
+      "bytes": 3215
+    },
+    "astra_handoff_analysis": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\223c518a5caa2b58ed0c7ae7bd87c65d74905f7738397e267d5350195f203586.txt",
+      "sha256": "223c518a5caa2b58ed0c7ae7bd87c65d74905f7738397e267d5350195f203586",
+      "bytes": 2803
+    },
+    "astra_handoff_events": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\3f2415b7b2ed96ddc6c1297c5ff7ecbb47eb0376c469dd922b56f05c47529033.log",
+      "sha256": "3f2415b7b2ed96ddc6c1297c5ff7ecbb47eb0376c469dd922b56f05c47529033",
+      "bytes": 346425
+    },
+    "astra_ground_route_analysis": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b1de883ee54cb9c83f5fa64db899071c3c80b4c688875e3f76a733925eddf6f7.txt",
+      "sha256": "b1de883ee54cb9c83f5fa64db899071c3c80b4c688875e3f76a733925eddf6f7",
+      "bytes": 6868
+    },
+    "astra_ground_route_events": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\ad06208eaae3ec40283735e11e63c9719843bf132e25a0ac07ddc08769e1c0e3.log",
+      "sha256": "ad06208eaae3ec40283735e11e63c9719843bf132e25a0ac07ddc08769e1c0e3",
+      "bytes": 2437684
+    },
+    "astra_niagara_route_analysis": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\85c6aab96634137a22bfa764c4dcf20079010c14369886657cba5d23b5ae1424.txt",
+      "sha256": "85c6aab96634137a22bfa764c4dcf20079010c14369886657cba5d23b5ae1424",
+      "bytes": 7591
+    },
+    "astra_niagara_route_events": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b506c7d2907bb92f5ad6359bed24edc4d5fe934e9ea08bb35d460701a2d5ac61.log",
+      "sha256": "b506c7d2907bb92f5ad6359bed24edc4d5fe934e9ea08bb35d460701a2d5ac61",
+      "bytes": 906936
+    }
+  },
+  "prior_live_proof": "docs/evidence/rollback-g1-physx-callback-observation-2026-09-24.json",
+  "selected_vfx_sidecar": "docs/evidence/rollback-g1-vfx-shared-writer-observation-2026-09-24.json",
+  "result": {
+    "observer_validity": "Retained VFX sidecar valid for its selected entries; no new observer run",
+    "simulation": "Prior A210/B217 prerequisite mutation and 120 matching continuation ticks only",
+    "recovery": "No changed PhysX/VFX/Niagara callback B recovery demonstrated",
+    "coherence": "Unqualified",
+    "performance": "Unqualified",
+    "cleanup": "Journaled six prior file states independently match; a non-owned SoulcaliburVI process was observed and left untouched, then absent at final recheck; Steam PID 98544 left running"
+  },
+  "changes": "Evidence documents only; no production/test source, Ghidra database, build, deployment or live test changed"
+}

@@ -1,3 +1,4 @@
+import pytest
 import json
 from pathlib import Path
 
@@ -22,6 +23,7 @@ MANIFEST = (ROOT / "docs" / "investigations"
             / "deterministic-production-candidate-manifest.json")
 
 
+@pytest.mark.workflow
 def test_matrix_strict_seeks_use_stock_oracle_not_authored_outcome_lifetime(
         tmp_path):
     stock = tmp_path / "stock.json"
@@ -36,6 +38,7 @@ def test_matrix_strict_seeks_use_stock_oracle_not_authored_outcome_lifetime(
     assert "require_authored_outcomes" not in options
 
 
+@pytest.mark.workflow
 def test_capture_and_evaluator_identities_are_independent(tmp_path, monkeypatch):
     (tmp_path / "capture.py").write_text("capture-v1", encoding="utf-8")
     (tmp_path / "evaluate.py").write_text("evaluate-v1", encoding="utf-8")
@@ -50,6 +53,7 @@ def test_capture_and_evaluator_identities_are_independent(tmp_path, monkeypatch)
     assert artifacts.offline_evaluator_sha256(tmp_path) != evaluator
 
 
+@pytest.mark.workflow
 def test_offline_capture_protocol_is_hashed_as_producer_not_policy():
     capture_path = "tools/deterministic_qualification/offline_capture.py"
     specification_path = "tools/deterministic_qualification/offline_spec.py"
@@ -62,6 +66,7 @@ def test_offline_capture_protocol_is_hashed_as_producer_not_policy():
     assert campaign_path in artifacts.OFFLINE_EVALUATOR_PATHS
 
 
+@pytest.mark.workflow
 def test_raw_capture_resume_requires_every_producer_hash(tmp_path):
     row = next(row for row in build_rows(MANIFEST)
                if row.required_corrections == 0)
@@ -119,6 +124,7 @@ def test_raw_capture_resume_requires_every_producer_hash(tmp_path):
         path, row, expected, config, stock=False) is None
 
 
+@pytest.mark.workflow
 def test_raw_capture_resume_rejects_changed_bounded_log(tmp_path):
     row = next(row for row in build_rows(MANIFEST)
                if row.required_corrections == 0)
@@ -167,6 +173,7 @@ def test_raw_capture_resume_rejects_changed_bounded_log(tmp_path):
         path, row, expected, config, stock=False) is None
 
 
+@pytest.mark.workflow
 def test_capture_log_keeps_only_current_bounded_tail(tmp_path):
     log = tmp_path / "UE4SS.log"
     log.write_text("old process\n", encoding="utf-8")
@@ -183,6 +190,7 @@ def test_capture_log_keeps_only_current_bounded_tail(tmp_path):
     assert "old process" not in lines
 
 
+@pytest.mark.workflow
 def test_composed_capture_reuse_requires_stored_log_artifact(tmp_path):
     bounded_log = tmp_path / "raw" / "row-primary.log"
     bounded_log.parent.mkdir()
@@ -263,6 +271,7 @@ def _persistent_campaign_fixture(tmp_path, rows):
     return path, report, expected, config
 
 
+@pytest.mark.workflow
 def test_persistent_resume_binds_all_producer_inputs_and_cycle_cleanup(tmp_path):
     rows = tuple(row for row in build_rows(MANIFEST)
                  if row.required_corrections)[:3]
@@ -283,6 +292,7 @@ def test_persistent_resume_binds_all_producer_inputs_and_cycle_cleanup(tmp_path)
     assert _persistent_campaign_reusable(path, rows, expected, config) is None
 
 
+@pytest.mark.workflow
 def test_persistent_row_requires_hashed_fresh_process_lifecycle(tmp_path):
     row = next(row for row in build_rows(MANIFEST)
                if row.required_corrections)

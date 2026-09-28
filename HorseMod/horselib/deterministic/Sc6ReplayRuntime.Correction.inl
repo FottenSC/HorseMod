@@ -86,7 +86,9 @@ void Sc6ReplayRuntime::ArmResumeValidation(
     resume_target_ = target;
     resume_source_end_ = source_end;
     resume_catchup_pending_ = false;
-    resume_validation_active_ = target != source_end;
+    resume_next_batch_ = plan.landing_batch_index + 1;
+    resume_end_batch_ = batch_timeline_.batch_count();
+    resume_validation_active_ = resume_next_batch_ < resume_end_batch_;
     timeline_status_.resume_validation_active = resume_validation_active_;
 }
 
@@ -125,18 +127,79 @@ Status Sc6ReplayRuntime::ExecuteOwnedStateSeek(
     }
 
     const FrameCoordinate source_end = timeline_status_.last_coordinate;
-    const auto expected_target = canonical_timeline_.GetExact(target);
-    const auto expected_source = canonical_timeline_.GetExact(source_end);
-    if (!expected_target.has_value() || !expected_source.has_value())
+    const auto* target_batch = batch_timeline_.GetBatch(plan.landing_batch_index);
+    const auto* source_batch = batch_timeline_.batch_count() == 0 ? nullptr
+        : batch_timeline_.GetBatch(batch_timeline_.batch_count() - 1);
+    // Requests are serviced after the entire native outer call returns.
+    // Interior coordinates need an explicit suspended native continuation;
+    // reject them before any write until that phase can be reconstructed.
+    if (plan.coordinates_after_landing != 0 || target_batch == nullptr
+        || target_batch->exit_coordinate != target
+        || !target_batch->completed_identity_valid || source_batch == nullptr
+        || source_batch->exit_coordinate != source_end
+        || !source_batch->completed_identity_valid)
     {
-        timeline_status_.identity_issue = expected_target.has_value() ? 302 : 301;
-        timeline_status_.identity_expected = expected_target.has_value()
-            ? source_end.frame : target.frame;
-        const auto range = canonical_timeline_.Range();
-        timeline_status_.identity_observed = range.has_value()
-            ? range->second.frame : 0;
-        return Status::failure(FailureCode::MissingSnapshot);
+        timeline_status_.identity_issue = 311;
+        timeline_status_.identity_expected = target.frame;
+        timeline_status_.identity_observed = plan.coordinates_after_landing;
+        return Status::failure(FailureCode::RestorePreflightFailed);
     }
+    ReplaySourceState source_undo{};
+    // The existing reconstruction path needs an exact input-cache handoff
+    // for an empty call. Check that prerequisite before acquiring/restoring
+    // state; a sparse frame checkpoint cannot supply a missing native phase.
+    for (std::size_t index = plan.first_batch_index;
+         index <= plan.landing_batch_index; ++index)
+    {
+        const auto* batch = batch_timeline_.GetBatch(index);
+        if (batch == nullptr || !batch->completed_identity_valid
+            || batch->consumers_before_count > batch->consumers_before.size()
+            || batch->producers_before_count > batch->producers_before.size()
+            || (index != plan.first_batch_index
+                && batch->preceding_outer_batch_id
+                    != batch_timeline_.GetBatch(index - 1)->batch_id)
+            || (batch->coordinate_count == 0 && !batch->input_before_valid
+            && checkpoint_capture_.snapshots(CandidateCheckpointRole::BatchEntry)
+                .FindExact(batch->entry_coordinate) == nullptr))
+            return Status::failure(FailureCode::RestorePreflightFailed);
+        if (index != plan.first_batch_index)
+            for (std::size_t consumer = 0; consumer < batch->consumers_before_count; ++consumer)
+            {
+                const auto& observed = batch->consumers_before[consumer];
+                if (!observed.valid || !observed.parent.inert
+                    || observed.before.mode != 0 || observed.after.mode != 0
+                    || observed.before.mode_zero_callback != 0
+                    || observed.after.mode_zero_callback != 0)
+                {
+                    timeline_status_.identity_issue = 323;
+                    timeline_status_.identity_expected = index;
+                    timeline_status_.identity_observed = observed.before.mode;
+                    return Status::failure(FailureCode::RestorePreflightFailed);
+                }
+            }
+        if (index != plan.first_batch_index)
+        {
+            std::uint8_t preceding_consumers{};
+            for (std::size_t producer = 0; producer < batch->producers_before_count; ++producer)
+            {
+                const auto& observed = batch->producers_before[producer];
+                if (!observed.valid || !observed.parent.inert
+                    || observed.preceding_consumers < preceding_consumers
+                    || observed.preceding_consumers > batch->consumers_before_count
+                    || observed.native_frame_before != batch->entry_coordinate.frame
+                    || observed.native_frame_after != observed.native_frame_before
+                    || observed.before.scalars[2] != 2
+                    || observed.sampled_slots != (observed.before.scalars[3] & 3u))
+                    return Status::failure(FailureCode::RestorePreflightFailed);
+                preceding_consumers = observed.preceding_consumers;
+            }
+        }
+    }
+    status = bridge_->CapturePlaybackSource(source_undo);
+    if (!status.ok()) return status;
+    if (!source_undo.SameRecording(target_batch->replay_source_after)
+        || source_undo.round < 0 || source_undo != source_batch->replay_source_after)
+        return Status::failure(FailureCode::RestorePreflightFailed);
     status = checkpoint_capture_.EnsureRestoreOwnership(timeline_thread_id_);
     if (!status.ok()) return status;
 
@@ -155,52 +218,120 @@ Status Sc6ReplayRuntime::ExecuteOwnedStateSeek(
     }
 
     const auto restore_undo = [&]() noexcept {
-        return checkpoint_capture_.RestoreAndVerify(undo).ok();
+        const bool simulation_restored = checkpoint_capture_.RestoreAndVerify(undo).ok();
+        ReplaySourceState current_source{};
+        const bool source_read = bridge_->CapturePlaybackSource(current_source).ok();
+        const bool source_restored = source_read && (current_source == source_undo
+            || bridge_->RestorePlaybackSource(current_source, source_undo).ok());
+        return simulation_restored && source_restored;
     };
     status = checkpoint_capture_.RestoreAndVerify(*base);
+    if (status.ok())
+        status = bridge_->RestorePlaybackSource(source_undo,
+            batch_timeline_.GetBatch(plan.first_batch_index)->replay_source_before);
     if (!status.ok())
         return restore_undo()
             ? status : Status::failure(FailureCode::UndoFailed);
 
-    Snapshot landing = *base;
-    if (plan.landing_requires_batch_replay)
+    // Reconstruct through the native return, including repeat epilogues,
+    // round-over checks and actor tail. Never overwrite this completed state
+    // with the earlier fencepost's masks, input cache or snapshot.
+    Snapshot landing{};
+    for (std::size_t batch_index = plan.first_batch_index;
+         status.ok() && batch_index <= plan.landing_batch_index; ++batch_index)
     {
-        status = ReplayOwnedBatchRange(plan.first_batch_index,
-            plan.landing_batch_index, target.generation, hooks,
-            plan.landing_batch_index, plan.landing_offset_in_batch, &landing,
-            false);
-    }
-    if (status.ok()) status = checkpoint_capture_.RestoreAndVerify(landing);
-    if (status.ok())
-    {
-        const FrameCoordinate lookahead_coordinate{
-            target.generation, target.frame + 1};
-        auto target_input = input_timeline_.GetExact(lookahead_coordinate);
-        if (!target_input.has_value())
-            target_input = input_timeline_.GetExact(target);
-        if (!target_input.has_value())
-            status = Status::failure(FailureCode::MissingInput);
-        else
-            status = checkpoint_capture_.PrepareInputLogForReplay(
-                expected_target->input, *target_input);
-    }
-    if (status.ok())
-    {
-        // Batch-entry reconstruction images include the preceding outer
-        // tick's post-fencepost tail. Event masks are OR-only gameplay state,
-        // so replaying from such an image cannot remove a bit introduced by
-        // that tail. Restore the exact canonical target values before landing
-        // verification; the live outer tick owns and will execute the target
-        // tail after this request returns.
-        status = checkpoint_capture_.RestoreMoveDispatchMasksForReplay(
-            expected_target->move_dispatch);
-    }
-    if (status.ok())
-        status = checkpoint_capture_.CaptureTransient(target, landing);
-    if (status.ok() && landing.canonical_hash != expected_target->hash)
-    {
-        RecordSeekHashMismatch(target, *expected_target, landing);
-        status = Status::failure(FailureCode::StateHashMismatch);
+        const auto* replayed_batch = batch_timeline_.GetBatch(batch_index);
+        if (replayed_batch == nullptr || !replayed_batch->completed_identity_valid)
+        {
+            status = Status::failure(FailureCode::RestorePreflightFailed);
+            break;
+        }
+        if (batch_index != plan.first_batch_index)
+        {
+            std::size_t consumer{};
+            const auto replay_consumers_until = [&](std::size_t end) noexcept {
+                while (status.ok() && consumer < end)
+                {
+                    TutorialConsumerObservation observed{};
+                    status = checkpoint_capture_.ReplayTutorialConsumer(
+                        replayed_batch->consumers_before[consumer++], true, observed);
+                }
+            };
+            for (std::size_t producer = 0;
+                 status.ok() && producer < replayed_batch->producers_before_count; ++producer)
+            {
+                const auto& observed = replayed_batch->producers_before[producer];
+                replay_consumers_until(observed.preceding_consumers);
+                if (status.ok()) status = hooks.ReplayInputProducer(observed, source_undo.owner);
+            }
+            replay_consumers_until(replayed_batch->consumers_before_count);
+            if (!status.ok())
+            {
+                timeline_status_.identity_issue = 324;
+                timeline_status_.identity_expected = batch_index;
+                timeline_status_.identity_observed = replayed_batch->consumers_before_count;
+                timeline_status_.resume_failure_coordinate = replayed_batch->entry_coordinate;
+                break;
+            }
+        }
+        ReplaySourceState source_before{};
+        status = bridge_->CapturePlaybackSource(source_before);
+        if (!status.ok() || source_before != replayed_batch->replay_source_before)
+        {
+            if (status.ok()) status = Status::failure(FailureCode::IdentityMismatch);
+            timeline_status_.identity_issue = 326;
+            timeline_status_.resume_failure_coordinate = replayed_batch->entry_coordinate;
+            break;
+        }
+        std::size_t failed_batch_index = batch_index;
+        status = ReplayOwnedBatchRange(batch_index, batch_index,
+            target.generation, hooks, std::nullopt, 0, nullptr, true, true,
+            nullptr, nullptr, &failed_batch_index);
+        if (!status.ok())
+        {
+            timeline_status_.identity_issue = 313;
+            timeline_status_.identity_expected = failed_batch_index;
+            timeline_status_.identity_observed = static_cast<std::uint64_t>(status.code);
+            break;
+        }
+        // Observe every completed call, including zero-coordinate calls.
+        // A final-only comparison loses the first divergent native boundary.
+        status = checkpoint_capture_.CaptureCanonical(
+            replayed_batch->exit_coordinate, landing);
+        ReplaySourceState source_after{};
+        if (status.ok()) status = bridge_->CapturePlaybackSource(source_after);
+        if (status.ok() && source_after != replayed_batch->replay_source_after)
+        {
+            timeline_status_.identity_issue = 327;
+            timeline_status_.resume_failure_coordinate = replayed_batch->exit_coordinate;
+            status = Status::failure(FailureCode::IdentityMismatch);
+        }
+        if (status.ok() && landing.canonical_hash != replayed_batch->completed_hash)
+        {
+            timeline_status_.identity_issue = 314; // First divergent completed native call.
+            timeline_status_.identity_expected = batch_index;
+            timeline_status_.identity_observed = plan.first_batch_index;
+            timeline_status_.resume_failure_coordinate = replayed_batch->exit_coordinate;
+            timeline_status_.resume_expected_hash = replayed_batch->completed_hash;
+            timeline_status_.resume_observed_hash = landing.canonical_hash;
+            timeline_status_.resume_component_difference_mask = 0;
+            for (std::size_t index = 0; index < replayed_batch->completed_components.size(); ++index)
+                if (replayed_batch->completed_components[index] != landing.canonical_components[index])
+                    timeline_status_.resume_component_difference_mask |= std::uint32_t{1} << index;
+            timeline_status_.resume_native_difference_mask = 0;
+            for (std::size_t index = 0; index < replayed_batch->completed_native.size(); ++index)
+                if (replayed_batch->completed_native[index] != landing.canonical_native[index])
+                    timeline_status_.resume_native_difference_mask |= std::uint32_t{1} << index;
+            timeline_status_.resume_expected_move_dispatch = replayed_batch->completed_move_dispatch;
+            timeline_status_.resume_observed_move_dispatch = landing.canonical_move_dispatch;
+            timeline_status_.resume_expected_input_scalars = replayed_batch->completed_input_scalars;
+            timeline_status_.resume_observed_input_scalars = landing.canonical_input.scalars;
+            timeline_status_.resume_input_scalar_difference_mask = 0;
+            for (std::size_t index = 0; index < replayed_batch->completed_input_scalars.size(); ++index)
+                if (replayed_batch->completed_input_scalars[index] != landing.canonical_input.scalars[index])
+                    timeline_status_.resume_input_scalar_difference_mask |= std::uint32_t{1} << index;
+            status = Status::failure(FailureCode::StateHashMismatch);
+        }
     }
     if (!status.ok())
         return restore_undo()
@@ -573,32 +704,12 @@ Status Sc6ReplayRuntime::VerifyCorrectionFinalState(
     const Snapshot& undo,
     OwnedCorrectionResult& output) noexcept
 {
-    const auto expected_final = canonical_timeline_.GetExact(
-        timeline_status_.last_coordinate);
-    const auto final_input = input_timeline_.GetExact(
-        timeline_status_.last_coordinate);
-    const CanonicalInputDiagnostic* input_image = expected_final.has_value()
-        ? &expected_final->input : nullptr;
-    const InputPair* input_pair = final_input.has_value() ? &*final_input
-                                                          : nullptr;
-    if (corrected != nullptr && corrected->coordinate_count != 0)
-    {
-        input_image = &corrected->replacement_canonical[
-            corrected->coordinate_count - 1].input;
-        input_pair = &corrected->replacement_inputs[
-            corrected->coordinate_count - 1];
-    }
-    if (input_image == nullptr || input_pair == nullptr)
-        return Status::failure(FailureCode::MissingInput);
-    Status status = checkpoint_capture_.PrepareInputLogForReplay(
-        *input_image, *input_pair);
-    if (status.ok())
-        status = checkpoint_capture_.RestoreMoveDispatchMasksForReplay(undo);
-    if (!status.ok()) return status;
-
+    // Verification observes reconstructed native state. Historical input or
+    // target event-mask writes here concealed omitted producer/consumer ticks.
+    // A phase mismatch must fail until that actor interval is reconstructed.
     Snapshot& verified = correction_verified_scratch_;
     const auto begin = std::chrono::steady_clock::now();
-    status = checkpoint_capture_.CaptureTransient(
+    const Status status = checkpoint_capture_.CaptureTransient(
         timeline_status_.last_coordinate, verified);
     output.verification_ns = static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -790,7 +901,7 @@ Status Sc6ReplayRuntime::ExecuteOwnedCorrectionInternal(
     status = ReplayOwnedBatchRange(plan.first_batch_index,
         plan.final_batch_index, earliest_changed.generation, hooks,
         std::nullopt, UINT32_MAX, nullptr,
-        forced_depth7_qualification_enabled_, &output.replayed_coordinates,
+        forced_depth7_qualification_enabled_, false, &output.replayed_coordinates,
         &output.replayed_batches, &output.failed_batch_index,
         &output.failed_envelope, &output.failed_batch_result,
         nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
@@ -1051,7 +1162,8 @@ Status Sc6ReplayRuntime::ApplyConfirmedRemoteInput(
 void* Sc6ReplayRuntime::ResolveReplayPlayer(void* user) noexcept
 {
     auto* runtime = static_cast<Sc6ReplayRuntime*>(user);
-    return runtime ? runtime->lux_.replayPlayer().raw() : nullptr;
+    return runtime ? runtime->lux_.battleManager().getObj(L"BattleReplayPlayer").raw()
+        : nullptr;
 }
 
 void* Sc6ReplayRuntime::ResolveBattleManager(void* user) noexcept

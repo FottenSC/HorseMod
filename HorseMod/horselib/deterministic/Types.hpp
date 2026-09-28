@@ -11,6 +11,9 @@
 
 namespace Horse::Deterministic
 {
+// Recovery removes owners created by speculative execution before adopting
+// its allocation graph. Commit retains those validated current owners.
+enum class RestoreSettlement : std::uint8_t { RecoverOriginal, CommitCurrent };
 inline constexpr std::size_t hgcpu_stream_capacity = 0x28018;
 inline constexpr std::size_t maximum_local_reconstruction_images = 4;
 
@@ -20,7 +23,7 @@ enum class LocalSerializerId : std::uint32_t
     MotionBankTriples = 2,
 };
 
-inline constexpr std::uint32_t hgcpu_direct_serializer_version = 3;
+inline constexpr std::uint32_t hgcpu_direct_serializer_version = 4;
 
 struct LocalReconstructionGenerationContext
 {
@@ -85,6 +88,7 @@ enum class FailureCode : std::uint16_t
     NativeGenerationMaterializationFailed,
     PerformanceBudgetExceeded,
     Timeout,
+    Cancelled,
 };
 
 constexpr std::string_view failure_code_name(FailureCode code) noexcept
@@ -122,6 +126,7 @@ constexpr std::string_view failure_code_name(FailureCode code) noexcept
     case FailureCode::NativeGenerationMaterializationFailed: return "native_generation_materialization_failed";
     case FailureCode::PerformanceBudgetExceeded: return "performance_budget_exceeded";
     case FailureCode::Timeout: return "timeout";
+    case FailureCode::Cancelled: return "cancelled";
     }
     return "unknown_failure";
 }
@@ -191,6 +196,8 @@ using CanonicalHash = std::array<std::byte, 32>;
 // Stable section fingerprints used only to localize a canonical mismatch.
 // Order: native typed, secondary events, character animation, UCRT, stage wind.
 using CanonicalComponentFingerprint = std::array<std::uint64_t, 5>;
+// Slot 31 is diagnostic-only local session/round generation identity; those
+// restore guards are intentionally excluded from the peer-canonical hash.
 using CanonicalNativeFingerprint = std::array<std::uint64_t, 32>;
 // Masks followed by the P1/P2 {current6, mirror6, current11, mirror11}
 // collection-22 source fields.

@@ -1,0 +1,38 @@
+{
+  "scope": "Ground reflected OnGroundDebrisDeactivated target and native manager virtual dispatch admission. Existing composed trace listener ownership remains required; no motion exclusion.",
+  "red": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6885663265e7044203578afe66c1514b55dd8bc0572e76c906f85ae55d72fa59.log",
+    "sha256": "6885663265e7044203578afe66c1514b55dd8bc0572e76c906f85ae55d72fa59",
+    "bytes": 3233
+  },
+  "red_source": {
+    "manifest_sha256": "884fa06f51fa544096c32045a158c8d88076dd075dc5f520175ff88b567f0e14",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-884fa06f51fa544096c32045a158c8d88076dd075dc5f520175ff88b567f0e14.zip",
+    "archive_sha256": "8bddafe9412719b2febe0d97e0a7cf733ea3f5f1557ac5a080e4754b6879a264",
+    "files": 16570,
+    "uncompressed_bytes": 92324894,
+    "reconstructible": true
+  },
+  "green": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\729d85b8dee22da156b95448d746713b11ece1b99f6e8b4c555c9360b15193a5.log",
+    "sha256": "729d85b8dee22da156b95448d746713b11ece1b99f6e8b4c555c9360b15193a5",
+    "bytes": 100
+  },
+  "required_build_native": {
+    "ground-event-dispatch-build-20260922.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\065c9cb73f543acef0d9d6d07b7e3ef1430752a934dfcfc5e38ae1b9c14e2f69.log",
+      "sha256": "065c9cb73f543acef0d9d6d07b7e3ef1430752a934dfcfc5e38ae1b9c14e2f69",
+      "bytes": 335
+    },
+    "build-stage.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9eeca755a9e9ddb3050b84d8013494c3c55a4abb8d0389fa2f00edcaefb1968d.json",
+      "sha256": "9eeca755a9e9ddb3050b84d8013494c3c55a4abb8d0389fa2f00edcaefb1968d",
+      "bytes": 6239
+    },
+    "build-provenance.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d648dd68ef376a859bdad0e9db8f0ca7c18d035ac5b4d5d7114e7326f40971af.json",
+      "sha256": "d648dd68ef376a859bdad0e9db8f0ca7c18d035ac5b4d5d7114e7326f40971af",
+      "bytes": 2373
+    }
+  }
+}

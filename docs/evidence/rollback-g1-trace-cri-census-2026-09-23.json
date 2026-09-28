@@ -1,0 +1,124 @@
+{
+  "date": "2026-09-23",
+  "scope": "CRI callback observation at real group5 LuxTrace task boundaries; not suspension/recovery",
+  "result": "pass",
+  "run_id": "replay-5308c168b8e843e8bdf9b06b43b5167e",
+  "snapshots": 20,
+  "all_empty": true,
+  "build_identities": {
+    "runtime": "24114403391355caf119bff0659ab98c70ab21096a6e83ce6c9c45900beb5810",
+    "observer": "26ff2ce3bc518a5db54fc30ff759019bd4a69eabad7ff0e0a77244c296797193",
+    "framework": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6"
+  },
+  "deployment": {
+    "state": "clean",
+    "files": [
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll",
+        "expected": "b583b65388616e4fc6bbac841a1de6bc7d87467e67132a0983c69eb5d0c40c2b",
+        "actual": "b583b65388616e4fc6bbac841a1de6bc7d87467e67132a0983c69eb5d0c40c2b",
+        "restored": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\UE4SS.dll",
+        "expected": "df9e6e9a2280972b1c28ce590700feacc752b447204f8baadeb95f5776957055",
+        "actual": "df9e6e9a2280972b1c28ce590700feacc752b447204f8baadeb95f5776957055",
+        "restored": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\rollback.ini",
+        "expected": "22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514",
+        "actual": "22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514",
+        "restored": true
+      },
+      {
+        "path": "C:\\Users\\prest\\AppData\\Local\\HorseMod\\Qualification\\replay_diagnostics.ini",
+        "expected": null,
+        "actual": null,
+        "restored": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\dlls\\main.dll",
+        "expected": null,
+        "actual": null,
+        "restored": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\enabled.txt",
+        "expected": null,
+        "actual": null,
+        "restored": true
+      }
+    ]
+  },
+  "retained": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7c809e7b20ecdc7855a5f68991d4ef3f7db00cc53685b481e832133a4392ffea.json",
+      "sha256": "7c809e7b20ecdc7855a5f68991d4ef3f7db00cc53685b481e832133a4392ffea",
+      "bytes": 42346
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9fb762dac64c497befcc070e72d04ee0135b23da848ad9d41f823094c8e3819a.json",
+      "sha256": "9fb762dac64c497befcc070e72d04ee0135b23da848ad9d41f823094c8e3819a",
+      "bytes": 9898
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\ac08aa0c6043ae32a675cf94f05b23c45acc236a7128d4baf1a0071b2949f477.json",
+      "sha256": "ac08aa0c6043ae32a675cf94f05b23c45acc236a7128d4baf1a0071b2949f477",
+      "bytes": 6240
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\60fce0c67f0ebac9994055cbf51bd1823459dbee93277a5023a2da7bef254d09.json",
+      "sha256": "60fce0c67f0ebac9994055cbf51bd1823459dbee93277a5023a2da7bef254d09",
+      "bytes": 4432
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\ef94b7d779c052063e970d121336351fa7078b0bd6e68e5117a17ccc621b68ac.md",
+      "sha256": "ef94b7d779c052063e970d121336351fa7078b0bd6e68e5117a17ccc621b68ac",
+      "bytes": 174827
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\456bb7e908de749d9ce5fff42dafd3a08ee903584ec472c4872804b7ae9bc2ec.json",
+      "sha256": "456bb7e908de749d9ce5fff42dafd3a08ee903584ec472c4872804b7ae9bc2ec",
+      "bytes": 74955
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\26ae1ad25de2c53a777b124fd5eee877ec91139e6d4a49fa1e15259e38467865.json",
+      "sha256": "26ae1ad25de2c53a777b124fd5eee877ec91139e6d4a49fa1e15259e38467865",
+      "bytes": 43612
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a46612a830f79a3a1a8981620bf3154cf71aa47cc513d32c35e9707d5988b7f7.json",
+      "sha256": "a46612a830f79a3a1a8981620bf3154cf71aa47cc513d32c35e9707d5988b7f7",
+      "bytes": 126230
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8029f87c669c0960dcf9df0ca19364a6565768ed075285f40a7b738039fe84cf.json",
+      "sha256": "8029f87c669c0960dcf9df0ca19364a6565768ed075285f40a7b738039fe84cf",
+      "bytes": 63700
+    }
+  ],
+  "source_retention": {
+    "manifest_sha256": "5536c18d81267a8525b2a9a4a6c6064c390fd30b12abd28166a118196fb8758f",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-5536c18d81267a8525b2a9a4a6c6064c390fd30b12abd28166a118196fb8758f.zip",
+    "archive_sha256": "6961f123f89cad5301d5fb319141db62e82966ce2ad9cd808bdc504ba310c496",
+    "files": 17292,
+    "uncompressed_bytes": 126965012,
+    "reconstructible": true
+  },
+  "capture_evidence": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\9153a4cbacf4bfef8cecb4cf57c315154198c8e70e915f847888909160aff628.json",
+    "sha256": "9153a4cbacf4bfef8cecb4cf57c315154198c8e70e915f847888909160aff628",
+    "bytes": 44530,
+    "summary": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\cf9236c5f5a710c5abe7a95432fda700b8ec3732261de13964e7db610dadd64d.md",
+      "sha256": "cf9236c5f5a710c5abe7a95432fda700b8ec3732261de13964e7db610dadd64d",
+      "bytes": 535
+    }
+  },
+  "limitations": [
+    "Empty snapshots do not exclude future registration or callbacks.",
+    "No resumable consumer-held task or complete-B recovery proof yet.",
+    "G1/G2 remain open; no408 or600."
+  ]
+}

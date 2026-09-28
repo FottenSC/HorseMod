@@ -1,0 +1,87 @@
+{
+  "artifacts": {
+    "config": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\rollback.ini",
+      "sha256": "d776cea27d15b930d5c723be9a64a461a844c3959d12642fdfbf11cfb955fd46"
+    },
+    "game_executable": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\SoulcaliburVI.exe",
+      "sha256": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553"
+    },
+    "generated_schema": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\generated\\deterministic_contract.json",
+      "sha256": "e526908dccf35023acf885858a7507a4289f5c258a8d020c28ba7525f2191e53"
+    },
+    "horsemod_dll": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll",
+      "sha256": "6ca3fb02a70cefea9f9ae7b8b345f728eafe2d065dba272c1365e1e6199983f6"
+    },
+    "replay": {
+      "path": "E:\\myMods\\ReplayExample\\REPLAY_12744704008398858106.bin",
+      "sha256": "95e12e394d35c13d5e0dd3dce692f9e0a4022e2a84205a9ec75f2fa6726d7879"
+    },
+    "replay_qualification_mod": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\ReplayQualificationMod.dll",
+      "sha256": "15606c9d35957913186a5231482b66cb82b48d552012a44c58b9fb7340613252"
+    },
+    "runner_sha256": "9ce61c6a1fc41f385ed87451a8b901c900535ea4ecd1078f6acade8fd103f70f"
+  },
+  "certifying": false,
+  "created_utc": "2026-08-27T12:45:06.942363+00:00",
+  "kind": "replay_entry_probe",
+  "reason": "native replay import, stock launch request, and bounded normal-play frame observation",
+  "report_schema": 1,
+  "result": "pass",
+  "runtime": {
+    "clean_exit_requested": true,
+    "forced_depth7": {
+      "canonical_convergence": "exact",
+      "completed": 600,
+      "presentation_terminal_coverage": "incomplete",
+      "result": "passed",
+      "status": "none"
+    },
+    "frame_fencepost_observed": true,
+    "horsemod_version": "1.2.1",
+    "launch_requested": true,
+    "min_resume_tick_rate": 58.0,
+    "native_replay_import_ready": true,
+    "presentation_source_coverage": {
+      "audio": 548,
+      "audio_blueprint": 144,
+      "audio_direct": 404,
+      "audio_remap": 75,
+      "audio_source": 144,
+      "audio_stop_all": 0,
+      "particle_spawn": 1,
+      "stage_barrier": 0,
+      "stage_dispatch": 1,
+      "stage_wall": 1
+    },
+    "reported_source_commit": "e2e73b143fa401954a4e5d780a4cf796de2bbc33",
+    "resume_tick_window": 120,
+    "run_id": "ae163a46f9a64622bc9d983270ab74c3",
+    "seek_percentages": [],
+    "seeks": [],
+    "stage_terminal": "wall",
+    "temporary_mod_removed": true,
+    "watch_frames": 600
+  },
+  "source": {
+    "commit": "e2e73b143fa401954a4e5d780a4cf796de2bbc33",
+    "dirty": true,
+    "submodules": [
+      "f21698d85367c8d97585cf7610897316c873681c third_party/GekkoNet (v20260629200724-02c447c-6-gf21698d)",
+      " 6b3fd8a175f1e164eb1bd1be6f766f48b980f7c0 tools/BlueprintToCpp (heads/codex/pre-rollback-rewrite-snapshot-20260823)",
+      " 75f3878b7a348cbda3927048b142a0a6923e79c0 tools/BlueprintToCpp/CUE4Parse (v1.2.2-719-g75f3878b)",
+      " 414689d5cff4286a7898487a46dc5e48005d38da tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl (v2.1.0)",
+      " 0d98dba29d66e93259db7daa53a9327df767a415 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/benchmark (v1.6.1)",
+      " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/catch2 (v2.13.7)",
+      " d7982f2b2524feeb322f424b29cf43df30b5d5b7 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm (v2.2.0)",
+      " 0d98dba29d66e93259db7daa53a9327df767a415 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm/external/benchmark (v1.6.1)",
+      " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm/external/catch2 (v2.13.7)",
+      " 54b3985e8ccc5efb5f24dabf0b4b802a996366e6 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/sjson-cpp (v0.9.0)",
+      " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/sjson-cpp/external/catch2 (v2.13.7)"
+    ]
+  }
+}

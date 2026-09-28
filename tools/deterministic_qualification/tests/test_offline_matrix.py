@@ -1,3 +1,4 @@
+import pytest
 from pathlib import Path
 
 from tools.deterministic_qualification.offline_matrix import build_rows, evaluate_row
@@ -7,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[3]
 MANIFEST = ROOT / "docs" / "investigations" / "deterministic-production-candidate-manifest.json"
 
 
+@pytest.mark.workflow
 def test_exact_39_row_shape_and_native_names() -> None:
     rows = build_rows(MANIFEST)
     assert len(rows) == 39
@@ -27,6 +29,7 @@ def test_exact_39_row_shape_and_native_names() -> None:
     }
 
 
+@pytest.mark.workflow
 def test_depth_rows_fail_fast_in_widest_first_order() -> None:
     rows = build_rows(MANIFEST)
     case_id = rows[0].case_id
@@ -39,6 +42,7 @@ def test_depth_rows_fail_fast_in_widest_first_order() -> None:
     ]
 
 
+@pytest.mark.workflow
 def test_evaluator_rejects_weakened_audio_gate() -> None:
     row = next(row for row in build_rows(MANIFEST) if row.required_corrections)
     report = {

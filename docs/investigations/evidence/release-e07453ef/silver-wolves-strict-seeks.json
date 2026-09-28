@@ -1,0 +1,53 @@
+{
+  "case_id": "astaroth-raphael-silver-wolves-haven",
+  "certifying": false,
+  "cleanup": {
+    "diagnostic_flags_restored_false": {
+      "correction_probe": true,
+      "forced_depth7_qualification": true,
+      "trace": true
+    },
+    "process_absent": true
+  },
+  "created_utc": "2026-09-04T02:43:21.792206+00:00",
+  "display_map_name": "Silver Wolves' Haven",
+  "failure": {
+    "bounded_log": "E:\\myMods\\docs\\investigations\\evidence\\release-e07453ef\\silver-wolves-strict-seeks.failure.log",
+    "bounded_log_lines": 67,
+    "field_or_mask": "0x0",
+    "fields": {
+      "cache_expected": "0/0/0/0",
+      "cache_observed": "0/0/0/0",
+      "cache_row": "4294967295",
+      "component_mask": "0x0",
+      "game_time": "0/0",
+      "identity": "916/7",
+      "identity_issue": "300",
+      "input_cache_chunk": "4294967295",
+      "input_scalar_mask": "0x0",
+      "move_dispatch": "0000000000000000/0000000000000000->0000000000000000/0000000000000000",
+      "native_mask": "0x0",
+      "recorder_time": "0/0",
+      "source_end": "1565",
+      "status": "generation_mismatch",
+      "target": "916",
+      "update_time": "0/0",
+      "vfx_edges_p1": "0/0/0/0->0/0/0/0",
+      "vfx_edges_p2": "0/0/0/0->0/0/0/0",
+      "wind_mask": "0x0"
+    },
+    "first_failing_frame": "916",
+    "first_failure_line": "[2026-09-04 04:43:18.3828895] [HorseMod] owned replay seek request failed target=916 source_end=1565 status=generation_mismatch component_mask=0x0 native_mask=0x0 input_scalar_mask=0x0 input_cache_chunk=4294967295 game_time=0/0 update_time=0/0 recorder_time=0/0 cache_row=4294967295 cache_expected=0/0/0/0 cache_observed=0/0/0/0 move_dispatch=0000000000000000/0000000000000000->0000000000000000/0000000000000000 vfx_edges_p1=0/0/0/0->0/0/0/0 vfx_edges_p2=0/0/0/0->0/0/0/0 wind_mask=0x0 identity_issue=300 identity=916/7",
+    "graph_provenance": null,
+    "lifecycle_phase": null,
+    "owner_pointer": null,
+    "owner_selector": null,
+    "return_rva": null
+  },
+  "kind": "replay_entry_failure",
+  "reason": "native replay entry failed: horsemod_fail_fast_health",
+  "report_schema": 2,
+  "result": "fail",
+  "row_id": "strict-seeks",
+  "stage_package_root": "/Game/DLC/07/Stage/STG011_R"
+}

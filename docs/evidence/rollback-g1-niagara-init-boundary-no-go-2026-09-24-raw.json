@@ -1,0 +1,70 @@
+{
+  "program": "SoulcaliburVI.exe",
+  "read_only": true,
+  "init_xrefs": [
+    "1449a3184 DATA",
+    "143f758f8 DATA",
+    "143f75908 DATA",
+    "1437fa498 DATA"
+  ],
+  "native": [
+    {
+      "status": "fulfilled",
+      "value": {
+        "content": [
+          {
+            "type": "text",
+            "text": "FUN_141bc65e0 @ 141bc65e0\nTickNiagaraSystemInstance @ 141bcc8e0"
+          }
+        ],
+        "structuredContent": {
+          "result": "FUN_141bc65e0 @ 141bc65e0\nTickNiagaraSystemInstance @ 141bcc8e0"
+        },
+        "isError": false
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "content": [
+          {
+            "type": "text",
+            "text": "No callers found for function: null"
+          }
+        ],
+        "structuredContent": {
+          "result": "No callers found for function: null"
+        },
+        "isError": false
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "content": [
+          {
+            "type": "text",
+            "text": "\r\nvoid FUN_141bc65e0(longlong param_1)\r\n\r\n{\r\n  longlong *plVar1;\r\n  int *piVar2;\r\n  longlong *plVar3;\r\n  longlong *plVar4;\r\n  void *pvVar5;\r\n  longlong lVar6;\r\n  longlong *plVar7;\r\n  longlong local_18;\r\n  longlong *local_10;\r\n  \r\n  FUN_141da5f50();\r\n  plVar3 = (longlong *)(param_1 + 0x810);\r\n  if (*plVar3 == 0) {\r\n    pvVar5 = FMemory_Malloc(0x3a0);\r\n    if (pvVar5 == (void *)0x0) {\r\n      lVar6 = 0;\r\n    }\r\n    else {\r\n      lVar6 = FUN_141bae620(pvVar5,param_1);\r\n    }\r\n    plVar7 = FMemory_Malloc(0x18);\r\n    if (plVar7 == (longlong *)0x0) {\r\n      plVar7 = (longlong *)0x0;\r\n    }\r\n    else {\r\n      *(undefined4 *)(plVar7 + 1) = 1;\r\n      *(undefined4 *)((longlong)plVar7 + 0xc) = 1;\r\n      *plVar7 = (longlong)&g_pfnDestroyReferencedObjectAtOffset10;\r\n      plVar7[2] = lVar6;\r\n    }\r\n    local_18 = lVar6;\r\n    local_10 = plVar7;\r\n    Noop_Stub(&local_18,lVar6,lVar6);\r\n    if (plVar3 != &local_18) {\r\n      *plVar3 = lVar6;\r\n      plVar4 = *(longlong **)(param_1 + 0x818);\r\n      local_18 = 0;\r\n      if (plVar7 != plVar4) {\r\n        local_10 = (longlong *)0x0;\r\n        *(longlong **)(param_1 + 0x818) = plVar7;\r\n        if (plVar4 == (longlong *)0x0) goto LAB_141bc66fe;\r\n        plVar1 = plVar4 + 1;\r\n        *(int *)plVar1 = (int)*plVar1 + -1;\r\n        plVar7 = local_10;\r\n        if ((int)*plVar1 == 0) {\r\n          (**(code **)*plVar4)(plVar4);\r\n          piVar2 = (int *)((longlong)plVar4 + 0xc);\r\n          *piVar2 = *piVar2 + -1;\r\n          plVar7 = local_10;\r\n          if (*piVar2 == 0) {\r\n            (**(code **)(*plVar4 + 8))(plVar4,1);\r\n            plVar7 = local_10;\r\n          }\r\n        }\r\n      }\r\n    }\r\n    if (plVar7 != (longlong *)0x0) {\r\n      plVar4 = plVar7 + 1;\r\n      *(int *)plVar4 = (int)*plVar4 + -1;\r\n      if ((int)*plVar4 == 0) {\r\n        (**(code **)*plVar7)(plVar7);\r\n        piVar2 = (int *)((longlong)plVar7 + 0xc);\r\n        *piVar2 = *piVar2 + -1;\r\n        if (*piVar2 == 0) {\r\n          (**(code **)(*plVar7 + 8))(plVar7,1);\r\n        }\r\n      }\r\n    }\r\n  }\r\nLAB_141bc66fe:\r\n  lVar6 = *plVar3;\r\n  FWeakObjectPtr_FromUObject\r\n            ((FWeakObjectPtr_Partial *)(lVar6 + 0x18),*(UObject_Partial **)(param_1 + 0x808));\r\n  FUN_141bc53d0(lVar6);\r\n  FUN_141bc8620(lVar6);\r\n  DispatchEngineCallbackEntriesAndCompact((FCallbackEntryCollection_Partial *)(lVar6 + 0x120));\r\n  FUN_141b14f80();\r\n  return;\r\n}\r\n\r\n"
+          }
+        ],
+        "structuredContent": {
+          "result": "\r\nvoid FUN_141bc65e0(longlong param_1)\r\n\r\n{\r\n  longlong *plVar1;\r\n  int *piVar2;\r\n  longlong *plVar3;\r\n  longlong *plVar4;\r\n  void *pvVar5;\r\n  longlong lVar6;\r\n  longlong *plVar7;\r\n  longlong local_18;\r\n  longlong *local_10;\r\n  \r\n  FUN_141da5f50();\r\n  plVar3 = (longlong *)(param_1 + 0x810);\r\n  if (*plVar3 == 0) {\r\n    pvVar5 = FMemory_Malloc(0x3a0);\r\n    if (pvVar5 == (void *)0x0) {\r\n      lVar6 = 0;\r\n    }\r\n    else {\r\n      lVar6 = FUN_141bae620(pvVar5,param_1);\r\n    }\r\n    plVar7 = FMemory_Malloc(0x18);\r\n    if (plVar7 == (longlong *)0x0) {\r\n      plVar7 = (longlong *)0x0;\r\n    }\r\n    else {\r\n      *(undefined4 *)(plVar7 + 1) = 1;\r\n      *(undefined4 *)((longlong)plVar7 + 0xc) = 1;\r\n      *plVar7 = (longlong)&g_pfnDestroyReferencedObjectAtOffset10;\r\n      plVar7[2] = lVar6;\r\n    }\r\n    local_18 = lVar6;\r\n    local_10 = plVar7;\r\n    Noop_Stub(&local_18,lVar6,lVar6);\r\n    if (plVar3 != &local_18) {\r\n      *plVar3 = lVar6;\r\n      plVar4 = *(longlong **)(param_1 + 0x818);\r\n      local_18 = 0;\r\n      if (plVar7 != plVar4) {\r\n        local_10 = (longlong *)0x0;\r\n        *(longlong **)(param_1 + 0x818) = plVar7;\r\n        if (plVar4 == (longlong *)0x0) goto LAB_141bc66fe;\r\n        plVar1 = plVar4 + 1;\r\n        *(int *)plVar1 = (int)*plVar1 + -1;\r\n        plVar7 = local_10;\r\n        if ((int)*plVar1 == 0) {\r\n          (**(code **)*plVar4)(plVar4);\r\n          piVar2 = (int *)((longlong)plVar4 + 0xc);\r\n          *piVar2 = *piVar2 + -1;\r\n          plVar7 = local_10;\r\n          if (*piVar2 == 0) {\r\n            (**(code **)(*plVar4 + 8))(plVar4,1);\r\n            plVar7 = local_10;\r\n          }\r\n        }\r\n      }\r\n    }\r\n    if (plVar7 != (longlong *)0x0) {\r\n      plVar4 = plVar7 + 1;\r\n      *(int *)plVar4 = (int)*plVar4 + -1;\r\n      if ((int)*plVar4 == 0) {\r\n        (**(code **)*plVar7)(plVar7);\r\n        piVar2 = (int *)((longlong)plVar7 + 0xc);\r\n        *piVar2 = *piVar2 + -1;\r\n        if (*piVar2 == 0) {\r\n          (**(code **)(*plVar7 + 8))(plVar7,1);\r\n        }\r\n      }\r\n    }\r\n  }\r\nLAB_141bc66fe:\r\n  lVar6 = *plVar3;\r\n  FWeakObjectPtr_FromUObject\r\n            ((FWeakObjectPtr_Partial *)(lVar6 + 0x18),*(UObject_Partial **)(param_1 + 0x808));\r\n  FUN_141bc53d0(lVar6);\r\n  FUN_141bc8620(lVar6);\r\n  DispatchEngineCallbackEntriesAndCompact((FCallbackEntryCollection_Partial *)(lVar6 + 0x120));\r\n  FUN_141b14f80();\r\n  return;\r\n}\r\n\r\n"
+        },
+        "isError": false
+      }
+    }
+  ],
+  "base_prefix": {
+    "content": [
+      {
+        "type": "text",
+        "text": "\r\nvoid FUN_141da5f50(longlong *param_1)\r\n\r\n{\r\n  byte bVar1;\r\n  uint uVar2;\r\n  \r\n  FUN_141da6030();\r\n  if ((*(uint *)(param_1 + 0x31) >> 0x15 & 1) == 0) {\r\n    *(uint *)(param_1 + 0x31) = *(uint *)(param_1 + 0x31) & 0xffefffff;\r\n  }\r\n  else {\r\n    bVar1 = (**(code **)(*param_1 + 0x3a0))(param_1);\r\n    uVar2 = ((uint)bVar1 << 0x14 ^ *(uint *)(param_1 + 0x31)) & 0x100000 ^ *(uint *)(param_1 + 0x31)\r\n    ;\r\n    *(uint *)(param_1 + 0x31) = uVar2;\r\n    if ((uVar2 >> 0x14 & 1) != 0) {\r\n      FUN_141c4f720(param_1);\r\n      return;\r\n    }\r\n  }\r\n  return;\r\n}\r\n\r\n"
+      }
+    ],
+    "structuredContent": {
+      "result": "\r\nvoid FUN_141da5f50(longlong *param_1)\r\n\r\n{\r\n  byte bVar1;\r\n  uint uVar2;\r\n  \r\n  FUN_141da6030();\r\n  if ((*(uint *)(param_1 + 0x31) >> 0x15 & 1) == 0) {\r\n    *(uint *)(param_1 + 0x31) = *(uint *)(param_1 + 0x31) & 0xffefffff;\r\n  }\r\n  else {\r\n    bVar1 = (**(code **)(*param_1 + 0x3a0))(param_1);\r\n    uVar2 = ((uint)bVar1 << 0x14 ^ *(uint *)(param_1 + 0x31)) & 0x100000 ^ *(uint *)(param_1 + 0x31)\r\n    ;\r\n    *(uint *)(param_1 + 0x31) = uVar2;\r\n    if ((uVar2 >> 0x14 & 1) != 0) {\r\n      FUN_141c4f720(param_1);\r\n      return;\r\n    }\r\n  }\r\n  return;\r\n}\r\n\r\n"
+    },
+    "isError": false
+  },
+  "vtable_slot_xrefs": "No references found to address: 0x1437fa498"
+}

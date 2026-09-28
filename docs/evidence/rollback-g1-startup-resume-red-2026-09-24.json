@@ -1,0 +1,17 @@
+{
+  "stage": "RED-resume-boundary",
+  "source_retention": {
+    "manifest_sha256": "7e2e4a81a4e97675de6ea68fbcbda753396c76e500769572a437af0faa7102f2",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-7e2e4a81a4e97675de6ea68fbcbda753396c76e500769572a437af0faa7102f2.zip",
+    "archive_sha256": "baa595de485ca5227d19da2b409fadcde269c733005b8e28eecc90908660de75",
+    "files": 16607,
+    "uncompressed_bytes": 92835115,
+    "reconstructible": true
+  },
+  "log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a8b3f7fb8ad5a4e6cd82c72bbc224fe95f4a7f9d0cbc577c4a8a01e2ae043708.json",
+    "sha256": "a8b3f7fb8ad5a4e6cd82c72bbc224fe95f4a7f9d0cbc577c4a8a01e2ae043708",
+    "bytes": 7380
+  },
+  "result": "Changed startup setup is not rejected before retained observation validation"
+}

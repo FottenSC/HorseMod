@@ -31,6 +31,7 @@ from tools.deterministic_qualification.trace_parser import LogCursor, capture_lo
 ROOT = Path(__file__).resolve().parents[3]
 
 
+@pytest.mark.workflow
 def test_replay_timeout_default_distinguishes_probes_from_full_outcomes():
     base = {
         "stock_round_outcome_control": False,
@@ -53,6 +54,7 @@ def test_replay_timeout_default_distinguishes_probes_from_full_outcomes():
         REPLAY_PROBE_TIMEOUT_SECONDS)
 
 
+@pytest.mark.workflow
 def test_certifying_seek_binds_control_without_waiting_for_match_outcome():
     base = dict(
         seek_percentages=[50], development_smoke=False, certifying=True,
@@ -64,6 +66,7 @@ def test_certifying_seek_binds_control_without_waiting_for_match_outcome():
     assert _replay_outcome_policy(SimpleNamespace(**base)) == (True, True)
 
 
+@pytest.mark.workflow
 def test_development_tira_transition_smoke_does_not_wait_for_match_outcome():
     args = SimpleNamespace(
         seek_percentages=[], development_smoke=False,
@@ -75,6 +78,7 @@ def test_development_tira_transition_smoke_does_not_wait_for_match_outcome():
     assert _default_replay_timeout(args) == REPLAY_PROBE_TIMEOUT_SECONDS
 
 
+@pytest.mark.workflow
 def test_forced_qualification_requires_full_rate_window():
     with pytest.raises(RuntimeError, match="600-frame active FPS/TPS"):
         _require_complete_forced_qualification_window(SimpleNamespace(
@@ -84,6 +88,7 @@ def test_forced_qualification_requires_full_rate_window():
         watch_frames=600, resume_tick_window=600))
 
 
+@pytest.mark.workflow
 def test_forced_qualification_enforces_production_timing_ceilings():
     passing = SimpleNamespace(
         cycle_p99_us=16_669, cycle_max_us=33_339,
@@ -103,6 +108,7 @@ def test_forced_qualification_enforces_production_timing_ceilings():
             _require_forced_qualification_timing(evidence)
 
 
+@pytest.mark.workflow
 def test_cycle_log_parser_pairs_terminal_and_cleanup(tmp_path):
     log = tmp_path / "UE4SS.log"
     log.write_text(
@@ -127,6 +133,7 @@ def test_cycle_log_parser_pairs_terminal_and_cleanup(tmp_path):
     assert cycles[0]["cleanup"]["stale_mask"] == 0
 
 
+@pytest.mark.workflow
 def test_cycle_log_parser_restarts_at_zero_when_ue4ss_replaces_log(tmp_path):
     log = tmp_path / "UE4SS.log"
     log.write_bytes(b"old process\n" + b"x" * 4096)
@@ -150,6 +157,7 @@ def _write(path, value: bytes) -> None:
     path.write_bytes(value)
 
 
+@pytest.mark.workflow
 def test_outcome_control_binds_every_executable_artifact(tmp_path):
     replay = tmp_path / "replay.bin"
     dll = tmp_path / "HorseMod.dll"
@@ -172,10 +180,19 @@ def test_outcome_control_binds_every_executable_artifact(tmp_path):
         "runner_sha256": "older-evaluator-package",
     }
     control = tmp_path / "control.json"
+    raw = tmp_path / "control.log"
+    raw.write_text(f"[ReplayQualification] payload handoff run_id=control battle_sha256={'a' * 64} "
+        f"expected_recording_sha256={'b' * 64} actual_recording_sha256={'b' * 64} "
+        "source_equal=true round=0 cursor=0\n"
+        "[ReplayQualification] recorded match outcome run_id=control recorded=1 simulated=1 equal=true\n")
+    artifacts["raw_logs"] = {"game": {"path": str(raw), "sha256": sha256_file(raw)}}
+    artifacts["loaded_horsemod"] = {"sha256": sha256_file(dll),
+        "verification": "owned_process_mapped_file_and_sha256"}
     control.write_text(json.dumps({
         "report_schema": 2, "certifying": True, "renderer": "normal",
         "result": "pass", "artifacts": artifacts,
-        "runtime": {"stock_round_outcome": {
+        "cleanup": {"deployment_restored": True, "game_processes_remaining": 0},
+        "runtime": {"run_id": "control", "stock_round_outcome": {
             "round_winners": [1, 1], "match_winner": 1, "rounds": 2,
         }},
     }), encoding="utf-8")
@@ -190,6 +207,9 @@ def test_outcome_control_binds_every_executable_artifact(tmp_path):
         "rounds": 2,
         "match_winner": 1,
         "round_winners": [1, 1],
+        "payload_handoff": {"battle_sha256": 'a' * 64, "recording_sha256": 'b' * 64},
+        "recorded_match_winner": 1,
+        "verification": "native_replay_summary_matches_simulated_result",
     }
 
     seek_outcome, required = _outcome_proof_report_fields(
@@ -231,6 +251,7 @@ def test_outcome_control_binds_every_executable_artifact(tmp_path):
         )
 
 
+@pytest.mark.workflow
 def test_bounded_failure_log_restarts_after_log_rotation(tmp_path):
     log = tmp_path / "UE4SS.log"
     log.write_bytes(b"old boot\n" + b"x" * 1024)
@@ -244,6 +265,7 @@ def test_bounded_failure_log_restarts_after_log_rotation(tmp_path):
     assert failure in captured
 
 
+@pytest.mark.workflow
 def test_bounded_failure_log_keeps_late_terminal_line(tmp_path):
     log = tmp_path / "UE4SS.log"
     log.write_bytes(b"old run\n")
@@ -259,8 +281,10 @@ def test_bounded_failure_log_keeps_late_terminal_line(tmp_path):
     assert failure in captured
 
 
-def test_compact_failure_records_terminal_fields_and_restores_flags(
-    tmp_path, monkeypatch,
+@pytest.mark.workflow
+@pytest.mark.parametrize("observed_frame", [None, "1003"])
+def test_compact_failure_reports_without_touching_unowned_resources(
+    tmp_path, monkeypatch, observed_frame,
 ):
     log = tmp_path / "UE4SS.log"
     log.write_bytes(b"startup\n" * 300000)
@@ -269,7 +293,9 @@ def test_compact_failure_records_terminal_fields_and_restores_flags(
         b"[HorseMod] owned replay seek request failed target=1024 "
         b"component_mask=0x1 native_mask=0x40000 "
         b"owner_selector=general owner_pointer=0x1234 "
-        b"caller_rva=0x519789 graph_provenance=0xabcd phase=seek\n"
+        b"caller_rva=0x519789 graph_provenance=0xabcd phase=seek "
+        + (f"failure_frame={observed_frame}".encode() if observed_frame else b"")
+        + b"\n"
     )
     with log.open("ab") as stream:
         stream.write(failure)
@@ -287,14 +313,20 @@ def test_compact_failure_records_terminal_fields_and_restores_flags(
     )
     monkeypatch.setattr(
         "tools.deterministic_qualification.runner.find_game_pid",
-        lambda: None,
+        lambda: 42,
     )
+    def refuse_unowned_stop(*args):
+        pytest.fail("failure reporter tried to stop an unowned process")
+    monkeypatch.setattr("tools.deterministic_qualification.runner.force_stop_game_for_cleanup",
+                        refuse_unowned_stop)
+    before = config.read_bytes()
 
     _write_compact_replay_failure(args, RuntimeError("intentional failure"))
 
     document = json.loads(report.read_text(encoding="utf-8"))
     details = document["failure"]
-    assert details["first_failing_frame"] == "1024"
+    assert details["first_failing_frame"] == observed_frame
+    assert details["requested_target"] == "1024"
     assert details["field_or_mask"] == "0x1"
     assert details["owner_selector"] == "general"
     assert details["owner_pointer"] == "0x1234"
@@ -303,13 +335,12 @@ def test_compact_failure_records_terminal_fields_and_restores_flags(
     assert details["lifecycle_phase"] == "seek"
     assert failure.decode().strip() in Path(details["bounded_log"]).read_text(
         encoding="utf-8")
-    restored = config.read_text(encoding="utf-8")
-    assert "enabled=false\n" in restored
-    assert "trace=false\n" in restored
-    assert "correction_probe=false\n" in restored
-    assert "forced_depth7_qualification=false\n" in restored
+    assert config.read_bytes() == before
+    assert document["cleanup"]["process_absent"] is False
+    assert not any(document["cleanup"]["diagnostic_flags_restored_false"].values())
 
 
+@pytest.mark.workflow
 def test_compact_failure_prefers_terminal_over_earlier_diagnostic(
     tmp_path, monkeypatch,
 ):
@@ -346,6 +377,7 @@ def test_compact_failure_prefers_terminal_over_earlier_diagnostic(
     assert details["field_or_mask"] == "0x40"
 
 
+@pytest.mark.workflow
 def test_compact_failure_prefers_active_rate_terminal_over_setup_diagnostic():
     lines = [
         "[HorseMod] frame-fencepost observation failed: generation_mismatch",
@@ -359,6 +391,7 @@ def test_compact_failure_prefers_active_rate_terminal_over_setup_diagnostic():
     assert "active battle rate failed" in line
 
 
+@pytest.mark.workflow
 def test_smoke_config_arms_hooks_and_restores_exact_bytes(tmp_path):
     config = tmp_path / "rollback.ini"
     original = (
@@ -379,6 +412,7 @@ def test_smoke_config_arms_hooks_and_restores_exact_bytes(tmp_path):
     assert config.read_bytes() == original
 
 
+@pytest.mark.workflow
 def test_baseline_wrapper_arms_smoke_and_full_run_then_restores(
     tmp_path, monkeypatch,
 ):
@@ -429,6 +463,7 @@ def test_baseline_wrapper_arms_smoke_and_full_run_then_restores(
     assert config.read_bytes() == original
 
 
+@pytest.mark.workflow
 def test_strict_seek_implicitly_uses_armed_baseline_scope(
     tmp_path, monkeypatch,
 ):
@@ -475,6 +510,7 @@ def test_strict_seek_implicitly_uses_armed_baseline_scope(
     assert config.read_bytes() == original
 
 
+@pytest.mark.workflow
 def test_direct_development_smoke_arms_hooks_then_restores(
     tmp_path, monkeypatch,
 ):
@@ -512,6 +548,7 @@ def test_direct_development_smoke_arms_hooks_then_restores(
     assert config.read_bytes() == original
 
 
+@pytest.mark.workflow
 def test_persistent_campaign_rejects_prearmed_config(tmp_path):
     replay_mod = tmp_path / "ReplayQualificationMod.dll"
     replay = tmp_path / "replay.bin"
@@ -531,6 +568,7 @@ def test_persistent_campaign_rejects_prearmed_config(tmp_path):
         run_replay_development_campaign(args)
 
 
+@pytest.mark.workflow
 def test_baseline_smoke_skip_still_arms_full_run_then_restores(
     tmp_path, monkeypatch,
 ):

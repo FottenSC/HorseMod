@@ -1,0 +1,162 @@
+{
+  "source_manifest_sha256": "f0a0bc72716807e87246a43a8a59d44e8ea82bfbc45847d4fbcb24673659b831",
+  "summary": {
+    "stage": "combat-restore",
+    "result": "fail",
+    "certifying": false,
+    "scope": "bounded independent gameplay, native callback and pose comparison under the recorded input policy; visual coherence and general seeking remain incomplete",
+    "failure": "bounded transaction continuation diverged; inspect first mismatch",
+    "simulation_correctness": {
+      "result": "pass",
+      "continuation_ticks": 120,
+      "changed_inputs": {
+        "result": "not_exercised"
+      },
+      "scene_vector_fields": {
+        "result": "pass",
+        "policy": "reject_nonempty_v1",
+        "slots": 0,
+        "scope": "empty registry at capture/publication admission; active fields unsupported"
+      },
+      "callback_admission": {
+        "result": "pass",
+        "policy": "quiescent_streamable_v2",
+        "capture_registration_stamps": [
+          [
+            0,
+            0
+          ],
+          [
+            0,
+            0
+          ]
+        ],
+        "domain_identity": 14695981039346656037,
+        "pending_streamable_loads_rejected": true,
+        "final_registration_stamp": [
+          0,
+          0
+        ],
+        "active_loading_owned": false,
+        "registration_invalidation_exercised": false
+      },
+      "mt": {
+        "result": "compared",
+        "bytes": 5008,
+        "distinct_suffix_states": 1,
+        "scope": "complete native state comparison; consumption coverage requires a state transition"
+      },
+      "widget_clock": {
+        "result": "pass",
+        "policy": "fixed60_application_widget_v1",
+        "calls": [
+          14412,
+          17311
+        ],
+        "scope": "admitted native widget calls keep native skip/callback semantics; fixed delta and independently witnessed nonlinear player transitions; continuation compared separately",
+        "independent_continuation": {
+          "result": "pass",
+          "active_player_updates": 13,
+          "first_tick": 218,
+          "last_tick": 230,
+          "instance_identity": "unobserved",
+          "scope": "independent ordered widget-class/player clock observations with exact multiplicity; not per-widget identity, complete widget state or pixel proof"
+        }
+      }
+    },
+    "visual_coherence": {
+      "result": "incomplete",
+      "native_poses": {
+        "result": "pass",
+        "prefix_ticks": 20,
+        "continuation_ticks": 120,
+        "scope": "complete Lux animation-proxy outputs; not downstream native rendering proof"
+      },
+      "captures": {
+        "result": "not_requested"
+      },
+      "held_output_ownership": {
+        "result": "pass",
+        "original_window": true,
+        "held_ticks": [
+          217,
+          211
+        ],
+        "backbuffer_restored": true,
+        "gpu_retired": true,
+        "scope": "original-window ownership and completed copy receipts; scene coherence and displayed FPS require separate evidence"
+      },
+      "missing_coverage": [
+        "actor/effect presence",
+        "HUD freshness",
+        "persistent visual corruption"
+      ]
+    },
+    "seek_request": {
+      "result": "pass",
+      "requested_target": 217,
+      "cancelled_at": "after",
+      "recovered_tick": 217,
+      "repeated_backward_seek": false,
+      "repeated_forward_seek": false,
+      "cancellation_coverage": true,
+      "failed_wrapper_recovery": {
+        "result": "pass",
+        "failure": "native prerequisite mutation detected before dependent consumption",
+        "recovered_tick": 217,
+        "independent_continuation_ticks": 120,
+        "ownership": {
+          "states": [
+            "BRetained",
+            "APublished",
+            "ExecutionActive",
+            "FailedRecoverable",
+            "RecoveryQuiescing",
+            "Recovering",
+            "Recovered"
+          ],
+          "completed_C_tick": 211,
+          "executed_ticks": 1,
+          "executed_intervals": 1,
+          "C_only_particles": 1,
+          "B_recovered_tick": 217,
+          "native_destroyed_CPU_members": 1,
+          "cancellation_boundary": "ConsumerPrerequisite"
+        }
+      },
+      "index_complete": false,
+      "release": {
+        "completed_release_after_retirement": true,
+        "retirement_tick": 217
+      },
+      "unpaced_applications": 1,
+      "application_clock_policy": "physical_clock_fixed60_seek_v1"
+    },
+    "resume_performance": {
+      "native_ticks": 120,
+      "elapsed_us": 2173800,
+      "viewport_frames": 120,
+      "max_observation_gap_us": 55364,
+      "gaps_over_20ms": 22,
+      "tick_rate_milli": 55202,
+      "viewport_fps_milli": 55202,
+      "result": "fail"
+    },
+    "seek_performance": {
+      "result": "not_measured",
+      "readiness_result": "not_measured",
+      "scope": "completed application and retirement required; request-to-ready is reported separately",
+      "ceiling_us": 500000,
+      "rollback_cost_measured": false,
+      "desktop_capture_timing_perturbed": false,
+      "diagnostic_gpu_readbacks": false
+    },
+    "advanced_tick": 217,
+    "cancellation": "after",
+    "continuation_ticks": 120,
+    "cleanup": {
+      "complete": true,
+      "games_remaining": 0
+    }
+  }
+}

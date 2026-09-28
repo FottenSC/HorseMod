@@ -1,0 +1,74 @@
+{
+  "scope": "Recovery matrix profile-only source extension; existing source-code integration compatibility checked by archive contents",
+  "prior_archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-e95711e6a0ec80cb86469712f282fc07f960436c9a19e5ca20d6fe4956de7472.zip",
+  "current_archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-3e75dcbf72826db56db5600c6826001fbe5d243f11d1f125acdabd648878fda1.zip",
+  "changed_paths": [
+    "workspace/tools/deterministic_qualification/replay_profiles/cancel-drained214-B220-startup-serial.json",
+    "workspace/tools/deterministic_qualification/replay_profiles/cancel-mid208-B220-startup-serial.json",
+    "workspace/tools/deterministic_qualification/replay_profiles/cancel-settled214-B220-startup-serial.json"
+  ],
+  "binary_identities": {
+    "runtime": "2267a071d42a724df3e836a2c544c75302162cbac5465920850208c628d2a1f5",
+    "observer": "50ce0f46e22372460f3c68bd5a89ff04a75af1ee13e32636dcce4787a04fb234",
+    "framework": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6"
+  },
+  "required_build": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\eef4410d555c2294b0e8cef662664d606e036e1513493f9cc166575b1d3dc6de.json",
+    "sha256": "eef4410d555c2294b0e8cef662664d606e036e1513493f9cc166575b1d3dc6de",
+    "bytes": 6433,
+    "summary": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\b9deac36df1e1e7257ed9b9a0322719500e65156e4697a25fa256a6b8a4bfab8.md",
+      "sha256": "b9deac36df1e1e7257ed9b9a0322719500e65156e4697a25fa256a6b8a4bfab8",
+      "bytes": 533
+    }
+  },
+  "current_full627_receipt": "build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c176ed2f444cf67bdaa2d452f11ed93600dea5785a5b2f6390e102bd64a72f72.json",
+  "limitation": "New profile configuration is validated separately by required build, preflight and its named native experiment; no new full-suite run claimed.",
+  "mid208": {
+    "result": "pass",
+    "retained_evidence": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\2d1a32e616f6058f68b27844a2a87f198e93fd1d2781686d743bc507c7d6f1f6.json",
+      "sha256": "2d1a32e616f6058f68b27844a2a87f198e93fd1d2781686d743bc507c7d6f1f6",
+      "bytes": 49815,
+      "summary": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\b599887bf02967486861a14a90b48dcb16721539d8652c6b64705f7989a93805.md",
+        "sha256": "b599887bf02967486861a14a90b48dcb16721539d8652c6b64705f7989a93805",
+        "bytes": 669
+      }
+    },
+    "scope": "Pending-native-task failure at C208; complete B220 recovery and120 independent continuation; main publication gates remain open."
+  },
+  "drained214": {
+    "result": "pass",
+    "native_callbacks_compared": 480,
+    "continuation_ticks": 120,
+    "cancellation": "after",
+    "retained_evidence": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\cd66a3d186c2b9152eb04e5b653de277d3024d9218fc463b4475557fd2d07d4c.json",
+      "sha256": "cd66a3d186c2b9152eb04e5b653de277d3024d9218fc463b4475557fd2d07d4c",
+      "bytes": 51109,
+      "summary": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\d3357dd08c8d65163ae4ae6f7b819fc76a5716cb8aedc678aac7c3404a16df6d.md",
+        "sha256": "d3357dd08c8d65163ae4ae6f7b819fc76a5716cb8aedc678aac7c3404a16df6d",
+        "bytes": 682
+      }
+    }
+  },
+  "settled214": {
+    "result": "pass",
+    "native_callbacks_compared": 480,
+    "continuation_ticks": 120,
+    "retained_evidence": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\d5ac2f41a16fdde71ddb932480f5bf14fe7769f7c57d889b7a25dc11c32e9a16.json",
+      "sha256": "d5ac2f41a16fdde71ddb932480f5bf14fe7769f7c57d889b7a25dc11c32e9a16",
+      "bytes": 51001,
+      "summary": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\77779426e43e4d91561dba12bc0f1074ffb1510dad9a2887f5341c91ae32d5ec.md",
+        "sha256": "77779426e43e4d91561dba12bc0f1074ffb1510dad9a2887f5341c91ae32d5ec",
+        "bytes": 668
+      }
+    },
+    "failure": null
+  },
+  "gate_status": "Three bounded B220 recovery rows pass; general G7 fault matrix remains open. These receipts predate the subsequent empty-ground callback fix and retain their recorded binaries."
+}

@@ -1,0 +1,52 @@
+{
+  "created_utc": "2026-09-22T13:53:05.350587+00:00",
+  "report": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\eb699dd1f778684e087418f31a2dc64e97cb27255250daa97e54eb3fabbf3cae.json",
+    "sha256": "eb699dd1f778684e087418f31a2dc64e97cb27255250daa97e54eb3fabbf3cae",
+    "bytes": 37008
+  },
+  "log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\213e2879abac2ec8fd7bdb2b0b8f5b4a0d343d67f84b1fadd547255212fc80a9.log",
+    "sha256": "213e2879abac2ec8fd7bdb2b0b8f5b4a0d343d67f84b1fadd547255212fc80a9",
+    "bytes": 663
+  },
+  "result": "pass",
+  "profile": "changed-rolling30-startup-serial",
+  "scope": "30 consecutive depth-seven corrections, original A210 anchor, ages1/4/7, independent authored control per revision and120 final continuation ticks. Normal renderer. Receiver-output witness, fullA617/C624,600 and broader readiness remain open.",
+  "gates": {
+    "observer_validity": "pass",
+    "simulation": "pass"
+  },
+  "deployment_journal": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\19740bea5edf5532c66040fe4cc308e471b0d7cdb0a5311a29c7630f2242356a.json",
+    "sha256": "19740bea5edf5532c66040fe4cc308e471b0d7cdb0a5311a29c7630f2242356a",
+    "bytes": 4432
+  },
+  "timing_observations": {
+    "scope": "Existing per-phase telemetry from this30-cycle correctness diagnostic; no600/full-update/performance qualification. Correction duration alone exceeds16.7ms, so this configuration has not met the production budget.",
+    "phases": {
+      "capture_us": {
+        "median": 91421.0,
+        "p95": 107275,
+        "maximum": 125926,
+        "over_16700": 30
+      },
+      "correction_us": {
+        "median": 314457.5,
+        "p95": 1167223,
+        "maximum": 1188646,
+        "over_16700": 30
+      },
+      "preceding_forward_us": {
+        "median": 29986.5,
+        "p95": 34517,
+        "maximum": 35077,
+        "over_16700": 30
+      }
+    }
+  },
+  "ownership_observation": {
+    "reported_peak_bytes": 906348072,
+    "scope": "Existing charged ownership; full simultaneous native/GPU/accounting audit remains open."
+  }
+}

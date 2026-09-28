@@ -1,0 +1,23 @@
+{
+  "stage": "RED",
+  "source_retention": {
+    "manifest_sha256": "237f67812af9a5a47f85e9842e3a2384346fd3849b09d61eb879bc7c10c9bbf0",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-237f67812af9a5a47f85e9842e3a2384346fd3849b09d61eb879bc7c10c9bbf0.zip",
+    "archive_sha256": "6f106e3254277cf32ada89fbd9b69c18d4d6fec2f06ddd820f976c3e7be10a84",
+    "files": 16607,
+    "uncompressed_bytes": 92834158,
+    "reconstructible": true
+  },
+  "log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\5278f0ed3a4f2e53b748a063b2dff6b242944a4cee91644495f8deb2d4732fc1.json",
+    "sha256": "5278f0ed3a4f2e53b748a063b2dff6b242944a4cee91644495f8deb2d4732fc1",
+    "bytes": 5381
+  },
+  "catalog_audit": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\26d851eaacac4a62304f80ce68539543079d27866e61a1db6ff19fa36099d102.json",
+    "sha256": "26d851eaacac4a62304f80ce68539543079d27866e61a1db6ff19fa36099d102",
+    "bytes": 175
+  },
+  "result": "Actual CLI parser main -> fresh control_args -> capture loses explicit flush flag before native launch",
+  "live_manifest": "82c79eca772c4477f208a75d434e22d5ac695effa5d8c045efbb4e9f4e66cfd6"
+}

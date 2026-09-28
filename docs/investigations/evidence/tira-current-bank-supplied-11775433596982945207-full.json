@@ -1,0 +1,33 @@
+{
+  "case_id": "",
+  "certifying": false,
+  "cleanup": {
+    "diagnostic_flags_restored_false": {
+      "correction_probe": true,
+      "forced_depth7_qualification": true,
+      "trace": true
+    },
+    "process_absent": true
+  },
+  "created_utc": "2026-09-01T23:58:25.248944+00:00",
+  "display_map_name": "Astral Chaos: Tide of the Damned",
+  "failure": {
+    "bounded_log": "E:\\myMods\\docs\\investigations\\evidence\\tira-current-bank-supplied-11775433596982945207-full.failure.log",
+    "bounded_log_lines": 256,
+    "field_or_mask": null,
+    "fields": {},
+    "first_failing_frame": null,
+    "first_failure_line": "",
+    "graph_provenance": null,
+    "lifecycle_phase": null,
+    "owner_pointer": null,
+    "owner_selector": null,
+    "return_rva": null
+  },
+  "kind": "replay_entry_failure",
+  "reason": "native replay entry did not request launch before the timeout",
+  "report_schema": 2,
+  "result": "fail",
+  "row_id": "",
+  "stage_package_root": "/Game/Stage/STG004"
+}

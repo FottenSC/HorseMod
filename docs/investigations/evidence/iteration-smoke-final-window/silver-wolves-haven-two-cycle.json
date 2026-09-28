@@ -1,0 +1,37 @@
+{
+  "case_id": "",
+  "certifying": false,
+  "cleanup": {
+    "diagnostic_flags_restored_false": {
+      "correction_probe": true,
+      "forced_depth7_qualification": true,
+      "trace": true
+    },
+    "process_absent": true
+  },
+  "created_utc": "2026-08-30T20:54:50.043387+00:00",
+  "display_map_name": "Silver Wolves' Haven",
+  "failure": {
+    "bounded_log": "E:\\myMods\\docs\\investigations\\evidence\\iteration-smoke-final-window\\silver-wolves-haven-two-cycle.failure.log",
+    "bounded_log_lines": 66,
+    "field_or_mask": null,
+    "fields": {
+      "elapsed_us": "1067420",
+      "frames": "60",
+      "minimum": "58000",
+      "tick_rate_milli": "56210"
+    },
+    "first_failing_frame": "60",
+    "first_failure_line": "[2026-08-30 22:54:45.3569857] [ReplayQualification] normal-render battle rate failed frames=60 elapsed_us=1067420 tick_rate_milli=56210 minimum=58000",
+    "graph_provenance": null,
+    "owner_pointer": null,
+    "owner_selector": null,
+    "return_rva": null
+  },
+  "kind": "replay_entry_failure",
+  "reason": "native replay entry failed: normal_render_battle_rate_below_minimum",
+  "report_schema": 2,
+  "result": "fail",
+  "row_id": "",
+  "stage_package_root": "/Game/DLC/07/Stage/STG011_R"
+}

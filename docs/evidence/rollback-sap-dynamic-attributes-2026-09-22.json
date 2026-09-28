@@ -1,0 +1,38 @@
+{
+  "red": {
+    "log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9af66fac97328a952ce0f3e3178a1db2f4a7b0212810916b306da88813a1602f.log",
+      "sha256": "9af66fac97328a952ce0f3e3178a1db2f4a7b0212810916b306da88813a1602f",
+      "bytes": 3127
+    },
+    "test_source": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\770b42e504fc2a500e16de4ad882400a376484ec26a54739c4dfe91bfb6dbfdd.inl",
+      "sha256": "770b42e504fc2a500e16de4ad882400a376484ec26a54739c4dfe91bfb6dbfdd",
+      "bytes": 8225
+    },
+    "production_header": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6e52ebe414bf228391c90b6b55b7b0a6448d7394672b218b7a42d894dd284311.hpp",
+      "sha256": "6e52ebe414bf228391c90b6b55b7b0a6448d7394672b218b7a42d894dd284311",
+      "bytes": 14608
+    },
+    "production_source": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\55f86164e4299a3c6dbe85f0215e4bee62366695c2f9486962ec84cf359f6343.inl",
+      "sha256": "55f86164e4299a3c6dbe85f0215e4bee62366695c2f9486962ec84cf359f6343",
+      "bytes": 20271
+    }
+  },
+  "live_failure_manifest": "3831c4e75496095c7008a9a7dffca21b71eacd8ace98a41cf44ac8cf1db141c5",
+  "scope": "Native1143E0 returns0x11 for kinematic and1 for dynamic; ordinary dynamic capture only. Historical projection guards unchanged.",
+  "green": {
+    "build_report": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\5a05988bd61a81c932be29ee5e27d968ac5af006f4a9ad8544b12cbacfaa30ce.json",
+      "sha256": "5a05988bd61a81c932be29ee5e27d968ac5af006f4a9ad8544b12cbacfaa30ce",
+      "bytes": 5870
+    },
+    "native_report": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\5246340be80ce33d5fc8698a8ee2f8e8b51c390181840d9457cef9f9946d80d2.json",
+      "sha256": "5246340be80ce33d5fc8698a8ee2f8e8b51c390181840d9457cef9f9946d80d2",
+      "bytes": 2141
+    }
+  }
+}

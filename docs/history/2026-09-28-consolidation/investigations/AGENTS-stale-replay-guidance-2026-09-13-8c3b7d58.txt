@@ -1,0 +1,288 @@
+Current replay status (2026-09-13): retained-session index0..11148; first checkpoint170, valid later anchor2511. Native11149..11501/tail and uncheckpointed0..169 are unsupported seek coverage. Runtimee0800b31/observercb49dd21 independently passes endpoint11148->2511->6417+120 with expired6415 release and native retirement BEFORE complete B capture;16108 callbacks,120 Lux poses/HUD ticks (66 active TypeEff) match. Both cleanups complete/zero games. See build_cmake_LessEqual421__Shipping__Win64/replay-tests/expired-index-native-retirement-audit.json for retained logs/reconstructible sources.436099704 owned bytes; no diagnostic GPU maps; completed work10878633us excluding deliberate hold FAILS500ms. Follow-up target-independent expired-pin retirement passes local red/green,225 runner tests and build/two C++ suites; native result remains exact-identity evidence above. No new held-image review. Current priority: qualify usable restricted-seeker controls and capability limits, then broaden coverage/performance. Seven-tick rollback every simulation update remains a separate unqualified gate. Deferred history-reservation accounting draft changed no production code and has no passing fixture. Detailed prior status: docs/investigations/replay-status-history-through-2026-09-13.txt.
+
+# HorseMod — SC6 reverse-engineering project
+
+
+
+Current historical combat status (2026-09-07): the assembled 205 -> 210 -> 205 transaction includes complete B undo, reversible B-only particle exclusion, retained GPU images/completion, scheduler/world continuation, customization-mesh ownership and a bounded kinematic projection. The milestone has not passed: committed-A gameplay continuation has passed on recorded identities, but native rendered presentation remains unresolved.
+
+Live evidence tied to runtime `9522a89a200ca5d44f424fd97b2317a71b1e6f354f8742a92274943ad06a0f24` and observer `bbaeca0b347c0751041bfd3428fcfa1a5d8d4677fb5e124ea464aacddb2d8f0d`: both deliberate cancellation points passed. After-publication cancellation installed A205, held it for 518,723 us across 30 saved-surface frames without native boundary advancement, recovered B210, and independently matched 120 resumed ticks and 480 native callbacks at 59.957 TPS. The native control used identical intro skip and dependency identities. Cleanup completed. Accounted ownership was 259,556,690 bytes. These passes do not validate later binaries or native rendered presentation.
+
+The native Soul Charge refresh reorders scheduler sets while restoring customization-mesh tick enablement. The finalizer requires unchanged tick values, allocation identities/capacities and exact logical membership before reconstructing private container order. A separate failed attempt found two emitter tiles at A versus one at B: the integrated coordinate path retains its compiled resource and reconstructs derived buffers through native 141F95B10 on the admitted render thread, after the cancellation window closes. GPU submission requires observed completion; failed/timed-out work stays retained. Persistent simulation textures are still restored.
+
+Current committed gameplay proof: runtime `fe0a9b057440dab2246d8c5e78d71c1d41162bbcb8e093de52ed9fa671ff2f34`, observer `0ca8e07bce879f4999f6f7fc1623998792a3edbede41df9f78063d8ea80c395a`, executor run `replay-a59261da223e444097d24655b3629e81`, native run `replay-51c3a00ea6bd4e60a43224fe769238bb`: A205 committed, particle birth reproduced at 210, and all 120 resumed gameplay ticks / 480 native callbacks matched the independent native control. First-120 rate was 59.968 TPS, 120 viewport updates, max gap 17,980 us, no gaps over 20 ms. Both captures cleaned up. This proves the bounded gameplay comparison only. Coordinate rows were zero, so changed-tile buffer reconstruction remains unproven. Native backbuffer observation is integrated but fails its comparison as detailed below; final cancellation evidence must use the final exact identities. The earlier completion failure was a physical-versus-restored-logical accounting error; explicit measured rewind counts now preserve strict physical tail/yield checks.
+
+Build and two C++ selftests pass; 39 runner tests pass. Build identities are recorded separately from live reports. `combat-restore --combat-case commit` does not complete the milestone or execution gate by itself.
+
+Native presentation status: observer `8e6d417571833dd169204434d91fcb61bc7c2a6886ee8b845205c2b03b2d25e3` captured 151 native backbuffers through the verified Slate task, format 24 (R10G10B10A2), 1024x576, 9,437,888 accounted bytes, completed GPU readbacks and clean detach. Restored continuation ran at 59.993 TPS. The first full-image mismatch was tick 185 before restoration. A second independent native control with identical binaries/intro skip confirmed native image variation: mean sampled RGB absolute difference 0.734 over ticks 185-204 and 0.834 over 206-325. Restored-versus-native differences were 0.750 and 1.214 respectively; at tick 206 the two native controls differed by 0.449 versus 2.230 after restoration. Thus native rendering is not pixel-repeatable under the current protocol, and restoration adds further changes. No broad pixel tolerance, particle omission or presentation pass is admitted. The native two-bone query outputs matched all 120 resumed ticks, but cover only two queried bones per player. That probe has been replaced by the actual Lux animation-proxy evaluation output: 34 evaluations per tick were observed, including parallel workers. The assembled run replay-179608d80edc40359a3c76f6772fb910 found pose differences before restoration and additional differing poses after restoration. Therefore the two-bone result cannot exclude animation state. Detailed tick-206 observations identified actual restored weapon, hair, face and clothing transform differences. Capturing the native auxiliary solver nodes made both weapons and most clothing exact against the original tick 206; face and some hair/cloth differences remained. Motion image v5 now also retains per-player wind and skeleton motion caches with guarded resource bindings. Its first publication failed at fighter+2B270: HgCpu resets the AI motion slot before animation repair, and inactive animation state was previously discarded. The implementation now repairs animation before motion checks in both forward restoration and B undo, preserving dormant runtime sections/scalars and rejecting unknown section pointers. The focused dormant-overlap test and both C++ selftests pass. Runtime `4071fd41da82bf20b25ba82bb6e68e1bebfa4423227ccdb4155a40e777bd2e25`, observer `acd473c0100e3c1b82ef37306174203f20cb04139b4ac8e2eb72f87c7617fa66`, executor `replay-1884ff8ad58d4bd4901a5682ebb5e787` and native `replay-83ec03bc29d444bdb2c2aea10ee0a003` matched all 120 resumed gameplay ticks and full native Lux pose outputs, with cleanup. Backbuffers still differ before restoration. Earlier same-runtime pairs first differed in player-0 wind at tick 223 (pose 224) or pose 306; this variability remains unresolved. The active wind sampler is 140333FD0, not the unused point-query 1403342A0. A bounded observer now records its actual inputs/node geometry. No native-rendering or final cancellation milestone is claimed; failed earlier publications did not demonstrate recoverable B undo. No expected values are installed into simulation. Current milestone remains incomplete.
+
+Native RingIn construction correction (implementation/build checkpoint): 140334960 allocates without clearing +0x138; 140333E80 and 140333130 leave it untouched; 140333550 adds the travel step to it, and 140333C20 consumes the derived inverse distance. Live replay-d9d89a2613724b4d9f774df2db72f125 observed roughly -4.28e22 travel distance at tick 185, before A. NativeWindConstruction now defines zero initial distance at first preparation, validating node class/root/membership and leaving prepared/restored nodes intact. Sc6ReplayHost owns this hook during replay; the independent native control uses the same constructor correction. Runner evidence explicitly requires zero_initial_distance_v1 from tick zero and clean detach. This is an intentional correction to native uninitialized state, not an unmodified-stock presentation comparison. Build/two C++ selftests and 36 replay-run tests pass. Runtime c71ae372b431e445d82abe297a46a6d06227243648a4d4f638bedc3cc35d6cb7 and observer 0976fe69523388ea0ea9d9515821bc9c5e6dffa71a8e1d029319ff1ee726ca46 passed committed-A and both cancelled-B gameplay/native-pose comparisons for 120 resumed ticks against independent native control replay-d7e180190df94534b04bdf697e856cab. Runs: commit replay-0c5689b5bb704f69b0b09ebd65b81c64, before replay-ff3bc1adcaf849349ef3f6fc5511cda5, after replay-a5d8316e59dc4468be605700351ba6bc. Both players sampled identical wind throughout the committed continuation; all runs cleaned up. Native backbuffers still differ starting before restoration (tick 185), so these are gameplay/pose/recovery results, not a completed native-presentation milestone. The completed wind-geometry observer is replaced with a bounded native temporal-view counter/jitter observation at 1414F38B0; that new observer requires fresh evidence. No expected observations feed initialization.
+
+The saved A image proves paused display only. Completion requires at least 120 resumed ticks matching independent native gameplay, callbacks and actual native presentation, including particle creation again, plus both cancellations with independently verified B recovery. The runner keeps `milestone_complete=false` without native presentation evidence. Full indexing/seeking, strict sentinel, general lifecycle recovery and broader coverage remain unfinished. Preserve the strict entry point and avoid isolated capture/qualification campaigns.
+
+Always think longer term short term fixes are not a good solution.
+
+
+
+## Agent roles
+
+
+
+- Codex owns first-pass exploration and implementation work: search the repo, read code/docs/logs, run local tools, and ground conclusions in evidence before asking for validation.
+
+- Before implementing new features into horsemod we should understand every system in and around what we are effecting in the game. If we dont have sufficient knowledge we should use the ghidra mcp to do reverse engineering. while reverse-engineering add functions names, variable types, variable names, create structs etc etc.
+
+- Hermes validates, corrects, and steers after Codex has gathered evidence or drafted a plan/change. Use Hermes to challenge assumptions, spot missing checks, and redirect scope; do not use Hermes as a substitute for Codex's own exploration.
+
+- When Codex and Hermes disagree, re-check primary sources: code, logs, replay tests, Ghidra MCP, dumps, and the SC6ModdingDocs repo. State the concrete evidence before editing.
+
+- When I ask you a question refrain from using ingame descriptions of how its supposed to work, you can use them as reference while working but everything you relay to me should be backed by decompiled code or similar.
+
+- Tests are good but write them with some restraint. We dont need to test everything, also dont create a bunch of copies of our project we have limited disc space.
+
+
+
+Repo layout:
+
+- `HorseMod/` — C++ ASI mod (PolyHook2 + custom hooks) for Soulcalibur VI
+
+- `RE-UE4SS/` — UE4SS integration
+
+- `dump/` — UE header/asset dumps used as RE inputs. a full dump can be found at `C:\Users\prest\Documents\SoulcaliburModding\SCVI Sound Tools\dump` move the files you end up using to the repo dump folder
+
+- `tools/BlueprintToCpp/` — cooked Blueprint pseudocode decompiler; output is analysis evidence, never buildable HorseMod code
+
+- `E:\DevShitPosts\SC6Mods\SC6ModdingDocs` — MkDocs knowledge base for reusable SC6 reverse-engineering facts; follow that repo's `AGENTS.md` when editing it.
+
+- `E:\SteamLibrary\steamapps\common\SoulcaliburVI\SoulcaliburVI\Binaries\Win64\ue4ss\UE4SS.log` — Can be used to check ue4ss logs
+
+
+
+## Replay testing
+
+
+
+The resumable replay rewrite uses `python tools/replay_test.py <stage>` in the existing checkout/build directory. Implemented stages are `build`, `bootstrap`, `baseline --full-match`, `equivalence` (optionally `--full-match`), and the bounded `restore --samples 120` experiment. Bootstrap verifies deployment, owned Steam launch, replay import, mapped DLL identity, and cleanup. Baseline requires bootstrap from the same binaries and replay, then compares two independent native runs with HorseMod absent. Equivalence requires that sealed full native baseline and current bootstrap, then compares native and replacement-executor runs (reusing the sealed full native control only for identical binaries and an unchanged uninterrupted protocol), including explicit activation and completed-tail deactivation evidence. Restore additionally rechecks current external interior equivalence before comparing native execution against a restored suffix. Reports and bounded raw logs replace the previous run under `build_cmake_LessEqual421__Shipping__Win64/replay-tests`.
+
+
+
+Bootstrap also requires at least 58 native ticks and viewport updates per second before escalation. Viewport cadence is reported separately from actual renderer presentation FPS. Never call `UObject::IsReal` in an actor/boundary observation loop: this UE4SS implementation scans the entire object array; use validated indexed lookup.
+
+`python tools/replay_test.py execution-gate` is a read-only coverage check. It revalidates bootstrap/full baseline, retained native/executor comparisons, raw-log hashes and counters before combining the interior, empty-interval and full-tail experiments with identical binaries/configuration/replay. Missing or stale experiments cannot fill coverage. An incomplete gate exits nonzero; an individual equivalence pass is not a complete gate. The maintained strict-seek entry point remains unchanged.
+
+`move-probe` is a bounded diagnostic for one native-setter state-3 interval at the verified active boundary, followed by continuation. `equivalence --move-state --samples 240 --include-setup --yield-every-tick` compares that labelled intervention in separate native and executor runs after current prerequisites. It is execution-branch coverage, not evidence that the authored replay naturally traverses state 3. `execution-gate` can combine its validated comparison with other matching experiments; native baselines reject interventions.
+
+
+The runner now deploys the built UE4SS framework through the same recovery journal, verifies its mapped path and SHA-256 in the owned process, and restores the previous framework afterward. Baselines without matching framework identity are stale. `baseline --full-match --include-setup` records both setup and full playback in the primary baseline pair; its setup observations can satisfy the setup prerequisite without a separate capture pair.
+
+
+
+`Sc6ReplayHost` now supplies an engine body through UE4SS's single-owner `UE4SS_SetEngineTickOverride` slot, between the existing pre/post callbacks, replacing its former UWorld-entry detour. The engine body has explicit phases; its initial synchronous port was followed by the bounded external interior experiment documented below. Engine-tail completion evidence is required by the observer. This engine port passed a refreshed full native baseline, short equivalence, and full equivalence through frame 12,301 with matching framework/runtime/observer identities. These synchronous experiments do not complete the execution gate. Older UE4SS versions can still load HorseMod's unrelated features because the replay body API is resolved at binding time.
+
+
+
+Full native baseline completion uses the completed native mode-10 interval with inactive final-round source, followed by a separate replay scene `OnFinishMatch` post-callback witness. UI polling must not add idle ticks to the timeline; winner-known alone is insufficient. Historical 10,864-observation captures stop before the recorded final-round tail and no longer satisfy this gate. Source lengths are input-sample counts, not simulation ticks.
+
+
+
+Execute gates in this order: build/bootstrap; independent full native baseline; executor equivalence including interior boundaries; small restore; exact seek coverage; strict sentinel below; lifecycle/failure coverage; broader corpus and performance. Stop escalation on failure. Uninterrupted equivalence does not complete the interior-boundary gate; yield, repeated-tick, and multiple-input-interval coverage must be established separately. The new runner implements a same-task small restore experiment, but not general restore or exact-seek gates; a trajectory capture is not proof of exact-tick seeking. Preserve the strict command until its replacement is verified. Codex runs the tests and cleanup; do not ask the user to run them.
+
+
+
+`baseline --include-setup` verifies the imported recording before tracker activation and retains a separate setup baseline. `equivalence --include-setup --yield-every-tick` starts the executor there and returns through its API after each tick before continuing pending work. This has exercised repeated ticks and multi-tick intervals, but is not external pause. The test bridge also observes native callback/round-sequence boundaries independently of executor counters. Do not hook `1403FCA60` again: the runtime already owns that entry through `FrameLayout::landing_fencepost_rva`.
+
+
+
+`equivalence --world-pause --samples 300 --yield-every-tick` tests an external pause at a completed UWorld boundary. It requires one second of unchanged gameplay observations with no native boundary callbacks, at least 30 held world updates and viewport updates, then independently compares continuation. This is a prerequisite experiment, not proof of interior-world pause. Deliberate paused wall time remains visible in pacing totals.
+
+
+
+`Sc6ReplayWorld` ports UWorld orchestration into explicit phases. `Sc6ReplayTaskGroup` owns sequencer progression, named-thread pumping, and the manager task's pending completion. Full-match equivalence passed with 12,297 completed worlds and manager tasks, and 12,301 simulation tick yields after returning through the native actor wrappers. The observer requires matching task/interval/yield counts and idle deactivation. A subsequent arena-isolation change passed setup-plus-300-sample equivalence: each world step restores the ambient arena and uses a replay-owned mark with no native ancestor. Per-tick diagnostic mode performs one bounded native scratch-allocation experiment on the first world; 400 content checks passed across yields with a 1,008-byte chunk retained and subsequently released. The arena and engine changes subsequently passed the full match with 12,301 yields and complete arena release. That historical run drained the world synchronously. The subsequent bounded interior experiment holds the same engine epoch and pending task; general epoch restoration and ambient task admission remain pending. The observer also records engine-update, observer, and native pacing-loop time separately when diagnosing intermittent bootstrap rate failures.
+
+
+
+The immediate milestone is one real external interior-tick pause, followed by a small transactional restore experiment including pending work. Do not run broader campaigns to discover this mechanism. The runner distinguishes experiment_result from execution_gate.complete and lists missing coverage. Zero intervals, multiple ticks, repeats, move-state-3 traversal, full tails, and external interior suspension each need evidence. The native cache-publication observer at 1403FCD10 distinguishes identical consumed samples from repeated ticks. Full native baseline and short executor equivalence have exercised two independently observed repeats; those historical passes remain tied to their report identities. Older captures lack that publication witness and cannot fill repeat coverage merely from executor counters. Do not add another hook at 141D38300: the existing runtime owns it.
+
+
+
+The world-pause gate also measures the first 120 native ticks after resume, including the delay to the first resumed tick. It reports observation gaps and requires at least 58 ticks and viewport updates per second in that separate window; viewport updates still do not measure renderer presentation FPS.
+
+
+
+`Sc6ReplayHost.Application.inl` now ports the enclosing `FEngineLoop_Tick` into the same owner. It keeps the media module and idle decision across engine execution, then finishes the outer task/render/ticker tail and increments the scheduling epoch once. Stop requested in EngineTickPost retains application ownership until that tail finishes. This synchronous application port passed setup-plus-120-observation equivalence with 959 completed applications, 963 tick yields, and matching native continuation. Subsequent interior-pause changes require fresh evidence. The runner requires its separate `application executor stopped` witness with a count equal to completed engine intervals. It still drains synchronously: do not call this external interior suspension. Native `GuardedMain` has only an exit check between loop calls; preserve this boundary when adding held UI updates. The latest baseline before this application port passed 49,208 native boundary observations, including 12,299 independent cache publications and two repeats, through frame 12,301.
+
+
+
+Run a strict replay seek test after changes touching ReplayScrub, replay hooks, timeline generation, seek/restore behavior, GameMode presence handling, clocks, MoveVM/hit state, RNG, input history, or no-render gates. 
+
+Build first. The maintained runner deploys, launches, observes, and cleans up:
+
+`python E:\myMods\tools\deterministic_qualification.py replay-entry --dll E:\myMods\build_cmake_LessEqual421__Shipping__Win64\HorseMod\HorseMod.dll --replay E:\myMods\ReplayExample\REPLAY_12744704008398858106.bin --deterministic-baseline --allow-dirty --seek-percentages 50 --watch-frames 600 --resume-tick-window 120 --min-resume-tick-rate 58 --case-id raphael-maxi-snow-capped-showdown --row-id strict-seek-sentinel --display-map-name "Snow-Capped Showdown" --stage-package-root /Game/Stage/STG009 --report E:\myMods\docs\investigations\evidence\rollback-reassessment\strict-seek.json`
+
+The runner enforces the 0.5-second seek-validation ceiling and uses the normal renderer. `--allow-dirty` makes this development evidence; it cannot certify a release. The retired `replay_seek_test_run.py` does not exist; do not recreate its old switches.
+
+
+
+`lux-no-render` is a non-certifying seek/performance diagnostic only. Replay correctness, trusted-golden generation, golden validation, and rollback qualification must use the normal renderer.
+
+
+
+The reverse-engineering work runs through `bethington/ghidra-mcp` MCP tools. 
+
+The MCP is the authoritative interface for Ghidra — never edit `.gpr` files or invoke Ghidra scripts directly. 
+
+The bridge auto-discovers tools from `/mcp/schema`; if a tool name isn't in the schema it doesn't exist.
+
+
+
+The sole script exception is `ghidraCalibur/tools/refresh_ghidra_calibur.ps1`: after MCP `save_program`, it may invoke the checked-in `StructuredExporter.java` read-only through the MCP `/run_script` endpoint. The exporter must reject concurrent program modifications and must not modify any Ghidra database.
+
+
+
+## Blueprint analysis
+
+
+
+- Use `tools/BlueprintToCpp` for readable pseudocode from extracted `.uasset`/`.uexp` pairs; configure `config.json`, build once, then run `dotnet .\BlueprintToCpp\bin\Release\net8.0\Main.dll`.
+
+- Treat generated `.cpp` as pseudocode. Verify behavior with Kismet bytecode/CFG or UE4SS runtime traces before editing.
+
+
+
+## Ghidra MCP conventions
+
+
+
+The MCP enforces conventions in the tool layer (auto-fix / warn / reject tiers). Don't fight them — they exist because the codebase outgrew prompt-only discipline.
+
+
+
+**Tool inventory and dynamic groups**: 
+
+
+
+For Ghidra comment work, load the `comment` group and use native comment tools: 
+
+`batch_set_comments`, `set_plate_comment`, `set_decompiler_comment`, `set_disassembly_comment`, and `get_plate_comment`. 
+
+`set_bookmark` is only for bookmarks and audit breadcrumbs; do not treat it as a substitute for plate, PRE, EOL, or disassembly comments.
+
+
+
+If `check_tools` reports a tool callable but the Codex client cannot invoke that endpoint, state that as a client/tool-exposure problem and stop before claiming the Ghidra comments were updated.
+
+
+
+**Allowed Ghidra MCP tool groups by task**:
+
+- Default allowed non-malware groups: `analysis`, `comment`, `datatype`, `documentation`, `function`, `listing`, `program`, `symbol`, `xref`
+
+- Function cleanup: `function`, `comment`, `analysis`
+
+- Comment audits: `comment`, `analysis`, `listing`, `xref`
+
+- Struct/type recovery: `datatype`, `xref`, `function`, `symbol`, `analysis`
+
+- Global/data labeling: `symbol`, `datatype`, `listing`, `xref`
+
+- Caller/callee tracing: `xref`, `function`, `listing`
+
+- Documentation transfer and binary comparison: `documentation`, `function`, `listing`
+
+- Program navigation and persistence: `program`, `listing`
+
+
+
+Load these groups as needed with `load_tool_group`. The `malware` group remains excluded by default; use it only when the user explicitly requests malware, IOC, or anti-analysis work.
+
+When doing Ghidra reverse-engineering work, opportunistically improve clear function names, variable names, variable types, labels, and structs that are directly relevant to the current analysis.
+
+
+
+**Naming**:
+
+- Functions: PascalCase, verb-first. `GetPlayerHealth`, not `playerHealth` or `SKILLS_GetLevel`. Module prefixes (`UPPERCASE_`) are accepted and validated separately.
+
+- Globals: `g_` + Hungarian (`g_dwCount`, `g_pMain`, `g_szPath`).
+
+- Labels: snake_case.
+
+- Struct fields are auto-prefixed on `add_struct_field` / `modify_struct_field` / `create_struct` — pass the logical name (`count`, `next`, `health`); the tool stamps the prefix (`dwCount`, `pNext`, `wHealth`).
+
+
+
+**Type normalization**: `undefined1`→byte, `undefined2`→ushort, `undefined4`→uint/int/float/ptr (by usage), `undefined8`→double/longlong. Use Ghidra builtins (`dword`, `byte`, `ushort`) not Windows aliases (`DWORD`, `BYTE`) when calling `set_local_variable_type`.
+
+
+
+## Workflow ordering (load-bearing)
+
+`set_function_prototype` **wipes plate comments**. Do all structural work first:
+
+1. Rename function + set prototype (parallel)
+
+2. Type audit + variable rename (`get_function_variables` → `set_local_variable_type` → `rename_variables`)
+
+3. Plate + PRE + EOL comments in one `batch_set_comments` call
+
+4. `analyze_function_completeness` — if fixable deductions > 10 points, address and re-verify
+
+
+
+Never rename a variable with a Hungarian prefix (`dw`, `n`, `b`, `p`, `sz`, ...) while its type is still `undefined*`. 
+
+Resolve the type first; if undeterminable, use a descriptive name without a type prefix (`questBits` not `dwQuestBits`).
+
+Phantoms (`extraout_*`, `in_*` with undefined types) are decompiler artifacts. Note them in plate-comment Special Cases — don't retry type-setting.
+
+
+
+## Gotchas
+
+- When a fix fails once, stop stacking local patches. Reconstruct the surrounding state machine/data pipeline, identify the authoritative boundary, and redesign the fix around that boundary.
+
+- For every stateful feature, explicitly validate enter, active use, failure, exit, re-entry, scene change, and process cleanup. A happy-path pass is insufficient when state or hooks survive across modes.
+
+- Prefer the smallest design that preserves the verified invariant and fits existing ownership. Before adding a subsystem, prove why the current abstraction cannot support the requirement. Remove superseded experimental paths and reuse bounded build/test artifacts.
+
+- **Plate-comment newlines**: passing `\n` literally produces the text `\n` in the comment. Use actual multi-line strings.
+
+- **Register-only variables**: when `set_local_variable_type` fails for a register var, document via `set_decompiler_comment` PRE_COMMENT (`"nIterator: int - loop counter (register-only)"`). The completeness scorer excludes these.
+
+- **Struct access without a struct**: for raw `*(ptr+0x10)` access where no matching struct exists, add EOL comments at each access (`/* +0x10: flags */`) — satisfies the scorer without forcing struct creation.
+
+- `/run_script_inline`, `/run_ghidra_script`, and `run_script` may appear callable in the MCP `program` group. Project policy still forbids using them for Ghidra database edits unless the user explicitly overrides this rule. Use native MCP tools instead.
+
+- Ghidra snapshots dont seem to work at the moment so stay away from those mcp endpoints.
+
+- Soulcalibur VI’s Lux battle space uses X/Z as the ground plane and Y as vertical; convert to Unreal coordinates as UE(X,Y,Z) = Lux(X,Z,Y) × 100
+
+- NEVER IMPORT A SECOND COPY OF SOULCALIBUR into ghidra
+
+- My ssds have limited space be mindful of that.
+
+- Keep debugging, verification, and certification separate. Never use a long certification run to discover whether the basic mechanism works.
+
+- After a failure, do not rerun the same live test unless a specific fix, new instrumentation, or a new falsifiable hypothesis distinguishes it from the previous run.
+
+- Never repair deterministic divergence by importing, selecting, or merging one peer’s state into the other. Each peer must independently derive identical canonical state; disagreement is a failure.
+
+- Don't be afraid of improving tooling or testing tools. But be mindful if its really needed.
+
+
+
+## Skills available
+
+- `ghidra-doc-function` — full V5 doc workflow (classify → rename → type → comment → verify) for a single function
+
+- `ghidra-investigate-type` — discover/define a struct from generic-pointer parameters (`int*`/`void*`) and apply it across all callers
+
+
+
+
+
+`equivalence --include-setup --yield-every-tick --interior-pause --samples 120` passed the bounded tick-360 experiment for runtime `78f25642db219192545be9b25ff2983113df05e9c2e29dc9178e5c9989b069c2`, observer `cb42d18857e1d692bf6da5fdd9e49977803087d72afcd00531c1d9cfdc876d9c`, and framework `f5fe7c823d208a4b407106d3e0f47904464d3b0703a654901d1ff9efa02c8023`. A pending native manager task remained incomplete across 711 application updates and 58 render-side overlay frames over 1.000643 seconds; independent continuation matched native execution and the first 120 resumed ticks ran at 60.446 TPS. This short experiment leaves zero-tick intervals, move-state-3 traversals, and full-tail execution-gate coverage incomplete. These identities do not validate later binaries.
+
+
+
+`interior-probe` and `restore-probe` are bounded debugging stages, not correctness gates or substitutes for current native baseline/equivalence prerequisites. The initial restore experiment captures tick 360, advances its pending repeat to 361, restores, and independently compares a reproduced repeat before resuming the original task. Its first live run failed restoration and undo verification. Diagnostics isolated an invalid intermediate animation runtime; animation preflight now precedes native writes and its repair uses the enclosing transaction's complete undo. The fixed diagnostic passed for runtime `5dd51f47f273aee963e963afecf9a08b2cc90b3c47e1282a45dbfe1f0e84d99b` and observer `378aad480cc27a5c3d089d23498cbfb65665c94f6bb34ce3605d646fc51b1bd5`, with independent trial/reproduction agreement and component hashes in 3,722 us. A subsequent full native baseline, external interior equivalence and formal restore comparison passed for those exact binaries; formal restoration took 3,955 us. Post-detach legacy accounting errors were later found outside the comparison window and fixed in runtime 4d4cecbde273fbcd66015d9dc67e7f97a6ae7061197bec1f82dc852723c3bb7e; that fixed build subsequently passed fresh bootstrap/full baseline, formal interior equivalence and formal same-task restore (3,674 us), with clean captured tails. General restore and independent post-stop continuation remain unproven. See docs/investigations/replay-world-ownership.md for bounded evidence and limits. Failed probes must lead to a specific fix or new diagnostic before another live run. The runner temporarily removes and restores the overlay kill switch through its deployment journal. Rendered UI frames alone do not prove interactive controls, target presentation, or general window lifecycle. Process termination after an unrecoverable held-state failure is a development guard, not recoverable replay lifecycle evidence.

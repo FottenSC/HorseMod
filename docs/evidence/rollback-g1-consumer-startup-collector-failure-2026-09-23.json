@@ -1,0 +1,41 @@
+{
+  "scope": "third startup attempt; exit record produced but lost to collector missing json import before cleanup",
+  "run_id": "replay-fa01a22040bb482aaa160af7c9606480",
+  "failure": "name 'json' is not defined",
+  "process_exit": {
+    "code": 3,
+    "hex": "0x00000003",
+    "observed_before_owned_cleanup": true,
+    "pid": 54160
+  },
+  "cleanup": {
+    "complete": true,
+    "games_remaining": 0
+  },
+  "report": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\94f3ad88e18c445adf899d813f36710a1cd8a1b9a6b00eee1becbf5559dd1f1b.json",
+    "sha256": "94f3ad88e18c445adf899d813f36710a1cd8a1b9a6b00eee1becbf5559dd1f1b",
+    "bytes": 9188
+  },
+  "raw_log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d262a5886b690f22be66510df2c8e8987111425973b7367dea852651fd7dc960.log",
+    "sha256": "d262a5886b690f22be66510df2c8e8987111425973b7367dea852651fd7dc960",
+    "bytes": 67955
+  },
+  "stage": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\2e1ff1e5d331ca99546c8d213c6cfa2d8daccef98806467f1b8a4919a111861a.json",
+    "sha256": "2e1ff1e5d331ca99546c8d213c6cfa2d8daccef98806467f1b8a4919a111861a",
+    "bytes": 11597
+  },
+  "journal": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a7af68077490c4a9bf007826d467b48614314312c4a84924cf52382543c9babd.json",
+    "sha256": "a7af68077490c4a9bf007826d467b48614314312c4a84924cf52382543c9babd",
+    "bytes": 5490
+  },
+  "specific_fix": "Extracted collector reproduces NameError RED; import plus raw-before-parse preservation and nonmasking collection errors pass. Native binaries unchanged.",
+  "immutable": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0068456a890ea3132aeea572425bf8b859760fcf8f21046c30196fffc8f73653.json",
+    "sha256": "0068456a890ea3132aeea572425bf8b859760fcf8f21046c30196fffc8f73653",
+    "bytes": 1753
+  }
+}

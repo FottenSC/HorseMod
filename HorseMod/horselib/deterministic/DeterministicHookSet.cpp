@@ -1,9 +1,18 @@
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include "DeterministicHookSet.hpp"
+#include "NativeReplayVfxCompletionObservation.hpp"
 #include "Sc6HookLayout.hpp"
 
 #include "Schema.hpp"
+#include "ReplayDiagnosticTrace.hpp"
+#include "NativeReplayTraceStartDiagnostic.hpp"
 
 #include <Windows.h>
+#include <Unreal/UObject.hpp>
+#include <Unreal/UObjectArray.hpp>
+#include <Unreal/CoreUObject/UObject/Class.hpp>
 #include <polyhook2/Detour/x64Detour.hpp>
 
 #include <algorithm>
@@ -17,6 +26,13 @@ std::atomic<DeterministicHookSet*> DeterministicHookSet::active_{};
 std::atomic<std::uint32_t> DeterministicHookSet::callbacks_in_flight_{};
 std::atomic<std::uint64_t>
     DeterministicHookSet::frame_fencepost_trampoline_global_{};
+std::atomic<std::uint64_t>
+    DeterministicHookSet::tutorial_tick_trampoline_global_{};
+std::atomic<std::uint64_t>
+    DeterministicHookSet::input_producer_tick_trampoline_global_{};
+std::atomic<std::uint64_t> DeterministicHookSet::input_sample_trampoline_global_{};
+thread_local DeterministicHookSet::InputProducerCaptureContext*
+    DeterministicHookSet::active_input_producer_{};
 std::atomic<std::uint64_t>
     DeterministicHookSet::outer_tick_trampoline_global_{};
 std::atomic<std::uint64_t>

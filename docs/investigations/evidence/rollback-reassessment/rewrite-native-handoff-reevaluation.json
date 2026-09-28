@@ -1,0 +1,43 @@
+{
+  "result": "pass",
+  "certifying": false,
+  "scope": "native_replay_handoff_and_recorded_match_outcome",
+  "captures": [
+    {
+      "report": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\rewrite-initial-reset-consumed-stock.json",
+      "report_sha256": "5651fd270f9ac88cc04fa49e239b5c87a866f618c133619cc90f9bc4c3f7eb20",
+      "raw_log_sha256": "0c6bd9b5b10e8c4c8a2c489062c367f855faccf26b4ae3759d9c94b8becf9e43",
+      "payload_handoff": {
+        "battle_sha256": "c463f86206a402336b048a428f6af1bffff9fe04b57fa1b8cc55503384a15f48",
+        "recording_sha256": "f9a5c9ad9feff621b44761b5c0b254e74894fcbac915ccbee32f42c8b1b44205"
+      },
+      "cleanup": {
+        "complete": true,
+        "games_remaining": 0
+      },
+      "initial_snapshot": {
+        "scope": "cached_round_start_restore_fields",
+        "version": 1,
+        "raw_equal": false,
+        "motion_count": 0
+      }
+    },
+    {
+      "report": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\rewrite-recorded-outcome.json",
+      "report_sha256": "5355810692db9e50e4598cbc7035b1644bbee8939a177097ea87626652666bb7",
+      "raw_log_sha256": "91d1e5dba1c06cff1bfa4785d7ce5e44ff842832c6c49030e6585e064fa4efc4",
+      "payload_handoff": {
+        "battle_sha256": "c463f86206a402336b048a428f6af1bffff9fe04b57fa1b8cc55503384a15f48",
+        "recording_sha256": "f9a5c9ad9feff621b44761b5c0b254e74894fcbac915ccbee32f42c8b1b44205"
+      },
+      "cleanup": {
+        "deployment_restored": true,
+        "game_processes_remaining": 0
+      },
+      "recorded_outcome": {
+        "recorded_match_winner": 0,
+        "verification": "native_replay_summary_matches_simulated_result"
+      }
+    }
+  ]
+}

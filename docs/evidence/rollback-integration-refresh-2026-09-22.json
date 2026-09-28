@@ -1,0 +1,43 @@
+{
+  "red": {
+    "log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d739918d65b14fd009e751116e5a164366fb8fbb6dd7af71ff422ad0598164fa.log",
+      "sha256": "d739918d65b14fd009e751116e5a164366fb8fbb6dd7af71ff422ad0598164fa",
+      "bytes": 1746
+    },
+    "fixture": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9e85c566d5065f4074aac4a6fcbec7353c3817ea768f7f5333a1cebd9ad9148b.cpp",
+      "sha256": "9e85c566d5065f4074aac4a6fcbec7353c3817ea768f7f5333a1cebd9ad9148b",
+      "bytes": 14347
+    },
+    "test": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0991f70ebf47349c7cf6987c94bf4e2e53f2ab008d1a95fad3a7775e01f31839.py",
+      "sha256": "0991f70ebf47349c7cf6987c94bf4e2e53f2ab008d1a95fad3a7775e01f31839",
+      "bytes": 480666
+    }
+  },
+  "failure": "400 passed then stale extraction name ValidateDestructionEntry; production now DestructionEntryFailure with diagnostic counters. Update fixture to compile current production boundary; preserve PAGE_NOACCESS/death/GPU completion assertions.",
+  "focused_green": {
+    "log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\51b2f99402f3446f0d5c0b181b9ee9c5dd7ee9b3ec81ffabb67f036ac28e4b41.log",
+      "sha256": "51b2f99402f3446f0d5c0b181b9ee9c5dd7ee9b3ec81ffabb67f036ac28e4b41",
+      "bytes": 100
+    },
+    "fixture": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0259d35b2aa1c654cb2868197d49e19ee6e2d2bbf29f22d628206e21e20a5aba.cpp",
+      "sha256": "0259d35b2aa1c654cb2868197d49e19ee6e2d2bbf29f22d628206e21e20a5aba",
+      "bytes": 14492
+    },
+    "test": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\48e662602992ee94d5657251cdc52da9188111154be0ce673ab4c6a5bf586866.py",
+      "sha256": "48e662602992ee94d5657251cdc52da9188111154be0ce673ab4c6a5bf586866",
+      "bytes": 480716
+    }
+  },
+  "full_green": {
+    "bytes": 1487,
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4604d4d77e8a8b9884d15104021e6d392b21ed0c3089bca0c49e2b207c92f4c9.json",
+    "sha256": "4604d4d77e8a8b9884d15104021e6d392b21ed0c3089bca0c49e2b207c92f4c9"
+  },
+  "tests_passed": 550
+}

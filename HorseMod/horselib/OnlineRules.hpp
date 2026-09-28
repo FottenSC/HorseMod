@@ -185,18 +185,25 @@ namespace Horse
 
         void uninstall_hooks()
         {
-            if (m_slipout_runtime_hook_registered &&
-                !m_slipout_runtime_hook_path.empty())
+            // Process detach can occur after GUObjectArray storage is gone.
+            // This is an identity key only: never find or dereference that
+            // UFunction during retirement. Remove only our globally unique
+            // native callback IDs; UE4SS retains its mid-execution deferral.
+            if (m_slipout_runtime_hook_function)
             {
-                RC::Unreal::UObjectGlobals::UnregisterHook(
-                    m_slipout_runtime_hook_path, m_slipout_runtime_hook_ids);
-                RC::Output::send<RC::LogLevel::Verbose>(
-                    STR("[OnlineRules] dtor unregistered IsSlipEnabled hook "
-                        "pre={} post={}\n"),
-                    m_slipout_runtime_hook_ids.first,
-                    m_slipout_runtime_hook_ids.second);
-                m_slipout_runtime_hook_registered = false;
+                auto& registry = RC::Unreal::Internal::GetHookedFunctionsMap();
+                const auto entry = registry.find(m_slipout_runtime_hook_function);
+                if (entry != registry.end())
+                {
+                    if (m_slipout_runtime_hook_ids.first)
+                        entry->second.RemoveCallback(m_slipout_runtime_hook_ids.first);
+                    if (m_slipout_runtime_hook_ids.second)
+                        entry->second.RemoveCallback(m_slipout_runtime_hook_ids.second);
+                }
             }
+            m_slipout_runtime_hook_function = nullptr;
+            m_slipout_runtime_hook_ids = {};
+            m_slipout_runtime_hook_registered = false;
         }
 
     private:
@@ -274,20 +281,25 @@ namespace Horse
                     }
                 };
 
-            // RegisterHook can throw std::runtime_error if the resolved
-            // UFunction isn't a hookable shape (UObjectGlobals.cpp:855
-            // throws on FUNC_Native + non-ProcessInternal mismatch).
-            // Pre-validation above only guards the not-loaded-yet case;
-            // the throw path needs explicit handling so an unexpected
-            // engine-version skew doesn't tear down the mod via an
-            // uncaught DLL-boundary exception.
+            // This safety net is a native UFunction hook. Keep native IDs so
+            // teardown can remove callbacks without an object-array lookup.
+            if (!fn->GetFunc()
+                || fn->GetFunc() == UObject::ProcessInternalInternal.get_function_address()
+                || !fn->HasAnyFunctionFlags(EFunctionFlags::FUNC_Native))
+            {
+                Output::send<LogLevel::Warning>(STR("[OnlineRules] IsSlipEnabled is not the supported native hook shape\n"));
+                m_slipout_runtime_hook_registered = true;
+                return;
+            }
             try
             {
-                m_slipout_runtime_hook_ids = UObjectGlobals::RegisterHook(
-                    m_slipout_runtime_hook_path, pre_cb, post_cb, nullptr);
+                m_slipout_runtime_hook_function = fn;
+                m_slipout_runtime_hook_ids.first = fn->RegisterPreHook(pre_cb, nullptr);
+                m_slipout_runtime_hook_ids.second = fn->RegisterPostHook(post_cb, nullptr);
             }
             catch (const std::exception& e)
             {
+                uninstall_hooks(); // Also retires a successfully installed pre-hook if post registration throws.
                 Output::send<LogLevel::Error>(
                     STR("[OnlineRules] IsSlipEnabled RegisterHook threw: {}\n"),
                     RC::to_generic_string(e.what()));
@@ -297,15 +309,12 @@ namespace Horse
                 m_slipout_runtime_hook_registered = true;
                 return;
             }
-            // (0,0) is the only sentinel UE4SS uses to signal a
-            // silent-no-op in the global-script-hook path; treat as
-            // failure and don't mark registered so we can retry later.
-            if (m_slipout_runtime_hook_ids.first == 0
-                && m_slipout_runtime_hook_ids.second == 0)
+            // Native callback IDs are nonzero and globally unique. Never
+            // retain an incomplete pair as a successfully installed hook.
+            if (!m_slipout_runtime_hook_ids.first || !m_slipout_runtime_hook_ids.second)
             {
-                Output::send<LogLevel::Warning>(
-                    STR("[OnlineRules] IsSlipEnabled RegisterHook returned "
-                        "(0,0) — treating as failure.\n"));
+                uninstall_hooks();
+                Output::send<LogLevel::Warning>(STR("[OnlineRules] native callback registration returned an incomplete pair\n"));
                 return;
             }
             m_slipout_runtime_hook_registered = true;
@@ -321,6 +330,7 @@ namespace Horse
         std::atomic<HorsePolicy>           m_policy {HorsePolicy::Vanilla};
 
         // SlipOut runtime safety net.
+        RC::Unreal::UFunction*              m_slipout_runtime_hook_function = nullptr;
         bool                               m_slipout_runtime_hook_registered = false;
         std::pair<int32_t, int32_t>        m_slipout_runtime_hook_ids{};
         std::wstring                       m_slipout_runtime_hook_path;

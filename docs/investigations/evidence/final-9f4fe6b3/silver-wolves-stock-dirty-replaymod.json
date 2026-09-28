@@ -1,0 +1,154 @@
+{
+  "artifacts": {
+    "config": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\rollback.ini",
+      "sha256": "22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514"
+    },
+    "config_fields": {
+      "config_version": "1",
+      "correction_probe": "false",
+      "enabled": "false",
+      "forced_depth7_qualification": "false",
+      "input_delay": "1",
+      "qualification_depth": "7",
+      "qualification_location": "2",
+      "rollback_window": "12",
+      "trace": "false"
+    },
+    "game_executable": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\SoulcaliburVI.exe",
+      "sha256": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553"
+    },
+    "generated_schema": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\generated\\deterministic_contract.json",
+      "sha256": "14328dd85210934d2e16db6880aea22fe3f0976b9e4d6476a5fa6c0ba415017e"
+    },
+    "horsemod_dll": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll",
+      "sha256": "e796aa643e8f6df26c1f624b493019ac095dde553c6df2e99502aa6c1da4d5fa"
+    },
+    "horsemod_dll_sha256": "e796aa643e8f6df26c1f624b493019ac095dde553c6df2e99502aa6c1da4d5fa",
+    "replay": {
+      "path": "E:\\myMods\\ReplayExample\\REPLAY_10224262924037108963.bin",
+      "sha256": "c30f1368c918188c87127db1411aa5466d1b39d91e60ca0d658a0da79b5e3a41"
+    },
+    "replay_qualification_mod": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\ReplayQualificationMod.dll",
+      "sha256": "f69010185e75ba0a0dc06d5a99266b8adc6404aa007bf6dab03eec04d65a2ef9"
+    },
+    "runner_sha256": "a2a650e62218ef8e5b1ebe6992b3a88528a6d5c6b818b4e0847e4b498fb50b75",
+    "schema_sha256": "14328dd85210934d2e16db6880aea22fe3f0976b9e4d6476a5fa6c0ba415017e",
+    "stock_outcome_control": null
+  },
+  "case_id": "astaroth-raphael-silver-wolves-haven",
+  "certifying": false,
+  "created_utc": "2026-08-30T00:00:46.429235+00:00",
+  "display_map_name": "Silver Wolves' Haven",
+  "kind": "replay_entry_probe",
+  "reason": "native replay import, stock launch request, and bounded normal-play frame observation",
+  "renderer": "normal",
+  "report_schema": 2,
+  "result": "pass",
+  "row_id": "astaroth-raphael-silver-wolves-haven__baseline",
+  "runtime": {
+    "aggregate_owned_bytes": null,
+    "authored_outcomes_required": false,
+    "canonical_convergence": "exact",
+    "capacity_failures": null,
+    "capacity_growth_events": null,
+    "clean_exit": true,
+    "clean_exit_requested": true,
+    "consecutive_corrections": 0,
+    "correction_probes": [],
+    "corrections": 0,
+    "depth": 0,
+    "final_canonical": null,
+    "forced_depth7": null,
+    "frame_fencepost_observed": false,
+    "gameplay_rng_coverage": null,
+    "graceful_exit_observed": true,
+    "horsemod_version": null,
+    "launch_requested": true,
+    "location": null,
+    "min_resume_tick_rate": 58.0,
+    "native_replay_import_ready": null,
+    "performance": {
+      "active_battle_elapsed_us": 1985824,
+      "active_battle_fps": 60.428,
+      "active_battle_frames": 120,
+      "active_battle_tick_rate": 60.428,
+      "capture_max_us": 0,
+      "capture_p99_us": 0,
+      "correction_max_us": 0,
+      "correction_p99_us": 0,
+      "normal_render_elapsed_us": 9985553,
+      "normal_render_fps": 60.086,
+      "normal_render_frames": 600,
+      "normal_render_tick_rate": 60.086
+    },
+    "presentation": {
+      "ephemeral_exactly_once": false,
+      "identity": null,
+      "leaks": 0,
+      "ordered_audio_payload_ids": false,
+      "persistent_final_exact": false,
+      "required_activity": 0,
+      "terminal_coverage": "not_applicable"
+    },
+    "presentation_duplicate_failures": null,
+    "presentation_owned_bytes": null,
+    "presentation_publish_failures": null,
+    "presentation_source_coverage": null,
+    "process_absent_after_exit": true,
+    "reentry": false,
+    "replay_metadata": {
+      "left_character": 12,
+      "map": 17,
+      "right_character": 14,
+      "stage": 273,
+      "state_reset_records": 4
+    },
+    "reported_source_commit": "9f4fe6b37adb32dc59d656b8c3190d8d18443a18",
+    "resume_tick_window": 120,
+    "run_id": "483d9aa91d1446419fbc323bbcd2e0c1",
+    "seek_percentages": [],
+    "seeks": [],
+    "stage_terminal": null,
+    "stock_round_outcome": {
+      "match_winner": 0,
+      "round_winners": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "rounds": 4,
+      "source_commit": "9f4fe6b37adb32dc59d656b8c3190d8d18443a18"
+    },
+    "temporary_mod_removed": true,
+    "timeline_accounting_failures": null,
+    "watch_frames": 600
+  },
+  "source": {
+    "commit": "9f4fe6b37adb32dc59d656b8c3190d8d18443a18",
+    "dirty": true,
+    "status_porcelain_v2": [
+      "1 .M N... 100644 100644 100644 92140153cecf58fe9e82bfc1234508e0b6d3f075 92140153cecf58fe9e82bfc1234508e0b6d3f075 tools/deterministic_qualification/offline_campaign.py",
+      "1 .M N... 100644 100644 100644 f095c0aa683455a2fd0a0589da3ce7047493a979 f095c0aa683455a2fd0a0589da3ce7047493a979 tools/replay_qualification_mod/ReplayQualificationMod.cpp"
+    ],
+    "submodules": [
+      "f21698d85367c8d97585cf7610897316c873681c third_party/GekkoNet (v20260629200724-02c447c-6-gf21698d)",
+      " 6b3fd8a175f1e164eb1bd1be6f766f48b980f7c0 tools/BlueprintToCpp (heads/codex/pre-rollback-rewrite-snapshot-20260823)",
+      " 75f3878b7a348cbda3927048b142a0a6923e79c0 tools/BlueprintToCpp/CUE4Parse (v1.2.2-719-g75f3878b)",
+      " 414689d5cff4286a7898487a46dc5e48005d38da tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl (v2.1.0)",
+      " 0d98dba29d66e93259db7daa53a9327df767a415 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/benchmark (v1.6.1)",
+      " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/catch2 (v2.13.7)",
+      " d7982f2b2524feeb322f424b29cf43df30b5d5b7 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm (v2.2.0)",
+      " 0d98dba29d66e93259db7daa53a9327df767a415 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm/external/benchmark (v1.6.1)",
+      " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm/external/catch2 (v2.13.7)",
+      " 54b3985e8ccc5efb5f24dabf0b4b802a996366e6 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/sjson-cpp (v0.9.0)",
+      " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/sjson-cpp/external/catch2 (v2.13.7)"
+    ]
+  },
+  "stage_package_root": "/Game/DLC/07/Stage/STG011_R"
+}

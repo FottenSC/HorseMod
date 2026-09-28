@@ -1,0 +1,15 @@
+# G1 PhysX scene wait: named-thread pump counterexample (2026-09-24)
+
+Read-only investigation in the existing `SoulcaliburVI.exe` Ghidra program. This follows the specific wait used by scene teardown; it is not a live overlap observation and makes no recovery claim.
+
+`14202DE80` collects scene `+0x160` and each scene type's `+0x130/+0x148` graph events. It calls the task-graph singleton's virtual `+0x48` with that event array and thread selector 2. `140D180F0` publishes that singleton and its `1434B1F20` vtable; `+0x48` resolves to `140D37EB0`. Scene destruction `14200D940` calls `14202DE80` before shutdown broadcast `142028E90`, which unregisters vehicle callbacks.
+
+`140D37EB0` selects a named-thread path using virtual `+0x60`. Its named-thread target at `140D291D0` has raw bytes `4863c24869d0b803000083bc0ae0030000000f95c0c3`, which test the thread's `+0x3E0` processing count; the worker target at `140D291F0` tests `+0x40`. These tiny targets are not currently defined as functions in Ghidra, so this is a bounded byte-level interpretation. The actual processing count at each destructor call was not observed.
+
+When the named-thread predicate permits pumping, `140D37EB0` creates a return task through `140D20770`, dispatches it through `140D34970`, then invokes named-thread virtual `+0x30 = 140D2D160`. That function loops through `140D2CED0` until a return flag. `140D2CED0` tries both general-priority queues through `140D2B9F0` and invokes each popped task's virtual `+0x8` without filtering it against the scene wait's event list or the return task. The worker pump `140D2CC80` has the same general queue-pop/virtual-invoke shape. Another `140D37EB0` branch creates a sync event, schedules a task through `140D372B0` and waits through that event; the exact branch at the destructor caller remains unobserved.
+
+This is a concrete counterexample to treating the wait implementation as an intrinsically restricted, writer-free barrier. It does not prove that scene startup/shutdown or a callback writer actually reentered in the selected phase. The valid selected live sidecar had 4,995 complete pairs on one thread, depth one and zero same-scene overlap, with explicit scope `observer_admission_to_trajectory_completion`.
+
+The existing permanent mod hook owns native queue-pop RVA `0xD2B9F0`, while `Sc6ReplayTaskGroup::DispatchTask` performs mod admission only for tasks popped by its own pump. The native `140D2D160 → 140D2CED0` pump invokes the popped task directly. The queue-pop hook's pre/post checks do not convert that native dispatch into an owned scene/event recovery protocol.
+
+The next exact check is the actual `+0x60` predicate at scene replacement/destruction callers, followed by event dependency closure from initial and repeat substep tasks through final callback return. Registration/removal and owner free still require synchronized writer exclusion. Even a favorable wait branch cannot make site11 recoverable after active/event publication without a disposition for the enclosing tick and its dependent work. Site11 remains terminal containment; G1/G2 remain open.

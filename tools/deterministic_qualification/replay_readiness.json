@@ -1,0 +1,149 @@
+{
+  "schema": 1,
+  "gates": {
+    "G0": {
+      "checks": [
+        "build.source_qualified",
+        "integration.native",
+        "cleanup.deployment"
+      ],
+      "relevant_stages": [
+        "build",
+        "local"
+      ]
+    },
+    "G1": {
+      "checks": [
+        "policy.consumer_boundary",
+        "policy.negative_feedback"
+      ],
+      "relevant_stages": [
+        "combat-restore"
+      ],
+      "profile_contains": [
+        "g1",
+        "cancel-after"
+      ]
+    },
+    "G2": {
+      "checks": [
+        "transaction.617_624",
+        "simulation.continuation",
+        "coherence.scene",
+        "cleanup.deployment"
+      ],
+      "relevant_stages": [
+        "combat-restore"
+      ],
+      "profile_contains": [
+        "617"
+      ]
+    },
+    "G3": {
+      "checks": [
+        "integration.full"
+      ],
+      "relevant_stages": [
+        "local"
+      ]
+    },
+    "G4": {
+      "checks": [
+        "rolling.30",
+        "simulation.continuation",
+        "coherence.scene"
+      ],
+      "relevant_stages": [
+        "combat-restore"
+      ],
+      "profile_contains": [
+        "rolling30"
+      ]
+    },
+    "G5": {
+      "checks": [
+        "rolling.600.unchanged",
+        "rolling.600.changed",
+        "simulation.continuation"
+      ],
+      "relevant_stages": [
+        "combat-restore"
+      ],
+      "profile_contains": [
+        "rolling600"
+      ]
+    },
+    "G6": {
+      "checks": [
+        "corrections.birth_death",
+        "corrections.revision_invalidation"
+      ],
+      "relevant_stages": [
+        "combat-restore"
+      ],
+      "profile_contains": [
+        "changed-"
+      ]
+    },
+    "G7": {
+      "checks": [
+        "recovery.matrix",
+        "recovery.independent_continuation"
+      ],
+      "relevant_stages": [
+        "combat-restore"
+      ],
+      "profile_contains": [
+        "cancel-"
+      ]
+    },
+    "G8": {
+      "checks": [
+        "epoch.reset",
+        "epoch.native_reload"
+      ],
+      "relevant_stages": [
+        "combat-restore"
+      ],
+      "profile_contains": [
+        "epoch",
+        "reset"
+      ]
+    },
+    "G9": {
+      "checks": [
+        "coherence.scene",
+        "ownership.complete_accounting",
+        "performance.full_update",
+        "ownership.bounded_retirement"
+      ],
+      "relevant_stages": [
+        "combat-restore"
+      ]
+    },
+    "G10": {
+      "checks": [
+        "adapter.local_input",
+        "adapter.frame_mapping",
+        "adapter.support_matrix"
+      ],
+      "relevant_stages": [
+        "combat-restore"
+      ]
+    }
+  },
+  "blockers": [
+    {
+      "id": "g1.lease_before_effects",
+      "gates": ["G1"],
+      "description": "Positive lease and before-effects ownership proof remains unresolved.",
+      "resolving_experiment": null,
+      "prerequisites": ["Verified native owner and recoverable admission boundary"],
+      "rationale": "Correlation and zero-hit captures do not establish an ownership contract."
+    }
+  ],
+  "next_experiment": {
+    "result": "undefined",
+    "reason": "G1 trace lease and before-effects recovery remain unresolved; no validated resolving profile is established."
+  }
+}

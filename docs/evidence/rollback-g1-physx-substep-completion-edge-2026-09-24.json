@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "date": "2026-09-24",
+  "scope": "bounded static PhysX substep completion edge and Astra high no-go",
+  "files": {
+    "native_edge": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e69c275dad671782dfa24965d0c855b833842fd8e304de5923ef5e6961ccf177.md",
+      "sha256": "e69c275dad671782dfa24965d0c855b833842fd8e304de5923ef5e6961ccf177",
+      "bytes": 2392
+    },
+    "astra_assessment": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\559a944abef1494e7dafa23de98fcc611a23fb310d85cce1e7ef29ef36e7502b.txt",
+      "sha256": "559a944abef1494e7dafa23de98fcc611a23fb310d85cce1e7ef29ef36e7502b",
+      "bytes": 2734
+    },
+    "astra_events": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f8a36e66368f162728eccc2ec1723140aebca7dd13bac5196ac5ebd4e364a32b.log",
+      "sha256": "f8a36e66368f162728eccc2ec1723140aebca7dd13bac5196ac5ebd4e364a32b",
+      "bytes": 523362
+    }
+  },
+  "code_changed": false,
+  "tests_or_live_this_audit": false,
+  "selected_phase_reference": "docs/evidence/rollback-g1-physx-callback-observation-2026-09-24.json",
+  "exact_unresolved_edge": "0x40 completion task +0x20 calls object returned by native scene virtual+0x318 at its virtual+0x90; invocation of task+0x30 and scene+0x130 graph-event completion remain unproved",
+  "next_resolving_test": "Resolve concrete native +0x318 returned object and +0x90 implementation, then trace task+0x30 to event completion without equating release/submission with completion."
+}

@@ -1,0 +1,43 @@
+{
+  "red": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b73a1aab9d7074c75d885d82135c4638389f19dad8c8aa161e566d446e746c44.log",
+    "sha256": "b73a1aab9d7074c75d885d82135c4638389f19dad8c8aa161e566d446e746c44",
+    "bytes": 3207
+  },
+  "red_source": {
+    "manifest_sha256": "4b21d96838afce3d60a9a3f6d0cb95c59aff651e2b24966bea8db485f66869f4",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-4b21d96838afce3d60a9a3f6d0cb95c59aff651e2b24966bea8db485f66869f4.zip",
+    "archive_sha256": "9f397dac929da5fd169b0bb782418a0f8ac0764aa7e262eb1d0ddaaa905c098b",
+    "files": 16570,
+    "uncompressed_bytes": 92322098,
+    "reconstructible": true
+  },
+  "scope": "Reject unknown raw ring callback, changed native dispatch and active auxiliary branch in the existing ring-only phase2 admission; no callback suppression and no motion exclusion.",
+  "green": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\91cf13b976137e8c46782bf4152f4f16d261efca978b06a31a31b284a6ff8c3d.log",
+    "sha256": "91cf13b976137e8c46782bf4152f4f16d261efca978b06a31a31b284a6ff8c3d",
+    "bytes": 100
+  },
+  "native_evidence": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6847eb20b571601b058ae6e55917ababda1c4d1e26997bbc92c54afdefae737d.json",
+    "sha256": "6847eb20b571601b058ae6e55917ababda1c4d1e26997bbc92c54afdefae737d",
+    "bytes": 10083
+  },
+  "required_build_native": {
+    "ground-root-callback-build-20260922.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\312d3f18fc5ef6b881e607c2454c4cf2e84d34f8bc06ba696b40ff17687c2003.log",
+      "sha256": "312d3f18fc5ef6b881e607c2454c4cf2e84d34f8bc06ba696b40ff17687c2003",
+      "bytes": 335
+    },
+    "build-stage.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\65cf0eb54a149116aa853511b7b8b56bf1dd76ae79282a6ebabc96968c5e737d.json",
+      "sha256": "65cf0eb54a149116aa853511b7b8b56bf1dd76ae79282a6ebabc96968c5e737d",
+      "bytes": 6239
+    },
+    "build-provenance.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7fceae31af359b4adbb1d3a99a2893d892944448e16e06ce4e9d5382eba10ae3.json",
+      "sha256": "7fceae31af359b4adbb1d3a99a2893d892944448e16e06ce4e9d5382eba10ae3",
+      "bytes": 2373
+    }
+  }
+}

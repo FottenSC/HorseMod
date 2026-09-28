@@ -1,9 +1,11 @@
 #pragma once
+#include "Sc6ReplayExecutor.hpp"
+#include "Sc6ReplayHost.hpp"
 
 #include "Types.hpp"
-#include "AuthoritativeInputGate.hpp"
 #include "BattleAudioSelectorState.hpp"
 #include "FloatingPointEnvironment.hpp"
+#include "InputProducer.hpp"
 #include "NativeBatchTimeline.hpp"
 #include "StageBreakPresentationIdentity.hpp"
 #include "StagePresentation.hpp"
@@ -48,10 +50,6 @@ struct FrameFencepostObservation
     std::uint32_t input_filter_invocations{};
     bool input_filter_observed{};
     bool source_rows_observed{};
-    bool authoritative_input_requested{};
-    bool authoritative_input_applied{};
-    bool authoritative_input_round_barrier{};
-    bool authoritative_input_failed_closed{};
 };
 
 struct ReplayExitObservation
@@ -66,10 +64,12 @@ struct OuterTickState
     std::uint32_t frame_counter{};
     std::int32_t input_game_round{};
     std::int32_t input_game_time{};
+    std::uint32_t input_update_time{}; // Hold-only native producer witness (+0x3AC).
     std::int32_t manager_game_round_cursor{};
     std::uint32_t manager_game_time_cursor{};
     std::uint8_t main_state{};
     std::uint8_t round_state{};
+    friend bool operator==(const OuterTickState&, const OuterTickState&) = default;
 };
 
 struct OuterTickObservation
@@ -217,13 +217,6 @@ struct OuterTickObservation
     // execution. Ordinary gameplay envelopes always leave this zero.
     std::uint8_t qualification_stage_terminal_mask{};
     std::uint16_t read_mask{};
-    bool authoritative_input_requested{};
-    bool authoritative_input_applied{};
-    bool authoritative_input_round_barrier{};
-    bool authoritative_input_failed_closed{};
-    // Set only when the live outer tick was unwound before any native input
-    // consumer could run. This is distinct from a post-frame failure.
-    bool authoritative_input_aborted_before_consume{};
     std::uint32_t input_filter_invocations{};
     bool input_filter_observed{};
     bool outer_capture_context_preserved{};
@@ -243,6 +236,12 @@ using ReplayExitCallback = void (*)(
 using OuterTickCallback = void (*)(
     void* user,
     const OuterTickObservation& observation) noexcept;
+// False rejects this invocation before native manager work starts. The
+// callback owns failure reporting/teardown; this is not a retryable hold and
+// must not publish a completed batch for work that never ran.
+using OuterTickPrepareCallback = bool (*)(
+    void* user,
+    const OuterTickObservation& observation) noexcept;
 
 inline void DispatchCompletedOuterTick(
     void* user, OuterTickCallback callback,
@@ -251,19 +250,11 @@ inline void DispatchCompletedOuterTick(
     if (callback != nullptr) callback(user, observation);
 }
 
-using AuthoritativeInputCallback = AuthoritativeInputDisposition (*)(
-    void* user,
-    const OuterTickObservation& observation,
-    bool stock_valid,
-    const PlayerInput (&stock)[2],
-    PlayerInput (&authoritative)[2]) noexcept;
-using AuthoritativeInputCommitCallback = bool (*)(void* user) noexcept;
-
 struct DeterministicHookCallbacks
 {
     void* user{};
     FrameFencepostCallback frame_fencepost{};
-    OuterTickCallback outer_tick_prepare{};
+    OuterTickPrepareCallback outer_tick_prepare{};
     OuterTickCallback outer_tick_begin{};
     // Runs after active_outer_capture_ is published and before the stock
     // battle tick. Qualification-only source events must enter here so their
@@ -271,8 +262,13 @@ struct DeterministicHookCallbacks
     OuterTickCallback outer_tick_source{};
     OuterTickCallback outer_tick{};
     ReplayExitCallback replay_exit{};
-    AuthoritativeInputCallback authoritative_input{};
-    AuthoritativeInputCommitCallback authoritative_input_commit{};
+    bool (*outer_tick_hold)(void* user) noexcept {};
+    void (*tutorial_tick)(void* user,
+        const TutorialConsumerObservation& observation) noexcept {};
+    bool (*input_producer_hold)(void* user) noexcept {};
+    void (*input_producer_tick)(void* user,
+        const InputProducerObservation& observation) noexcept {};
+    std::size_t (*companion_replay_storage)(void* user) noexcept {};
 };
 
 using OwnedBatchLandingCaptureFn = Status (*)(
@@ -301,6 +297,7 @@ struct OwnedBatchReplayRequest
     void* coordinate_capture_user{};
     OwnedBatchCoordinateCaptureFn capture_coordinate{};
     bool suppress_ephemeral_presentation{};
+    bool native_input_producer{};
     OwnedBatchPresentationMode presentation_mode{
         OwnedBatchPresentationMode::VerifyRecorded};
 };
@@ -407,6 +404,11 @@ struct OwnedBatchReplayResult
 class DeterministicHookSet final
 {
 public:
+    static bool CaptureTutorialParentGuard(void* actor, std::uintptr_t image_base,
+        TutorialParentGuard& output, std::uintptr_t cached_receive_tick = 0) noexcept;
+    Status ReplayInputProducer(const InputProducerObservation& expected,
+        std::uintptr_t replay_source_owner) noexcept;
+
     DeterministicHookSet() noexcept = default;
     ~DeterministicHookSet();
 
@@ -417,9 +419,24 @@ public:
         std::uintptr_t image_base,
         DeterministicHookCallbacks callbacks,
         UcrtRandBroker* ucrt_broker = nullptr);
-    void Uninstall() noexcept;
+    bool Uninstall() noexcept;
 
     [[nodiscard]] bool installed() const noexcept;
+    static bool SetReplayExecutorEnabled(bool enabled, bool yield_every_tick, void* manager) noexcept;
+    static bool ReadReplayExecutorStatus(std::uint64_t* values, std::size_t count) noexcept;
+    static bool SetReplayWorldPaused(bool paused) noexcept;
+    static bool ArmReplayInteriorPause(std::uint64_t tick, void* context, Sc6ReplayHost::InteriorObserver observer) noexcept;
+    static bool ArmReplayApplicationPause(std::uint64_t tick, void* context, Sc6ReplayHost::InteriorObserver observer) noexcept;
+    static bool ReadReplayInteriorWitness(Sc6ReplayHost::InteriorWitness* witness) noexcept;
+    static Status CaptureReplayCheckpoint(Sc6ReplayHost::Checkpoint* checkpoint) noexcept;
+    static Status RestoreReplayCheckpoint(const Sc6ReplayHost::Checkpoint* checkpoint,
+        const Sc6ReplayHost::RestoreControl* control = nullptr) noexcept;
+    static Status AdvanceReplayToTick(std::uint64_t tick) noexcept;
+    static Status ReviseReplayInputs(std::span<const ReplayInputOverride> edits,std::uint64_t expected,std::uint64_t& revision) noexcept;
+    static Sc6ReplayHost::TickAdvanceWitness ReadReplayTick() noexcept;
+    static Sc6ReplayHost::TickAdvanceWitness RequestReplayTick(std::uint64_t tick, void* context, Sc6ReplayHost::InteriorObserver observer) noexcept;
+    static Status ResumeReplayExecution() noexcept;
+    static bool ReadReplayHostStatus(std::uint64_t* values, std::size_t count) noexcept;
     [[nodiscard]] static std::uintptr_t ObservedBattleAudioHandler(
         std::size_t index) noexcept;
     [[nodiscard]] static bool BattleAudioHandlerOverflowed() noexcept;
@@ -451,8 +468,18 @@ public:
         const StagePresentationValue& value) noexcept;
     [[nodiscard]] std::uint32_t PresentationCommitGuardMask() const noexcept;
     Status ArmPresentationCaptureForNextOuterTick() noexcept;
+    Status ReadOnlineHandoffState(void* manager, OuterTickState& state) noexcept;
 
 private:
+    Sc6ReplayExecutor replay_executor_{};
+    Sc6ReplayHost replay_host_{};
+    bool replay_executor_enabled_{};
+    // Selection survives Stop: legacy accounting cannot resume after missing
+    // the intervals owned by the resumable executor. Reset only at teardown.
+    bool replay_executor_selected_{};
+    bool replay_executor_yield_every_tick_{};
+    void* replay_executor_manager_{};
+    FailureCode replay_executor_failure_{FailureCode::None};
     struct OwnedBatchExecution
     {
         const OwnedBatchReplayRequest* request{};
@@ -555,12 +582,21 @@ private:
     using ResolvedHitConsumerFn = void (__fastcall*)();
 
     static void __fastcall FrameFencepostDetour(void* battle_manager) noexcept;
+    static void __fastcall TutorialTickDetour(void* actor, float delta_seconds) noexcept;
+    static void __fastcall InputProducerTickDetour(void* actor,
+        float delta_seconds) noexcept;
+    static std::uint32_t __fastcall InputSampleDetour(void* input_log,
+        std::int32_t slot) noexcept;
+    struct InputProducerCaptureContext
+    {
+        InputProducerObservation* observation{};
+        const InputProducerObservation* replay{};
+        bool failed{};
+    };
+    static thread_local InputProducerCaptureContext* active_input_producer_;
     static void __fastcall OuterTickDetour(
         void* battle_manager, float delta_seconds) noexcept;
-    static bool InvokeOuterTickWithAbortGuard(
-        OuterTickFn original, void* battle_manager,
-        float delta_seconds) noexcept;
-    [[noreturn]] static void AbortActiveOuterTick() noexcept;
+    void ExecuteReplayInterval(void* battle_manager, float delta_seconds) noexcept;
     static void __fastcall ReplayPostTickDetour(void* replay_state) noexcept;
     static void __fastcall CallbackExecutorDetour(
         void* collection, void* callback_argument) noexcept;
@@ -665,7 +701,7 @@ private:
         const NativeBatchEnvelope& envelope,
         bool before) const noexcept;
     bool InstallUcrtIatHooks() noexcept;
-    void UninstallUcrtIatHooks() noexcept;
+    bool UninstallUcrtIatHooks() noexcept;
     [[nodiscard]] bool ValidateInstallationSignatures(
         std::uintptr_t image_base) const noexcept;
     bool InstallDetour(std::unique_ptr<PLH::x64Detour>& storage,
@@ -735,6 +771,9 @@ private:
     static std::atomic<DeterministicHookSet*> active_;
     static std::atomic<std::uint32_t> callbacks_in_flight_;
     static std::atomic<std::uint64_t> frame_fencepost_trampoline_global_;
+    static std::atomic<std::uint64_t> tutorial_tick_trampoline_global_;
+    static std::atomic<std::uint64_t> input_producer_tick_trampoline_global_;
+    static std::atomic<std::uint64_t> input_sample_trampoline_global_;
     static std::atomic<std::uint64_t> outer_tick_trampoline_global_;
     static std::atomic<std::uint64_t> replay_post_tick_trampoline_global_;
     static std::atomic<std::uint64_t> callback_executor_trampoline_global_;
@@ -826,6 +865,9 @@ private:
 
     std::unique_ptr<PLH::x64Detour> frame_fencepost_detour_{};
     std::unique_ptr<PLH::x64Detour> replay_post_tick_detour_{};
+    std::unique_ptr<PLH::x64Detour> tutorial_tick_detour_{};
+    std::unique_ptr<PLH::x64Detour> input_producer_tick_detour_{};
+    std::unique_ptr<PLH::x64Detour> input_sample_detour_{};
     std::unique_ptr<PLH::x64Detour> outer_tick_detour_{};
     std::unique_ptr<PLH::x64Detour> callback_executor_detour_{};
     std::unique_ptr<PLH::x64Detour> stage_break_wall_detour_{};
@@ -854,6 +896,9 @@ private:
     std::unique_ptr<PLH::x64Detour> resolved_hit_consumer_detour_{};
     std::uint64_t frame_fencepost_trampoline_{};
     std::uint64_t replay_post_tick_trampoline_{};
+    std::uint64_t tutorial_tick_trampoline_{};
+    std::uint64_t input_producer_tick_trampoline_{};
+    std::uint64_t input_sample_trampoline_{};
     std::uint64_t outer_tick_trampoline_{};
     std::uint64_t callback_executor_trampoline_{};
     std::uint64_t stage_break_wall_trampoline_{};
@@ -884,6 +929,7 @@ private:
     std::uintptr_t image_base_{};
     std::uintptr_t rand_iat_slot_{};
     std::uintptr_t srand_iat_slot_{};
+    std::array<std::uint32_t,2> iat_retirement_protection_{};
     UcrtRandFn original_rand_{};
     UcrtSrandFn original_srand_{};
     UcrtRandBroker* ucrt_broker_{};

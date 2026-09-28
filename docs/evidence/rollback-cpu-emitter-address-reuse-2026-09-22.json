@@ -1,0 +1,36 @@
+{
+  "failure_manifest": "da2b13013bc75b1115e34b92eabbcc7f3aa03d1b2bcd07c22c1434faf6e7cb53",
+  "native_evidence": {
+    "sprite_deleting_destructor": "141F908C0",
+    "verified_name": "DeleteCpuSpriteParticleEmitter",
+    "entry_vtable": "143949B60",
+    "cleanup": "141F8F9E0",
+    "deletion": "UE_FMemory_Free(root) if flags bit0; returns original root",
+    "annotation_verified_and_saved": true
+  },
+  "observations": [
+    {
+      "tick": 462,
+      "component": "22ac757a6c0",
+      "emitter": "22ac7432400",
+      "slot": 3,
+      "template": "Eff_Sc6_Battle_Hit_03_S:ParticleSpriteEmitter_22",
+      "native_destructor_returned": true,
+      "slot_cleared": true
+    },
+    {
+      "tick": 468,
+      "component": "22ac7820100",
+      "emitter": "22ac7432400",
+      "slot": 0,
+      "template": "Eff_Sc6_Battle_Grdi_Start:ParticleSpriteEmitter_0",
+      "native_destructor_returned": true,
+      "slot_cleared": true
+    }
+  ],
+  "producer_defect": "NativeDestruction matches only root address even for terminal Destroyed owners; later reuse changes their state to Invalid.",
+  "red_receipt_sha256": "3b1547b64fe6bdd47fb44fb554177cec4d3e0e136120aaba1ee8559240ea7697",
+  "fix": "Destroyed CPU receipts are terminal and ignored by subsequent destructor calls. Original owner/slot/B/completion settlement predicates are unchanged.",
+  "limits": "252-cycle independent diagnostic passes with actual same-address/different-component deaths at462 and468. Does not prove GPU/component address reuse or full lifecycle coverage.",
+  "live_pass_manifest": "c727e13242af9c00476ddb0ece04fc9c98e6f96146f3cbfc0b637356b31b1c9a"
+}

@@ -1,0 +1,33 @@
+{
+  "case_id": "siegfried-cervantes-murakumo-shrine-grounds",
+  "certifying": false,
+  "cleanup": {
+    "diagnostic_flags_restored_false": {
+      "correction_probe": true,
+      "forced_depth7_qualification": true,
+      "trace": true
+    },
+    "process_absent": true
+  },
+  "created_utc": "2026-09-01T20:59:53.862963+00:00",
+  "display_map_name": "Murakumo Shrine Grounds",
+  "failure": {
+    "bounded_log": "E:\\myMods\\docs\\investigations\\evidence\\immutable-b6a623b1-offline-rows\\raw\\siegfried-cervantes-murakumo-shrine-grounds__persistent-corrections.failure.log",
+    "bounded_log_lines": 256,
+    "field_or_mask": null,
+    "fields": {},
+    "first_failing_frame": null,
+    "first_failure_line": "",
+    "graph_provenance": null,
+    "lifecycle_phase": null,
+    "owner_pointer": null,
+    "owner_selector": null,
+    "return_rva": null
+  },
+  "kind": "replay_entry_failure",
+  "reason": "SoulcaliburVI process 78092 exited before qualification evidence completed",
+  "report_schema": 2,
+  "result": "fail",
+  "row_id": "",
+  "stage_package_root": "/Game/DLC/11/Stage/STG017"
+}

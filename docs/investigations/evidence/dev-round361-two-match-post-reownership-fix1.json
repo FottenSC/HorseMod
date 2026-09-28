@@ -1,0 +1,1594 @@
+{
+  "case_id": "astaroth-raphael-silver-wolves-haven",
+  "certifying": false,
+  "cleanup": {
+    "diagnostic_flags_false": true,
+    "emergency_cleanup_used": false,
+    "game_processes_remaining": 0,
+    "graceful_process_teardown": true,
+    "requests_disarmed": true
+  },
+  "created_utc": "2026-09-04T04:43:51.101788+00:00",
+  "display_map_name": "Silver Wolves' Haven",
+  "failure": {
+    "cleanup_errors": [],
+    "message": "host correction 1 converged outside timing, capacity, or presentation gates",
+    "native_root": null,
+    "type": "RuntimeError"
+  },
+  "fighter_order": [
+    "012",
+    "015"
+  ],
+  "identities": {
+    "bridge_sha256": "14576ef202aad701db4212c4a2e42cb9e696fc9eede4715ea4c646645c9938f4",
+    "config_fields": {
+      "host": {
+        "config_version": "1",
+        "correction_probe": "false",
+        "enabled": "false",
+        "forced_depth7_qualification": "false",
+        "input_delay": "1",
+        "qualification_depth": "7",
+        "qualification_location": "2",
+        "rollback_window": "12",
+        "trace": "true"
+      },
+      "sandbox": {
+        "config_version": "1",
+        "correction_probe": "false",
+        "enabled": "false",
+        "forced_depth7_qualification": "false",
+        "input_delay": "1",
+        "qualification_depth": "7",
+        "qualification_location": "2",
+        "rollback_window": "12",
+        "trace": "true"
+      }
+    },
+    "config_sha256": {
+      "host": "8dc51120f7871e02848ff86e1e2fffc7a778cdee4366275c53a24fa83ce32579",
+      "sandbox": "8dc51120f7871e02848ff86e1e2fffc7a778cdee4366275c53a24fa83ce32579"
+    },
+    "game_executable_sha256": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553",
+    "generated_schema_sha256": "41c81bf2cc0f046355261ee540d3139fe74876c5b227fb7ccf9e61c0e1726383",
+    "horsemod_dll_sha256": "7c652f3d3845fa1ed3879f85b866e7dabafeb0de92cf654208c0acc801333ea6",
+    "runner_sha256": "9e77634594d1190a00f54e771fbbb96aca43961e3ea79603983ee9a9e100e474",
+    "source": {
+      "build": {
+        "build_command": "cmake --build E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64 --config Shipping -j 4",
+        "cmake": "cmake version 4.3.1",
+        "compiler": {
+          "cmake_cxx_compiler": "E:/ProgramFiles/vsStudioCommunity/VC/Tools/MSVC/14.50.35717/bin/Hostx64/x64/cl.exe",
+          "cmake_generator": "Ninja",
+          "cmake_generator_platform": ""
+        },
+        "compiler_artifact": {
+          "banner": "usage: cl [ option... ] filename... [ /link linkoption... ]",
+          "path": "E:\\ProgramFiles\\vsStudioCommunity\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+          "sha256": "194ddf4aafcb74452218a982309a97de30e0adb33edf4af02904ee107213e782",
+          "size": 682568
+        },
+        "configure_command": "cmake -S E:\\myMods -B E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64"
+      },
+      "commit": "c03108721ad4f8b6d94a8c8cfb3b0092150191b2",
+      "deterministic_binary_patch": "diff --git a/HorseMod/HorseModService.OnlineCallbacks.inl b/HorseMod/HorseModService.OnlineCallbacks.inl\nindex 0e27dca7..97d0da56 100644\n--- a/HorseMod/HorseModService.OnlineCallbacks.inl\n+++ b/HorseMod/HorseModService.OnlineCallbacks.inl\n@@ -84,9 +84,16 @@\n             }\n             if (status.ok()) transition_phase = 3;\n             if (status.ok())\n-                status = m_replay_native_runtime.CommitPresentationThrough(\n-                    final_entry.coordinate,\n-                    m_deterministic_hooks);\n+            {\n+                const auto deferred = PlanDeferredOnlinePresentationCommit(\n+                    m_online_pending_presentation_commit,\n+                    final_entry.coordinate);\n+                if (!deferred.has_value())\n+                    status = Status::failure(\n+                        FailureCode::GenerationMismatch);\n+                else\n+                    m_online_pending_presentation_commit = *deferred;\n+            }\n             if (status.ok()) transition_phase = 4;\n             const auto replacement_generation =\n                 PlanOwnedRoundReplacementGeneration(\n@@ -277,8 +284,16 @@\n             if (status.ok() && local != remote->hash)\n                 status = Status::failure(FailureCode::StateHashMismatch);\n             if (status.ok())\n-                status = m_replay_native_runtime.CommitPresentationThrough(\n-                    remote->coordinate, m_deterministic_hooks);\n+            {\n+                const auto deferred = PlanDeferredOnlinePresentationCommit(\n+                    m_online_pending_presentation_commit,\n+                    remote->coordinate);\n+                if (!deferred.has_value())\n+                    status = Status::failure(\n+                        FailureCode::GenerationMismatch);\n+                else\n+                    m_online_pending_presentation_commit = *deferred;\n+            }\n             std::int32_t confirmed_gekko_frame{-1};\n             const auto stimulus_lead =\n                 QualificationCorrectionStimulusLead(\n@@ -311,6 +326,9 @@\n                 && m_online_correction_stimulus_next\n                     < m_online_correction_stimulus_count\n                 && !m_online_correction_stimulus_armed\n+                && MayArmQualificationCorrectionStimulus(\n+                    m_online_rounds,\n+                    m_online_correction_stimulus_min_round)\n                 && m_online_lifecycle.phase()\n                     == Horse::Deterministic::OnlineLifecyclePhase::Owned)\n             {\n@@ -366,11 +384,13 @@\n                         Output::send<LogLevel::Default>(STR(\n                             \"[HorseMod] online qualification run_id={} \"\n                             \"armed authenticated correction stimulus \"\n-                            \"depth={} trigger_frame={} \"\n+                            \"generation={} owned_round={} depth={} \"\n+                            \"trigger_frame={} \"\n                             \"after_confirmed_gekko_frame={} ordinal={} \"\n                             \"total={} lead_frames={} \"\n                             \"corrections_before={} transport_delay={}\\n\"),\n                             RC::to_generic_string(m_online_run_id),\n+                            remote->coordinate.generation, m_online_rounds,\n                             stimulus_depth, *trigger_frame,\n                             confirmed_gekko_frame, stimulus_ordinal,\n                             m_online_correction_stimulus_count,\n@@ -1016,6 +1036,48 @@\n             return;\n         }\n \n+#if HORSE_ENABLE_GEKKONET\n+        if (self->m_online_pending_presentation_commit.generation != 0)\n+        {\n+            const auto confirmed =\n+                self->m_online_pending_presentation_commit;\n+            const auto committed =\n+                self->m_replay_native_runtime.CommitPresentationThrough(\n+                    confirmed, self->m_deterministic_hooks);\n+            if (!committed.ok())\n+            {\n+                const auto presentation =\n+                    self->m_replay_native_runtime.presentation_statistics();\n+                const auto& failed = presentation.first_failed_event;\n+                Output::send<LogLevel::Warning>(STR(\n+                    \"[HorseMod] online qualification run_id={} \"\n+                    \"presentation_commit_failure status={} confirmed={}:{} \"\n+                    \"pending_events={} payload_bytes={} guard_mask=0x{:x} \"\n+                    \"publish_failures={} failed_event={}:{}:{}:{}:0x{:x} \"\n+                    \"payload_size={} payload_head={:02x}/{:02x}/{:02x}/{:02x}\\n\"),\n+                    RC::to_generic_string(self->m_online_run_id),\n+                    RC::to_generic_string(std::string(\n+                        Horse::Deterministic::failure_code_name(\n+                            committed.code))),\n+                    confirmed.generation, confirmed.frame,\n+                    self->m_replay_native_runtime.pending_presentation_events(),\n+                    self->m_replay_native_runtime.presentation_payload_bytes(),\n+                    self->m_deterministic_hooks.PresentationCommitGuardMask(),\n+                    presentation.publish_failures,\n+                    failed.coordinate.generation, failed.coordinate.frame,\n+                    failed.source_ordinal, failed.kind, failed.identity,\n+                    failed.payload_size,\n+                    std::to_integer<unsigned>(failed.payload[0]),\n+                    std::to_integer<unsigned>(failed.payload[1]),\n+                    std::to_integer<unsigned>(failed.payload[2]),\n+                    std::to_integer<unsigned>(failed.payload[3]));\n+                self->fail_online_qualification(committed.code);\n+                return;\n+            }\n+            self->m_online_pending_presentation_commit = {};\n+        }\n+#endif\n+\n         const auto& timeline =\n             self->m_replay_native_runtime.timeline_status_view();\n         if (timeline.observed_resolved_hit_calls != 0)\ndiff --git a/HorseMod/HorseModService.OnlineOwnership.inl b/HorseMod/HorseModService.OnlineOwnership.inl\nindex e3704a0f..21ca44af 100644\n--- a/HorseMod/HorseModService.OnlineOwnership.inl\n+++ b/HorseMod/HorseModService.OnlineOwnership.inl\n@@ -503,7 +503,8 @@\n \n     void reset_online_session_measurements(std::string_view run_id,\n         OnlineQualificationFault fault = OnlineQualificationFault::None,\n-        std::span<const std::uint8_t> correction_stimulus_depths = {}) noexcept\n+        std::span<const std::uint8_t> correction_stimulus_depths = {},\n+        std::uint32_t correction_stimulus_min_round = 1) noexcept\n     {\n         m_online_qualification_allowlist.Clear();\n         m_online_executable_identity = {};\n@@ -525,6 +526,7 @@\n         m_online_next_confirmed_hash_frame = 29;\n         m_online_last_observed_coordinate = {};\n         m_online_round_completed_coordinate = {};\n+        m_online_pending_presentation_commit = {};\n         m_online_round_transition_pending = false;\n         m_online_last_owned_inputs = {};\n         m_online_last_owned_inputs_valid = false;\n@@ -551,6 +553,8 @@\n         m_online_correction_stimulus_next = 0;\n         m_online_correction_stimulus_trigger_frame = -1;\n         m_online_correction_stimulus_armed = false;\n+        m_online_correction_stimulus_min_round =\n+            correction_stimulus_min_round;\n         m_online_event_mask = 0;\n         m_online_root_failure = Horse::Deterministic::FailureCode::None;\n         m_online_root_lifecycle_phase =\n@@ -592,6 +596,7 @@\n         m_online_prefix_catchup = false;\n         m_online_current_advance_pending = false;\n         m_online_round_transition_pending = false;\n+        m_online_pending_presentation_commit = {};\n         m_online_last_owned_inputs = {};\n         m_online_last_owned_inputs_valid = false;\n         m_online_round_hold_inputs = {};\n@@ -602,6 +607,7 @@\n         m_online_correction_stimulus_next = 0;\n         m_online_correction_stimulus_trigger_frame = -1;\n         m_online_correction_stimulus_armed = false;\n+        m_online_correction_stimulus_min_round = 1;\n         m_online_gekko.Stop();\n         m_online_coordinator.Disable();\n         m_online_qualification_allowlist.Clear();\n@@ -723,6 +729,7 @@\n         m_online_prefix_catchup = false;\n         m_online_current_advance_pending = false;\n         m_online_round_transition_pending = false;\n+        m_online_pending_presentation_commit = {};\n         m_online_last_owned_inputs = {};\n         m_online_last_owned_inputs_valid = false;\n         m_online_round_hold_inputs = {};\n@@ -733,6 +740,7 @@\n         m_online_correction_stimulus_next = 0;\n         m_online_correction_stimulus_trigger_frame = -1;\n         m_online_correction_stimulus_armed = false;\n+        m_online_correction_stimulus_min_round = 1;\n         m_online_gekko.Stop();\n         m_online_coordinator.Disable();\n         invalidate_stage_break_presentation_identity();\ndiff --git a/HorseMod/HorseModService.PublicApiAndLifetime.inl b/HorseMod/HorseModService.PublicApiAndLifetime.inl\nindex f87572cc..b77e0181 100644\n--- a/HorseMod/HorseModService.PublicApiAndLifetime.inl\n+++ b/HorseMod/HorseModService.PublicApiAndLifetime.inl\n@@ -234,7 +234,8 @@ public:\n #if HORSE_ENABLE_GEKKONET\n     bool ArmOnlineQualification(std::string_view run_id = {},\n         std::uint32_t fault_value = 0,\n-        std::span<const std::uint8_t> correction_stimulus_depths = {}) noexcept\n+        std::span<const std::uint8_t> correction_stimulus_depths = {},\n+        std::uint32_t correction_stimulus_min_round = 1) noexcept\n     {\n         if (fault_value > static_cast<std::uint32_t>(\n                 OnlineQualificationFault::PostownershipPeer))\n@@ -250,6 +251,11 @@ public:\n         if (fault != OnlineQualificationFault::None\n             && !correction_stimulus_depths.empty())\n             return false;\n+        if (correction_stimulus_min_round == 0\n+            || correction_stimulus_min_round > 2\n+            || (correction_stimulus_depths.empty()\n+                && correction_stimulus_min_round != 1))\n+            return false;\n         if (run_id.size() > 96\n             || std::any_of(run_id.begin(), run_id.end(), [](char value) {\n                 return !(std::isalnum(static_cast<unsigned char>(value))\n@@ -274,7 +280,8 @@ public:\n         m_online_coordinator.Select(OnlineRuntimeKind::Qualification);\n         if (!m_online_lifecycle.ArmPreOwnership().ok()) return false;\n         reset_online_session_measurements(\n-            run_id, fault, correction_stimulus_depths);\n+            run_id, fault, correction_stimulus_depths,\n+            correction_stimulus_min_round);\n         m_online_qualification_requested.store(true,\n             std::memory_order_release);\n         return true;\ndiff --git a/HorseMod/HorseModService.SettingsAndRequests.inl b/HorseMod/HorseModService.SettingsAndRequests.inl\nindex ee38358c..669876e3 100644\n--- a/HorseMod/HorseModService.SettingsAndRequests.inl\n+++ b/HorseMod/HorseModService.SettingsAndRequests.inl\n@@ -781,6 +781,8 @@\n     std::int32_t m_online_next_confirmed_hash_frame{29};\n     Horse::Deterministic::FrameCoordinate m_online_last_observed_coordinate{};\n     Horse::Deterministic::FrameCoordinate m_online_round_completed_coordinate{};\n+    Horse::Deterministic::FrameCoordinate\n+        m_online_pending_presentation_commit{};\n     bool m_online_round_transition_pending{};\n     std::array<Horse::Deterministic::PlayerInput, 2>\n         m_online_last_owned_inputs{};\n@@ -803,6 +805,7 @@\n     std::size_t m_online_correction_stimulus_next{};\n     std::int32_t m_online_correction_stimulus_trigger_frame{-1};\n     bool m_online_correction_stimulus_armed{};\n+    std::uint32_t m_online_correction_stimulus_min_round{1};\n     OnlineQualificationFault m_online_qualification_fault{\n         OnlineQualificationFault::None};\n     bool m_online_qualification_fault_triggered{};\ndiff --git a/HorseMod/dllmain.cpp b/HorseMod/dllmain.cpp\nindex 88f979ef..9ff06539 100644\n--- a/HorseMod/dllmain.cpp\n+++ b/HorseMod/dllmain.cpp\n@@ -695,6 +695,24 @@ extern \"C\"\n                 correction_stimulus_count});\n     }\n \n+    HORSE_MOD_API bool horsemod_arm_online_qualification_v6(\n+        const char* run_id, std::size_t run_id_size, std::uint32_t fault,\n+        const std::uint8_t* correction_stimulus_depths,\n+        std::size_t correction_stimulus_count,\n+        std::uint32_t correction_stimulus_min_round)\n+    {\n+        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);\n+        if (mod == nullptr || run_id == nullptr\n+            || (correction_stimulus_count != 0\n+                && correction_stimulus_depths == nullptr))\n+            return false;\n+        return mod->ArmOnlineQualification(\n+            std::string_view(run_id, run_id_size), fault,\n+            std::span<const std::uint8_t>{correction_stimulus_depths,\n+                correction_stimulus_count},\n+            correction_stimulus_min_round);\n+    }\n+\n     HORSE_MOD_API std::uint32_t horsemod_get_online_qualification_status()\n     {\n         auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);\ndiff --git a/HorseMod/horselib/deterministic/DeterministicHookSet.LifecycleAndJournal.inl b/HorseMod/horselib/deterministic/DeterministicHookSet.LifecycleAndJournal.inl\nindex 23f32b8c..1ea1a1a7 100644\n--- a/HorseMod/horselib/deterministic/DeterministicHookSet.LifecycleAndJournal.inl\n+++ b/HorseMod/horselib/deterministic/DeterministicHookSet.LifecycleAndJournal.inl\n@@ -745,6 +745,21 @@ Status DeterministicHookSet::CommitStagePresentation(\n     return Status::success();\n }\n \n+std::uint32_t DeterministicHookSet::PresentationCommitGuardMask() const noexcept\n+{\n+    std::uint32_t mask{};\n+    if (!installed()) mask |= 1u << 0;\n+    if (active_outer_capture_ != nullptr) mask |= 1u << 1;\n+    if (active_stage_commit != nullptr) mask |= 1u << 2;\n+    if (battle_audio_register_voice_trampoline_ == 0) mask |= 1u << 3;\n+    if (battle_audio_append_command_trampoline_ == 0) mask |= 1u << 4;\n+    if (battle_audio_stop_all_trampoline_ == 0) mask |= 1u << 5;\n+    if (battle_audio_blueprint_publish_trampoline_ == 0) mask |= 1u << 6;\n+    if (stage_break_wall_trampoline_ == 0) mask |= 1u << 7;\n+    if (stage_break_barrier_trampoline_ == 0) mask |= 1u << 8;\n+    return mask;\n+}\n+\n Status DeterministicHookSet::ArmPresentationCaptureForNextOuterTick() noexcept\n {\n     if (!installed() || active_outer_capture_ != nullptr)\ndiff --git a/HorseMod/horselib/deterministic/DeterministicHookSet.hpp b/HorseMod/horselib/deterministic/DeterministicHookSet.hpp\nindex 3f9b1cfa..069f6e6e 100644\n--- a/HorseMod/horselib/deterministic/DeterministicHookSet.hpp\n+++ b/HorseMod/horselib/deterministic/DeterministicHookSet.hpp\n@@ -449,6 +449,7 @@ public:\n         const AudioBlueprintPresentationValue& value) noexcept;\n     Status CommitStagePresentation(\n         const StagePresentationValue& value) noexcept;\n+    [[nodiscard]] std::uint32_t PresentationCommitGuardMask() const noexcept;\n     Status ArmPresentationCaptureForNextOuterTick() noexcept;\n \n private:\ndiff --git a/HorseMod/horselib/deterministic/GekkoRollbackSession.hpp b/HorseMod/horselib/deterministic/GekkoRollbackSession.hpp\nindex c9b3bb01..9ceb2f87 100644\n--- a/HorseMod/horselib/deterministic/GekkoRollbackSession.hpp\n+++ b/HorseMod/horselib/deterministic/GekkoRollbackSession.hpp\n@@ -64,6 +64,25 @@ MayRearmQualificationCorrectionStimulus(bool armed, bool payload_released,\n         && mutually_confirmed_frame > prior_trigger_frame;\n }\n \n+[[nodiscard]] inline constexpr bool MayArmQualificationCorrectionStimulus(\n+    std::uint32_t owned_round, std::uint32_t minimum_owned_round) noexcept\n+{\n+    return minimum_owned_round != 0 && owned_round >= minimum_owned_round;\n+}\n+\n+[[nodiscard]] inline constexpr std::optional<FrameCoordinate>\n+PlanDeferredOnlinePresentationCommit(\n+    FrameCoordinate pending, FrameCoordinate confirmed) noexcept\n+{\n+    if (confirmed.generation == 0)\n+        return std::nullopt;\n+    if (pending.generation == 0)\n+        return confirmed;\n+    if (pending.generation != confirmed.generation)\n+        return std::nullopt;\n+    return (std::max)(pending, confirmed);\n+}\n+\n [[nodiscard]] inline constexpr std::array<PlayerInput, 2>\n BuildQualificationCorrectionStimulusInputs(PlayerInput basis) noexcept\n {\ndiff --git a/tools/deterministic_qualification/paired_online.py b/tools/deterministic_qualification/paired_online.py\nindex b669daae..f6307832 100644\n--- a/tools/deterministic_qualification/paired_online.py\n+++ b/tools/deterministic_qualification/paired_online.py\n@@ -113,7 +113,10 @@ AUTHENTICATED = re.compile(\n )\n CORRECTION_STIMULUS = re.compile(\n     r\"\\[HorseMod\\] online qualification run_id=(?P<run>\\S+) \"\n-    r\"armed authenticated correction stimulus depth=(?P<depth>\\d+) \"\n+    r\"armed authenticated correction stimulus \"\n+    r\"(?:generation=(?P<generation>\\d+) \"\n+    r\"owned_round=(?P<owned_round>\\d+) )?\"\n+    r\"depth=(?P<depth>\\d+) \"\n     r\"trigger_frame=(?P<trigger>\\d+) \"\n     r\"after_confirmed_gekko_frame=(?P<confirmed>\\d+)\"\n     r\"(?: ordinal=(?P<ordinal>\\d+) total=(?P<total>\\d+)\"\n@@ -377,16 +380,19 @@ def _qualification_failure_plan(\n \n def _atomic_online_request(path: Path, run_id: str, not_before_ms: int,\n                            qualification_fault: int,\n-                           correction_stimulus_depths: tuple[int, ...] = ()) -> Path:\n+                           correction_stimulus_depths: tuple[int, ...] = (),\n+                           correction_stimulus_min_round: int = 1) -> Path:\n     path.parent.mkdir(parents=True, exist_ok=True)\n     temporary = path.with_suffix(\".publish.tmp\")\n     with temporary.open(\"w\", encoding=\"utf-8\", newline=\"\\n\") as stream:\n         stream.write(\n-            f\"version=4\\nrun_id={run_id}\\n\"\n+            f\"version=5\\nrun_id={run_id}\\n\"\n             f\"not_before_unix_ms={not_before_ms}\\n\"\n             f\"qualification_fault={qualification_fault}\\n\"\n             \"correction_stimulus_depths=\"\n             f\"{','.join(str(depth) for depth in correction_stimulus_depths)}\\n\"\n+            \"correction_stimulus_min_round=\"\n+            f\"{correction_stimulus_min_round}\\n\"\n             f\"arm=true\\n\"\n         )\n         stream.flush()\n@@ -396,16 +402,18 @@ def _atomic_online_request(path: Path, run_id: str, not_before_ms: int,\n \n def _publish_pair(paths: ObserverPairPaths, run_ids: dict[str, str],\n                   faults: dict[str, int],\n-                  correction_stimulus_depths: tuple[int, ...] = ()) -> None:\n+                  correction_stimulus_depths: tuple[int, ...] = (),\n+                  correction_stimulus_min_round: int = 1) -> None:\n     not_before = int(time.time() * 1000) + 3000\n     host = paths.host.qualification_root / \"online_request.txt\"\n     sandbox = paths.sandbox.qualification_root / \"online_request.txt\"\n     temporaries = [\n         _atomic_online_request(host, run_ids[\"host\"], not_before,\n-                               faults[\"host\"], correction_stimulus_depths),\n+                               faults[\"host\"], correction_stimulus_depths,\n+                               correction_stimulus_min_round),\n         _atomic_online_request(\n             sandbox, run_ids[\"sandbox\"], not_before, faults[\"sandbox\"],\n-            correction_stimulus_depths),\n+            correction_stimulus_depths, correction_stimulus_min_round),\n     ]\n     try:\n         os.replace(temporaries[0], host)\n@@ -485,7 +493,8 @@ def _development_smoke_complete(args: Any, completed_cycles: int) -> bool:\n             or args.development_multiround_correction_smoke\n             or args.development_reentry_smoke):\n         return False\n-    return (not args.development_reentry_smoke\n+    return (not (args.development_reentry_smoke\n+                 or args.development_multiround_correction_smoke)\n             or completed_cycles >= args.match_cycles)\n \n \n@@ -522,6 +531,10 @@ def _qualification_correction_stimulus_depths(\n     return (11, 1, 6)\n \n \n+def _qualification_correction_stimulus_min_round(args: Any) -> int:\n+    return 2 if args.development_multiround_correction_smoke else 1\n+\n+\n def _cycle_teardown_run_ids(run_id: str, cycle_ordinal: int) -> dict[str, str]:\n     if cycle_ordinal < 1:\n         raise ValueError(\"teardown cycle ordinal must be positive\")\n@@ -779,6 +792,8 @@ def _correction_stimulus_sequence_evidence(\n                     f\"sequence at ordinal {index}\")\n             rows.append({\n                 \"ordinal\": ordinal,\n+                \"generation\": int(match.group(\"generation\") or 0),\n+                \"owned_round\": int(match.group(\"owned_round\") or 0),\n                 \"depth\": int(match.group(\"depth\")),\n                 \"transport_delay\": int(\n                     match.group(\"transport_delay\") or match.group(\"depth\")),\n@@ -808,6 +823,27 @@ def _correction_stimulus_sequence_evidence(\n     return evidence\n \n \n+def _require_corrections_in_owned_generation(\n+    stimulus_sequence: dict[str, list[dict[str, int]]],\n+    corrections: list[dict[str, Any]], generation: int, owned_round: int,\n+) -> None:\n+    if generation == 0 or owned_round == 0:\n+        raise ValueError(\"owned correction generation and round must be positive\")\n+    for label in (\"host\", \"sandbox\"):\n+        rows = stimulus_sequence[label]\n+        if not rows or any(\n+                row[\"generation\"] != generation\n+                or row[\"owned_round\"] != owned_round for row in rows):\n+            raise RuntimeError(\n+                f\"{label} correction stimuli were not armed after \"\n+                f\"generation-{generation} round-{owned_round} re-ownership\")\n+    if not corrections or any(\n+            row[\"generation\"] != generation for row in corrections):\n+        raise RuntimeError(\n+            \"authenticated corrections did not converge in the required \"\n+            f\"owned generation {generation}\")\n+\n+\n def _required_correction_stimulus(\n     logs: dict[str, str], online_run_ids: dict[str, str], expected_depth: int,\n ) -> dict[str, dict[str, int]]:\n@@ -1308,7 +1344,7 @@ def _wait_development_setup_smoke(\n             \"sandbox\": _read_since(paths.sandbox.log, offsets[\"sandbox\"]),\n         }\n         _raise_on_native_terminal(\n-            logs, online_run_ids, \"native first-owned admission\")\n+            logs, online_run_ids, \"online development cycle\")\n         confirmed_latest: dict[str, dict[str, Any]] = {}\n         for label in (\"host\", \"sandbox\"):\n             failures = [match for match in FAILURE.finditer(logs[label])\n@@ -1416,6 +1452,10 @@ def _wait_development_setup_smoke(\n             raise TimeoutError(\n                 \"repeated authenticated corrections timed out on \"\n                 f\"{case['native_display_name']}\")\n+        _require_corrections_in_owned_generation(\n+            stimulus_sequence, corrections,\n+            int(baseline_identities[-1][\"generation\"]),\n+            required_owned_generations)\n         for label in (\"host\", \"sandbox\"):\n             setup_metrics[label][\"correction_stimulus_sequence\"] = (\n                 stimulus_sequence[label])\n@@ -1487,6 +1527,8 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:\n         or args.development_reentry_smoke)\n     correction_stimulus_depths = _qualification_correction_stimulus_depths(\n         args, failure_case)\n+    correction_stimulus_min_round = (\n+        _qualification_correction_stimulus_min_round(args))\n     if sum((args.development_setup_smoke,\n             args.development_correction_smoke,\n             args.development_depth7_smoke,\n@@ -1495,7 +1537,9 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:\n             args.development_reentry_smoke)) > 1:\n         raise RuntimeError(\"select only one paired development smoke\")\n     if development_smoke and (\n-        args.match_cycles != (2 if args.development_reentry_smoke else 1)\n+        args.match_cycles != (2 if (\n+            args.development_reentry_smoke\n+            or args.development_multiround_correction_smoke) else 1)\n         or args.cycling_soak_seconds != 0\n         or args.soak_seconds != 0 or args.failure_case\n         or args.impairment_profile != \"clean\" or args.fresh_box\n@@ -1588,7 +1632,8 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:\n         initial_log_offsets = {\n             label: cursor.offset for label, cursor in log_offsets.items()\n         }\n-        _publish_pair(paths, run_ids, faults, correction_stimulus_depths)\n+        _publish_pair(paths, run_ids, faults, correction_stimulus_depths,\n+                      correction_stimulus_min_round)\n         create_host_room_suppression(paths.sandbox, run_ids[\"host\"])\n         create_host_room_request(paths.host, run_ids[\"host\"])\n         subprocess.Popen(spec.host_command(), close_fds=True)\n@@ -1736,7 +1781,8 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:\n                     \"sandbox\": capture_log_offset(paths.sandbox.log),\n                 }\n                 _publish_pair(paths, run_ids, faults,\n-                              correction_stimulus_depths)\n+                              correction_stimulus_depths,\n+                              correction_stimulus_min_round)\n         memory_tracker.sample()\n         memory_evidence = memory_tracker.report()\n         if args.soak_seconds > 0 or args.cycling_soak_seconds > 0:\n@@ -1759,7 +1805,8 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:\n             try:\n                 raw_logs = _read_pair_logs(paths, log_offsets)\n                 if cycle_raw_logs:\n-                    cycle_number = max(1, len(cycle_metrics))\n+                    cycle_number = max(\n+                        1, cycle_index + (1 if primary is not None else 0))\n                     for label, text in raw_logs.items():\n                         key = f\"cycle-{cycle_number:03d}-{label}\"\n                         if len(text) > len(cycle_raw_logs.get(key, \"\")):\n@@ -1787,7 +1834,8 @@ def run_paired_online(args: Any, root: Path, paths: ObserverPairPaths) -> int:\n             try:\n                 final_logs = _read_pair_logs(paths, log_offsets)\n                 raw_logs = final_logs\n-                cycle_number = max(1, len(cycle_metrics))\n+                cycle_number = max(\n+                    1, cycle_index + (1 if primary is not None else 0))\n                 for label, text in final_logs.items():\n                     key = f\"cycle-{cycle_number:03d}-{label}\"\n                     if len(text) > len(cycle_raw_logs.get(key, \"\")):\ndiff --git a/tools/deterministic_qualification/runner.py b/tools/deterministic_qualification/runner.py\nindex ee2ea274..9e9c5e62 100644\n--- a/tools/deterministic_qualification/runner.py\n+++ b/tools/deterministic_qualification/runner.py\n@@ -2005,8 +2005,9 @@ def build_parser() -> argparse.ArgumentParser:\n               \"an independently acknowledged replacement baseline\"))\n     paired.add_argument(\"--development-multiround-correction-smoke\",\n         action=\"store_true\",\n-        help=(\"run one non-certifying authenticated 11, 1, 6 correction \"\n-              \"sequence through a replacement generation\"))\n+        help=(\"run two same-process non-certifying authenticated matches; \"\n+              \"each crosses a replacement generation before its 11, 1, 6 \"\n+              \"correction sequence\"))\n     paired.add_argument(\"--development-reentry-smoke\", action=\"store_true\",\n         help=(\"allow a dirty, explicitly non-certifying two-match run in one \"\n               \"SC6 process to verify cleanup and qualification re-entry\"))\ndiff --git a/tools/deterministic_qualification/tests/test_paired_online_cycles.py b/tools/deterministic_qualification/tests/test_paired_online_cycles.py\nindex 061c5156..926c4b8c 100644\n--- a/tools/deterministic_qualification/tests/test_paired_online_cycles.py\n+++ b/tools/deterministic_qualification/tests/test_paired_online_cycles.py\n@@ -19,10 +19,12 @@ from tools.deterministic_qualification.paired_online import (\n     _first_correction_evidence,\n     _correction_stimulus_sequence_evidence,\n     _qualification_correction_stimulus_depths,\n+    _qualification_correction_stimulus_min_round,\n     _qualification_failure_plan, _read_since,\n     _repeated_correction_evidence,\n     _required_correction_stimulus,\n     _require_confirmed_owned_generations,\n+    _require_corrections_in_owned_generation,\n     _require_ordered_takeover, _require_two_owned_generations,\n     _raise_on_native_terminal, _raise_on_terminal_owned_metrics,\n     _root_failure_evidence,\n@@ -121,10 +123,14 @@ def test_paired_online_exposes_noncertifying_multiround_correction_smoke():\n         \"paired-online\", \"--case-manifest\", \"cases.json\", \"--case\", \"case-a\",\n         \"--dll\", \"HorseMod.dll\", \"--output-dir\", \"evidence\",\n         \"--report\", \"report.json\",\n-        \"--development-multiround-correction-smoke\",\n+        \"--development-multiround-correction-smoke\", \"--match-cycles\", \"2\",\n     ])\n     assert arguments.development_multiround_correction_smoke is True\n+    assert arguments.match_cycles == 2\n     assert _qualification_correction_stimulus_depths(arguments, \"\") == (11, 1, 6)\n+    assert _qualification_correction_stimulus_min_round(arguments) == 2\n+    assert not _development_smoke_complete(arguments, 1)\n+    assert _development_smoke_complete(arguments, 2)\n \n \n def test_functional_certification_arms_authenticated_11_1_6_corrections():\n@@ -285,7 +291,6 @@ def test_repeated_correction_smoke_requires_11_1_6_and_three_convergences():\n     assert [row[\"depth\"] for row in stimulus_evidence[\"host\"]] == [11, 1, 6]\n     assert [row[\"transport_delay\"] for row in stimulus_evidence[\"host\"]] == [12, 3, 8]\n     assert [row[\"transport_delay\"] for row in stimulus_evidence[\"sandbox\"]] == [12, 3, 8]\n-\n     def combined(run, correction_counts, stimuli):\n         stimulus_rows = stimuli.splitlines(keepends=True)\n         rows = [stimulus_rows[0].format(run=run)]\n@@ -338,6 +343,31 @@ def test_repeated_correction_smoke_requires_11_1_6_and_three_convergences():\n         }, {\"host\": \"h\", \"sandbox\": \"s\"}, 3)\n \n \n+def test_multiround_corrections_must_arm_and_converge_after_reownership():\n+    stimuli = {\n+        label: [\n+            {\"generation\": 2, \"owned_round\": 2, \"depth\": depth}\n+            for depth in (11, 1, 6)\n+        ] for label in (\"host\", \"sandbox\")\n+    }\n+    corrections = [\n+        {\"generation\": 2, \"ordinal\": ordinal}\n+        for ordinal in (1, 2, 3)\n+    ]\n+    _require_corrections_in_owned_generation(stimuli, corrections, 2, 2)\n+    before_barrier = {\n+        label: [dict(row, generation=1, owned_round=1)\n+                for row in rows]\n+        for label, rows in stimuli.items()\n+    }\n+    with pytest.raises(RuntimeError, match=\"not armed after\"):\n+        _require_corrections_in_owned_generation(\n+            before_barrier, corrections, 2, 2)\n+    with pytest.raises(RuntimeError, match=\"did not converge\"):\n+        _require_corrections_in_owned_generation(\n+            stimuli, [dict(row, generation=1) for row in corrections], 2, 2)\n+\n+\n def test_paired_online_exposes_typed_authoritative_failure_case():\n     arguments = build_parser().parse_args([\n         \"paired-online\", \"--case-manifest\", \"cases.json\", \"--case\", \"case-a\",\n@@ -603,16 +633,18 @@ def test_online_request_binds_qualification_fault(tmp_path):\n     target = tmp_path / \"online_request.txt\"\n     temporary = _atomic_online_request(target, \"run-a\", 123456, 5)\n     assert temporary.read_text(encoding=\"utf-8\") == (\n-        \"version=4\\nrun_id=run-a\\nnot_before_unix_ms=123456\\n\"\n-        \"qualification_fault=5\\ncorrection_stimulus_depths=\\narm=true\\n\"\n+        \"version=5\\nrun_id=run-a\\nnot_before_unix_ms=123456\\n\"\n+        \"qualification_fault=5\\ncorrection_stimulus_depths=\\n\"\n+        \"correction_stimulus_min_round=1\\narm=true\\n\"\n     )\n \n \n def test_online_request_binds_11_1_6_correction_stimulus(tmp_path):\n     target = tmp_path / \"online_request.txt\"\n     temporary = _atomic_online_request(\n-        target, \"run-correction\", 123456, 0, (11, 1, 6))\n-    assert \"qualification_fault=0\\ncorrection_stimulus_depths=11,1,6\\n\" in (\n+        target, \"run-correction\", 123456, 0, (11, 1, 6), 2)\n+    assert (\"qualification_fault=0\\ncorrection_stimulus_depths=11,1,6\\n\"\n+            \"correction_stimulus_min_round=2\\n\") in (\n         temporary.read_text(encoding=\"utf-8\"))\n \n \ndiff --git a/tools/gekko_rollback_session_selftest.cpp b/tools/gekko_rollback_session_selftest.cpp\nindex 94104f75..81231fab 100644\n--- a/tools/gekko_rollback_session_selftest.cpp\n+++ b/tools/gekko_rollback_session_selftest.cpp\n@@ -610,6 +610,23 @@ int main()\n             && MayRearmQualificationCorrectionStimulus(true, true,\n                 first_stimulus_trigger + 30, first_stimulus_trigger),\n         \"stimulus re-arm waits for a later mutually confirmed boundary\");\n+    expect(!MayArmQualificationCorrectionStimulus(1, 2)\n+            && MayArmQualificationCorrectionStimulus(2, 2)\n+            && MayArmQualificationCorrectionStimulus(3, 2)\n+            && !MayArmQualificationCorrectionStimulus(2, 0),\n+        \"multi-round correction stimuli remain disarmed until replacement-round ownership\");\n+    const FrameCoordinate no_pending{};\n+    const FrameCoordinate confirmed_a{2, 420};\n+    const FrameCoordinate confirmed_b{2, 450};\n+    expect(PlanDeferredOnlinePresentationCommit(no_pending, confirmed_a)\n+                == std::optional<FrameCoordinate>{confirmed_a}\n+            && PlanDeferredOnlinePresentationCommit(confirmed_a, confirmed_b)\n+                == std::optional<FrameCoordinate>{confirmed_b}\n+            && PlanDeferredOnlinePresentationCommit(confirmed_b, confirmed_a)\n+                == std::optional<FrameCoordinate>{confirmed_b}\n+            && !PlanDeferredOnlinePresentationCommit(\n+                    confirmed_b, FrameCoordinate{3, 1}).has_value(),\n+        \"confirmed presentation coalesces for post-outer publication and rejects cross-generation mixing\");\n     expect(QualificationCorrectionStimulusLead(12) == 14\n             && 29 + 14 < 59 && 59 + 14 < 89 && 89 + 14 < 235,\n         \"11-1-6 scheduler fits all three triggers before the observed round boundary\");\ndiff --git a/tools/online_coordinator_selftest.cpp b/tools/online_coordinator_selftest.cpp\nindex e1e6a161..dbd15e2e 100644\n--- a/tools/online_coordinator_selftest.cpp\n+++ b/tools/online_coordinator_selftest.cpp\n@@ -485,6 +485,62 @@ void test_round_barrier_requires_the_same_canonical_coordinate()\n         \"equal round hashes at different coordinates fail closed immediately\");\n }\n \n+void test_round_replacement_baseline_mismatch_fails_before_reownership()\n+{\n+    FakeAllowlist allowlist;\n+    FakeTransport first_transport;\n+    FakeTransport second_transport;\n+    OnlineCoordinator first{first_transport, allowlist};\n+    OnlineCoordinator second{second_transport, allowlist};\n+    begin_pair(first, second);\n+    complete_handshake(first, first_transport, second, second_transport);\n+    complete_baseline(first, first_transport, second, second_transport, 1);\n+    expect(claim_owned(first, {1, 261})\n+            && claim_owned(second, {1, 261}),\n+        \"crossing-prediction fixture reaches first-round ownership\");\n+    expect(first.BeginRoundBarrier({1, 360}, 2, hash(9)).ok()\n+            && second.BeginRoundBarrier({1, 360}, 2, hash(9)).ok(),\n+        \"both peers provisionally retire the frame-361 crossing boundary\");\n+    exchange(first_transport, second_transport);\n+    expect(first.Pump().ok() && second.Pump().ok()\n+            && first.state() == OnlineState::AwaitingBattle\n+            && second.state() == OnlineState::AwaitingBattle,\n+        \"bilateral round fence returns both peers to preownership\");\n+    expect(first.ReadyBaseline({2, 390}).ok()\n+            && second.ReadyBaseline({2, 390}).ok(),\n+        \"both peers independently propose the replacement coordinate\");\n+    exchange(first_transport, second_transport);\n+    expect(first.Pump().ok() && second.Pump().ok(),\n+        \"replacement coordinate proposals are exchanged\");\n+    exchange(first_transport, second_transport);\n+    expect(first.Pump().ok() && second.Pump().ok()\n+            && first.baseline_target() == FrameCoordinate{2, 390}\n+            && second.baseline_target() == FrameCoordinate{2, 390},\n+        \"both peers commit the same replacement coordinate\");\n+    expect(first.FreezeBaseline({2, 390}, hash(2), hash(9)).ok()\n+            && second.FreezeBaseline({2, 390}, hash(3), hash(9)).ok(),\n+        \"each peer publishes its independently captured replacement hash\");\n+    exchange(first_transport, second_transport);\n+    const auto first_status = first.Pump();\n+    const auto second_status = second.Pump();\n+    expect(first_status.code == FailureCode::StateHashMismatch\n+            && second_status.code == FailureCode::StateHashMismatch,\n+        \"unconfirmed crossing prediction fails on replacement disagreement\");\n+    expect(first.state() == OnlineState::Failed\n+            && second.state() == OnlineState::Failed,\n+        \"replacement disagreement enters terminal failure\");\n+    expect(!first.NotifyOwnedTick({2, 391}).ok()\n+            && !second.NotifyOwnedTick({2, 391}).ok(),\n+        \"replacement disagreement cannot publish a generation-two owned tick\");\n+    expect(first.failure_origin_state() == OnlineState::FreezingBaseline\n+            && second.failure_origin_state() == OnlineState::FreezingBaseline\n+            && first.failure_disposition()\n+                == OnlineFailureDisposition::TerminateMatchToLobby\n+            && second.failure_disposition()\n+                == OnlineFailureDisposition::TerminateMatchToLobby,\n+        \"replacement mismatch reports its exact preownership phase\");\n+}\n+\n void test_failure_disposition_and_reentry()\n {\n     FakeAllowlist allowlist;\n@@ -972,6 +1028,7 @@ int main()\n     }\n     test_bilateral_activation_and_round_reentry();\n     test_round_barrier_requires_the_same_canonical_coordinate();\n+    test_round_replacement_baseline_mismatch_fails_before_reownership();\n     test_failure_disposition_and_reentry();\n     test_fail_closed_lobby_contract();\n     test_preownership_exit();\ndiff --git a/tools/replay_qualification_mod/ReplayQualificationMod.cpp b/tools/replay_qualification_mod/ReplayQualificationMod.cpp\nindex f9526ead..c78b492a 100644\n--- a/tools/replay_qualification_mod/ReplayQualificationMod.cpp\n+++ b/tools/replay_qualification_mod/ReplayQualificationMod.cpp\n@@ -119,7 +119,8 @@ using ArmReplayQualificationGroupFn = bool (*)(\n using GetReplayQualificationGroupRowReportFn = std::uint32_t (*)(\n     const char*, std::size_t, std::uint32_t, std::uint64_t*, std::size_t);\n using ArmOnlineQualificationFn = bool (*)(\n-    const char*, std::size_t, std::uint32_t, const std::uint8_t*, std::size_t);\n+    const char*, std::size_t, std::uint32_t, const std::uint8_t*, std::size_t,\n+    std::uint32_t);\n using GetOnlineQualificationStatusFn = std::uint32_t (*)();\n using ArmOnlineObserverProbeFn = bool (*)(\n     const Horse::Deterministic::OnlineObserverProbeRequest*);\n@@ -357,7 +358,7 @@ bool ResolveHorseModOnlineQualificationApi(\n     {\n         const auto candidate_arm = reinterpret_cast<ArmOnlineQualificationFn>(\n             GetProcAddress(modules[index],\n-                \"horsemod_arm_online_qualification_v5\"));\n+                \"horsemod_arm_online_qualification_v6\"));\n         const auto candidate_status = reinterpret_cast<\n             GetOnlineQualificationStatusFn>(GetProcAddress(modules[index],\n                 \"horsemod_get_online_qualification_status\"));\n@@ -447,10 +448,12 @@ bool ValidRunId(std::string_view value) noexcept\n bool ReadOnlineRequest(const std::filesystem::path& path,\n     std::string& run_id, std::uint32_t& fault,\n     std::array<std::uint8_t, 3>& correction_stimulus_depths,\n-    std::size_t& correction_stimulus_count)\n+    std::size_t& correction_stimulus_count,\n+    std::uint32_t& correction_stimulus_min_round)\n {\n     correction_stimulus_depths = {};\n     correction_stimulus_count = 0;\n+    correction_stimulus_min_round = 1;\n     std::ifstream stream(path, std::ios::binary);\n     if (!stream) return false;\n     stream.seekg(0, std::ios::end);\n@@ -463,6 +466,7 @@ bool ReadOnlineRequest(const std::filesystem::path& path,\n     std::uint32_t version{1};\n     std::uint64_t not_before_unix_ms{};\n     bool correction_stimulus_present{};\n+    bool correction_stimulus_min_round_present{};\n     std::size_t begin{};\n     while (begin < text.size())\n     {\n@@ -477,7 +481,7 @@ bool ReadOnlineRequest(const std::filesystem::path& path,\n             const auto value = line.substr(equals + 1);\n             if (key == \"version\")\n                 version = value == \"2\" ? 2u : value == \"3\" ? 3u\n-                    : value == \"4\" ? 4u : 0u;\n+                    : value == \"4\" ? 4u : value == \"5\" ? 5u : 0u;\n             else if (key == \"run_id\") run_id.assign(value);\n             else if (key == \"arm\") arm = value == \"true\";\n             else if (key == \"not_before_unix_ms\")\n@@ -541,6 +545,18 @@ bool ReadOnlineRequest(const std::filesystem::path& path,\n                     if (value_begin == value.size()) return false;\n                 }\n             }\n+            else if (key == \"correction_stimulus_min_round\")\n+            {\n+                if (correction_stimulus_min_round_present) return false;\n+                correction_stimulus_min_round_present = true;\n+                const auto parsed = std::from_chars(value.data(),\n+                    value.data() + value.size(),\n+                    correction_stimulus_min_round);\n+                if (parsed.ec != std::errc{}\n+                    || parsed.ptr != value.data() + value.size()\n+                    || correction_stimulus_min_round == 0\n+                    || correction_stimulus_min_round > 2) return false;\n+            }\n             else return false;\n         }\n         if (end == std::string::npos) break;\n@@ -549,10 +565,15 @@ bool ReadOnlineRequest(const std::filesystem::path& path,\n             ++begin;\n     }\n     if (!arm || !ValidRunId(run_id)\n-        || (version != 2 && version != 3 && version != 4)\n+        || (version != 2 && version != 3 && version != 4 && version != 5)\n         || (version == 2 && correction_stimulus_count != 0)\n         || (version == 3 && correction_stimulus_count > 1)\n         || (version == 4 && !correction_stimulus_present)\n+        || (version == 5 && (!correction_stimulus_present\n+            || !correction_stimulus_min_round_present))\n+        || (version != 5 && correction_stimulus_min_round_present)\n+        || (correction_stimulus_count == 0\n+            && correction_stimulus_min_round != 1)\n         || (fault != 0 && correction_stimulus_count != 0)\n         || not_before_unix_ms == 0) return false;\n     const auto now = static_cast<std::uint64_t>(\n@@ -1406,9 +1427,11 @@ private:\n         std::uint32_t fault{};\n         std::array<std::uint8_t, 3> correction_stimulus_depths{};\n         std::size_t correction_stimulus_count{};\n+        std::uint32_t correction_stimulus_min_round{1};\n         if (!ReadOnlineRequest(\n                 QualificationRoot() / L\"online_request.txt\", run_id, fault,\n-                correction_stimulus_depths, correction_stimulus_count))\n+                correction_stimulus_depths, correction_stimulus_count,\n+                correction_stimulus_min_round))\n             return;\n         if (run_id != online_last_run_id_)\n         {\n@@ -1418,15 +1441,18 @@ private:\n                 return;\n             if (!arm_online_(run_id.data(), run_id.size(), fault,\n                     correction_stimulus_depths.data(),\n-                    correction_stimulus_count)) return;\n+                    correction_stimulus_count,\n+                    correction_stimulus_min_round)) return;\n             online_last_run_id_ = run_id;\n             online_last_status_ = UINT32_MAX;\n             Output::send<LogLevel::Default>(STR(\n                 \"[ReplayQualification] armed online qualification \"\n                 \"run_id={} fault={} correction_stimulus_count={} \"\n+                \"correction_stimulus_min_round={} \"\n                 \"without menu navigation\\n\"),\n                 RC::to_generic_string(run_id), fault,\n-                correction_stimulus_count);\n+                correction_stimulus_count,\n+                correction_stimulus_min_round);\n         }\n         if (get_online_status_ != nullptr)\n         {\n",
+      "deterministic_binary_patch_bytes": 44424,
+      "deterministic_binary_patch_sha256": "f2883eab656a24d93a109b6e71f41c112ac598f92562322cecafe1d7baf3835c",
+      "dirty": true,
+      "status_porcelain_v2": [
+        "1 .M N... 100644 100644 100644 0e27dca71d8de963d245bfe88664fa822db161c4 0e27dca71d8de963d245bfe88664fa822db161c4 HorseMod/HorseModService.OnlineCallbacks.inl",
+        "1 .M N... 100644 100644 100644 e3704a0faf7bcc44f699ba142cbd1e69e59c8936 e3704a0faf7bcc44f699ba142cbd1e69e59c8936 HorseMod/HorseModService.OnlineOwnership.inl",
+        "1 .M N... 100644 100644 100644 f87572cc96137ec596fac1e9e4ef19ca1f7e32b8 f87572cc96137ec596fac1e9e4ef19ca1f7e32b8 HorseMod/HorseModService.PublicApiAndLifetime.inl",
+        "1 .M N... 100644 100644 100644 ee38358c0fc0438839c27defca05c2504ce0f50b ee38358c0fc0438839c27defca05c2504ce0f50b HorseMod/HorseModService.SettingsAndRequests.inl",
+        "1 .M N... 100644 100644 100644 88f979effff4dc33f8b975ae0cc6cdb8479b1de4 88f979effff4dc33f8b975ae0cc6cdb8479b1de4 HorseMod/dllmain.cpp",
+        "1 .M N... 100644 100644 100644 23f32b8c78e0cf180488f9fca82f0372a454d093 23f32b8c78e0cf180488f9fca82f0372a454d093 HorseMod/horselib/deterministic/DeterministicHookSet.LifecycleAndJournal.inl",
+        "1 .M N... 100644 100644 100644 3f9b1cfac8267cd131bcc7b1dbda480f1aefa937 3f9b1cfac8267cd131bcc7b1dbda480f1aefa937 HorseMod/horselib/deterministic/DeterministicHookSet.hpp",
+        "1 .M N... 100644 100644 100644 c9b3bb010a92382054a49a78c86cd0fb4154212d c9b3bb010a92382054a49a78c86cd0fb4154212d HorseMod/horselib/deterministic/GekkoRollbackSession.hpp",
+        "1 .M N... 100644 100644 100644 b669daaeb23dc24c9eed3d746797e30683f954e5 b669daaeb23dc24c9eed3d746797e30683f954e5 tools/deterministic_qualification/paired_online.py",
+        "1 .M N... 100644 100644 100644 ee2ea274e8e24a5aff7f4b22ab03da23876b9313 ee2ea274e8e24a5aff7f4b22ab03da23876b9313 tools/deterministic_qualification/runner.py",
+        "1 .M N... 100644 100644 100644 061c515639a63d52198057ad0be5df6cf749b12c 061c515639a63d52198057ad0be5df6cf749b12c tools/deterministic_qualification/tests/test_paired_online_cycles.py",
+        "1 .M N... 100644 100644 100644 94104f750632b3512f1191b2cad4ccd69b351ed8 94104f750632b3512f1191b2cad4ccd69b351ed8 tools/gekko_rollback_session_selftest.cpp",
+        "1 .M N... 100644 100644 100644 e1e6a161dc5e23cc6e1ccfcf3fbc59b7319027eb e1e6a161dc5e23cc6e1ccfcf3fbc59b7319027eb tools/online_coordinator_selftest.cpp",
+        "1 .M N... 100644 100644 100644 f9526eadb5bd02d99e824896df6864d111374baa f9526eadb5bd02d99e824896df6864d111374baa tools/replay_qualification_mod/ReplayQualificationMod.cpp"
+      ],
+      "submodules": [
+        "f21698d85367c8d97585cf7610897316c873681c third_party/GekkoNet (v20260629200724-02c447c-6-gf21698d)",
+        " 6b3fd8a175f1e164eb1bd1be6f766f48b980f7c0 tools/BlueprintToCpp (heads/codex/pre-rollback-rewrite-snapshot-20260823)",
+        " 75f3878b7a348cbda3927048b142a0a6923e79c0 tools/BlueprintToCpp/CUE4Parse (v1.2.2-719-g75f3878b)",
+        " 414689d5cff4286a7898487a46dc5e48005d38da tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl (v2.1.0)",
+        " 0d98dba29d66e93259db7daa53a9327df767a415 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/benchmark (v1.6.1)",
+        " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/catch2 (v2.13.7)",
+        " d7982f2b2524feeb322f424b29cf43df30b5d5b7 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm (v2.2.0)",
+        " 0d98dba29d66e93259db7daa53a9327df767a415 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm/external/benchmark (v1.6.1)",
+        " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm/external/catch2 (v2.13.7)",
+        " 54b3985e8ccc5efb5f24dabf0b4b802a996366e6 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/sjson-cpp (v0.9.0)",
+        " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/sjson-cpp/external/catch2 (v2.13.7)"
+      ],
+      "tracked_inputs": [
+        {
+          "path": "CMakeLists.txt",
+          "sha256": "0ee3de61f39d1362738ce9a1973c4522ceccf2807936fbcce2fbc89f3489464a",
+          "size": 5011
+        },
+        {
+          "path": "HorseMod/CMakeLists.txt",
+          "sha256": "c727ecf11acc782c35e174fb5ac2825ce7c42a93e271d77a83cbae635fa4a6a8",
+          "size": 21074
+        },
+        {
+          "path": "HorseMod/HorseModService.KHitAudit.inl",
+          "sha256": "73c896ed486d496cad0c6d116422c66618bf517a9afdc7b79cb22c950df1087d",
+          "size": 51795
+        },
+        {
+          "path": "HorseMod/HorseModService.LabbingAndGeneral.inl",
+          "sha256": "298878f3099b4cbdcb9e9407be299351c8d13e55d090c5798ee5b886a326436f",
+          "size": 26622
+        },
+        {
+          "path": "HorseMod/HorseModService.OnlineCallbacks.inl",
+          "sha256": "1826d697c507708fdcacc3a1821416fb6c8fc5cc897e2d12663a4a8038a83c65",
+          "size": 85900
+        },
+        {
+          "path": "HorseMod/HorseModService.OnlineOwnership.inl",
+          "sha256": "1f81efe873a0022dacbe0c81f344f3cd96bb6a99e86b4856c33684ee811ed176",
+          "size": 72452
+        },
+        {
+          "path": "HorseMod/HorseModService.PresenceAndOverlay.inl",
+          "sha256": "e9f4fbb147e71b63fd07216923f9845e4036898f828b19b69bc39c0afd08619d",
+          "size": 52418
+        },
+        {
+          "path": "HorseMod/HorseModService.PublicApiAndLifetime.inl",
+          "sha256": "e45d8e0102fead5437fb9eeaa60a7081ddecdb85ee38043b05a4c02b81ce5e38",
+          "size": 89257
+        },
+        {
+          "path": "HorseMod/HorseModService.QualificationDiagnostics.inl",
+          "sha256": "6162bc91d9f64230e6b38c23b5a97f297ad2803a905ce73f262d0a9eb3ab1273",
+          "size": 87575
+        },
+        {
+          "path": "HorseMod/HorseModService.RuntimeControls.inl",
+          "sha256": "ae3f2888f3fd141e5683f70c6b512a7d6bf29a024dc1064a716d670b4eaa4c1c",
+          "size": 55358
+        },
+        {
+          "path": "HorseMod/HorseModService.SettingsAndRequests.inl",
+          "sha256": "763785e0c5444fbbbc217cf6bf5b37692b6d2d02fc5b1ff9f951700630baa75b",
+          "size": 57315
+        },
+        {
+          "path": "HorseMod/HorseModService.TypesAndState.inl",
+          "sha256": "b0307d39435df37d981caf975f77a8e0a0fced27f2e3d539dba660d439ae454b",
+          "size": 49960
+        },
+        {
+          "path": "HorseMod/HorseModService.UiTabs.inl",
+          "sha256": "4af4d8cbb9a0849bc5ecabab9b3503d1ada2ee0abee10469b79b473e00e4b87c",
+          "size": 58474
+        },
+        {
+          "path": "HorseMod/OnlineQualificationService.inl",
+          "sha256": "5ac0cbf53871767bd0ba8a0ff11059f2092e5ee86a0352d4f402d87ea6b53343",
+          "size": 42688
+        },
+        {
+          "path": "HorseMod/dllmain.cpp",
+          "sha256": "aaa1734901af34cd89331a983f97d551af5fcca6b1231f62c5b2fe0e030534d6",
+          "size": 30590
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/AudioPresentation.cpp",
+          "sha256": "4f3342cd6e3052bb0ceef557477390367e7ad3b58567316df8a3874bc3b5efaf",
+          "size": 7775
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/AudioPresentation.hpp",
+          "sha256": "439a9554543b2f9172761a01d5e2a47975100c1f324a973d2bdc6922c9555658",
+          "size": 14604
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/AuthoritativeInputGate.hpp",
+          "sha256": "09bdfe232abeb92c913341ba5217b1456627a0962716b86b396451669f2420b4",
+          "size": 2787
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/BattleAudioSelectorState.cpp",
+          "sha256": "2e5efa4b85b776960d68e2d4263ed615cac21f80d3de3bb355548613ae9583c3",
+          "size": 6552
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/BattleAudioSelectorState.hpp",
+          "sha256": "4838fb424721ca77d91fc8dd15150580453fa8e9c85166038c1a64facfc4e347",
+          "size": 2090
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/CallbackTopology.cpp",
+          "sha256": "342d9122d442be31238e3cd938c4ada45013643b7d7471c2af782140ca072802",
+          "size": 7276
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/CallbackTopology.hpp",
+          "sha256": "1cc96f59f06b9b7bf2dfaeb9ae7c6ed45cb49a068376996c9cad780956dc6e62",
+          "size": 1619
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/CandidateCheckpoint.cpp",
+          "sha256": "b46218183b68855e0462e090c8d7e7a41222eef7d42ad81ce33420cdfb6e57d5",
+          "size": 49091
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/CandidateCheckpoint.hpp",
+          "sha256": "fe3ed38d72c5bcec7ee2e6986be4ddbe8e50ef4a58f9145acb4b13e98e7dac4f",
+          "size": 3303
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/CandidateGameStateAdapter.cpp",
+          "sha256": "23bc824949f2b9b1978a6df31c9cf271b85e50fbb63c7770c35c4c87d69a8874",
+          "size": 35115
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/CandidateGameStateAdapter.hpp",
+          "sha256": "968ef8b0698b6ce8b404fe6bc07fd2c7778f9d32edf278b13d97d2b28a0e539e",
+          "size": 11488
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/CanonicalHashTimeline.cpp",
+          "sha256": "611681b6e7e3c7a6c7dc0d47164c6f14cd52e7c815ff77b25f642cd087d8b49f",
+          "size": 6658
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/CanonicalHashTimeline.hpp",
+          "sha256": "803c332deaa97e46e5fcdd95c14e61f95f59b58a9751e7d6032ee82874fbd470",
+          "size": 2483
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/CharaAnimationState.cpp",
+          "sha256": "cf852b8736db0450853c246ed06714a1f79fd54a89663fb685b22513a211df9f",
+          "size": 26828
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/CharaAnimationState.hpp",
+          "sha256": "1f14b95c3116743428cbf6e0b4b7d6f4dd961555d0383356cf0ef163a09fb6bc",
+          "size": 6214
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/Config.cpp",
+          "sha256": "c6a9a32e3adc72889339f02ed149401d9cdc861df790ec500f7aac73983c1a4f",
+          "size": 4118
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/Config.hpp",
+          "sha256": "d2a736c48af1f8ee443160e27d17ff6a1b6ec93d6534158c239ccc38930a560f",
+          "size": 1204
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/DeterministicHookSet.Audio.inl",
+          "sha256": "2513f1944166a15ddbda9ec16c6a0700e33d830f6bbe80f752a603a100077764",
+          "size": 55890
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/DeterministicHookSet.FrameAndStage.inl",
+          "sha256": "639fad887c98580cda90f85bab52b5f1602d8abbccf22f4104ed540659f12f42",
+          "size": 70826
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/DeterministicHookSet.LifecycleAndJournal.inl",
+          "sha256": "ad3e787f9b2d53135816594b88c771cde4e814d64b874b73dda341ec1cc03200",
+          "size": 65363
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/DeterministicHookSet.PresentationTerminals.inl",
+          "sha256": "cbdc937b5ff2435f3e4675f166cf058f461049c0c5239f7b8d6a50526c3c6301",
+          "size": 56762
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/DeterministicHookSet.cpp",
+          "sha256": "c9d7ba7c2070320ddcb6364d2e3453c839461da3d3acbdffd0a8d22d2b61cba0",
+          "size": 52045
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/DeterministicHookSet.hpp",
+          "sha256": "7104b44f0ad25164a196b668982bf5db06b79bd192000a06e29289f00260bc44",
+          "size": 42971
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/FloatingPointEnvironment.cpp",
+          "sha256": "900ac867fd069b5106a52858a02daa0713bc774db7e18e71585e15f1ab9cf620",
+          "size": 2424
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/FloatingPointEnvironment.hpp",
+          "sha256": "8aa548aa0b633f2e99f106334264c0cbb480b950615587ed0b11a73f39016c42",
+          "size": 1446
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/GekkoRollbackSession.cpp",
+          "sha256": "113f69a819cb4020a8e70453094bc7baa1c41d51caff55d3bd914d85b9b63b35",
+          "size": 16481
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/GekkoRollbackSession.hpp",
+          "sha256": "cb69a7c1a8bfadb2240a702c19488a887e75ce7996cfeef829df5875057b44d4",
+          "size": 11500
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/HgCpuCoverageProbe.cpp",
+          "sha256": "3760ebc6275b907dcef279f3955f2be33e4987f09859d3beb3d9a2262871b307",
+          "size": 6194
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/HgCpuCoverageProbe.hpp",
+          "sha256": "7c40e9027a3f15b74313c36ebab3fdace334f0d4eddc8cf2df38090630113b99",
+          "size": 2279
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/HgCpuRuntimeDiagnostics.cpp",
+          "sha256": "77f899ec860ba9795d65482bd93677c3d8131e9b5ef8a8d720f39f95dddced54",
+          "size": 7203
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/HgCpuRuntimeDiagnostics.hpp",
+          "sha256": "76515ead4989a832b565ebaa2d7d5cd2c2213626526af17e141f5fd87bdc1250",
+          "size": 1569
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/HgCpuStream.cpp",
+          "sha256": "c216af0bf6a9e66e80e100e9cccac8596f77c57014da6a58fc4c7cbe98725c3b",
+          "size": 7668
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/HgCpuStream.hpp",
+          "sha256": "1102a3ca1583387bcf2c27ff14ac61f240f387a6380ad739c5d4d39d3866d827",
+          "size": 2849
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/InputTimeline.cpp",
+          "sha256": "e165c63065d054d644ee2e0ef80ae2e90129711c6e422e66bdcea53c7c42b8c7",
+          "size": 5085
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/InputTimeline.hpp",
+          "sha256": "95f8b164a91d8585fc8d669fdaa566c047842455e33ee59a0c3d164ac0ee52c5",
+          "size": 1519
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/Interfaces.hpp",
+          "sha256": "eeb7c8a75f43870d1322d19d88a308372137827d35a708e2131838b5625a5123",
+          "size": 4142
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/LocalImageChecksum.hpp",
+          "sha256": "85a6b204203c40e0668268a55115622b5ac0d4664ea04f2699b010abb483bd31",
+          "size": 2395
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/MotionBankSnapshot.cpp",
+          "sha256": "f87976bef4d05bfecce951aa35ebe016acd0950f43ce758e746f35655b0ed4f5",
+          "size": 11056
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/MotionBankSnapshot.hpp",
+          "sha256": "a81424933f1af05549352d755dfae52506e5424a1a3658376fd66c66f972b426",
+          "size": 2302
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/MoveDispatchState.cpp",
+          "sha256": "bcff8b261c4eeeea846561d4d5534e2d266ab2307d88e89629bc74f4733536f7",
+          "size": 19039
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/MoveDispatchState.hpp",
+          "sha256": "26925909a1ea5466a9780a8bfb288bf4192aaa1b7b4ce32c9c1ee182d397657c",
+          "size": 4489
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/NativeAudioPresentationController.cpp",
+          "sha256": "2d1dc051ba93ee8edc3fb3e1a1c1457891819e9d19be5e4dbcb7fdc3ffdef805",
+          "size": 4938
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/NativeAudioPresentationController.hpp",
+          "sha256": "471a4ab4b159fcbf4b059ee608b45de7cd774a293fca8756fde0f0d60727ded2",
+          "size": 1333
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/NativeBatchTimeline.cpp",
+          "sha256": "813cd3ac5ab9ee66c12f6549576b5257703763df09796637949b516a172bc7be",
+          "size": 19723
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/NativeBatchTimeline.hpp",
+          "sha256": "7e8b571997e2fa37a84802f883d66fbe25881f91512995ae87294b6120d1ce7b",
+          "size": 14160
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/NativeCandidateRegions.cpp",
+          "sha256": "56d0356dc8ce9bddbcc381461b43b6b66b35361f1eba10fa6990905d35f6fa34",
+          "size": 125231
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/NativeCandidateRegions.hpp",
+          "sha256": "52d04010f63d83649f07e3dc7e1c0f569d927f52aa43970ae44d2b28f8676807",
+          "size": 20349
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/NativePresentationJournal.cpp",
+          "sha256": "e84c53ad43000daad5c59d3d5447b44a2c5f1a9f035510f79209d0b3dc75ca17",
+          "size": 10361
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/NativePresentationJournal.hpp",
+          "sha256": "4b39d528acf1397c67ba203049af04e44fa226ea9b23269f386c6d4db94a04c4",
+          "size": 652
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/NativeReplayMaterializer.cpp",
+          "sha256": "ac7f5be2a145bb584d59605c9b1419918d741c0899114af4c4ed9942536142de",
+          "size": 5256
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/NativeReplayMaterializer.hpp",
+          "sha256": "981027b969dbe670c8283b2fd83695212bacaafb34370824b58172aadf6d16b9",
+          "size": 1925
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/OnlineContractTypes.hpp",
+          "sha256": "0db76547729a9b33fc76b4482b2b9815c60f9ed3353b9caf7ffc9df6902b00b9",
+          "size": 1717
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/OnlineCoordinator.cpp",
+          "sha256": "e876c2102591746b3a627e3b130ddb7066daf58969bcc856633c1e6a51076235",
+          "size": 45837
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/OnlineCoordinator.hpp",
+          "sha256": "a95e73719d79fbfc459e2a352a88d50b83e4781025f2746d08b3ddb3c5952b53",
+          "size": 11063
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/OnlineLifecycle.hpp",
+          "sha256": "202d16b0fe31acb0ec13d61d0269834a1a7439b5eedbdf2571222190f2fb189b",
+          "size": 3859
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/OnlineQualificationMetrics.hpp",
+          "sha256": "55e8e3fa99243e67f5506be7d04235e564ff1382ec20e5e5ec6367c15b1021fa",
+          "size": 3079
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/OnlineSceneExitGate.hpp",
+          "sha256": "b15ae8e15559809aa83ed2a4344976e33453f6033de38ebf9699810a2adef69b",
+          "size": 1575
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/ParticlePresentation.cpp",
+          "sha256": "6fa30f546885d388b65a1d9650f2a477808558ee7467123e77ac976392f510f1",
+          "size": 6401
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/ParticlePresentation.hpp",
+          "sha256": "b9d451b8c79bd69eb12a35f8ce0f76751627f9119330d6b9f647d33f8ac208cd",
+          "size": 1530
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/PresentationJournal.cpp",
+          "sha256": "1ec9e16dd9744a8af6abdf5dbb67cccd2533abc5333e24b539b40ac623433d9e",
+          "size": 12116
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/PresentationJournal.hpp",
+          "sha256": "fdbc24e9b64af8f0566392a16d091e9b30353f61278653e6ecacfa344e26ae5a",
+          "size": 4084
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/ProductionOnlineAllowlist.cpp",
+          "sha256": "1255e566c1431e161295f91a586393ba69b8202114de74660784968dbaff36b0",
+          "size": 4124
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/ProductionOnlineAllowlist.hpp",
+          "sha256": "a010f8c22128a394c1a684f1cff0d3b8bb40c1e9db177dfa8c2b65b024ba60e8",
+          "size": 2029
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/ProductionReleaseLoader.cpp",
+          "sha256": "d91ce662c385fb834e8f29960c01a53418e510f88d1b54258a038578c8c2cd14",
+          "size": 12417
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/ProductionReleaseLoader.hpp",
+          "sha256": "7566c423c667aa82411d60f20a015666d2471f169a1baab54c752d78b9e59ec6",
+          "size": 742
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/ReplayCoordinator.cpp",
+          "sha256": "470b3a645d596bc81083a8fa7ab3ef27c3ea507889c11a5ab7085f39e48295d1",
+          "size": 7626
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/ReplayCoordinator.hpp",
+          "sha256": "ad6c2fcc1c5a2ef6a5d24e1bb9aa87e4e1e24e096df1cae614c1fae235449071",
+          "size": 2181
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/ReplaySeekPlanner.cpp",
+          "sha256": "983ad76e35025c6a1c165f8ed2c68524d65fc28f8d234cd40695333e750628e0",
+          "size": 8535
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/ReplaySeekPlanner.hpp",
+          "sha256": "df9a9f2b8afd08db8c5aa520b3e199da52aea59064094ba7b35edead9caee5a4",
+          "size": 1688
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/Sc6BattleSyncOwnerHook.hpp",
+          "sha256": "3de923ce594e3810e63d11d385e3d4a6bf174b7085fd5b30100c895895636c63",
+          "size": 4973
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/Sc6CandidateCheckpointCapture.cpp",
+          "sha256": "91a705d78b05f5a8b25c3292a08e906baf72d8ccec7dd1a76b7f0dab0830f268",
+          "size": 53174
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/Sc6CandidateCheckpointCapture.hpp",
+          "sha256": "d3c9edadee89422f4fa4e6d620d8ab7f13ab9cbde04a09abd332a6c2356ef822",
+          "size": 14708
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/Sc6HookLayout.hpp",
+          "sha256": "29888bea1ddd220e437e8cf9ca27bfdeaf10eeb873f6b25c3a701e6ee9f37e55",
+          "size": 1923
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/Sc6OnlineContractObserver.cpp",
+          "sha256": "ae8b1c14d30fa72d1d1f89f4e4da601a78e6243529b213467a4521556224a1a0",
+          "size": 28959
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/Sc6OnlineContractObserver.hpp",
+          "sha256": "c056eff648c8c81e48c8c703da3e65df70d863792129d9ba4d6620ecce7c061f",
+          "size": 6135
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/Sc6OnlineObserverProbe.cpp",
+          "sha256": "3b7f9cd8b0f682569d4f400272a50caedee648d17b4c9c3814a9b37292193edf",
+          "size": 7527
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/Sc6OnlineObserverProbe.hpp",
+          "sha256": "7f298bbad83700dbbd18142ae2dc6df61fe16a54f6ab7575924f43bebabc215a",
+          "size": 3698
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/Sc6PresentationSink.cpp",
+          "sha256": "ea58f941260a50019475774dbfab1cb1a6e77655252fe4b49fa834547843c6e7",
+          "size": 1182
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/Sc6PresentationSink.hpp",
+          "sha256": "edf0ff6fcb4c53af8a628015c81544050b7d185f3139c36d1a4f7a535957f906",
+          "size": 467
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/Sc6ReplayNativeBridge.cpp",
+          "sha256": "d46d856b364b506d897c803e71af7a72314c998269f5358c58cf85d231779d0b",
+          "size": 10344
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/Sc6ReplayNativeBridge.hpp",
+          "sha256": "d08c16c7b255467ed5c7af022aaa6cdb6566785d09053617181af12bbab22502",
+          "size": 1914
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.Correction.inl",
+          "sha256": "8e44244655a4b44412e8af007db3e14478aea8b798d64c56b6c4dc3c21d5b209",
+          "size": 47691
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.Observation.inl",
+          "sha256": "3438b86f4ecd1928d054f40b8f8b517a6487ce841c8b7b087d1c20c46ac04408",
+          "size": 76135
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.PresentationAndSeek.inl",
+          "sha256": "898d126cd8a0f23da78e272aa837b150bf8f99913a5f09b1b99f89034f32a6e9",
+          "size": 71947
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.cpp",
+          "sha256": "10e37bc4ce59f2d95e8f4b921e5357381cec2f1a273ff2aea9f3546f52527199",
+          "size": 15717
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.hpp",
+          "sha256": "100ba3d6dfadff5f9ed784e2b978425cc2597436f07c98215a4457050152888a",
+          "size": 43175
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/Sc6StageCatalog.cpp",
+          "sha256": "36ba7136138abd82131ab6f4367f8d59e5612c6e0d0f4196a0e929329e85fdcf",
+          "size": 472
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/Sc6StageCatalog.hpp",
+          "sha256": "bdb3218212e3ced5f2eafd45bffe67904a54389ae72225315dd1037ee147ebab",
+          "size": 1142
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/Schema.hpp",
+          "sha256": "1417586fe3f3ef1bace91e71bd0dba275c6cf772e4fdf7052589b77f21c0a790",
+          "size": 23196
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/SecondaryEventState.cpp",
+          "sha256": "2120e095984a6773ddc19dd2d4e1879bc834493fdf4799a1d47334747893ca82",
+          "size": 10269
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/SecondaryEventState.hpp",
+          "sha256": "5d3e63e15ee2e060a96b46578f83d29fe8c3dc739627bc86d0d469596d951b29",
+          "size": 2406
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/SimulationSession.cpp",
+          "sha256": "dbb1d3bfb2ec7ce1b9a72739ea711c720e8fff6c10274d828d3acf79d6f6a20e",
+          "size": 8982
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/SimulationSession.hpp",
+          "sha256": "0aaf0a372ac4296951799bea9ff12ea932326286bdfc5cf167501453d445f7ff",
+          "size": 1746
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/SnapshotStore.cpp",
+          "sha256": "22eedf15529947ac21bb1b8b78cc5253667c06d6a79eec95a4035afd648880a5",
+          "size": 21227
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/SnapshotStore.hpp",
+          "sha256": "8c2fcfc6ba22b98eab7d2faf80727d85baa5dade0cb81c48384891e852390a0e",
+          "size": 3888
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/StageBreakListenerDiagnostics.cpp",
+          "sha256": "fa1cf9fd3c2dc5a6b008e23b1791dbd0bf882d8cdefd7761471ba318562bbb9f",
+          "size": 19157
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/StageBreakListenerDiagnostics.hpp",
+          "sha256": "9ac86b2df3bd6b9c0eb5da8fd589d5adc19f77fc8d66dd396e153e2dbc02ee94",
+          "size": 6418
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/StageBreakPresentationIdentity.cpp",
+          "sha256": "2a99efcb7c4dc81c5475b86c69bc3721d69670182303e38bf2d161fbbeb5ebd9",
+          "size": 14823
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/StageBreakPresentationIdentity.hpp",
+          "sha256": "74b2aac17c7fdbb4682ee5584798ecad713ee4fbb931f8642ca47995bebf7eae",
+          "size": 3404
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/StagePresentation.cpp",
+          "sha256": "cf031b6882d9722ac19b85a9b4900c51e46f65cfe642eb067dea45be5992c43d",
+          "size": 7598
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/StagePresentation.hpp",
+          "sha256": "c07537bfde2e52a5dae57c48781af516c82d99ab3b53fde1b57054fad143ca6b",
+          "size": 1333
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/StageWindGraphTransaction.cpp",
+          "sha256": "f315f979eba893e754c095817506038cd101433fdf75eface0a27cd6efecd95c",
+          "size": 10525
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/StageWindGraphTransaction.hpp",
+          "sha256": "495c3866c204decae95a958db22953c0baf3c48dd5ff90c4d970858668fe2080",
+          "size": 885
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/StageWindTopology.cpp",
+          "sha256": "bfd4c4201784468dd9af1eeed880a219612849d0a08cbcbb2861612d93ebc473",
+          "size": 16669
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/StageWindTopology.hpp",
+          "sha256": "922d7d3094bc1b413b07de8b06d57bb48e9e8622c820c3a404060b2d29d7e287",
+          "size": 8572
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/SteamP2PTransport.cpp",
+          "sha256": "a85b264f278c78b02e4793de7b68969960aee65d802cd1482fd36dc6c41bb4c4",
+          "size": 25435
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/SteamP2PTransport.hpp",
+          "sha256": "2670e8c78e9d8d2ec69c4b0a539b8e4e1f8fefa56478c595ac5f286bd16426f0",
+          "size": 6525
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/Types.hpp",
+          "sha256": "1030fe79ceb3747003e9d25ea02c40c521ad822fc46cb68f5aec8757f60f9b64",
+          "size": 12104
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/UcrtRandBroker.cpp",
+          "sha256": "ddf2d44ced0b810deed17fb83f30ea8e5d759ad53b55959b9590e0dc1f770395",
+          "size": 4937
+        },
+        {
+          "path": "HorseMod/horselib/deterministic/UcrtRandBroker.hpp",
+          "sha256": "e8c08cec4288726d7e686cdde3260eeeb1160899682fdd39e4aecd95f89c88af",
+          "size": 1978
+        },
+        {
+          "path": "HorseMod/rollback.ini.example",
+          "sha256": "6c014794b0511992033d90574ab7e92bde00b0f324867eae22c136f927b8c029",
+          "size": 76
+        },
+        {
+          "path": "docs/investigations/deterministic-production-candidate-manifest.json",
+          "sha256": "c0cba1c615ae02e4e754421565f83bf35be655f1eb37e2904f82a878e8a948fe",
+          "size": 3026
+        },
+        {
+          "path": "docs/investigations/deterministic-production-region-manifest.json",
+          "sha256": "242b33289b6bce0bc54ef742b1b4490bb97f2ee54ad7a605a73921b17cd55e1e",
+          "size": 11111
+        },
+        {
+          "path": "docs/investigations/deterministic-tira-qualification-manifest.json",
+          "sha256": "cef0e02b24691c92c15b8c7fe6f51e78d373ee574930e87a87a295f27ea733a1",
+          "size": 1552
+        },
+        {
+          "path": "tools/deterministic_core_selftest.cpp",
+          "sha256": "83d364eaed50dac56fb5d246efb2873509571080c29e8f76b2968ad1a6aa90ac",
+          "size": 117016
+        },
+        {
+          "path": "tools/deterministic_iteration.py",
+          "sha256": "5975e2cfa406d416269960a2e766fd64194a3f1cddbd4bd195e2e8ec07b87f7c",
+          "size": 3119
+        },
+        {
+          "path": "tools/deterministic_qualification.py",
+          "sha256": "7722d89b24cd3ff1c377bbbc96dd711a36afb93e819f986d24cd1dfe04997702",
+          "size": 110
+        },
+        {
+          "path": "tools/deterministic_qualification/__init__.py",
+          "sha256": "17b7b701f8753af2779a08a65245389862295ffcb90c9f7fe700c6da3a27e312",
+          "size": 79
+        },
+        {
+          "path": "tools/deterministic_qualification/artifacts.py",
+          "sha256": "baf8f2967e3961901c414cf97de9223be10a39a1634151f0de110de14cc40487",
+          "size": 12083
+        },
+        {
+          "path": "tools/deterministic_qualification/configuration.py",
+          "sha256": "06509d24cb7e62704cab35cda17307298d905ccbf69506d9f18cf3c036c27365",
+          "size": 5631
+        },
+        {
+          "path": "tools/deterministic_qualification/impairment.py",
+          "sha256": "50a5970d89c932f6a16d9e99c7d7347769d2ba46621da76353b9c57819e9e65d",
+          "size": 5043
+        },
+        {
+          "path": "tools/deterministic_qualification/observer_pair.py",
+          "sha256": "56f30b0f3fc825a4445fc716f83e0b28ce358b88d530643dc755bcf44b91f5fa",
+          "size": 21808
+        },
+        {
+          "path": "tools/deterministic_qualification/offline_campaign.py",
+          "sha256": "70a11f9e0776e5ccdaba2c57575b9831afaf496d81b807c76c8dc14569cbb21a",
+          "size": 33646
+        },
+        {
+          "path": "tools/deterministic_qualification/offline_capture.py",
+          "sha256": "a55733f4f328d84cfe6a81430d20ef1393cb39d6a6010f92c2358c88ea559810",
+          "size": 8017
+        },
+        {
+          "path": "tools/deterministic_qualification/offline_matrix.py",
+          "sha256": "0c814ab7557de0c14f9a4b3594ada1d403c7325c58b6a06af847ad8971091e48",
+          "size": 13991
+        },
+        {
+          "path": "tools/deterministic_qualification/offline_spec.py",
+          "sha256": "12dc961bbfe041eb3b9f5074f7d109002f6f55828087ced6d9a4fe3242132e56",
+          "size": 3063
+        },
+        {
+          "path": "tools/deterministic_qualification/paired_online.py",
+          "sha256": "4611a5dbaf416c4560b0000abe5f610e41c0eb96bdc4bacfcacc922c6f5f8077",
+          "size": 98977
+        },
+        {
+          "path": "tools/deterministic_qualification/paired_online_evaluation.py",
+          "sha256": "97ea79ad83f9fd495b68e8164b015596c90979b59b633bb718e755308817d89d",
+          "size": 5571
+        },
+        {
+          "path": "tools/deterministic_qualification/process_control.py",
+          "sha256": "ea31173201387609be6e5b822c904c78aed9ad5037e7d72f137cb168154676f1",
+          "size": 6126
+        },
+        {
+          "path": "tools/deterministic_qualification/process_memory.py",
+          "sha256": "7e08e623445aa750d7aa32cba5a413597143a5b4cdcc4f089cd64ec1252bd61c",
+          "size": 3437
+        },
+        {
+          "path": "tools/deterministic_qualification/release_publish.py",
+          "sha256": "24e7cfa16b344b96f7b02ae6d617624c6b202424c622b722347ac8cc2d094469",
+          "size": 18955
+        },
+        {
+          "path": "tools/deterministic_qualification/replay_entry.py",
+          "sha256": "cdfdd0ba268002d3ce11848c38404c11dce4ccc7182d348902171341ec8868bb",
+          "size": 11490
+        },
+        {
+          "path": "tools/deterministic_qualification/report.py",
+          "sha256": "4d4572fb3a0e521817c2adaab7d27e918b940eb11372b3770380be9e8b09700e",
+          "size": 408
+        },
+        {
+          "path": "tools/deterministic_qualification/runner.py",
+          "sha256": "7a50ccb02d58602e06a7b7a27f45dd220d4925d23c9a33a6ee3f052de8010f7f",
+          "size": 111504
+        },
+        {
+          "path": "tools/deterministic_qualification/sandboxie_pair.py",
+          "sha256": "cdb25acc83b0d047629429aba522f384e3fbdaf52dca6ab6414dc9f668b979c6",
+          "size": 3927
+        },
+        {
+          "path": "tools/deterministic_qualification/tests/test_configuration.py",
+          "sha256": "0140c15278430457b799f821195f06f0e36dfa7fb92b72617134caf97adf263f",
+          "size": 3008
+        },
+        {
+          "path": "tools/deterministic_qualification/tests/test_impairment.py",
+          "sha256": "e77125f37b3511c756bdef01f15392ba285085b5844366b5c57d86464044abdd",
+          "size": 1419
+        },
+        {
+          "path": "tools/deterministic_qualification/tests/test_observer_pair.py",
+          "sha256": "8de715fc215aac0cd1ba1f34bb3b14c7373f3a1fac9e8bd36751d9364bdbdd31",
+          "size": 7090
+        },
+        {
+          "path": "tools/deterministic_qualification/tests/test_offline_matrix.py",
+          "sha256": "ba675238c07b8f7bf3625a7b586b5e6dcd79e1a33be588b060d66adcaffcf8cd",
+          "size": 3091
+        },
+        {
+          "path": "tools/deterministic_qualification/tests/test_offline_resume.py",
+          "sha256": "76f439ab8e16d1a2b84d402f53c034850f641e6310a2a035f4e20bc078af2b34",
+          "size": 13930
+        },
+        {
+          "path": "tools/deterministic_qualification/tests/test_paired_online_cycles.py",
+          "sha256": "8cb1f8d061f8d3ea8e9ceadc1b484f12d6ef3cc8baaa6e14692946ece4f56517",
+          "size": 34664
+        },
+        {
+          "path": "tools/deterministic_qualification/tests/test_process_memory.py",
+          "sha256": "629a03db34882a4b1389276d448c98783d85a4bcf0ca06d846e9f44a15a20f67",
+          "size": 1830
+        },
+        {
+          "path": "tools/deterministic_qualification/tests/test_release_publish.py",
+          "sha256": "54533a481f6824614aa4d305974cf265868b88e5f3319d5bf5f7d84742da583c",
+          "size": 2514
+        },
+        {
+          "path": "tools/deterministic_qualification/tests/test_replay_entry_request.py",
+          "sha256": "9ee4b158539c741f10e4c7200ed50d76b0c8e4af6ef46c6bdea092f3178aff99",
+          "size": 7864
+        },
+        {
+          "path": "tools/deterministic_qualification/tests/test_runner.py",
+          "sha256": "ce535a88421e0f3ed6fabf5ea75e5cac696d3ece2d629a2691544c23e830b5c2",
+          "size": 20410
+        },
+        {
+          "path": "tools/deterministic_qualification/tests/test_sandboxie_pair.py",
+          "sha256": "c9838f425d1dc2c0413b787f2cb1d2f58de00742e1e53d6aa76ddb62f42ba21b",
+          "size": 2018
+        },
+        {
+          "path": "tools/deterministic_qualification/tests/test_tira_campaign.py",
+          "sha256": "07c9f06ef5735ca1ebca530387367b5cdc3e10271f6e32bc28ec4858d4dd24ab",
+          "size": 8283
+        },
+        {
+          "path": "tools/deterministic_qualification/tests/test_trace_parser.py",
+          "sha256": "4802fd954eb773daaffb1a887eb38beb2a6d9f2a30177c3b49d0e79565cdbdb5",
+          "size": 18004
+        },
+        {
+          "path": "tools/deterministic_qualification/tira_campaign.py",
+          "sha256": "b43217bc13b7f5d2a0ca81a87a5b34e48f9eeba5533670de2e8bf98c96d0678e",
+          "size": 23975
+        },
+        {
+          "path": "tools/deterministic_qualification/trace_parser.py",
+          "sha256": "311cb092423e8110bb69605baa590a82f0a64f9a7783e020b458a5dba5b02768",
+          "size": 43917
+        },
+        {
+          "path": "tools/deterministic_schema_exporter.cpp",
+          "sha256": "aaeca5beaca2b383da029c4aa0880278d0d911cf023c543a4b29d0de47f4a665",
+          "size": 7104
+        },
+        {
+          "path": "tools/gekko_rollback_session_selftest.cpp",
+          "sha256": "ccfc686f918f28746c0095388153f7657a17c6ca68347bc0d700ae7ac1e95eda",
+          "size": 42415
+        },
+        {
+          "path": "tools/generate_compiled_release_identities.py",
+          "sha256": "097bb1512af037668e2cd28b8ee5a75294f38bfc352d9c103fc125999b4dcad6",
+          "size": 1735
+        },
+        {
+          "path": "tools/generate_production_candidate_manifest.py",
+          "sha256": "6867aaea32825bd2074a0412173eeaae84cdc7f4b2dbf8f5eaac9c30aea0feb3",
+          "size": 3326
+        },
+        {
+          "path": "tools/generate_production_regions.py",
+          "sha256": "c9fa3d3221a3fa667e9546123b1335b89bdd7a4daeba780eb8b1ba3ec80ed88f",
+          "size": 2475
+        },
+        {
+          "path": "tools/native_candidate_regions_selftest.cpp",
+          "sha256": "dcf7ca670151bbdcd8ab50f5a847f2899fbca2c1bec4b655f7b7c9fbfa99b6ad",
+          "size": 153874
+        },
+        {
+          "path": "tools/online_coordinator_selftest.cpp",
+          "sha256": "4b958e8b20f13f1546835fbcae9d7c9a0153a93d10bc6109840fbd4a73a3bfef",
+          "size": 47561
+        },
+        {
+          "path": "tools/production_release_loader_selftest.cpp",
+          "sha256": "f8a81717876a1a382f6838a308c07e216b57df8555a291ae08cc9f1e5eff95fa",
+          "size": 6370
+        },
+        {
+          "path": "tools/replay_qualification_mod/OnlineRoomAutomation.cpp",
+          "sha256": "c66aa09e597f62521f7bd434298c3bf0ed33f0c3fa62bff8fe72b9750c1ad020",
+          "size": 104957
+        },
+        {
+          "path": "tools/replay_qualification_mod/OnlineRoomAutomation.hpp",
+          "sha256": "1f1593b8b02770c77ac28ebefe3e95f85e10ea090c8a504a9371453736bb54e7",
+          "size": 4698
+        },
+        {
+          "path": "tools/replay_qualification_mod/ReplayPayloadImporter.cpp",
+          "sha256": "4a8ae7e1018c028a9392112fd84f16721bedb4d08be6327aab7c4b07ba7afddc",
+          "size": 15059
+        },
+        {
+          "path": "tools/replay_qualification_mod/ReplayPayloadImporter.hpp",
+          "sha256": "92591ea769191e2cf56ceba867bd09589e3e84100f00c76ff2a19e7312a41734",
+          "size": 2326
+        },
+        {
+          "path": "tools/replay_qualification_mod/ReplayQualificationHealth.hpp",
+          "sha256": "2d7d19f12df92969f23415089ff709acaabf8f7bbeb98b25da6a01a023358430",
+          "size": 999
+        },
+        {
+          "path": "tools/replay_qualification_mod/ReplayQualificationMod.cpp",
+          "sha256": "9c25cbf0e4f7457178328ad5bcc3744c881939e93b0bc3e3759bb9c86a37235d",
+          "size": 142293
+        },
+        {
+          "path": "tools/replay_qualification_mod/ReplaySceneNavigator.cpp",
+          "sha256": "b1387c7e21332e254ec4e0f94d7c4f7aef03d03aac4ac3a7e22c7f9cb53837fd",
+          "size": 17486
+        },
+        {
+          "path": "tools/replay_qualification_mod/ReplaySceneNavigator.hpp",
+          "sha256": "def7ba2cf5aacae193a6ee09fbdf4037252e778149c606fba18ea4c85ec9d393",
+          "size": 591
+        },
+        {
+          "path": "tools/replay_qualification_mod/ReplaySeekReadiness.hpp",
+          "sha256": "5a231b9caae3f2e4073ffdcb92324491dc40703a1b3d6a212d87450ebfb171d0",
+          "size": 1498
+        },
+        {
+          "path": "tools/sc6_online_contract_observer_selftest.cpp",
+          "sha256": "e71eb05d5c55c37f3fd3d17271a4f44adf1c220ba17788b988e51c0ddc3df893",
+          "size": 7269
+        },
+        {
+          "path": "tools/sc6_online_observer_probe_selftest.cpp",
+          "sha256": "a8071d74b8612c9ea618a683f276b8e6c82da86d347b891020c05b41a6ad23bc",
+          "size": 4256
+        },
+        {
+          "path": "tools/steam_p2p_transport_selftest.cpp",
+          "sha256": "697227a22f77f0508bd6b8d97ccc8cb926b5f402e97fda4624b77d05f8fce23a",
+          "size": 11527
+        }
+      ],
+      "untracked_inputs": []
+    }
+  },
+  "impairment": {
+    "active": false,
+    "profile": "clean"
+  },
+  "initial_log_offsets": {
+    "host": 108078,
+    "sandbox": 106126
+  },
+  "kind": "paired_online_case",
+  "peer_run_ids": [
+    {
+      "host": "paired-a70389b67b3747adb9d1e5643cc859d2-host",
+      "sandbox": "paired-a70389b67b3747adb9d1e5643cc859d2-sandbox"
+    },
+    {
+      "host": "paired-a70389b67b3747adb9d1e5643cc859d2-cycle-002-host",
+      "sandbox": "paired-a70389b67b3747adb9d1e5643cc859d2-cycle-002-sandbox"
+    }
+  ],
+  "process_memory": null,
+  "raw_log_artifacts": {
+    "cycle-001-host": {
+      "path": "E:\\myMods\\docs\\investigations\\evidence\\dev-round361-two-match-post-reownership-fix1\\raw\\paired-a70389b67b3747adb9d1e5643cc859d2-cycle-001-host.log",
+      "sha256": "c1a14fdf3a80919da219722d3eb46fa483011e47e3441e1dcc0e9f390c77e0ab",
+      "size": 116297
+    },
+    "cycle-001-sandbox": {
+      "path": "E:\\myMods\\docs\\investigations\\evidence\\dev-round361-two-match-post-reownership-fix1\\raw\\paired-a70389b67b3747adb9d1e5643cc859d2-cycle-001-sandbox.log",
+      "sha256": "500272aa996b455f005215c5bcdbc3e7be196e9231b332261bfc37e13c1eb7b4",
+      "size": 113949
+    },
+    "cycle-002-host": {
+      "path": "E:\\myMods\\docs\\investigations\\evidence\\dev-round361-two-match-post-reownership-fix1\\raw\\paired-a70389b67b3747adb9d1e5643cc859d2-cycle-002-host.log",
+      "sha256": "10f1a052c4937b6cafddf0b1779ac6bbc3b46fc84030c55febaeb1a5de4bb9f4",
+      "size": 41906
+    },
+    "cycle-002-sandbox": {
+      "path": "E:\\myMods\\docs\\investigations\\evidence\\dev-round361-two-match-post-reownership-fix1\\raw\\paired-a70389b67b3747adb9d1e5643cc859d2-cycle-002-sandbox.log",
+      "sha256": "92599bf6a24e3a58597114b3f2e8cf746e62f3129063f3bffa9cf934024c1b26",
+      "size": 40822
+    }
+  },
+  "raw_logs": {
+    "cycle-001-host": "E:\\myMods\\docs\\investigations\\evidence\\dev-round361-two-match-post-reownership-fix1\\raw\\paired-a70389b67b3747adb9d1e5643cc859d2-cycle-001-host.log",
+    "cycle-001-sandbox": "E:\\myMods\\docs\\investigations\\evidence\\dev-round361-two-match-post-reownership-fix1\\raw\\paired-a70389b67b3747adb9d1e5643cc859d2-cycle-001-sandbox.log",
+    "cycle-002-host": "E:\\myMods\\docs\\investigations\\evidence\\dev-round361-two-match-post-reownership-fix1\\raw\\paired-a70389b67b3747adb9d1e5643cc859d2-cycle-002-host.log",
+    "cycle-002-sandbox": "E:\\myMods\\docs\\investigations\\evidence\\dev-round361-two-match-post-reownership-fix1\\raw\\paired-a70389b67b3747adb9d1e5643cc859d2-cycle-002-sandbox.log"
+  },
+  "renderer": "normal",
+  "report_schema": 2,
+  "result": "fail",
+  "run_id": "paired-a70389b67b3747adb9d1e5643cc859d2",
+  "runtime": {
+    "cycles": [
+      {
+        "cycle": 1,
+        "log_offsets": {
+          "host": 108078,
+          "sandbox": 106126
+        },
+        "peers": {
+          "automatic_teardown": {
+            "host": {
+              "detail": "returned_to_player_match_lobby",
+              "kind": "online_match_teardown",
+              "lobby_id": 0,
+              "local_steam_id": 0,
+              "run_id": "paired-a70389b67b3747adb9d1e5643cc859d2-td001-h",
+              "schema_version": 2,
+              "state": "complete"
+            },
+            "sandbox": {
+              "detail": "returned_to_player_match_lobby",
+              "kind": "online_match_teardown",
+              "lobby_id": 0,
+              "local_steam_id": 0,
+              "run_id": "paired-a70389b67b3747adb9d1e5643cc859d2-td001-s",
+              "schema_version": 2,
+              "state": "complete"
+            }
+          },
+          "baseline_identities": [
+            {
+              "components": "80c85cb02d30cf59/622aadeb16cdf3ee/85075a33e03c33be/5e3a89c663aaa29f/93a7cb4e882aac65",
+              "frame": 122,
+              "generation": 1
+            },
+            {
+              "components": "82c2049196c8628b/5ccc504d107315a1/409053976f33f903/5e3a89c663aaa29f/f4393c062998f725",
+              "frame": 390,
+              "generation": 2
+            }
+          ],
+          "convergence": {
+            "cadence_frames": 30,
+            "last_frame": 420,
+            "last_generation": 2,
+            "last_sha256": "6831c532367854ce75436cdb7540e23cb2f33154f3eab783a958cc74ab7f6254",
+            "matched_checks": 8
+          },
+          "corrections": [
+            {
+              "frame": 450,
+              "generation": 2,
+              "host_correction_max_ns": 6511300,
+              "host_correction_p99_ns": 6520000,
+              "host_corrections": 1,
+              "host_max_depth": 10,
+              "ordinal": 1,
+              "sandbox_correction_max_ns": 5611500,
+              "sandbox_correction_p99_ns": 5620000,
+              "sandbox_corrections": 1,
+              "sandbox_max_depth": 10,
+              "sha256": "fbd327d6dbe8020beb5f79ac75c41023b647df0f3c64b8dcb1c01a2699248929"
+            },
+            {
+              "frame": 480,
+              "generation": 2,
+              "host_correction_max_ns": 6511300,
+              "host_correction_p99_ns": 6520000,
+              "host_corrections": 2,
+              "host_max_depth": 10,
+              "ordinal": 2,
+              "sandbox_correction_max_ns": 5611500,
+              "sandbox_correction_p99_ns": 5620000,
+              "sandbox_corrections": 2,
+              "sandbox_max_depth": 10,
+              "sha256": "7570ff111ea35ea0158d21c956f8d04acd21061ee5d1547a4034e9b824f42402"
+            },
+            {
+              "frame": 510,
+              "generation": 2,
+              "host_correction_max_ns": 6511300,
+              "host_correction_p99_ns": 6520000,
+              "host_corrections": 3,
+              "host_max_depth": 10,
+              "ordinal": 3,
+              "sandbox_correction_max_ns": 5640400,
+              "sandbox_correction_p99_ns": 5650000,
+              "sandbox_corrections": 3,
+              "sandbox_max_depth": 10,
+              "sha256": "5b5a90053022ec2e4eb4aa0e9d44ed48b3966f963cd0985fda2aad608788c8e7"
+            }
+          ],
+          "host": {
+            "automation": {
+              "detail": "exact_match_content_verified:012/015:stage=273:map=Silver Wolves' Haven",
+              "kind": "online_match_setup",
+              "lobby_id": 109775244395693126,
+              "local_steam_id": 76561198070521860,
+              "run_id": "paired-a70389b67b3747adb9d1e5643cc859d2-host-setup",
+              "schema_version": 2,
+              "state": "complete"
+            },
+            "cleanup_storage": {
+              "ending": 297957728,
+              "pre": 297957728,
+              "returned": 1
+            },
+            "correction_stimulus_sequence": [
+              {
+                "confirmed_gekko_frame": 29,
+                "depth": 11,
+                "generation": 2,
+                "lead_frames": 14,
+                "ordinal": 1,
+                "owned_round": 2,
+                "transport_delay": 12,
+                "trigger_frame": 43
+              },
+              {
+                "confirmed_gekko_frame": 59,
+                "depth": 1,
+                "generation": 2,
+                "lead_frames": 14,
+                "ordinal": 2,
+                "owned_round": 2,
+                "transport_delay": 3,
+                "trigger_frame": 73
+              },
+              {
+                "confirmed_gekko_frame": 89,
+                "depth": 6,
+                "generation": 2,
+                "lead_frames": 14,
+                "ordinal": 3,
+                "owned_round": 2,
+                "transport_delay": 8,
+                "trigger_frame": 103
+              }
+            ],
+            "native_content": {
+              "display_map_name": "Silver Wolves' Haven",
+              "fighter_order": [
+                "012",
+                "015"
+              ],
+              "stage_package_root": "/Game/DLC/07/Stage/STG011_R",
+              "stage_selection_code": "273"
+            },
+            "native_handshake": {
+              "display": "Silver Wolves' Haven",
+              "f0": "012",
+              "f1": "015",
+              "loaded": "13b22dfc3eb054471d0d82b9ad6a1d38e0f3bfd9d74677732ac41bde081355f0",
+              "map": "/Game/DLC/07/Stage/STG011_R",
+              "run": "paired-a70389b67b3747adb9d1e5643cc859d2-host",
+              "session_state": "4",
+              "slot": "1"
+            },
+            "native_online_status": 5,
+            "native_session_latch": {
+              "lobby_id": 109775244395693126,
+              "local_slot": 1,
+              "session_state": 4
+            }
+          },
+          "owned_generations": 2,
+          "sandbox": {
+            "automation": {
+              "detail": "exact_match_content_verified:012/015:stage=273:map=Silver Wolves' Haven",
+              "kind": "online_match_setup",
+              "lobby_id": 109775244395693126,
+              "local_steam_id": 76561198201141039,
+              "run_id": "paired-a70389b67b3747adb9d1e5643cc859d2-sandbox-setup",
+              "schema_version": 2,
+              "state": "complete"
+            },
+            "cleanup_storage": {
+              "ending": 297957728,
+              "pre": 297957728,
+              "returned": 1
+            },
+            "correction_stimulus_sequence": [
+              {
+                "confirmed_gekko_frame": 29,
+                "depth": 11,
+                "generation": 2,
+                "lead_frames": 14,
+                "ordinal": 1,
+                "owned_round": 2,
+                "transport_delay": 12,
+                "trigger_frame": 43
+              },
+              {
+                "confirmed_gekko_frame": 59,
+                "depth": 1,
+                "generation": 2,
+                "lead_frames": 14,
+                "ordinal": 2,
+                "owned_round": 2,
+                "transport_delay": 3,
+                "trigger_frame": 73
+              },
+              {
+                "confirmed_gekko_frame": 89,
+                "depth": 6,
+                "generation": 2,
+                "lead_frames": 14,
+                "ordinal": 3,
+                "owned_round": 2,
+                "transport_delay": 8,
+                "trigger_frame": 103
+              }
+            ],
+            "native_content": {
+              "display_map_name": "Silver Wolves' Haven",
+              "fighter_order": [
+                "012",
+                "015"
+              ],
+              "stage_package_root": "/Game/DLC/07/Stage/STG011_R",
+              "stage_selection_code": "273"
+            },
+            "native_handshake": {
+              "display": "Silver Wolves' Haven",
+              "f0": "012",
+              "f1": "015",
+              "loaded": "13b22dfc3eb054471d0d82b9ad6a1d38e0f3bfd9d74677732ac41bde081355f0",
+              "map": "/Game/DLC/07/Stage/STG011_R",
+              "run": "paired-a70389b67b3747adb9d1e5643cc859d2-sandbox",
+              "session_state": "4",
+              "slot": "0"
+            },
+            "native_online_status": 5,
+            "native_session_latch": {
+              "lobby_id": 109775244395693126,
+              "local_slot": 0,
+              "session_state": 4
+            }
+          }
+        },
+        "process_memory": {
+          "ending_private_bytes": {
+            "host": 2888298496,
+            "sandbox": 2580860928
+          },
+          "growth_bytes": {
+            "host": 480952320,
+            "sandbox": 199098368
+          },
+          "initial_private_bytes": {
+            "host": 2407346176,
+            "sandbox": 2381762560
+          },
+          "maximum_private_bytes": {
+            "host": 3568115712,
+            "sandbox": 3213828096
+          }
+        },
+        "run_ids": {
+          "host": "paired-a70389b67b3747adb9d1e5643cc859d2-host",
+          "sandbox": "paired-a70389b67b3747adb9d1e5643cc859d2-sandbox"
+        }
+      }
+    ],
+    "peers": {
+      "automatic_teardown": {
+        "host": {
+          "detail": "returned_to_player_match_lobby",
+          "kind": "online_match_teardown",
+          "lobby_id": 0,
+          "local_steam_id": 0,
+          "run_id": "paired-a70389b67b3747adb9d1e5643cc859d2-td001-h",
+          "schema_version": 2,
+          "state": "complete"
+        },
+        "sandbox": {
+          "detail": "returned_to_player_match_lobby",
+          "kind": "online_match_teardown",
+          "lobby_id": 0,
+          "local_steam_id": 0,
+          "run_id": "paired-a70389b67b3747adb9d1e5643cc859d2-td001-s",
+          "schema_version": 2,
+          "state": "complete"
+        }
+      },
+      "baseline_identities": [
+        {
+          "components": "80c85cb02d30cf59/622aadeb16cdf3ee/85075a33e03c33be/5e3a89c663aaa29f/93a7cb4e882aac65",
+          "frame": 122,
+          "generation": 1
+        },
+        {
+          "components": "82c2049196c8628b/5ccc504d107315a1/409053976f33f903/5e3a89c663aaa29f/f4393c062998f725",
+          "frame": 390,
+          "generation": 2
+        }
+      ],
+      "convergence": {
+        "cadence_frames": 30,
+        "last_frame": 420,
+        "last_generation": 2,
+        "last_sha256": "6831c532367854ce75436cdb7540e23cb2f33154f3eab783a958cc74ab7f6254",
+        "matched_checks": 8
+      },
+      "corrections": [
+        {
+          "frame": 450,
+          "generation": 2,
+          "host_correction_max_ns": 6511300,
+          "host_correction_p99_ns": 6520000,
+          "host_corrections": 1,
+          "host_max_depth": 10,
+          "ordinal": 1,
+          "sandbox_correction_max_ns": 5611500,
+          "sandbox_correction_p99_ns": 5620000,
+          "sandbox_corrections": 1,
+          "sandbox_max_depth": 10,
+          "sha256": "fbd327d6dbe8020beb5f79ac75c41023b647df0f3c64b8dcb1c01a2699248929"
+        },
+        {
+          "frame": 480,
+          "generation": 2,
+          "host_correction_max_ns": 6511300,
+          "host_correction_p99_ns": 6520000,
+          "host_corrections": 2,
+          "host_max_depth": 10,
+          "ordinal": 2,
+          "sandbox_correction_max_ns": 5611500,
+          "sandbox_correction_p99_ns": 5620000,
+          "sandbox_corrections": 2,
+          "sandbox_max_depth": 10,
+          "sha256": "7570ff111ea35ea0158d21c956f8d04acd21061ee5d1547a4034e9b824f42402"
+        },
+        {
+          "frame": 510,
+          "generation": 2,
+          "host_correction_max_ns": 6511300,
+          "host_correction_p99_ns": 6520000,
+          "host_corrections": 3,
+          "host_max_depth": 10,
+          "ordinal": 3,
+          "sandbox_correction_max_ns": 5640400,
+          "sandbox_correction_p99_ns": 5650000,
+          "sandbox_corrections": 3,
+          "sandbox_max_depth": 10,
+          "sha256": "5b5a90053022ec2e4eb4aa0e9d44ed48b3966f963cd0985fda2aad608788c8e7"
+        }
+      ],
+      "host": {
+        "automation": {
+          "detail": "exact_match_content_verified:012/015:stage=273:map=Silver Wolves' Haven",
+          "kind": "online_match_setup",
+          "lobby_id": 109775244395693126,
+          "local_steam_id": 76561198070521860,
+          "run_id": "paired-a70389b67b3747adb9d1e5643cc859d2-host-setup",
+          "schema_version": 2,
+          "state": "complete"
+        },
+        "cleanup_storage": {
+          "ending": 297957728,
+          "pre": 297957728,
+          "returned": 1
+        },
+        "correction_stimulus_sequence": [
+          {
+            "confirmed_gekko_frame": 29,
+            "depth": 11,
+            "generation": 2,
+            "lead_frames": 14,
+            "ordinal": 1,
+            "owned_round": 2,
+            "transport_delay": 12,
+            "trigger_frame": 43
+          },
+          {
+            "confirmed_gekko_frame": 59,
+            "depth": 1,
+            "generation": 2,
+            "lead_frames": 14,
+            "ordinal": 2,
+            "owned_round": 2,
+            "transport_delay": 3,
+            "trigger_frame": 73
+          },
+          {
+            "confirmed_gekko_frame": 89,
+            "depth": 6,
+            "generation": 2,
+            "lead_frames": 14,
+            "ordinal": 3,
+            "owned_round": 2,
+            "transport_delay": 8,
+            "trigger_frame": 103
+          }
+        ],
+        "native_content": {
+          "display_map_name": "Silver Wolves' Haven",
+          "fighter_order": [
+            "012",
+            "015"
+          ],
+          "stage_package_root": "/Game/DLC/07/Stage/STG011_R",
+          "stage_selection_code": "273"
+        },
+        "native_handshake": {
+          "display": "Silver Wolves' Haven",
+          "f0": "012",
+          "f1": "015",
+          "loaded": "13b22dfc3eb054471d0d82b9ad6a1d38e0f3bfd9d74677732ac41bde081355f0",
+          "map": "/Game/DLC/07/Stage/STG011_R",
+          "run": "paired-a70389b67b3747adb9d1e5643cc859d2-host",
+          "session_state": "4",
+          "slot": "1"
+        },
+        "native_online_status": 5,
+        "native_session_latch": {
+          "lobby_id": 109775244395693126,
+          "local_slot": 1,
+          "session_state": 4
+        }
+      },
+      "owned_generations": 2,
+      "sandbox": {
+        "automation": {
+          "detail": "exact_match_content_verified:012/015:stage=273:map=Silver Wolves' Haven",
+          "kind": "online_match_setup",
+          "lobby_id": 109775244395693126,
+          "local_steam_id": 76561198201141039,
+          "run_id": "paired-a70389b67b3747adb9d1e5643cc859d2-sandbox-setup",
+          "schema_version": 2,
+          "state": "complete"
+        },
+        "cleanup_storage": {
+          "ending": 297957728,
+          "pre": 297957728,
+          "returned": 1
+        },
+        "correction_stimulus_sequence": [
+          {
+            "confirmed_gekko_frame": 29,
+            "depth": 11,
+            "generation": 2,
+            "lead_frames": 14,
+            "ordinal": 1,
+            "owned_round": 2,
+            "transport_delay": 12,
+            "trigger_frame": 43
+          },
+          {
+            "confirmed_gekko_frame": 59,
+            "depth": 1,
+            "generation": 2,
+            "lead_frames": 14,
+            "ordinal": 2,
+            "owned_round": 2,
+            "transport_delay": 3,
+            "trigger_frame": 73
+          },
+          {
+            "confirmed_gekko_frame": 89,
+            "depth": 6,
+            "generation": 2,
+            "lead_frames": 14,
+            "ordinal": 3,
+            "owned_round": 2,
+            "transport_delay": 8,
+            "trigger_frame": 103
+          }
+        ],
+        "native_content": {
+          "display_map_name": "Silver Wolves' Haven",
+          "fighter_order": [
+            "012",
+            "015"
+          ],
+          "stage_package_root": "/Game/DLC/07/Stage/STG011_R",
+          "stage_selection_code": "273"
+        },
+        "native_handshake": {
+          "display": "Silver Wolves' Haven",
+          "f0": "012",
+          "f1": "015",
+          "loaded": "13b22dfc3eb054471d0d82b9ad6a1d38e0f3bfd9d74677732ac41bde081355f0",
+          "map": "/Game/DLC/07/Stage/STG011_R",
+          "run": "paired-a70389b67b3747adb9d1e5643cc859d2-sandbox",
+          "session_state": "4",
+          "slot": "0"
+        },
+        "native_online_status": 5,
+        "native_session_latch": {
+          "lobby_id": 109775244395693126,
+          "local_slot": 0,
+          "session_state": 4
+        }
+      }
+    }
+  },
+  "stage_package_root": "/Game/DLC/07/Stage/STG011_R",
+  "writable_roots": {
+    "host_mods": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods",
+    "host_qualification": "C:\\Users\\prest\\AppData\\Local\\HorseMod\\Qualification",
+    "sandbox_mods": "C:\\Sandbox\\prest\\sc67\\drive\\E\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods",
+    "sandbox_qualification": "C:\\Sandbox\\prest\\sc67\\user\\current\\AppData\\Local\\HorseMod\\Qualification"
+  }
+}

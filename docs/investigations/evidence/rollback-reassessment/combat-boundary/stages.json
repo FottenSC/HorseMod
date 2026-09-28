@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "stages": {
+    "combat-boundary": {
+      "dependencies": {
+        "build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\HorseMod.dll": "b8cd5a8e7f0b5988ff7b8dbe2dd7ee21221ad1a90a800ad201f8a9d1ada7724b",
+        "build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\ReplayQualificationMod.dll": "2d65307f909860f31998189c332dc5b6ace49207f2b5b9b1a1ae15a431293086",
+        "build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\generated\\deterministic_contract.json": "41c81bf2cc0f046355261ee540d3139fe74876c5b227fb7ccf9e61c0e1726383",
+        "docs\\investigations\\deterministic-production-candidate-manifest.json": "c0cba1c615ae02e4e754421565f83bf35be655f1eb37e2904f82a878e8a948fe"
+      },
+      "experiment": {
+        "competing_explanations": [
+          "menu timer expiry versus accepted confirmation",
+          "input epoch replacement versus actual combat result and next active round"
+        ],
+        "first_divergent_boundary": "Prior run counted intro input-epoch replacement as combat round two; stage confirmation omitted widget decision flag.",
+        "new_evidence": "Complete stage HandleInput and accepted decision with positive timer; completed native world-mode/result/round-index observations; separated handoff preparation and engine frames held; correction phase timings.",
+        "stop_condition": "First setup/ownership/canonical failure, or two same-process cycles with actual round-two corrections 7/12/1 and cleanup. No rerun without new fix or evidence."
+      },
+      "failure": "Command '['C:\\\\Program Files\\\\Python311\\\\python.exe', 'E:\\\\myMods\\\\tools\\\\deterministic_qualification.py', 'paired-online', '--case-manifest', 'E:\\\\myMods\\\\docs\\\\investigations\\\\deterministic-production-candidate-manifest.json', '--case', 'astaroth-raphael-silver-wolves-haven', '--dll', 'E:\\\\myMods\\\\build_cmake_LessEqual421__Shipping__Win64\\\\HorseMod\\\\HorseMod.dll', '--replay-mod', 'E:\\\\myMods\\\\build_cmake_LessEqual421__Shipping__Win64\\\\HorseMod\\\\ReplayQualificationMod.dll', '--schema', 'E:\\\\myMods\\\\build_cmake_LessEqual421__Shipping__Win64\\\\HorseMod\\\\generated\\\\deterministic_contract.json', '--output-dir', 'E:\\\\myMods\\\\docs\\\\investigations\\\\evidence\\\\rollback-reassessment\\\\combat-boundary', '--report', 'E:\\\\myMods\\\\docs\\\\investigations\\\\evidence\\\\rollback-reassessment\\\\combat-boundary\\\\report.json', '--scenario', 'online-round2-reentry', '--development-multiround-correction-smoke', '--match-cycles', '2', '--launch-timeout', '300', '--match-timeout', '300', '--phase-timeout', '10']' returned non-zero exit status 2.",
+      "report": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\combat-boundary\\report.json",
+      "resource_journal": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\combat-boundary\\resources.json",
+      "specification": {
+        "command": [
+          "C:\\Program Files\\Python311\\python.exe",
+          "E:\\myMods\\tools\\deterministic_qualification.py",
+          "paired-online",
+          "--case-manifest",
+          "E:\\myMods\\docs\\investigations\\deterministic-production-candidate-manifest.json",
+          "--case",
+          "astaroth-raphael-silver-wolves-haven",
+          "--dll",
+          "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\HorseMod.dll",
+          "--replay-mod",
+          "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\ReplayQualificationMod.dll",
+          "--schema",
+          "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\generated\\deterministic_contract.json",
+          "--output-dir",
+          "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\combat-boundary",
+          "--report",
+          "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\combat-boundary\\report.json",
+          "--scenario",
+          "online-round2-reentry",
+          "--development-multiround-correction-smoke",
+          "--match-cycles",
+          "2",
+          "--launch-timeout",
+          "300",
+          "--match-timeout",
+          "300",
+          "--phase-timeout",
+          "10"
+        ]
+      },
+      "state": "failed"
+    }
+  }
+}

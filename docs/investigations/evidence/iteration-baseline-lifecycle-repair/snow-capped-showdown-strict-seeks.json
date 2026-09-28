@@ -1,0 +1,61 @@
+{
+  "case_id": "raphael-maxi-snow-capped-showdown",
+  "certifying": false,
+  "cleanup": {
+    "diagnostic_flags_restored_false": {
+      "correction_probe": true,
+      "forced_depth7_qualification": true,
+      "trace": true
+    },
+    "process_absent": true
+  },
+  "created_utc": "2026-08-30T22:03:33.851203+00:00",
+  "display_map_name": "Snow-Capped Showdown",
+  "failure": {
+    "bounded_log": "E:\\myMods\\docs\\investigations\\evidence\\iteration-baseline-lifecycle-repair\\snow-capped-showdown-strict-seeks.failure.log",
+    "bounded_log_lines": 66,
+    "field_or_mask": "0",
+    "fields": {
+      "accounting_failures": "0",
+      "audio_sources": "167",
+      "audio_terminals": "1844",
+      "batch_accounting_mismatches": "0",
+      "canonical_failure": "0:0",
+      "capacity_failures": "0",
+      "cursor_failure_coordinate": "0:0",
+      "cursor_input": "0:0",
+      "cursor_manager": "0:0",
+      "cursor_mismatches": "0",
+      "duplicates": "0",
+      "event_identity": "0x0000000000000000",
+      "event_kind": "0",
+      "fp_mismatches": "38",
+      "frame": "1024",
+      "growth_events": "1",
+      "identity_expected": "0x0000000000000000",
+      "identity_issue": "0",
+      "identity_observed": "0x0000000000000000",
+      "last_coordinate": "6:1024",
+      "pending_dispatch": "0",
+      "presentation_failure": "0",
+      "publish_failures": "0",
+      "round_image_applied": "0",
+      "round_state": "0",
+      "round_transition_barriers": "0",
+      "timeline_failure": "0",
+      "unknown_rng_callers": "0"
+    },
+    "first_failing_frame": "1024",
+    "first_failure_line": "[2026-08-31 00:03:28.7990312] [ReplayQualification] fail-fast health frame=1024 timeline_failure=0 last_coordinate=6:1024 canonical_failure=0:0 identity_issue=0 identity_expected=0x0000000000000000 identity_observed=0x0000000000000000 presentation_failure=0 event_kind=0 event_identity=0x0000000000000000 capacity_failures=0 growth_events=1 accounting_failures=0 cursor_mismatches=0 batch_accounting_mismatches=0 round_transition_barriers=0 cursor_failure_coordinate=0:0 cursor_input=0:0 cursor_manager=0:0 pending_dispatch=0 round_image_applied=0 round_state=0 duplicates=0 publish_failures=0 fp_mismatches=38 unknown_rng_callers=0 audio_sources=167 audio_terminals=1844",
+    "graph_provenance": null,
+    "owner_pointer": null,
+    "owner_selector": null,
+    "return_rva": null
+  },
+  "kind": "replay_entry_failure",
+  "reason": "native replay entry failed: horsemod_fail_fast_health",
+  "report_schema": 2,
+  "result": "fail",
+  "row_id": "strict-seek-10-25-50-75",
+  "stage_package_root": "/Game/Stage/STG009"
+}

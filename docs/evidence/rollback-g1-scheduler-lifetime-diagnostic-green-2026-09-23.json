@@ -1,0 +1,34 @@
+{
+  "scope": "Observer reporting only: unchanged acceptance, exact scheduler BindingFailure and independent scene refcount witnesses. Original live predicate remains unknown until instrumentation.",
+  "exit_code": 0,
+  "cases": [
+    "valid",
+    "binding failure",
+    "foreign base accepted",
+    "foreign world accepted",
+    "weak count mismatch",
+    "scene lookup failure"
+  ],
+  "files": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f337d6e09d653a25daaf5a2e39c09580bf4beecc127ac8598d27d9c1a4e42c32.cpp",
+      "sha256": "f337d6e09d653a25daaf5a2e39c09580bf4beecc127ac8598d27d9c1a4e42c32",
+      "bytes": 5105
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\91c5ea0e3004ac7c98e2e6254eb43f2e6f9da86e88d627f3378d8bc77eec63b1.exe",
+      "sha256": "91c5ea0e3004ac7c98e2e6254eb43f2e6f9da86e88d627f3378d8bc77eec63b1",
+      "bytes": 144384
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\3039efeb2bbd6aa62ef64a641762977a703e127732dad98c38fe479d8cae6f46.cpp",
+      "sha256": "3039efeb2bbd6aa62ef64a641762977a703e127732dad98c38fe479d8cae6f46",
+      "bytes": 525158
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\84a54cf0b6d70243a56f6f41f06ebd124a741735bcdb9d2978736260670257ff.py",
+      "sha256": "84a54cf0b6d70243a56f6f41f06ebd124a741735bcdb9d2978736260670257ff",
+      "bytes": 49232
+    }
+  ]
+}

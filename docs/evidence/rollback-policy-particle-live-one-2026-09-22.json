@@ -1,0 +1,27 @@
+{
+  "created_utc": "2026-09-22T13:09:28.870207+00:00",
+  "report": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\bc2dbd36238251b30126b36b7d6002a2f5c3ff9547db5503fc3dec259c730666.json",
+    "sha256": "bc2dbd36238251b30126b36b7d6002a2f5c3ff9547db5503fc3dec259c730666",
+    "bytes": 21767
+  },
+  "log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\2ba5be24116ac9084c4364fdba45229678f1b171f75e31c3f36452866b6b703a.log",
+    "sha256": "2ba5be24116ac9084c4364fdba45229678f1b171f75e31c3f36452866b6b703a",
+    "bytes": 659
+  },
+  "result": "pass",
+  "profile": "changed-rolling-one-proposed",
+  "scope": "Single changed-input depth-seven correction at A210/C217, independent authored controls per revision and required 120 continuation ticks; not A617-to-C624 readiness",
+  "gates": {
+    "observer_validity": "pass",
+    "simulation": "pass"
+  },
+  "deployment_journal": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a4feadc23ae0dbab67b46bc39ccd171b18d3cd1e7747510a4d9a00ebbc8dd3ac.json",
+    "sha256": "a4feadc23ae0dbab67b46bc39ccd171b18d3cd1e7747510a4d9a00ebbc8dd3ac",
+    "bytes": 4431
+  },
+  "game_processes_after": 0,
+  "steam": "untouched"
+}

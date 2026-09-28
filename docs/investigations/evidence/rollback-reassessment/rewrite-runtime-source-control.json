@@ -1,0 +1,36 @@
+{
+  "certifying": false,
+  "cleanup": {
+    "complete": true,
+    "games_remaining": 0
+  },
+  "identities": {
+    "config": "8dc51120f7871e02848ff86e1e2fffc7a778cdee4366275c53a24fa83ce32579",
+    "game": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553",
+    "observer": "8b369cc0d72738b82df5d7b1d8a1a50926e8dd20aa46b2367f4bab89225ae27a",
+    "replay": "95e12e394d35c13d5e0dd3dce692f9e0a4022e2a84205a9ec75f2fa6726d7879",
+    "runtime": "c7e23652332c1b98e06252c0ced9f8323acccaac91479967f2fd87c32dff7212"
+  },
+  "loaded_observer": {
+    "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\dlls\\main.dll",
+    "pid": 86940,
+    "process_created": 1788568724.0907032,
+    "sha256": "8b369cc0d72738b82df5d7b1d8a1a50926e8dd20aa46b2367f4bab89225ae27a"
+  },
+  "loaded_runtime": {
+    "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll",
+    "pid": 86940,
+    "process_created": 1788568724.0907032,
+    "sha256": "c7e23652332c1b98e06252c0ced9f8323acccaac91479967f2fd87c32dff7212",
+    "verification": "owned_process_mapped_file_and_sha256"
+  },
+  "mode": "runtime",
+  "observations_requested": 1200,
+  "raw_log": {
+    "path": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\rewrite-runtime-source-control.UE4SS.log",
+    "sha256": "a732da9b02af41f67786d09e2a3986564d79fcf46d31933eb1240b5d61dc04fd"
+  },
+  "result": "captured",
+  "run_id": "replay-2cf80c585a0c49c9871a81712ebb890e",
+  "scope": "passive_replay_trajectory"
+}

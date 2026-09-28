@@ -1,6 +1,6 @@
 DeterministicHookSet::~DeterministicHookSet()
 {
-    Uninstall();
+    if(!Uninstall()) __fastfail(FAST_FAIL_INVALID_ARG);
 }
 
 bool DeterministicHookSet::ValidateInstallationSignatures(
@@ -11,9 +11,17 @@ bool DeterministicHookSet::ValidateInstallationSignatures(
         return SafeEqual(reinterpret_cast<const void*>(image_base + rva),
             signature.data(), signature.size());
     };
-    return matches(FrameLayout::landing_fencepost_rva,
+    return matches(0x34f628, Sc6HookLayout::crt_init_signature)
+        && matches(0x34f6d0, Sc6HookLayout::crt_warmup_loop_signature)
+        && matches(0x34f910, Sc6HookLayout::crt_complete_call_signature)
+        && matches(0x366fee, Sc6HookLayout::crt_movevm_call_signature)
+        && matches(FrameLayout::landing_fencepost_rva,
                FrameLayout::landing_fencepost_signature)
         && matches(FrameLayout::outer_tick_rva, FrameLayout::outer_tick_signature)
+        && matches(Sc6HookLayout::tutorial_tick_rva, Sc6HookLayout::tutorial_tick_signature)
+        && matches(Sc6HookLayout::input_producer_tick_rva,
+            Sc6HookLayout::input_producer_tick_signature)
+        && matches(Sc6HookLayout::input_sample_rva, Sc6HookLayout::input_sample_signature)
         && matches(ReplayLayout::post_tick_rva, ReplayLayout::post_tick_signature)
         && matches(FrameLayout::callback_executor_rva, FrameLayout::callback_executor_signature)
         && matches(FrameLayout::stage_break_wall_handler_rva, FrameLayout::stage_break_wall_handler_signature)
@@ -74,6 +82,17 @@ bool DeterministicHookSet::InstallFrameHooks() noexcept
         && InstallDetour(outer_tick_detour_, image_base_ + FrameLayout::outer_tick_rva,
             reinterpret_cast<std::uintptr_t>(&OuterTickDetour),
             outer_tick_trampoline_, outer_tick_trampoline_global_)
+        && InstallDetour(tutorial_tick_detour_,
+            image_base_ + Sc6HookLayout::tutorial_tick_rva,
+            reinterpret_cast<std::uintptr_t>(&TutorialTickDetour),
+            tutorial_tick_trampoline_, tutorial_tick_trampoline_global_)
+        && InstallDetour(input_producer_tick_detour_,
+            image_base_ + Sc6HookLayout::input_producer_tick_rva,
+            reinterpret_cast<std::uintptr_t>(&InputProducerTickDetour),
+            input_producer_tick_trampoline_, input_producer_tick_trampoline_global_)
+        && InstallDetour(input_sample_detour_, image_base_ + Sc6HookLayout::input_sample_rva,
+            reinterpret_cast<std::uintptr_t>(&InputSampleDetour),
+            input_sample_trampoline_, input_sample_trampoline_global_)
         && InstallDetour(callback_executor_detour_,
             image_base_ + FrameLayout::callback_executor_rva,
             reinterpret_cast<std::uintptr_t>(&CallbackExecutorDetour),
@@ -185,6 +204,10 @@ Status DeterministicHookSet::Install(
     if (!ValidateInstallationSignatures(image_base))
         return Status::failure(FailureCode::AdapterUnqualified);
 
+    if (!g_replay_diagnostics.LoadQualification())
+        return Status::failure(FailureCode::InvalidConfiguration);
+    NativeReplayMaterialTaskGuard::ObserveStarts(&NativeReplayTraceStartDiagnostic::Observe,
+        &NativeReplayTraceStartDiagnostic::IdentifyConstruction);
     image_base_ = image_base;
     callbacks_ = callbacks;
     ucrt_broker_ = ucrt_broker;
@@ -197,80 +220,7 @@ Status DeterministicHookSet::Install(
     return Status::success();
 }
 
-void DeterministicHookSet::Uninstall() noexcept
-{
-    if (!installed_.exchange(false, std::memory_order_acq_rel))
-    {
-        return;
-    }
-    // Hooks are removed in the reverse of their installation order.
-    if (resolved_hit_consumer_detour_)
-        resolved_hit_consumer_detour_->unHook();
-    if (movevm_write_chara_state_short_detour_)
-        movevm_write_chara_state_short_detour_->unHook();
-    if (movevm_execute_bank_slot_detour_)
-        movevm_execute_bank_slot_detour_->unHook();
-    if (movevm_transition_author_07_detour_)
-        movevm_transition_author_07_detour_->unHook();
-    if (movevm_evaluate_if_detour_)
-        movevm_evaluate_if_detour_->unHook();
-    if (gameplay_xorshift96_detour_)
-        gameplay_xorshift96_detour_->unHook();
-    UninstallUcrtIatHooks();
-    if (particle_finished_bind_detour_)
-        particle_finished_bind_detour_->unHook();
-    if (particle_spawn_detour_) particle_spawn_detour_->unHook();
-    if (battle_audio_append_parameter_detour_)
-        battle_audio_append_parameter_detour_->unHook();
-    if (battle_audio_stop_all_detour_)
-        battle_audio_stop_all_detour_->unHook();
-    if (battle_audio_append_command_detour_)
-        battle_audio_append_command_detour_->unHook();
-    if (battle_audio_register_voice_detour_)
-        battle_audio_register_voice_detour_->unHook();
-    if (battle_audio_resolve_chara_cue_detour_)
-        battle_audio_resolve_chara_cue_detour_->unHook();
-    if (battle_audio_blueprint_publish_detour_)
-        battle_audio_blueprint_publish_detour_->unHook();
-    if (battle_audio_tracking_rehash_detour_)
-        battle_audio_tracking_rehash_detour_->unHook();
-    if (battle_audio_tracking_insert_detour_)
-        battle_audio_tracking_insert_detour_->unHook();
-    if (battle_audio_tracking_remove_detour_)
-        battle_audio_tracking_remove_detour_->unHook();
-    if (battle_audio_phase_changed_detour_)
-        battle_audio_phase_changed_detour_->unHook();
-    if (battle_audio_contact_handler_detour_)
-        battle_audio_contact_handler_detour_->unHook();
-    if (battle_audio_remap_detour_) battle_audio_remap_detour_->unHook();
-    if (battle_audio_dispatch_detour_)
-        battle_audio_dispatch_detour_->unHook();
-    if (stage_break_dispatch_detour_) stage_break_dispatch_detour_->unHook();
-    if (stage_break_barrier_detour_) stage_break_barrier_detour_->unHook();
-    if (stage_break_wall_detour_) stage_break_wall_detour_->unHook();
-    if (callback_executor_detour_)
-    {
-        callback_executor_detour_->unHook();
-    }
-    if (outer_tick_detour_)
-    {
-        outer_tick_detour_->unHook();
-    }
-    if (replay_post_tick_detour_)
-    {
-        replay_post_tick_detour_->unHook();
-    }
-    if (frame_fencepost_detour_)
-    {
-        frame_fencepost_detour_->unHook();
-    }
-    active_.store(nullptr, std::memory_order_release);
-    while (callbacks_in_flight_.load(std::memory_order_acquire) != 0)
-    {
-        std::this_thread::yield();
-    }
-    ClearState();
-}
+#include "DeterministicHookSet.Uninstall.inl"
 
 std::uintptr_t DeterministicHookSet::ObservedBattleAudioHandler(
     std::size_t index) noexcept

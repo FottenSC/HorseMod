@@ -1,3 +1,4 @@
+import pytest
 from copy import deepcopy
 
 from tools.deterministic_qualification.tira_campaign import evaluate_tira_reports
@@ -119,6 +120,7 @@ def _report(case_id: str, transition: bool, role: str, target_mask: int = 1):
     }
 
 
+@pytest.mark.workflow
 def test_evaluate_tira_reports_requires_and_accepts_exact_repeat_transition():
     cases = _cases()
     reports = []
@@ -133,6 +135,7 @@ def test_evaluate_tira_reports_requires_and_accepts_exact_repeat_transition():
     assert result["helper_target_union"] == "0x3"
 
 
+@pytest.mark.workflow
 def test_evaluate_tira_reports_uses_shared_58_fps_tps_floor():
     cases = _cases()
     reports = []
@@ -154,6 +157,7 @@ def test_evaluate_tira_reports_uses_shared_58_fps_tps_floor():
     assert any("FPS/TPS budget" in failure for failure in result["failures"])
 
 
+@pytest.mark.workflow
 def test_evaluate_tira_reports_requires_mixed_writer_identity():
     cases = _cases()
     reports = []
@@ -172,6 +176,7 @@ def test_evaluate_tira_reports_requires_mixed_writer_identity():
                for failure in result["failures"])
 
 
+@pytest.mark.workflow
 def test_evaluate_tira_reports_rejects_repeat_rng_sequence_mismatch():
     cases = _cases()
     reports = []
@@ -187,6 +192,7 @@ def test_evaluate_tira_reports_rejects_repeat_rng_sequence_mismatch():
     assert any("repeat RNG/transition" in failure for failure in result["failures"])
 
 
+@pytest.mark.workflow
 def test_evaluate_tira_reports_rejects_repeat_presentation_mismatch():
     cases = _cases()
     reports = []

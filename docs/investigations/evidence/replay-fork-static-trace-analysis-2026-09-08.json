@@ -1,0 +1,1360 @@
+{
+  "scope": "Read-only analysis of retained evidence; no tests or live execution. Not a gate certificate.",
+  "key": [
+    "tick",
+    "player",
+    "parts",
+    "kind"
+  ],
+  "candidate_selection": "generation0 through205; generation1 ticks206-325",
+  "native_selection": "retained native first traversal",
+  "records": {
+    "candidate": 254,
+    "native": 249
+  },
+  "counts": {
+    "prefix_matched_keys": 121,
+    "prefix_differing_records": 108,
+    "resumed_matched_keys": 118
+  },
+  "missing_candidate_partners": [],
+  "mismatches": [
+    {
+      "key": [
+        "185",
+        "1",
+        "1",
+        "29"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "1",
+        "30"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "1",
+        "31"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "1",
+        "7"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "1",
+        "23"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "1",
+        "32"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "1",
+        "33"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "1",
+        "34"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "1",
+        "35"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "1",
+        "36"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "1",
+        "37"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "1",
+        "38"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "1",
+        "39"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "1",
+        "40"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "1",
+        "41"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "1",
+        "47"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "2",
+        "29"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "2",
+        "30"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "2",
+        "31"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "2",
+        "7"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "2",
+        "23"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "2",
+        "32"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "2",
+        "33"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "2",
+        "34"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "2",
+        "35"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "2",
+        "36"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "2",
+        "37"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "2",
+        "38"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "2",
+        "39"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "2",
+        "40"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "2",
+        "41"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "2",
+        "47"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "24",
+        "29"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "24",
+        "30"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "24",
+        "31"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "24",
+        "7"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "24",
+        "23"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "24",
+        "32"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "24",
+        "33"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "24",
+        "34"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "24",
+        "35"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "24",
+        "36"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "24",
+        "37"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "24",
+        "38"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "24",
+        "39"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "24",
+        "40"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "24",
+        "47"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "21",
+        "29"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "21",
+        "30"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "21",
+        "31"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "21",
+        "7"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "21",
+        "23"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "21",
+        "32"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "21",
+        "33"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "21",
+        "34"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "21",
+        "35"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "21",
+        "36"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "21",
+        "37"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "21",
+        "38"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "21",
+        "39"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "21",
+        "40"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "1",
+        "21",
+        "47"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "1",
+        "30"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "1",
+        "31"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "1",
+        "7"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "1",
+        "23"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "1",
+        "32"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "1",
+        "33"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "1",
+        "34"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "1",
+        "35"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "1",
+        "36"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "1",
+        "37"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "1",
+        "38"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "1",
+        "39"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "1",
+        "40"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "1",
+        "41"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "1",
+        "42"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "1",
+        "47"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "24",
+        "29"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "24",
+        "30"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "24",
+        "31"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "24",
+        "7"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "24",
+        "23"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "24",
+        "32"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "24",
+        "33"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "24",
+        "34"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "24",
+        "35"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "24",
+        "36"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "24",
+        "37"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "24",
+        "38"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "24",
+        "39"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "24",
+        "40"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "24",
+        "47"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "21",
+        "29"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "21",
+        "30"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "21",
+        "31"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "21",
+        "7"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "21",
+        "23"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "21",
+        "32"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "21",
+        "33"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "21",
+        "34"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "21",
+        "35"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "21",
+        "36"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "21",
+        "37"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "21",
+        "38"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "21",
+        "39"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "21",
+        "40"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    },
+    {
+      "key": [
+        "185",
+        "0",
+        "21",
+        "47"
+      ],
+      "fields": [
+        "hash",
+        "rows"
+      ]
+    }
+  ],
+  "limitations": [
+    "All states logged only at185; later records cover active weak collections.",
+    "Does not prove dormant row fields irrelevant or coverage closure over cached references."
+  ],
+  "sources": {
+    "build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\combat-restore-executor-corrected.UE4SS.log": {
+      "sha256": "c7a45524b85685473c5f9591bf9784234611b448e4b9fd7a1b5db7a4283ebbf8",
+      "bytes": 4145956
+    },
+    "build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\combat-restore-native-corrected.UE4SS.log": {
+      "sha256": "0e4aa65896e12ddf1c45328257e44c1cbe0399391767b2ccf9046835bec3aa22",
+      "bytes": 3856717
+    },
+    "HorseMod\\horselib\\deterministic\\Sc6ReplayHost.Restore.inl": {
+      "sha256": "a428ce0b508198cf3e01cb3bc7035f50a476bc074090ea7b1a8124f126e8effb"
+    },
+    "HorseMod\\horselib\\deterministic\\Sc6ReplayHost.Checkpoint.inl": {
+      "sha256": "554f2b9bf79f8ca350ed548adce9303cfe1ec5dab941dc6b12da27664cd80c4f"
+    },
+    "HorseMod\\horselib\\deterministic\\Sc6ReplayHost.Interior.inl": {
+      "sha256": "237051724a5d75fd093d2ffad2b1cad6eca6f58d96832ba649004a774b45566a"
+    },
+    "HorseMod\\horselib\\deterministic\\Sc6ReplayTraceState.hpp": {
+      "sha256": "33bc5fdab9f2172c067bb6a60068f72f55163cdd0eeb10392851a8a3a2ee72fb"
+    },
+    "HorseMod\\horselib\\deterministic\\Sc6ReplayHudState.hpp": {
+      "sha256": "78e9c212bb35c98958b64e718d54ff560a84232fa9130560c8b1cc10bf96f0ef"
+    },
+    "HorseMod\\horselib\\deterministic\\Sc6ReplayObjectLease.cpp": {
+      "sha256": "f683aaa79c8dea0b174b4ec5f8a8b7c26326e23ae111e325b03aa67914c0d7f6"
+    },
+    "HorseMod\\horselib\\deterministic\\Sc6ReplayWorldState.cpp": {
+      "sha256": "1376a5135745244957086bb86f2a523a49a0dc800afb8767ba8cc5973fa13ccc"
+    },
+    "HorseMod\\horselib\\deterministic\\Sc6ReplayVfxState.cpp": {
+      "sha256": "5659cc850943ffe4fb9e91a85ff6aaa1e9f2389b32a737235914dd397a2e7cc0"
+    },
+    "HorseMod\\horselib\\deterministic\\Sc6ReplayExecutor.hpp": {
+      "sha256": "833775e7d19e86598f8b1a7c2c61640a977b231870870a29b96ffba68a845f18"
+    }
+  }
+}

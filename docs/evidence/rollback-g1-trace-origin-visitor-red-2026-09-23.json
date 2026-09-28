@@ -1,0 +1,66 @@
+{
+  "result": "RED exit81 actual production visitor linked into separate ownerDLL/observerexe with controlled module-local binding validator",
+  "scope": "Cross-module visitor routing defect; validator models strict module-local lease callback identity, does not claim real native registry membership proof",
+  "files": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\02ff4b0659e88748f16c08797a00a860059d2c8d60b9b20e79ee2748469862e9.hpp",
+      "sha256": "02ff4b0659e88748f16c08797a00a860059d2c8d60b9b20e79ee2748469862e9",
+      "bytes": 53767
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\da62e70828a920dd3ece16e6eda476ee3c540c4d4c12ed074b797d828ef22a02.py",
+      "sha256": "da62e70828a920dd3ece16e6eda476ee3c540c4d4c12ed074b797d828ef22a02",
+      "bytes": 32829
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8d3649bef479bd2ba198dbb7f1ff4e7364fecf1580412b428a987f0704454ff6.cmd",
+      "sha256": "8d3649bef479bd2ba198dbb7f1ff4e7364fecf1580412b428a987f0704454ff6",
+      "bytes": 233
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d2e7c399f067ec7f6dd3f6cd3fb3c9896ae100d4c12a22a6c95634eb35e5f706.cpp",
+      "sha256": "d2e7c399f067ec7f6dd3f6cd3fb3c9896ae100d4c12a22a6c95634eb35e5f706",
+      "bytes": 695
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0cbbea04dc0185b58c8397a42002bff7129de1c57e4b5b1009b7de318f39b3a1.exe",
+      "sha256": "0cbbea04dc0185b58c8397a42002bff7129de1c57e4b5b1009b7de318f39b3a1",
+      "bytes": 106496
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e731c49e92d62c0f8c07b0032a3fc8d63381844128eb2f1e921e28a8d88ec867.obj",
+      "sha256": "e731c49e92d62c0f8c07b0032a3fc8d63381844128eb2f1e921e28a8d88ec867",
+      "bytes": 7689
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1b98265a7890ec3e54ac4156273e926f9662cad96a231b8cbb8c94f97989dacd.cpp",
+      "sha256": "1b98265a7890ec3e54ac4156273e926f9662cad96a231b8cbb8c94f97989dacd",
+      "bytes": 203
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1859305cf69d1325fd0cf75050dc5425838716abb47dcc36f713ad678ba85284.dll",
+      "sha256": "1859305cf69d1325fd0cf75050dc5425838716abb47dcc36f713ad678ba85284",
+      "bytes": 118272
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b118d5132475c90cd01bf1e01d85bf044d5c4b53c4b4a5b142e6efa9d21f9629.exp",
+      "sha256": "b118d5132475c90cd01bf1e01d85bf044d5c4b53c4b4a5b142e6efa9d21f9629",
+      "bytes": 785
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a6bbcd24a92c32b3534103556456887427779b8be56d7de5a47cf294ecc55839.lib",
+      "sha256": "a6bbcd24a92c32b3534103556456887427779b8be56d7de5a47cf294ecc55839",
+      "bytes": 1826
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\69cd20a0995e01da21cd24e5af52b469289331b273cc36a7b90994e828f90049.obj",
+      "sha256": "69cd20a0995e01da21cd24e5af52b469289331b273cc36a7b90994e828f90049",
+      "bytes": 54651
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a4ec9af3fda81f4398a2885ea2b16a0620c5a10fd0127774eaeb0c09722ffe31.hpp",
+      "sha256": "a4ec9af3fda81f4398a2885ea2b16a0620c5a10fd0127774eaeb0c09722ffe31",
+      "bytes": 1186
+    }
+  ]
+}

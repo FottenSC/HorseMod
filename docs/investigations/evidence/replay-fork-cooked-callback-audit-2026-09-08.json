@@ -1,0 +1,1632 @@
+{
+  "kind": "static_cooked_script_evidence",
+  "date": "2026-09-08",
+  "live_test": false,
+  "note": "Selected bytecode only; native ownership findings are in the companion Markdown. No expected state is installed. Existing exports reused; duplicate reviewer exports verified byte-identical and removed.",
+  "sources": [
+    {
+      "path": "build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\BattleScene.script.json",
+      "sha256": "70b039fd593457b239f00e2de2bb43fcba2a1d63fa6c500a78db69da294c0b10",
+      "bytes": 2198917,
+      "selected_functions": {
+        "PollingFinishedMatch": [
+          {
+            "Inst": "EX_VirtualFunction",
+            "StatementIndex": 0,
+            "Function": "ExecuteUbergraph_BattleScene",
+            "Parameters": [
+              {
+                "Inst": "EX_IntConst",
+                "Value": 17890
+              }
+            ]
+          },
+          {
+            "Inst": "EX_Return",
+            "StatementIndex": 19,
+            "Expression": {
+              "Inst": "EX_Nothing"
+            }
+          },
+          {
+            "Inst": "EX_EndOfScript",
+            "StatementIndex": 21
+          }
+        ],
+        "OnReadyToStart": [
+          {
+            "Inst": "EX_VirtualFunction",
+            "StatementIndex": 0,
+            "Function": "ExecuteUbergraph_BattleScene",
+            "Parameters": [
+              {
+                "Inst": "EX_IntConst",
+                "Value": 6324
+              }
+            ]
+          },
+          {
+            "Inst": "EX_Return",
+            "StatementIndex": 19,
+            "Expression": {
+              "Inst": "EX_Nothing"
+            }
+          },
+          {
+            "Inst": "EX_EndOfScript",
+            "StatementIndex": 21
+          }
+        ],
+        "OnFinishMatch": [
+          {
+            "Inst": "EX_PushExecutionFlow",
+            "StatementIndex": 0,
+            "PushingAddress": 573
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 5,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "Temp_int_Variable"
+            },
+            "Expression": {
+              "Inst": "EX_IntConst",
+              "Value": 0
+            }
+          },
+          {
+            "Inst": "EX_LetBool",
+            "StatementIndex": 28,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_LessEqual_IntInt_ReturnValue"
+            },
+            "Expression": {
+              "Inst": "EX_CallMath",
+              "Function": "Function'KismetMathLibrary:LessEqual_IntInt'",
+              "Parameters": [
+                {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "Temp_int_Variable"
+                },
+                {
+                  "Inst": "EX_IntConst",
+                  "Value": 1
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_PopExecutionFlowIfNot",
+            "StatementIndex": 62,
+            "BooleanExpression": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_LessEqual_IntInt_ReturnValue"
+            }
+          },
+          {
+            "Inst": "EX_PushExecutionFlow",
+            "StatementIndex": 72,
+            "PushingAddress": 499
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 77,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_Conv_IntToByte_ReturnValue"
+            },
+            "Expression": {
+              "Inst": "EX_CallMath",
+              "Function": "Function'KismetMathLibrary:Conv_IntToByte'",
+              "Parameters": [
+                {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "Temp_int_Variable"
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 114,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_GetValidValue_ReturnValue"
+            },
+            "Expression": {
+              "Inst": "EX_Context",
+              "ObjectExpression": {
+                "Inst": "EX_ObjectConst",
+                "Value": "KismetNodeHelperLibrary'Default__KismetNodeHelperLibrary'"
+              },
+              "Offset": 28,
+              "ContextExpression": {
+                "Inst": "EX_FinalFunction",
+                "Function": "Function'KismetNodeHelperLibrary:GetValidValue'",
+                "Parameters": [
+                  {
+                    "Inst": "EX_ObjectConst",
+                    "Value": "Enum'ELuxUIBattlePlayerSide'"
+                  },
+                  {
+                    "Inst": "EX_LocalVariable",
+                    "Variable": "CallFunc_Conv_IntToByte_ReturnValue"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "Inst": "EX_VirtualFunction",
+            "StatementIndex": 182,
+            "Function": "IsStylePlayCount",
+            "Parameters": [
+              {
+                "Inst": "EX_LocalVariable",
+                "Variable": "CallFunc_GetValidValue_ReturnValue"
+              },
+              {
+                "Inst": "EX_LocalVariable",
+                "Variable": "CallFunc_IsStylePlayCount_ret"
+              }
+            ]
+          },
+          {
+            "Inst": "EX_PopExecutionFlowIfNot",
+            "StatementIndex": 214,
+            "BooleanExpression": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_IsStylePlayCount_ret"
+            }
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 224,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_Conv_IntToByte_ReturnValue"
+            },
+            "Expression": {
+              "Inst": "EX_CallMath",
+              "Function": "Function'KismetMathLibrary:Conv_IntToByte'",
+              "Parameters": [
+                {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "Temp_int_Variable"
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 261,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_GetValidValue_ReturnValue"
+            },
+            "Expression": {
+              "Inst": "EX_Context",
+              "ObjectExpression": {
+                "Inst": "EX_ObjectConst",
+                "Value": "KismetNodeHelperLibrary'Default__KismetNodeHelperLibrary'"
+              },
+              "Offset": 28,
+              "ContextExpression": {
+                "Inst": "EX_FinalFunction",
+                "Function": "Function'KismetNodeHelperLibrary:GetValidValue'",
+                "Parameters": [
+                  {
+                    "Inst": "EX_ObjectConst",
+                    "Value": "Enum'ELuxUIBattlePlayerSide'"
+                  },
+                  {
+                    "Inst": "EX_LocalVariable",
+                    "Variable": "CallFunc_Conv_IntToByte_ReturnValue"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 329,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_GetStyleId_ReturnValue"
+            },
+            "Expression": {
+              "Inst": "EX_VirtualFunction",
+              "Function": "GetStyleId",
+              "Parameters": [
+                {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "CallFunc_GetValidValue_ReturnValue"
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 370,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_Conv_IntToByte_ReturnValue2"
+            },
+            "Expression": {
+              "Inst": "EX_CallMath",
+              "Function": "Function'KismetMathLibrary:Conv_IntToByte'",
+              "Parameters": [
+                {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "CallFunc_GetStyleId_ReturnValue"
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 407,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_GetValidValue_ReturnValue2"
+            },
+            "Expression": {
+              "Inst": "EX_Context",
+              "ObjectExpression": {
+                "Inst": "EX_ObjectConst",
+                "Value": "KismetNodeHelperLibrary'Default__KismetNodeHelperLibrary'"
+              },
+              "Offset": 28,
+              "ContextExpression": {
+                "Inst": "EX_FinalFunction",
+                "Function": "Function'KismetNodeHelperLibrary:GetValidValue'",
+                "Parameters": [
+                  {
+                    "Inst": "EX_ObjectConst",
+                    "Value": "Enum'ELuxFightStyle'"
+                  },
+                  {
+                    "Inst": "EX_LocalVariable",
+                    "Variable": "CallFunc_Conv_IntToByte_ReturnValue2"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "Inst": "EX_VirtualFunction",
+            "StatementIndex": 475,
+            "Function": "AddStylePlayCount",
+            "Parameters": [
+              {
+                "Inst": "EX_LocalVariable",
+                "Variable": "CallFunc_GetValidValue_ReturnValue2"
+              }
+            ]
+          },
+          {
+            "Inst": "EX_PopExecutionFlow",
+            "StatementIndex": 498
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 499,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_Add_IntInt_ReturnValue"
+            },
+            "Expression": {
+              "Inst": "EX_CallMath",
+              "Function": "Function'KismetMathLibrary:Add_IntInt'",
+              "Parameters": [
+                {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "Temp_int_Variable"
+                },
+                {
+                  "Inst": "EX_IntConst",
+                  "Value": 1
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 541,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "Temp_int_Variable"
+            },
+            "Expression": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_Add_IntInt_ReturnValue"
+            }
+          },
+          {
+            "Inst": "EX_Jump",
+            "StatementIndex": 568,
+            "CodeOffset": 28
+          },
+          {
+            "Inst": "EX_Return",
+            "StatementIndex": 573,
+            "Expression": {
+              "Inst": "EX_Nothing"
+            }
+          },
+          {
+            "Inst": "EX_EndOfScript",
+            "StatementIndex": 575
+          }
+        ]
+      }
+    },
+    {
+      "path": "build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\ReplayBattleScene.script.json",
+      "sha256": "d9ccfe75217cf7776a1819faddae78c2a799f9dd33c3b419bd91857ecc594aa2",
+      "bytes": 317664,
+      "selected_functions": {
+        "OnFinishMatch": [
+          {
+            "Inst": "EX_VirtualFunction",
+            "StatementIndex": 0,
+            "Function": "ExecuteUbergraph_ReplayBattleScene",
+            "Parameters": [
+              {
+                "Inst": "EX_IntConst",
+                "Value": 2766
+              }
+            ]
+          },
+          {
+            "Inst": "EX_Return",
+            "StatementIndex": 19,
+            "Expression": {
+              "Inst": "EX_Nothing"
+            }
+          },
+          {
+            "Inst": "EX_EndOfScript",
+            "StatementIndex": 21
+          }
+        ]
+      }
+    },
+    {
+      "path": "build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\CockpitBase.script.json",
+      "sha256": "3ec2b10f6ff71d2dd4368d756b658c4898518ca8d68f853fb54b65bc82d197bf",
+      "bytes": 5388058,
+      "selected_functions": {
+        "UpdateTimer": [
+          {
+            "Inst": "EX_PushExecutionFlow",
+            "StatementIndex": 0,
+            "PushingAddress": 584
+          },
+          {
+            "Inst": "EX_PushExecutionFlow",
+            "StatementIndex": 5,
+            "PushingAddress": 30
+          },
+          {
+            "Inst": "EX_PushExecutionFlow",
+            "StatementIndex": 10,
+            "PushingAddress": 518
+          },
+          {
+            "Inst": "EX_JumpIfNot",
+            "StatementIndex": 15,
+            "CodeOffset": 559,
+            "BooleanExpression": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "Temp_bool_Has_Been_Initd_Variable"
+            }
+          },
+          {
+            "Inst": "EX_PopExecutionFlow",
+            "StatementIndex": 29
+          },
+          {
+            "Inst": "EX_LetBool",
+            "StatementIndex": 30,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_GreaterEqual_IntInt_ReturnValue"
+            },
+            "Expression": {
+              "Inst": "EX_CallMath",
+              "Function": "Function'KismetMathLibrary:GreaterEqual_IntInt'",
+              "Parameters": [
+                {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "CurrentTime"
+                },
+                {
+                  "Inst": "EX_IntConst",
+                  "Value": 0
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_LetBool",
+            "StatementIndex": 64,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_NotEqual_IntInt_ReturnValue"
+            },
+            "Expression": {
+              "Inst": "EX_CallMath",
+              "Function": "Function'KismetMathLibrary:NotEqual_IntInt'",
+              "Parameters": [
+                {
+                  "Inst": "EX_InstanceVariable",
+                  "Variable": "PrevTimer"
+                },
+                {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "CurrentTime"
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_LetBool",
+            "StatementIndex": 102,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_BooleanAND_ReturnValue"
+            },
+            "Expression": {
+              "Inst": "EX_CallMath",
+              "Function": "Function'KismetMathLibrary:BooleanAND'",
+              "Parameters": [
+                {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "CallFunc_NotEqual_IntInt_ReturnValue"
+                },
+                {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "CallFunc_GreaterEqual_IntInt_ReturnValue"
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_PopExecutionFlowIfNot",
+            "StatementIndex": 140,
+            "BooleanExpression": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_BooleanAND_ReturnValue"
+            }
+          },
+          {
+            "Inst": "EX_VirtualFunction",
+            "StatementIndex": 150,
+            "Function": "ChangeTimer",
+            "Parameters": []
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 164,
+            "Variable": {
+              "Inst": "EX_InstanceVariable",
+              "Variable": "PrevTimer"
+            },
+            "Expression": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CurrentTime"
+            }
+          },
+          {
+            "Inst": "EX_LetBool",
+            "StatementIndex": 191,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "K2Node_SwitchEnum_CmpSuccess"
+            },
+            "Expression": {
+              "Inst": "EX_CallMath",
+              "Function": "Function'KismetMathLibrary:NotEqual_ByteByte'",
+              "Parameters": [
+                {
+                  "Inst": "EX_InstanceVariable",
+                  "Variable": "CurrentTimerState"
+                },
+                {
+                  "Inst": "EX_ByteConst",
+                  "Value": 0
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_JumpIfNot",
+            "StatementIndex": 222,
+            "CodeOffset": 364,
+            "BooleanExpression": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "K2Node_SwitchEnum_CmpSuccess"
+            }
+          },
+          {
+            "Inst": "EX_LetBool",
+            "StatementIndex": 236,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "K2Node_SwitchEnum_CmpSuccess"
+            },
+            "Expression": {
+              "Inst": "EX_CallMath",
+              "Function": "Function'KismetMathLibrary:NotEqual_ByteByte'",
+              "Parameters": [
+                {
+                  "Inst": "EX_InstanceVariable",
+                  "Variable": "CurrentTimerState"
+                },
+                {
+                  "Inst": "EX_ByteConst",
+                  "Value": 1
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_PopExecutionFlowIfNot",
+            "StatementIndex": 267,
+            "BooleanExpression": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "K2Node_SwitchEnum_CmpSuccess"
+            }
+          },
+          {
+            "Inst": "EX_LetBool",
+            "StatementIndex": 277,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "K2Node_SwitchEnum_CmpSuccess"
+            },
+            "Expression": {
+              "Inst": "EX_CallMath",
+              "Function": "Function'KismetMathLibrary:NotEqual_ByteByte'",
+              "Parameters": [
+                {
+                  "Inst": "EX_InstanceVariable",
+                  "Variable": "CurrentTimerState"
+                },
+                {
+                  "Inst": "EX_ByteConst",
+                  "Value": 2
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_PopExecutionFlowIfNot",
+            "StatementIndex": 308,
+            "BooleanExpression": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "K2Node_SwitchEnum_CmpSuccess"
+            }
+          },
+          {
+            "Inst": "EX_LetBool",
+            "StatementIndex": 318,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "K2Node_SwitchEnum_CmpSuccess"
+            },
+            "Expression": {
+              "Inst": "EX_CallMath",
+              "Function": "Function'KismetMathLibrary:NotEqual_ByteByte'",
+              "Parameters": [
+                {
+                  "Inst": "EX_InstanceVariable",
+                  "Variable": "CurrentTimerState"
+                },
+                {
+                  "Inst": "EX_ByteConst",
+                  "Value": 3
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_JumpIfNot",
+            "StatementIndex": 349,
+            "CodeOffset": 364,
+            "BooleanExpression": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "K2Node_SwitchEnum_CmpSuccess"
+            }
+          },
+          {
+            "Inst": "EX_PopExecutionFlow",
+            "StatementIndex": 363
+          },
+          {
+            "Inst": "EX_LetBool",
+            "StatementIndex": 364,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_IsAnimationPlaying_ReturnValue"
+            },
+            "Expression": {
+              "Inst": "EX_FinalFunction",
+              "Function": "Function'UserWidget:IsAnimationPlaying'",
+              "Parameters": [
+                {
+                  "Inst": "EX_InstanceVariable",
+                  "Variable": "TimerFlash"
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_PopExecutionFlowIfNot",
+            "StatementIndex": 393,
+            "BooleanExpression": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_IsAnimationPlaying_ReturnValue"
+            }
+          },
+          {
+            "Inst": "EX_VirtualFunction",
+            "StatementIndex": 403,
+            "Function": "ChangeTimerState",
+            "Parameters": [
+              {
+                "Inst": "EX_InstanceVariable",
+                "Variable": "CurrentTimerState"
+              }
+            ]
+          },
+          {
+            "Inst": "EX_Context",
+            "StatementIndex": 426,
+            "ObjectExpression": {
+              "Inst": "EX_ObjectConst",
+              "Value": "KismetSystemLibrary'Default__KismetSystemLibrary'"
+            },
+            "Offset": 69,
+            "ContextExpression": {
+              "Inst": "EX_FinalFunction",
+              "Function": "Function'KismetSystemLibrary:PrintString'",
+              "Parameters": [
+                {
+                  "Inst": "EX_Self"
+                },
+                {
+                  "Inst": "EX_StringConst",
+                  "Value": "Stop Timer Anim"
+                },
+                {
+                  "Inst": "EX_True"
+                },
+                {
+                  "Inst": "EX_True"
+                },
+                {
+                  "Inst": "EX_StructConst",
+                  "Struct": "ScriptStruct'LinearColor'",
+                  "Properties": [
+                    {
+                      "Inst": "EX_FloatConst",
+                      "Value": 0.0
+                    },
+                    {
+                      "Inst": "EX_FloatConst",
+                      "Value": 0.66
+                    },
+                    {
+                      "Inst": "EX_FloatConst",
+                      "Value": 1.0
+                    },
+                    {
+                      "Inst": "EX_FloatConst",
+                      "Value": 1.0
+                    }
+                  ]
+                },
+                {
+                  "Inst": "EX_FloatConst",
+                  "Value": 2.0
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_PopExecutionFlow",
+            "StatementIndex": 517
+          },
+          {
+            "Inst": "EX_JumpIfNot",
+            "StatementIndex": 518,
+            "CodeOffset": 533,
+            "BooleanExpression": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "Temp_bool_IsClosed_Variable"
+            }
+          },
+          {
+            "Inst": "EX_PopExecutionFlow",
+            "StatementIndex": 532
+          },
+          {
+            "Inst": "EX_LetBool",
+            "StatementIndex": 533,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "Temp_bool_IsClosed_Variable"
+            },
+            "Expression": {
+              "Inst": "EX_True"
+            }
+          },
+          {
+            "Inst": "EX_VirtualFunction",
+            "StatementIndex": 544,
+            "Function": "InitTimer",
+            "Parameters": []
+          },
+          {
+            "Inst": "EX_PopExecutionFlow",
+            "StatementIndex": 558
+          },
+          {
+            "Inst": "EX_LetBool",
+            "StatementIndex": 559,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "Temp_bool_Has_Been_Initd_Variable"
+            },
+            "Expression": {
+              "Inst": "EX_True"
+            }
+          },
+          {
+            "Inst": "EX_PopExecutionFlowIfNot",
+            "StatementIndex": 570,
+            "BooleanExpression": {
+              "Inst": "EX_False"
+            }
+          },
+          {
+            "Inst": "EX_LetBool",
+            "StatementIndex": 572,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "Temp_bool_IsClosed_Variable"
+            },
+            "Expression": {
+              "Inst": "EX_True"
+            }
+          },
+          {
+            "Inst": "EX_PopExecutionFlow",
+            "StatementIndex": 583
+          },
+          {
+            "Inst": "EX_Return",
+            "StatementIndex": 584,
+            "Expression": {
+              "Inst": "EX_Nothing"
+            }
+          },
+          {
+            "Inst": "EX_EndOfScript",
+            "StatementIndex": 586
+          }
+        ],
+        "CreateDamageTypeEffect": [
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 0,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "Temp_int_Variable"
+            },
+            "Expression": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "Index"
+            }
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 27,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_Array_Length_ReturnValue"
+            },
+            "Expression": {
+              "Inst": "EX_Context",
+              "ObjectExpression": {
+                "Inst": "EX_ObjectConst",
+                "Value": "KismetArrayLibrary'Default__KismetArrayLibrary'"
+              },
+              "Offset": 19,
+              "ContextExpression": {
+                "Inst": "EX_FinalFunction",
+                "Function": "Function'KismetArrayLibrary:Array_Length'",
+                "Parameters": [
+                  {
+                    "Inst": "EX_InstanceVariable",
+                    "Variable": "DmgTypeEff"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 86,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_Percent_IntInt_ReturnValue"
+            },
+            "Expression": {
+              "Inst": "EX_CallMath",
+              "Function": "Function'KismetMathLibrary:Percent_IntInt'",
+              "Parameters": [
+                {
+                  "Inst": "EX_InstanceVariable",
+                  "Variable": "TypeEffCount"
+                },
+                {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "CallFunc_Array_Length_ReturnValue"
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_Context",
+            "StatementIndex": 132,
+            "ObjectExpression": {
+              "Inst": "EX_ObjectConst",
+              "Value": "KismetArrayLibrary'Default__KismetArrayLibrary'"
+            },
+            "Offset": 37,
+            "ContextExpression": {
+              "Inst": "EX_FinalFunction",
+              "Function": "Function'KismetArrayLibrary:Array_Get'",
+              "Parameters": [
+                {
+                  "Inst": "EX_InstanceVariable",
+                  "Variable": "DmgTypeEff"
+                },
+                {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "CallFunc_Percent_IntInt_ReturnValue"
+                },
+                {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "CallFunc_Array_Get_Item"
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_LetObj",
+            "StatementIndex": 191,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_AddChildToCanvas_ReturnValue"
+            },
+            "Expression": {
+              "Inst": "EX_Context",
+              "ObjectExpression": {
+                "Inst": "EX_SwitchValue",
+                "IndexTerm": {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "Temp_int_Variable"
+                },
+                "EndGotoOffset": 263,
+                "Cases": [
+                  {
+                    "CaseIndexValueTerm": {
+                      "Inst": "EX_IntConst",
+                      "Value": 0
+                    },
+                    "NextOffset": 236,
+                    "CaseTerm": {
+                      "Inst": "EX_InstanceVariable",
+                      "Variable": "p1_vital_gauge_root"
+                    }
+                  },
+                  {
+                    "CaseIndexValueTerm": {
+                      "Inst": "EX_IntConst",
+                      "Value": 1
+                    },
+                    "NextOffset": 254,
+                    "CaseTerm": {
+                      "Inst": "EX_InstanceVariable",
+                      "Variable": "p2_vital_gauge_root"
+                    }
+                  }
+                ],
+                "DefaultTerm": {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "K2Node_Select2_Default"
+                }
+              },
+              "Offset": 19,
+              "ContextExpression": {
+                "Inst": "EX_FinalFunction",
+                "Function": "Function'CanvasPanel:AddChildToCanvas'",
+                "Parameters": [
+                  {
+                    "Inst": "EX_LocalVariable",
+                    "Variable": "CallFunc_Array_Get_Item"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "Inst": "EX_Context",
+            "StatementIndex": 294,
+            "ObjectExpression": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_AddChildToCanvas_ReturnValue"
+            },
+            "Offset": 11,
+            "ContextExpression": {
+              "Inst": "EX_FinalFunction",
+              "Function": "Function'CanvasPanelSlot:SetAutoSize'",
+              "Parameters": [
+                {
+                  "Inst": "EX_True"
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 327,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_Subtract_FloatFloat_ReturnValue"
+            },
+            "Expression": {
+              "Inst": "EX_CallMath",
+              "Function": "Function'KismetMathLibrary:Subtract_FloatFloat'",
+              "Parameters": [
+                {
+                  "Inst": "EX_FloatConst",
+                  "Value": 1.0
+                },
+                {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "Percent"
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 369,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_Array_Length_ReturnValue"
+            },
+            "Expression": {
+              "Inst": "EX_Context",
+              "ObjectExpression": {
+                "Inst": "EX_ObjectConst",
+                "Value": "KismetArrayLibrary'Default__KismetArrayLibrary'"
+              },
+              "Offset": 19,
+              "ContextExpression": {
+                "Inst": "EX_FinalFunction",
+                "Function": "Function'KismetArrayLibrary:Array_Length'",
+                "Parameters": [
+                  {
+                    "Inst": "EX_InstanceVariable",
+                    "Variable": "DmgTypeEff"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 428,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_Percent_IntInt_ReturnValue"
+            },
+            "Expression": {
+              "Inst": "EX_CallMath",
+              "Function": "Function'KismetMathLibrary:Percent_IntInt'",
+              "Parameters": [
+                {
+                  "Inst": "EX_InstanceVariable",
+                  "Variable": "TypeEffCount"
+                },
+                {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "CallFunc_Array_Length_ReturnValue"
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 474,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "Temp_int_Variable2"
+            },
+            "Expression": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "Index"
+            }
+          },
+          {
+            "Inst": "EX_Context",
+            "StatementIndex": 501,
+            "ObjectExpression": {
+              "Inst": "EX_ObjectConst",
+              "Value": "KismetArrayLibrary'Default__KismetArrayLibrary'"
+            },
+            "Offset": 37,
+            "ContextExpression": {
+              "Inst": "EX_FinalFunction",
+              "Function": "Function'KismetArrayLibrary:Array_Get'",
+              "Parameters": [
+                {
+                  "Inst": "EX_InstanceVariable",
+                  "Variable": "DmgTypeEff"
+                },
+                {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "CallFunc_Percent_IntInt_ReturnValue"
+                },
+                {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "CallFunc_Array_Get_Item"
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_LetObj",
+            "StatementIndex": 560,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_SlotAsCanvasSlot_ReturnValue"
+            },
+            "Expression": {
+              "Inst": "EX_Context",
+              "ObjectExpression": {
+                "Inst": "EX_ObjectConst",
+                "Value": "WidgetLayoutLibrary'Default__WidgetLayoutLibrary'"
+              },
+              "Offset": 71,
+              "ContextExpression": {
+                "Inst": "EX_FinalFunction",
+                "Function": "Function'WidgetLayoutLibrary:SlotAsCanvasSlot'",
+                "Parameters": [
+                  {
+                    "Inst": "EX_SwitchValue",
+                    "IndexTerm": {
+                      "Inst": "EX_LocalVariable",
+                      "Variable": "Temp_int_Variable2"
+                    },
+                    "EndGotoOffset": 662,
+                    "Cases": [
+                      {
+                        "CaseIndexValueTerm": {
+                          "Inst": "EX_IntConst",
+                          "Value": 0
+                        },
+                        "NextOffset": 635,
+                        "CaseTerm": {
+                          "Inst": "EX_InstanceVariable",
+                          "Variable": "p1_vital_gauge"
+                        }
+                      },
+                      {
+                        "CaseIndexValueTerm": {
+                          "Inst": "EX_IntConst",
+                          "Value": 1
+                        },
+                        "NextOffset": 653,
+                        "CaseTerm": {
+                          "Inst": "EX_InstanceVariable",
+                          "Variable": "p2_vital_gauge"
+                        }
+                      }
+                    ],
+                    "DefaultTerm": {
+                      "Inst": "EX_LocalVariable",
+                      "Variable": "K2Node_Select_Default"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 663,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_GetSize_ReturnValue"
+            },
+            "Expression": {
+              "Inst": "EX_Context",
+              "ObjectExpression": {
+                "Inst": "EX_LocalVariable",
+                "Variable": "CallFunc_SlotAsCanvasSlot_ReturnValue"
+              },
+              "Offset": 10,
+              "ContextExpression": {
+                "Inst": "EX_FinalFunction",
+                "Function": "Function'CanvasPanelSlot:GetSize'",
+                "Parameters": []
+              }
+            }
+          },
+          {
+            "Inst": "EX_CallMath",
+            "StatementIndex": 713,
+            "Function": "Function'KismetMathLibrary:BreakVector2D'",
+            "Parameters": [
+              {
+                "Inst": "EX_LocalVariable",
+                "Variable": "CallFunc_GetSize_ReturnValue"
+              },
+              {
+                "Inst": "EX_LocalVariable",
+                "Variable": "CallFunc_BreakVector2D_X"
+              },
+              {
+                "Inst": "EX_LocalVariable",
+                "Variable": "CallFunc_BreakVector2D_Y"
+              }
+            ]
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 750,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_Multiply_FloatFloat_ReturnValue"
+            },
+            "Expression": {
+              "Inst": "EX_CallMath",
+              "Function": "Function'KismetMathLibrary:Multiply_FloatFloat'",
+              "Parameters": [
+                {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "CallFunc_Subtract_FloatFloat_ReturnValue"
+                },
+                {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "CallFunc_BreakVector2D_X"
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 796,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_MakeVector2D_ReturnValue"
+            },
+            "Expression": {
+              "Inst": "EX_CallMath",
+              "Function": "Function'KismetMathLibrary:MakeVector2D'",
+              "Parameters": [
+                {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "CallFunc_Multiply_FloatFloat_ReturnValue"
+                },
+                {
+                  "Inst": "EX_FloatConst",
+                  "Value": 0.0
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 838,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_Subtract_Vector2DVector2D_ReturnValue"
+            },
+            "Expression": {
+              "Inst": "EX_CallMath",
+              "Function": "Function'KismetMathLibrary:Subtract_Vector2DVector2D'",
+              "Parameters": [
+                {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "CallFunc_MakeVector2D_ReturnValue"
+                },
+                {
+                  "Inst": "EX_StructConst",
+                  "Struct": "ScriptStruct'Vector2D'",
+                  "Properties": [
+                    {
+                      "Inst": "EX_FloatConst",
+                      "Value": 52.0
+                    },
+                    {
+                      "Inst": "EX_FloatConst",
+                      "Value": 42.0
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 899,
+            "Variable": {
+              "Inst": "EX_StructMemberContext",
+              "Property": "StructProperty'WidgetTransform:Translation'",
+              "StructExpression": {
+                "Inst": "EX_LocalVariable",
+                "Variable": "K2Node_MakeStruct_WidgetTransform"
+              }
+            },
+            "Expression": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_Subtract_Vector2DVector2D_ReturnValue"
+            }
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 935,
+            "Variable": {
+              "Inst": "EX_StructMemberContext",
+              "Property": "StructProperty'WidgetTransform:Scale'",
+              "StructExpression": {
+                "Inst": "EX_LocalVariable",
+                "Variable": "K2Node_MakeStruct_WidgetTransform"
+              }
+            },
+            "Expression": {
+              "Inst": "EX_StructConst",
+              "Struct": "ScriptStruct'Vector2D'",
+              "Properties": [
+                {
+                  "Inst": "EX_FloatConst",
+                  "Value": 1.0
+                },
+                {
+                  "Inst": "EX_FloatConst",
+                  "Value": 1.0
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 986,
+            "Variable": {
+              "Inst": "EX_StructMemberContext",
+              "Property": "StructProperty'WidgetTransform:Shear'",
+              "StructExpression": {
+                "Inst": "EX_LocalVariable",
+                "Variable": "K2Node_MakeStruct_WidgetTransform"
+              }
+            },
+            "Expression": {
+              "Inst": "EX_StructConst",
+              "Struct": "ScriptStruct'Vector2D'",
+              "Properties": [
+                {
+                  "Inst": "EX_FloatConst",
+                  "Value": 0.0
+                },
+                {
+                  "Inst": "EX_FloatConst",
+                  "Value": 0.0
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 1037,
+            "Variable": {
+              "Inst": "EX_StructMemberContext",
+              "Property": "FloatProperty'WidgetTransform:Angle'",
+              "StructExpression": {
+                "Inst": "EX_LocalVariable",
+                "Variable": "K2Node_MakeStruct_WidgetTransform"
+              }
+            },
+            "Expression": {
+              "Inst": "EX_FloatConst",
+              "Value": 0.0
+            }
+          },
+          {
+            "Inst": "EX_Context",
+            "StatementIndex": 1069,
+            "ObjectExpression": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_Array_Get_Item"
+            },
+            "Offset": 19,
+            "ContextExpression": {
+              "Inst": "EX_FinalFunction",
+              "Function": "Function'Widget:SetRenderTransform'",
+              "Parameters": [
+                {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "K2Node_MakeStruct_WidgetTransform"
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 1110,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_Array_Length_ReturnValue"
+            },
+            "Expression": {
+              "Inst": "EX_Context",
+              "ObjectExpression": {
+                "Inst": "EX_ObjectConst",
+                "Value": "KismetArrayLibrary'Default__KismetArrayLibrary'"
+              },
+              "Offset": 19,
+              "ContextExpression": {
+                "Inst": "EX_FinalFunction",
+                "Function": "Function'KismetArrayLibrary:Array_Length'",
+                "Parameters": [
+                  {
+                    "Inst": "EX_InstanceVariable",
+                    "Variable": "DmgTypeEff"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 1169,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_Percent_IntInt_ReturnValue"
+            },
+            "Expression": {
+              "Inst": "EX_CallMath",
+              "Function": "Function'KismetMathLibrary:Percent_IntInt'",
+              "Parameters": [
+                {
+                  "Inst": "EX_InstanceVariable",
+                  "Variable": "TypeEffCount"
+                },
+                {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "CallFunc_Array_Length_ReturnValue"
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_Context",
+            "StatementIndex": 1215,
+            "ObjectExpression": {
+              "Inst": "EX_ObjectConst",
+              "Value": "KismetArrayLibrary'Default__KismetArrayLibrary'"
+            },
+            "Offset": 37,
+            "ContextExpression": {
+              "Inst": "EX_FinalFunction",
+              "Function": "Function'KismetArrayLibrary:Array_Get'",
+              "Parameters": [
+                {
+                  "Inst": "EX_InstanceVariable",
+                  "Variable": "DmgTypeEff"
+                },
+                {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "CallFunc_Percent_IntInt_ReturnValue"
+                },
+                {
+                  "Inst": "EX_LocalVariable",
+                  "Variable": "CallFunc_Array_Get_Item"
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_Context",
+            "StatementIndex": 1274,
+            "ObjectExpression": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_Array_Get_Item"
+            },
+            "Offset": 58,
+            "ContextExpression": {
+              "Inst": "EX_FinalFunction",
+              "Function": "Function'UserWidget:PlayAnimation'",
+              "Parameters": [
+                {
+                  "Inst": "EX_Context",
+                  "ObjectExpression": {
+                    "Inst": "EX_LocalVariable",
+                    "Variable": "CallFunc_Array_Get_Item"
+                  },
+                  "Offset": 9,
+                  "ContextExpression": {
+                    "Inst": "EX_InstanceVariable",
+                    "Variable": "ObjectProperty'DmgTypeEff_C:DamgeEffect'"
+                  }
+                },
+                {
+                  "Inst": "EX_FloatConst",
+                  "Value": 0.0
+                },
+                {
+                  "Inst": "EX_IntConst",
+                  "Value": 1
+                },
+                {
+                  "Inst": "EX_ByteConst",
+                  "Value": 0
+                },
+                {
+                  "Inst": "EX_FloatConst",
+                  "Value": 1.0
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 1354,
+            "Variable": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_Add_IntInt_ReturnValue"
+            },
+            "Expression": {
+              "Inst": "EX_CallMath",
+              "Function": "Function'KismetMathLibrary:Add_IntInt'",
+              "Parameters": [
+                {
+                  "Inst": "EX_InstanceVariable",
+                  "Variable": "TypeEffCount"
+                },
+                {
+                  "Inst": "EX_IntConst",
+                  "Value": 1
+                }
+              ]
+            }
+          },
+          {
+            "Inst": "EX_Let",
+            "StatementIndex": 1396,
+            "Variable": {
+              "Inst": "EX_InstanceVariable",
+              "Variable": "TypeEffCount"
+            },
+            "Expression": {
+              "Inst": "EX_LocalVariable",
+              "Variable": "CallFunc_Add_IntInt_ReturnValue"
+            }
+          },
+          {
+            "Inst": "EX_Return",
+            "StatementIndex": 1423,
+            "Expression": {
+              "Inst": "EX_Nothing"
+            }
+          },
+          {
+            "Inst": "EX_EndOfScript",
+            "StatementIndex": 1425
+          }
+        ],
+        "OnP1GaugeCharged": [
+          {
+            "Inst": "EX_FinalFunction",
+            "StatementIndex": 0,
+            "Function": "Function'UserWidget:PlayAnimation'",
+            "Parameters": [
+              {
+                "Inst": "EX_InstanceVariable",
+                "Variable": "P1GuerdGaugeFlash"
+              },
+              {
+                "Inst": "EX_FloatConst",
+                "Value": 0.5
+              },
+              {
+                "Inst": "EX_IntConst",
+                "Value": 0
+              },
+              {
+                "Inst": "EX_ByteConst",
+                "Value": 0
+              },
+              {
+                "Inst": "EX_FloatConst",
+                "Value": 1.0
+              }
+            ]
+          },
+          {
+            "Inst": "EX_Return",
+            "StatementIndex": 36,
+            "Expression": {
+              "Inst": "EX_Nothing"
+            }
+          },
+          {
+            "Inst": "EX_EndOfScript",
+            "StatementIndex": 38
+          }
+        ],
+        "OnP2GaugeCharged": [
+          {
+            "Inst": "EX_FinalFunction",
+            "StatementIndex": 0,
+            "Function": "Function'UserWidget:PlayAnimation'",
+            "Parameters": [
+              {
+                "Inst": "EX_InstanceVariable",
+                "Variable": "P2GuerdGaugeFlash"
+              },
+              {
+                "Inst": "EX_FloatConst",
+                "Value": 0.0
+              },
+              {
+                "Inst": "EX_IntConst",
+                "Value": 0
+              },
+              {
+                "Inst": "EX_ByteConst",
+                "Value": 0
+              },
+              {
+                "Inst": "EX_FloatConst",
+                "Value": 1.0
+              }
+            ]
+          },
+          {
+            "Inst": "EX_Return",
+            "StatementIndex": 36,
+            "Expression": {
+              "Inst": "EX_Nothing"
+            }
+          },
+          {
+            "Inst": "EX_EndOfScript",
+            "StatementIndex": 38
+          }
+        ]
+      }
+    },
+    {
+      "path": "build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\damage-type-script.json",
+      "sha256": "b782822a90394fb8c2dfe399e25a440533da359b3426db6feed47ee384a6cba3",
+      "bytes": 698902,
+      "selected_functions": {}
+    },
+    {
+      "path": "build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\damage-value-script.json",
+      "sha256": "96f2d8258d1d079420c773aa241b1e475341ad97e42f749d20bca0902cbd76ba",
+      "bytes": 140613,
+      "selected_functions": {}
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "result": "G1 remains open",
+  "scope": "Selected ownership map, native boundaries, built observer and stock census",
+  "retained": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\bf02d70b540e739266b98055453448bad2edf819b2e875c082e5325b617a3a40.md",
+      "sha256": "bf02d70b540e739266b98055453448bad2edf819b2e875c082e5325b617a3a40",
+      "bytes": 5499
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\43e5f7136ba01e2fca79756393a37641a4b75dc5506a29ad70f3d584839462fd.json",
+      "sha256": "43e5f7136ba01e2fca79756393a37641a4b75dc5506a29ad70f3d584839462fd",
+      "bytes": 26851
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\cbd796dd3795ece0a39a05e93e0a35347f65549dd43a86854a6dd22c7628b40d.json",
+      "sha256": "cbd796dd3795ece0a39a05e93e0a35347f65549dd43a86854a6dd22c7628b40d",
+      "bytes": 195952
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\51bab3d72a071a3d7f87854da93cb0041d91245b25d4c901e0dc8d86232dfb26.json",
+      "sha256": "51bab3d72a071a3d7f87854da93cb0041d91245b25d4c901e0dc8d86232dfb26",
+      "bytes": 6396
+    }
+  ]
+}

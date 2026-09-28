@@ -1,0 +1,58 @@
+{
+  "red": {
+    "log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\89357d07932c349c1e5c90c97238452cf26c0b753e3519c9c18921fa8142693e.log",
+      "sha256": "89357d07932c349c1e5c90c97238452cf26c0b753e3519c9c18921fa8142693e",
+      "bytes": 4511
+    },
+    "test": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\ae45158c70e136f6e195f98dc92ceb6563a4f1981a49e8eb3c67046a8dbe8040.inl",
+      "sha256": "ae45158c70e136f6e195f98dc92ceb6563a4f1981a49e8eb3c67046a8dbe8040",
+      "bytes": 115101
+    },
+    "graph": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b3c90ebcbe57ac1f66df59913170aa20dae2846e08f7434620d08f21cb5f39c9.hpp",
+      "sha256": "b3c90ebcbe57ac1f66df59913170aa20dae2846e08f7434620d08f21cb5f39c9",
+      "bytes": 7953
+    },
+    "production": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7ebbf8749869df41b08835565117ea2f0c44c31f6e94ce1293d6cd8f566cf71e.inl",
+      "sha256": "7ebbf8749869df41b08835565117ea2f0c44c31f6e94ce1293d6cd8f566cf71e",
+      "bytes": 39129
+    }
+  },
+  "live_failure": "3823b732af86bac6ac255614b264c58fbc27235f1e2820a9d23916b2af6d4dbc",
+  "native": "PhysX c3c7bd6e13260ee5f850552b6e9a15f69e58e0b41cd4f4bcb48e1b419719b5a2: 113FF0 queues dirty flags through133C30/11B680; nphase+60 dense pointer hash set;121A70 insert122F60 erase. Header25 bit10 means dirty membership; header26 pending dirty mask. Commit must preserve it.",
+  "green": {
+    "build": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\75b1a780104750343e71e3f9a73efe1abfc034883a8ec684e86431d5e2270695.json",
+      "sha256": "75b1a780104750343e71e3f9a73efe1abfc034883a8ec684e86431d5e2270695",
+      "bytes": 5870
+    },
+    "log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4844593df0625ad92f1c85d371f54594b4498074f55233cab80948851e495e3b.log",
+      "sha256": "4844593df0625ad92f1c85d371f54594b4498074f55233cab80948851e495e3b",
+      "bytes": 3645
+    },
+    "test": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7332a7db0cdadbc464e7344896f0eb48de427d25dcd3f1e60a7c756d10f7fc73.inl",
+      "sha256": "7332a7db0cdadbc464e7344896f0eb48de427d25dcd3f1e60a7c756d10f7fc73",
+      "bytes": 116592
+    },
+    "graph": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\900a87ce4b80dfeb72b3bc7c77e8d5ff766acc61d3206549e124f91edc18b694.hpp",
+      "sha256": "900a87ce4b80dfeb72b3bc7c77e8d5ff766acc61d3206549e124f91edc18b694",
+      "bytes": 8839
+    },
+    "production": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\74d591986f0b061823d7b7f9df4d76aac083ec8b5b8b68cae839beb98c8cb375.inl",
+      "sha256": "74d591986f0b061823d7b7f9df4d76aac083ec8b5b8b68cae839beb98c8cb375",
+      "bytes": 41472
+    }
+  },
+  "native_disassembly": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d0cfbb9a2c4e6b01e230b1509ac98f27a6439fe1fc1c50c0c18f279782d3edf6.txt",
+    "sha256": "d0cfbb9a2c4e6b01e230b1509ac98f27a6439fe1fc1c50c0c18f279782d3edf6",
+    "bytes": 10481
+  }
+}

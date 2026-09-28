@@ -1,0 +1,371 @@
+{
+  "scope": "Bounded qualification motion perturbation; no exclusion policy change",
+  "red": {
+    "HorseMod/horselib/deterministic/ReplayGroundPose.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\655315c9a467449745a01097da3c89ce7fdf6ffa47d4749fb6c6c3af2f88e7be.hpp",
+      "sha256": "655315c9a467449745a01097da3c89ce7fdf6ffa47d4749fb6c6c3af2f88e7be",
+      "bytes": 3152
+    },
+    "tools/replay_ground_motion_probe_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\09e97ca89bdf975547da4e56e9a88239e1dba640180b8b44adaeab774d1abd1f.cpp",
+      "sha256": "09e97ca89bdf975547da4e56e9a88239e1dba640180b8b44adaeab774d1abd1f",
+      "bytes": 2995
+    },
+    "tools/deterministic_qualification/tests/test_replay_run.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e7eb5f9179d1954f4abab2b8dd76adc588e1b6bbde0df96190784373b599e47f.py",
+      "sha256": "e7eb5f9179d1954f4abab2b8dd76adc588e1b6bbde0df96190784373b599e47f",
+      "bytes": 496965
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/ground-motion-probe-red-20260922.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0347792b54a269102b5e4b05428ab558ebcd657dfb40de7e96e146aff44ccb5e.log",
+      "sha256": "0347792b54a269102b5e4b05428ab558ebcd657dfb40de7e96e146aff44ccb5e",
+      "bytes": 1981
+    }
+  },
+  "schema_red": {
+    "tools/deterministic_qualification/replay_fidelity.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8f35e2e4c1915e6969314e0d1ca3013da4d4b2a80444989e11d033cef135625d.py",
+      "sha256": "8f35e2e4c1915e6969314e0d1ca3013da4d4b2a80444989e11d033cef135625d",
+      "bytes": 76164
+    },
+    "tools/deterministic_qualification/tests/test_replay_run.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\eacf95b32a18e929a5c94a3204794bdd822e9f2172942500f87325854ecff3c0.py",
+      "sha256": "eacf95b32a18e929a5c94a3204794bdd822e9f2172942500f87325854ecff3c0",
+      "bytes": 497543
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/ground-lifecycle-schema-red-20260922.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0cfde30dac77a2f2d7189be6a7467affbf0703d4bf5b33f945f07d83250c7b04.log",
+      "sha256": "0cfde30dac77a2f2d7189be6a7467affbf0703d4bf5b33f945f07d83250c7b04",
+      "bytes": 10436
+    }
+  },
+  "receipt_red": {
+    "tools/replay_test.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\2bcf107d77838c80634e6eda67d53547399dd45319bf0b6c402a765eaa211709.py",
+      "sha256": "2bcf107d77838c80634e6eda67d53547399dd45319bf0b6c402a765eaa211709",
+      "bytes": 413860
+    },
+    "tools/deterministic_qualification/tests/test_replay_run.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\ac31c3d90b975459c21e0cf4f1e59aa3a866fe70c5abbe962ca64f683976be0b.py",
+      "sha256": "ac31c3d90b975459c21e0cf4f1e59aa3a866fe70c5abbe962ca64f683976be0b",
+      "bytes": 499785
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/ground-motion-receipt-red-20260922.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\bab867b195ff8a9010e273791a193bb3c8e7adb113f5460b0fb839986d9b1a6d.log",
+      "sha256": "bab867b195ff8a9010e273791a193bb3c8e7adb113f5460b0fb839986d9b1a6d",
+      "bytes": 1930
+    }
+  },
+  "green_source": {
+    "HorseMod/horselib/deterministic/ReplayGroundPose.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4b92cc9b9230b6547f3350dd632fce920cd22f522d127dbb7891fade5e85567b.hpp",
+      "sha256": "4b92cc9b9230b6547f3350dd632fce920cd22f522d127dbb7891fade5e85567b",
+      "bytes": 5055
+    },
+    "HorseMod/horselib/deterministic/ReplayGroundLifecycleObservation.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a205f3904f384f7767ed63d1e886fb8fcfe81c299d6312b59cdbc7eaf2b37051.hpp",
+      "sha256": "a205f3904f384f7767ed63d1e886fb8fcfe81c299d6312b59cdbc7eaf2b37051",
+      "bytes": 3524
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayGroundDebrisState.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6d8eac958281600b8321d65f2d8fbfde1404bc56f3bda576471b30a05fa3e3fe.hpp",
+      "sha256": "6d8eac958281600b8321d65f2d8fbfde1404bc56f3bda576471b30a05fa3e3fe",
+      "bytes": 8587
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayHost.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\5e2634ce52e17943a5625d6de011d0c5349223f6f2efe3295bacc3a63754f71c.hpp",
+      "sha256": "5e2634ce52e17943a5625d6de011d0c5349223f6f2efe3295bacc3a63754f71c",
+      "bytes": 37436
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayHost.Rolling.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\66569ca03db954f8a2a80d7a2be91e44eef2a0e67dd6b238835125bc925e6243.inl",
+      "sha256": "66569ca03db954f8a2a80d7a2be91e44eef2a0e67dd6b238835125bc925e6243",
+      "bytes": 27125
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayHost.GroundDebris.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\3a69989c8584197dcdec91ee5f80e2217e60f6721c817591fc97e70b43b9505e.inl",
+      "sha256": "3a69989c8584197dcdec91ee5f80e2217e60f6721c817591fc97e70b43b9505e",
+      "bytes": 95382
+    },
+    "HorseMod/dllmain.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7b907a7eaeb023574dbefbd1f0e7643221bddccef347b74d9c2e32ddf80580b8.cpp",
+      "sha256": "7b907a7eaeb023574dbefbd1f0e7643221bddccef347b74d9c2e32ddf80580b8",
+      "bytes": 35685
+    },
+    "tools/replay_test.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\bd09abccf960ec6fa907e04a54aa1ede216ba2e3baf5af7b4e6a30d4978a68e6.py",
+      "sha256": "bd09abccf960ec6fa907e04a54aa1ede216ba2e3baf5af7b4e6a30d4978a68e6",
+      "bytes": 415083
+    },
+    "tools/replay_ground_motion_probe_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\09e97ca89bdf975547da4e56e9a88239e1dba640180b8b44adaeab774d1abd1f.cpp",
+      "sha256": "09e97ca89bdf975547da4e56e9a88239e1dba640180b8b44adaeab774d1abd1f",
+      "bytes": 2995
+    },
+    "tools/replay_ground_motion_boundary_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\97b1148f91e02075666b29684dd287d4dac9e7d21c4089c768050ffc1e07fcd0.cpp",
+      "sha256": "97b1148f91e02075666b29684dd287d4dac9e7d21c4089c768050ffc1e07fcd0",
+      "bytes": 4849
+    },
+    "tools/replay_ground_lifecycle_observer_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7e57626eeaa9671213385048ce036a006731451b053814be02903983efcf0c23.cpp",
+      "sha256": "7e57626eeaa9671213385048ce036a006731451b053814be02903983efcf0c23",
+      "bytes": 2525
+    },
+    "tools/replay_qualification_mod/ReplayQualificationMod.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0487ffd151e7020a0faa33d7e42d66aafe76c8c4c0f2bcbcae34abc5eb7d9d7a.cpp",
+      "sha256": "0487ffd151e7020a0faa33d7e42d66aafe76c8c4c0f2bcbcae34abc5eb7d9d7a",
+      "bytes": 515713
+    },
+    "tools/replay_qualification_mod/ReplayTrajectoryObserver.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0181fdce68569489fd98c086ed56ab534d73707c8724f050f53f40d36c1db049.hpp",
+      "sha256": "0181fdce68569489fd98c086ed56ab534d73707c8724f050f53f40d36c1db049",
+      "bytes": 14748
+    },
+    "tools/replay_qualification_mod/ReplayRolling.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e21da42432a8a02d776ab774325989e3e32a5b70e7bbb77018f22a7d2ededaac.inl",
+      "sha256": "e21da42432a8a02d776ab774325989e3e32a5b70e7bbb77018f22a7d2ededaac",
+      "bytes": 6697
+    },
+    "tools/deterministic_qualification/replay_control.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\13a52a54cd05d8dc6b08025582fbe904ea982fb07fab874d20ecb25251bd543e.py",
+      "sha256": "13a52a54cd05d8dc6b08025582fbe904ea982fb07fab874d20ecb25251bd543e",
+      "bytes": 61906
+    },
+    "tools/deterministic_qualification/replay_fidelity.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7ed4bc29aaf31e4669ca04e9daa47d2f30f85bc62f5405801534b8b420e2c10c.py",
+      "sha256": "7ed4bc29aaf31e4669ca04e9daa47d2f30f85bc62f5405801534b8b420e2c10c",
+      "bytes": 77014
+    },
+    "tools/deterministic_qualification/tests/test_replay_run.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1852aa0a518f413ef0eacddee2aa5b23795baccde467ee1765329c9a17aeb72b.py",
+      "sha256": "1852aa0a518f413ef0eacddee2aa5b23795baccde467ee1765329c9a17aeb72b",
+      "bytes": 501686
+    },
+    "tools/deterministic_qualification/replay_profiles/changed-rolling407-ground-motion.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\932483c6e4df7012e625e00eb2897830be5af9bbd70cfbe7e6042fefb60c468f.json",
+      "sha256": "932483c6e4df7012e625e00eb2897830be5af9bbd70cfbe7e6042fefb60c468f",
+      "bytes": 3207
+    }
+  },
+  "local_checks": {
+    "ground-motion-targeted-20260922.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a65254f27c3995a77a6968f9fd56b66f5562fa6c54c876cdc1d4274be6746887.log",
+      "sha256": "a65254f27c3995a77a6968f9fd56b66f5562fa6c54c876cdc1d4274be6746887",
+      "bytes": 116
+    },
+    "ground-motion-boundary-targeted-20260922.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\fb94f8c4a4ae4e88c19f52d0f9ddf541429bf97d09cdde02ffdaf618b0870f32.log",
+      "sha256": "fb94f8c4a4ae4e88c19f52d0f9ddf541429bf97d09cdde02ffdaf618b0870f32",
+      "bytes": 27048
+    },
+    "ground-motion-boundary-targeted-green-20260922.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1eb558a44ae913e7bccee804cdb93e527ca62e3f2169bd397cc3dfc6c884b696.log",
+      "sha256": "1eb558a44ae913e7bccee804cdb93e527ca62e3f2169bd397cc3dfc6c884b696",
+      "bytes": 116
+    }
+  },
+  "local_checks_disposition": "Six earlier targeted checks and eight expanded checks pass. Expanded first attempt rejected absent logical observations correctly; test expected a different error message. Corrected only that assertion. Native motion, lifecycle observer, receipt validation, passive schema5 equality and host completed-boundary/partial-failure safety are covered; no live isolation claim.",
+  "required_build": {
+    "result": "pass",
+    "elapsed_seconds": 100.969,
+    "retained_evidence": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\9ad7ba9758741e23a1769a0df84d649c71bec6509d11b0ecccc81c46cdaf63d4.json",
+      "sha256": "9ad7ba9758741e23a1769a0df84d649c71bec6509d11b0ecccc81c46cdaf63d4",
+      "bytes": 6434,
+      "summary": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\ebb0bc5a19deced02efb7a486755f940776a177cc31821333cbc85184d2e0cb3.md",
+        "sha256": "ebb0bc5a19deced02efb7a486755f940776a177cc31821333cbc85184d2e0cb3",
+        "bytes": 533
+      }
+    },
+    "files": {
+      "build-stage.json": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\edc82824510b207903737ce641d191bad218bfbfbca4be8475dc2d4d085a6909.json",
+        "sha256": "edc82824510b207903737ce641d191bad218bfbfbca4be8475dc2d4d085a6909",
+        "bytes": 6240
+      },
+      "local-regressions.json": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\13d3a4b719a904dac36fb0933b3760d0d8ba7e2645f93d1b349f8ed6f7dee3fe.json",
+        "sha256": "13d3a4b719a904dac36fb0933b3760d0d8ba7e2645f93d1b349f8ed6f7dee3fe",
+        "bytes": 2141
+      },
+      "local-regressions.log": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\44c81e769e6425b802d46782cdf5535104abcd975b1921f867b7c3c0f1560885.log",
+        "sha256": "44c81e769e6425b802d46782cdf5535104abcd975b1921f867b7c3c0f1560885",
+        "bytes": 4316
+      },
+      "build-provenance.json": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d0fc84eba5a9f90f773c6dc4e3964466f7a2e67a94a327f3c9dec6b05f373079.json",
+        "sha256": "d0fc84eba5a9f90f773c6dc4e3964466f7a2e67a94a327f3c9dec6b05f373079",
+        "bytes": 2373
+      },
+      "ground-motion-required-build-20260922.log": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\03a8d9877c0fd44731805acef32a2704884f1a1527c085c52e77156aae9d7261.log",
+        "sha256": "03a8d9877c0fd44731805acef32a2704884f1a1527c085c52e77156aae9d7261",
+        "bytes": 336
+      }
+    }
+  },
+  "candidate": {
+    "run_id": "replay-fb03999b811d401392e6e7b3f565ef83",
+    "identities": {
+      "config": "26a017d28e1e3d1c9175fe94712258c816976fbb092a5e0dc6bc7eb13a18eac4",
+      "framework": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6",
+      "game": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553",
+      "observer": "fd65dd578c200a217ac3284cd0a9770644514d391217145e24aaff3f150cfb97",
+      "physx": "c3c7bd6e13260ee5f850552b6e9a15f69e58e0b41cd4f4bcb48e1b419719b5a2",
+      "replay": "95e12e394d35c13d5e0dd3dce692f9e0a4022e2a84205a9ec75f2fa6726d7879",
+      "runtime": "4f8913b2f2b90bff2a3c24d1775e25ac86cc904bc1a43e9517fb25d78873c541",
+      "ucrt": "5e7709a6b71bb818260b6f05c5bb3b6ca0c3ca9bc2f58c6242c1cd9d826d0079"
+    },
+    "result": "captured",
+    "cleanup": {
+      "complete": true,
+      "games_remaining": 0
+    },
+    "report": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f0ccc1d0c3d8daf920c8229ba22ee7bc146883da27ad80ccc9556009edeaf471.json",
+      "sha256": "f0ccc1d0c3d8daf920c8229ba22ee7bc146883da27ad80ccc9556009edeaf471",
+      "bytes": 21194
+    },
+    "raw": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\73d50506c0d1aceb748e47ae690f3ce09bbead521e27a3f50de761ddfcd8a1ae.log",
+      "sha256": "73d50506c0d1aceb748e47ae690f3ce09bbead521e27a3f50de761ddfcd8a1ae",
+      "bytes": 77805379
+    },
+    "intervention": {
+      "tick": 623,
+      "roots": 1,
+      "meshes": 5,
+      "changed": 5,
+      "owned_bytes": 1730488
+    },
+    "acceptance": "Candidate captured and cleaned; independent comparisons pending."
+  },
+  "live": {
+    "result": "pass",
+    "elapsed_seconds": 930.657,
+    "build_identities": {
+      "runtime": "4f8913b2f2b90bff2a3c24d1775e25ac86cc904bc1a43e9517fb25d78873c541",
+      "observer": "fd65dd578c200a217ac3284cd0a9770644514d391217145e24aaff3f150cfb97",
+      "framework": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6"
+    },
+    "retained_evidence": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\43d00075b6c5245181312180ba9b0b6439deb552bad3dc3c25ab2c03804ff6ad.json",
+      "sha256": "43d00075b6c5245181312180ba9b0b6439deb552bad3dc3c25ab2c03804ff6ad",
+      "bytes": 234601,
+      "summary": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\6b5e701b178603c38579713c3c893235e3f377283c203211d3d123df1351ff17.md",
+        "sha256": "6b5e701b178603c38579713c3c893235e3f377283c203211d3d123df1351ff17",
+        "bytes": 518
+      }
+    },
+    "rolling_cycles": 407,
+    "native_callbacks_compared": 14364,
+    "continuation_ticks": 120,
+    "acceptance_results": {
+      "observer_validity": "pass",
+      "simulation": "pass"
+    },
+    "independent_controls": {
+      "0": {
+        "run_id": "replay-43fe4f9f1c0f46ec99074aaf1ae0d0da",
+        "reuse": null
+      },
+      "1": {
+        "run_id": "replay-bba2328934674c39bb53bd83bc4157b5",
+        "reuse": null
+      },
+      "2": {
+        "run_id": "replay-44df4e906042449fb881e0724aed4af8",
+        "reuse": null
+      },
+      "3": {
+        "run_id": "replay-d90de997d8544d8bb7d2927df7e2793c",
+        "reuse": null
+      }
+    },
+    "stage": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\2402e012acb57b543546bdc2163000ccd12f7d71486ea6e2fd9db383683b5e22.json",
+      "sha256": "2402e012acb57b543546bdc2163000ccd12f7d71486ea6e2fd9db383683b5e22",
+      "bytes": 209069
+    },
+    "console": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\bb3829b7297fe16cceb961020974c34d545a18a477dba3b97329d667b794c191.log",
+      "sha256": "bb3829b7297fe16cceb961020974c34d545a18a477dba3b97329d667b794c191",
+      "bytes": 663
+    },
+    "scope": "All five child poses deliberately changed at C623, before resume. 407 corrections/2849 resimulated ticks and120 independent continuation ticks pass with combat, native shared CRT, and schema5 logical ground observation. Does not prove all outgoing consumers closed, changed births/deaths, B cancellation, epoch/reset, visual coherence, complete ownership or16.7ms performance."
+  },
+  "integration_fixture_fix": {
+    "reason": "Extracted parser fixture omitted the newly parsed optional diagnostic field; production parser unchanged. Added field and positive/negative request cases; targeted test passes.",
+    "failure": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\25a5f5e22f6c37549b9860a44d0b553a16b0660b2aba21ad99dd7f8bcef99efa.log",
+      "sha256": "25a5f5e22f6c37549b9860a44d0b553a16b0660b2aba21ad99dd7f8bcef99efa",
+      "bytes": 4573
+    },
+    "green": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1ead866aa74466ab197e7c234898329773143bd07e05dc2a2a1b0976f03e4a94.log",
+      "sha256": "1ead866aa74466ab197e7c234898329773143bd07e05dc2a2a1b0976f03e4a94",
+      "bytes": 114
+    },
+    "source": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a3e3f18e212d87ccce844fdc37d70f682dac0c4a227049448cf9494916fa922d.py",
+      "sha256": "a3e3f18e212d87ccce844fdc37d70f682dac0c4a227049448cf9494916fa922d",
+      "bytes": 7329
+    }
+  },
+  "integration": {
+    "result": "pass",
+    "tests": 625,
+    "pytest_seconds": 398.81,
+    "receipt": {
+      "bytes": 1487,
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f10c97305ad278866daed647f514da5549727ab0fc22772b524d681f57b60ee5.json",
+      "sha256": "f10c97305ad278866daed647f514da5549727ab0fc22772b524d681f57b60ee5"
+    },
+    "console": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7ca45561a30266d711730ad2e5c9feb3700076341e227c5516b95b56e4f47c4d.log",
+      "sha256": "7ca45561a30266d711730ad2e5c9feb3700076341e227c5516b95b56e4f47c4d",
+      "bytes": 2262
+    }
+  },
+  "affected30": {
+    "result": "pass",
+    "elapsed_seconds": 313.75,
+    "build_identities": {
+      "runtime": "4f8913b2f2b90bff2a3c24d1775e25ac86cc904bc1a43e9517fb25d78873c541",
+      "observer": "fd65dd578c200a217ac3284cd0a9770644514d391217145e24aaff3f150cfb97",
+      "framework": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6"
+    },
+    "rolling_cycles": 30,
+    "native_callbacks_compared": 2300,
+    "continuation_ticks": 120,
+    "acceptance_results": {
+      "observer_validity": "pass",
+      "simulation": "pass"
+    },
+    "retained_evidence": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\e983c990bec7db4ae4f4511178a7adf19d678915aa00488e123913c1f9be6204.json",
+      "sha256": "e983c990bec7db4ae4f4511178a7adf19d678915aa00488e123913c1f9be6204",
+      "bytes": 42113,
+      "summary": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\b383228efa5902a2c429bd8beee76e45f38178e34e1b7ecaa6d8b25bd84eb61b.md",
+        "sha256": "b383228efa5902a2c429bd8beee76e45f38178e34e1b7ecaa6d8b25bd84eb61b",
+        "bytes": 518
+      }
+    },
+    "stage": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\931fe95bb4c66a55cd8e2dab2809e9bf5fce9d6ecb2029f6f118121e5a8e6021.json",
+      "sha256": "931fe95bb4c66a55cd8e2dab2809e9bf5fce9d6ecb2029f6f118121e5a8e6021",
+      "bytes": 33767
+    },
+    "console": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\11bf121b930af8b83028353e5c7b768a1428e5aa72fe8360da341d7c4e99ba89.log",
+      "sha256": "11bf121b930af8b83028353e5c7b768a1428e5aa72fe8360da341d7c4e99ba89",
+      "bytes": 649
+    },
+    "cleanup": "Journal clean; no game remains; prior files/configuration restored by run owner, Steam running."
+  }
+}

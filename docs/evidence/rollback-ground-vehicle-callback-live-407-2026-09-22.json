@@ -1,0 +1,82 @@
+{
+  "stage": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d90db1133234268a94d61d92c8257e1de66de57381fb68d5562a6b4cc32c2e5f.json",
+    "sha256": "d90db1133234268a94d61d92c8257e1de66de57381fb68d5562a6b4cc32c2e5f",
+    "bytes": 208983
+  },
+  "console": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\fe6559e650279c7f2519c2f3ad6dc596c32530610244d21a03cb165ccceea755.log",
+    "sha256": "fe6559e650279c7f2519c2f3ad6dc596c32530610244d21a03cb165ccceea755",
+    "bytes": 660
+  },
+  "manifest": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\782fb66fc9819e7deeb5ea982dac50436a1908fa2a5c7a4efb2e5d8ca6bd8e18.json",
+    "sha256": "782fb66fc9819e7deeb5ea982dac50436a1908fa2a5c7a4efb2e5d8ca6bd8e18",
+    "bytes": 234518,
+    "summary": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\1f611e73cbcdee9b3609b69fd5a85111a320268c323df239d78c63df84842b7f.md",
+      "sha256": "1f611e73cbcdee9b3609b69fd5a85111a320268c323df239d78c63df84842b7f",
+      "bytes": 518
+    }
+  },
+  "scope": "407 corrections throughC623, 2849 resimulated ticks and120 independent continuation. Four native authored revision controls. Existing simulation/observer/lifecycle comparison scope only; native CRT independent observation and full coherence/recovery/performance remain open.",
+  "identities": {
+    "runtime": "92f282d0c8804e1bae4c0d96296c8d348167dbb91fd1060a904e232f1c449477",
+    "observer": "9fc1cbe0beaf947293bab4f0a0dc82f87df4aedb17008236787ca5f1ab78d007",
+    "framework": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6"
+  },
+  "clean_journal": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1f2d04e95a4f8d5d0ee0c619089f088f201b8e3f5e955c566c47de1e0138b81b.json",
+    "sha256": "1f2d04e95a4f8d5d0ee0c619089f088f201b8e3f5e955c566c47de1e0138b81b",
+    "bytes": 4432
+  },
+  "results": {
+    "rolling_cycles": 407,
+    "native_callbacks_compared": 14364,
+    "continuation_ticks": 120,
+    "acceptance_results": {
+      "observer_validity": "pass",
+      "simulation": "pass"
+    },
+    "independent_controls": {
+      "0": {
+        "run_id": "replay-9a56c06165d6477092ae2e33619feab4",
+        "reuse": null
+      },
+      "1": {
+        "run_id": "replay-dbfa0fdcdae2484db326ff2f0c40fe61",
+        "reuse": null
+      },
+      "2": {
+        "run_id": "replay-0ae9d158259245d49547b49c53840891",
+        "reuse": null
+      },
+      "3": {
+        "run_id": "replay-8716dd96c4b54ee29d98653526e79a4e",
+        "reuse": null
+      }
+    }
+  },
+  "tracked_peak_bytes": 906369176,
+  "costs": {
+    "capture_us": {
+      "median": 81655,
+      "p95": 96588,
+      "max": 111824,
+      "over_16700": 407
+    },
+    "correction_us": {
+      "median": 298390,
+      "p95": 407875,
+      "max": 1133419,
+      "over_16700": 407
+    },
+    "preceding_forward_us": {
+      "median": 29952,
+      "p95": 33275,
+      "max": 37707,
+      "over_16700": 407
+    }
+  },
+  "performance": "Fails16.7ms even before full simultaneous end-to-end accounting; normal rendering retained, diagnostic observations enabled."
+}

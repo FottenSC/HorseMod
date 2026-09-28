@@ -16,7 +16,7 @@ namespace Horse::Deterministic
 // envelope independently from attached local reconstruction payloads so a
 // later frame's variable metadata cannot grow the reusable capture buffer.
 inline constexpr std::size_t candidate_checkpoint_capture_byte_capacity =
-    256ull * 1024ull;
+    512ull * 1024ull;
 static_assert(candidate_checkpoint_capture_byte_capacity
     >= 224 + 0xB000 + 0x10000 + 0x1000 + 0x4000 + 0x1000);
 
@@ -44,6 +44,8 @@ struct CandidateCheckpointImage
 class CandidateCheckpointCodec
 {
 public:
+    [[nodiscard]] static std::size_t ThreadScratchBytes() noexcept;
+    [[nodiscard]] static Status PrepareThreadScratchStorage(std::size_t additional_budget) noexcept;
     [[nodiscard]] static Status Encode(
         FrameCoordinate coordinate,
         std::uint64_t context_identity,

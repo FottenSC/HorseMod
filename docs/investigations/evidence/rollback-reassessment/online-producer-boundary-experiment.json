@@ -1,0 +1,16 @@
+{
+  "kind": "development_boundary_experiment",
+  "certifying": false,
+  "scenario": "online-round2-reentry",
+  "case_id": "astaroth-raphael-silver-wolves-haven",
+  "prior_capture": "online-scheduler-binding/report.json",
+  "first_divergent_boundary": "Sandbox native frame 1:362 versus pending Gekko coordinate 1:361; first identity replacement absent on both peers.",
+  "competing_explanations": [
+    "One admitted native producer call is followed by multiple native simulation coordinates, so an input-filter/fencepost cannot represent a complete scheduling interval.",
+    "Parent actor or pause admission changes InputLog state before the old manager-entry correction boundary.",
+    "The handoff hold accidentally permits another producer transaction while the manager remains held."
+  ],
+  "new_observation": "A single hook now owns the complete InputLog actor call, including a pre-parent inertness guard and before/after clocks, pause, recorder cursor, local flags and receiver counts. Manager and InputLog holds use that owner. Pending consumer/producer ordering is retained by actual manager predecessor, including explicit gaps.",
+  "stop_condition": "Stop at the first runtime failure and recover owned resources. Compare the final producer/manager sequence on each peer, including zero-advance producer calls and the frame-360/361 repeat. Do not retry this unchanged affine online path or treat reaching a later requested setting as correctness.",
+  "limitations": "The offline native-producer reconstruction is implemented and separately checked; online Gekko frame mapping and online recorder/transport ownership remain the old path. This probe cannot qualify beta or correction depths."
+}

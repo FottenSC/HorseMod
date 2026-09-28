@@ -1,0 +1,33 @@
+{
+  "case_id": "tira-detector-reaudit-34",
+  "certifying": false,
+  "cleanup": {
+    "diagnostic_flags_restored_false": {
+      "correction_probe": true,
+      "forced_depth7_qualification": true,
+      "trace": true
+    },
+    "process_absent": true
+  },
+  "created_utc": "2026-09-01T11:20:01.048549+00:00",
+  "display_map_name": "Snow-Capped Showdown",
+  "failure": {
+    "bounded_log": "E:\\myMods\\docs\\investigations\\evidence\\tira-local-save-candidates\\detector-reaudit-34-deterministic.failure.log",
+    "bounded_log_lines": 256,
+    "field_or_mask": null,
+    "fields": {},
+    "first_failing_frame": null,
+    "first_failure_line": "",
+    "graph_provenance": null,
+    "lifecycle_phase": null,
+    "owner_pointer": null,
+    "owner_selector": null,
+    "return_rva": null
+  },
+  "kind": "replay_entry_failure",
+  "reason": "joined authored Tira IF 0x007F RNG/target/state19 transition was not observed",
+  "report_schema": 2,
+  "result": "fail",
+  "row_id": "deterministic",
+  "stage_package_root": "/Game/Stage/STG009"
+}

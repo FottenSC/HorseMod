@@ -1,0 +1,54 @@
+{
+  "time": "2026-09-23T07:48:43.147662+00:00",
+  "journal": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6de9e52af58deb057adaf0e15a449c515f9bf4653d7f10519077e606f4fa72c5.json",
+    "sha256": "6de9e52af58deb057adaf0e15a449c515f9bf4653d7f10519077e606f4fa72c5",
+    "bytes": 5155
+  },
+  "state": "clean",
+  "run_id": "replay-a33ad5586a2e4820a3b0214f9561a251",
+  "files": [
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll",
+      "before": "b583b65388616e4fc6bbac841a1de6bc7d87467e67132a0983c69eb5d0c40c2b",
+      "actual": "b583b65388616e4fc6bbac841a1de6bc7d87467e67132a0983c69eb5d0c40c2b",
+      "restored": true
+    },
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\disable_gameimgui.txt",
+      "before": "8bd4882859b1ab3b0bb892c3889f4a77937af73e8ecc4224fe0209a5edb1ef96",
+      "actual": "8bd4882859b1ab3b0bb892c3889f4a77937af73e8ecc4224fe0209a5edb1ef96",
+      "restored": true
+    },
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\UE4SS.dll",
+      "before": "df9e6e9a2280972b1c28ce590700feacc752b447204f8baadeb95f5776957055",
+      "actual": "df9e6e9a2280972b1c28ce590700feacc752b447204f8baadeb95f5776957055",
+      "restored": true
+    },
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\rollback.ini",
+      "before": "22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514",
+      "actual": "22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514",
+      "restored": true
+    },
+    {
+      "path": "C:\\Users\\prest\\AppData\\Local\\HorseMod\\Qualification\\replay_diagnostics.ini",
+      "before": null,
+      "actual": null,
+      "restored": true
+    },
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\dlls\\main.dll",
+      "before": null,
+      "actual": null,
+      "restored": true
+    },
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\enabled.txt",
+      "before": null,
+      "actual": null,
+      "restored": true
+    }
+  ]
+}

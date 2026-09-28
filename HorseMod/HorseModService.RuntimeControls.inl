@@ -39,7 +39,7 @@
         const bool game_mode_installed =
             Horse::GameMode::instance().hook_installed();
         const bool replay_exit_hook_required =
-            m_deterministic_config.trace || m_deterministic_config.enabled;
+            m_deterministic_config.trace || m_deterministic_config.enabled || m_deterministic_config.replay_seeking;
         const bool replay_exit_hook_ready = !replay_exit_hook_required
             || m_battle_terminate_hook_registered;
         if (m_hook_registered && all_reset_registered
@@ -321,47 +321,18 @@ private:
             nullptr, nullptr, m_battle_terminate_hook_path);
         if (function == nullptr) return;
         UnrealScriptFunctionCallable pre_cb =
-            [](UnrealScriptFunctionCallableContext&, void*) {
+            [](UnrealScriptFunctionCallableContext& context, void*) {
                 auto* self = s_instance.load(std::memory_order_acquire);
                 if (self == nullptr) return;
-                const auto contract =
-                    self->m_online_coordinator.active_contract();
-                const bool online_requested =
-                    self->m_online_qualification_requested.load(
-                        std::memory_order_acquire)
-                    || self->m_online_production_requested.load(
-                        std::memory_order_acquire);
-                const bool cleanup_armed = contract
-                    && self->m_online_scene_exit_gate
-                        .ArmBeforeBattleTermination(
-                            contract->session_id, online_requested,
-                            self->m_online_lifecycle.phase());
-                Output::send<LogLevel::Default>(STR(
-                    "[HorseMod] LuxBattleGameMode termination requested; "
-                    "invalidating native replay identity before BattleManager "
-                    "teardown online_cleanup_armed={}\n"),
-                    cleanup_armed ? 1 : 0);
                 Horse::Deterministic::ReplayExitObservation observation{
                     0, ::GetCurrentThreadId()};
                 HorseMod::on_replay_exit(self, observation);
             };
-        UnrealScriptFunctionCallable post_cb =
-            [](UnrealScriptFunctionCallableContext&, void*) {
-                auto* self = s_instance.load(std::memory_order_acquire);
-                if (self == nullptr) return;
-                const auto evidence = self->m_online_scene_exit_gate
-                    .CompleteAfterBattleTermination();
-                if (!evidence) return;
-                Output::send<LogLevel::Default>(STR(
-                    "[HorseMod] LuxBattleGameMode termination completed; "
-                    "running deferred online scene-exit cleanup session={}\n"),
-                    evidence->session_id);
-                self->reset_online_qualification_after_scene_exit(*evidence);
-            };
         try
         {
             m_battle_terminate_hook_ids = UObjectGlobals::RegisterHook(
-                m_battle_terminate_hook_path, pre_cb, post_cb, nullptr);
+                m_battle_terminate_hook_path, pre_cb,
+                [](UnrealScriptFunctionCallableContext&, void*) {}, nullptr);
         }
         catch (const std::exception& error)
         {
@@ -674,7 +645,9 @@ private:
                 m_world_tick_gate.enable();
             if (!m_actor_tick_gate.is_resolved())
                 m_actor_tick_gate.resolve(
-                    m_world_tick_gate.policy_slot_address());
+                    m_world_tick_gate.policy_slot_address(),
+                    !m_deterministic_hooks.installed(),
+                    !m_deterministic_hooks.installed());
             if (m_actor_tick_gate.is_resolved()
                 && !m_actor_tick_gate.is_enabled())
                 m_actor_tick_gate.enable();

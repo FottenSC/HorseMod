@@ -11,7 +11,7 @@ namespace Horse::Deterministic
 [[nodiscard]] constexpr bool IsQualificationCorrectionDepth(
     std::uint32_t depth) noexcept
 {
-    return depth == 1 || depth == 6 || depth == 7 || depth == 11;
+    return depth >= 1 && depth <= 12;
 }
 
 struct OnlineContentContract

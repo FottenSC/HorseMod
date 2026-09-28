@@ -1,0 +1,36 @@
+{
+  "date": "2026-09-22",
+  "scope": "Read-only performance source review while the navigation qualification runs. No cache/listener change implemented or qualified.",
+  "measurements": "docs/evidence/rollback-ground-407-cost-segments-2026-09-22.json",
+  "findings": [
+    "CaptureReplayWorld traverses the global UObject array; VisitReplayObjectsOfClass repeats that traversal per requested class. Its64-entry ancestry cache lasts one visit and does not avoid the object-array scan.",
+    "HUD CaptureDamageListener and CaptureAnnouncements each traverse the global UObject array during capture. CaptureDamageListener is called by the current HUD Capture path. The prior407 measured HUD CPU-segment median20878us; this does not identify the scan as the sole cost.",
+    "The framework already exposes native FUObjectCreateListener/FUObjectDeleteListener registration through the existing UObjectArray listener arrays. A future inventory optimization would need proven creation/deletion timing, no missed reuse, identical indexed order, epoch/reset, bounded ownership and fallback/admission tests; changing enumeration without those is not authorized by this finding."
+  ],
+  "sources": {
+    "class_inventory": {
+      "path": "E:\\myMods\\HorseMod\\horselib\\deterministic\\Sc6ReplayObjectVisit.hpp",
+      "sha256": "c2d38fa326319f39c5d702f273714d2cd33b2c367d837af76f852529aa974442"
+    },
+    "world_inventory": {
+      "path": "E:\\myMods\\HorseMod\\horselib\\deterministic\\Sc6ReplayParticleObjects.hpp",
+      "sha256": "f6e95758547399fe88a083cd57817112d2c798c6c0a46101995b9a946f4accdb"
+    },
+    "hud_census": {
+      "path": "E:\\myMods\\HorseMod\\horselib\\deterministic\\Sc6ReplayHudState.hpp",
+      "sha256": "613b97d3564d99de85ba8aa225bef43c0d292445f709bf1d4a09b8baa57806a1"
+    },
+    "announcement_inventory": {
+      "path": "E:\\myMods\\HorseMod\\horselib\\deterministic\\Sc6ReplayHudState.Announcements.inl",
+      "sha256": "a1e04a18a6e9ea3d980cd64f0f6983f27f629d58d21f069408486b4606fc4407"
+    },
+    "native_listener_api": {
+      "path": "E:\\myMods\\RE-UE4SS\\deps\\first\\Unreal\\include\\Unreal\\UObjectArray.hpp",
+      "sha256": "8a39d7713ccd19d056f3f00d7b6e98bd1aa35bb8a5cdc74aee3289a7b017e2cd"
+    },
+    "native_listener_implementation": {
+      "path": "E:\\myMods\\RE-UE4SS\\deps\\first\\Unreal\\src\\UObjectArray.cpp",
+      "sha256": "d625217cd225013ea868d1857ea7d8d1f3869446422675e6942e34e5b2589408"
+    }
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "scope": "Pre-application callback and transform-consumer admission; no motion exclusion or completed collision/reflection proof.",
+  "red": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\990065a3ec4eaa351c2735b9a4ba48364f8475059cf7219f9bd070a0d62c3cb9.log",
+    "sha256": "990065a3ec4eaa351c2735b9a4ba48364f8475059cf7219f9bd070a0d62c3cb9",
+    "bytes": 2087
+  },
+  "red_source": {
+    "manifest_sha256": "c8fb883aeedd161a7fb294345101c5a3d1f2075798d425d7e266bd773e317d09",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-c8fb883aeedd161a7fb294345101c5a3d1f2075798d425d7e266bd773e317d09.zip",
+    "archive_sha256": "6e32377e1b3725cb5d9ca2fb8a6c6684ef8486b655fb22c77c399416f2ed73fb",
+    "files": 16571,
+    "uncompressed_bytes": 92330449,
+    "reconstructible": true
+  },
+  "recovery_red": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0fe754904479bc483d7f39784d210dfde2a966c282d6729bd348d44a3091e945.log",
+    "sha256": "0fe754904479bc483d7f39784d210dfde2a966c282d6729bd348d44a3091e945",
+    "bytes": 2282
+  },
+  "recovery_red_source": {
+    "manifest_sha256": "5ffa6ac2160fd469b740399137fde5f3a37e2da29e19ea6e83ec6d394518603b",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-5ffa6ac2160fd469b740399137fde5f3a37e2da29e19ea6e83ec6d394518603b.zip",
+    "archive_sha256": "52d96ded0aa1b334e6d02e20d7231b52c25db4bb5a6f6531a7aefd6c7abe718d",
+    "files": 16571,
+    "uncompressed_bytes": 92341181,
+    "reconstructible": true
+  },
+  "green": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\5a8a479433d95e328ae7b6fd6d659b37b52489f94d52d12896e1d8babda45029.log",
+    "sha256": "5a8a479433d95e328ae7b6fd6d659b37b52489f94d52d12896e1d8babda45029",
+    "bytes": 100
+  },
+  "required_build_native": {
+    "ground-update-admission-build-20260922.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8e6515043eefa06f878d86f42633c1817715c4626a8cffeba846bf888a126345.log",
+      "sha256": "8e6515043eefa06f878d86f42633c1817715c4626a8cffeba846bf888a126345",
+      "bytes": 335
+    },
+    "build-stage.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8eb3fa0c58600a0ce1d335aa01b13882ca6c436061e5155f436561281a4e7a90.json",
+      "sha256": "8eb3fa0c58600a0ce1d335aa01b13882ca6c436061e5155f436561281a4e7a90",
+      "bytes": 6239
+    },
+    "build-provenance.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\034ead2a1ffcfe80ea355d04c940582f71f8fd1105bcaf7ad0878107127fdab9.json",
+      "sha256": "034ead2a1ffcfe80ea355d04c940582f71f8fd1105bcaf7ad0878107127fdab9",
+      "bytes": 2373
+    }
+  },
+  "native": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a3b293037dd279d132bd8f4961f0607b29c81b8435a89a15fe0e19cb482d6ba2.json",
+    "sha256": "a3b293037dd279d132bd8f4961f0607b29c81b8435a89a15fe0e19cb482d6ba2",
+    "bytes": 10383
+  },
+  "limits": "Actual update predicate rejects current callback/child-reader changes. Application-entry and cancellation-owner production methods are exercised against controlled native edges; complete B+120 recovery and active-ground live coverage remain unproved. Physics/filter/reflection consumers are not yet continuously closed."
+}

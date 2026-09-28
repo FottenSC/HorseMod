@@ -1,0 +1,100 @@
+{
+  "schema": 1,
+  "name": "cancel-before210-217-startup-serial",
+  "purpose": "diagnostic",
+  "arguments": [
+    "combat-restore",
+    "--combat-case",
+    "before",
+    "--host-seek",
+    "--combat-exact-advance",
+    "--combat-anchor-tick",
+    "210",
+    "--combat-advanced-tick",
+    "217",
+    "--host-seek-target",
+    "217",
+    "--replay-budget-gib",
+    "1",
+    "--timeout",
+    "180",
+    "--diagnostic-mask",
+    "0",
+    "--diagnostic-stack-depth",
+    "0",
+    "--diagnostic-first-tick",
+    "0",
+    "--diagnostic-last-tick",
+    "36000",
+    "--diagnostic-byte-limit",
+    "1048576",
+    "--flush-startup-loading",
+    "--no-async-loading-thread"
+  ],
+  "continuation_ticks": 120,
+  "setup": {
+    "skip_intros": true,
+    "include_setup": true,
+    "native_fixed_seed": true,
+    "serial_particles": true,
+    "flush_startup_loading": true,
+    "no_async_loading_thread": true
+  },
+  "comparison": "Independent native unchanged history through B217 and120 continuation ticks after cancellation. Expected observations are comparison only.",
+  "observation": {
+    "normal_renderer": true,
+    "pixel_diagnostics": false,
+    "coherence_images": false
+  },
+  "scope": "Original A210/B217 depth-seven window. Cancel pending target preparation before A publication; retain actual completion and B. One G7 row only; does not qualify mid-application changes or A617 publication.",
+  "admission": "Production1GiB; existing complete-B/native/GPU completion guards; fail at first rejection.",
+  "contract": {
+    "version": 1,
+    "hypothesis": "Cancellation restores complete B and independent native continuation.",
+    "decision": "Accept this mechanism diagnostic or retain its first falsifying observation.",
+    "required_event": "completed B recovery",
+    "phase": "before",
+    "window": [
+      210,
+      337
+    ],
+    "setup": {
+      "skip_intros": true,
+      "include_setup": true,
+      "native_fixed_seed": true,
+      "serial_particles": true,
+      "flush_startup_loading": true,
+      "no_async_loading_thread": true
+    },
+    "identities": [
+      "game",
+      "runtime",
+      "framework",
+      "observer",
+      "replay",
+      "state_policy",
+      "source"
+    ],
+    "success": "Complete requested coverage and independent comparisons pass.",
+    "falsification": "Unexpected rejection, missing traversal or independent mismatch.",
+    "expected_injections": [
+      {
+        "kind": "cancel",
+        "phase": "before",
+        "recovery": "complete B and 120 independent ticks"
+      }
+    ],
+    "stop_conditions": [
+      "first unexpected failure",
+      "timeout retains ownership for cleanup"
+    ],
+    "permitted_claims": [
+      "scoped mechanism diagnostic; lifecycle differences and normal-rendered coherence require separate proof"
+    ],
+    "validator": "b_recovery",
+    "coverage": {
+      "continuation_ticks": 120,
+      "b_recovered": true
+    }
+  }
+}

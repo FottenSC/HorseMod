@@ -1,0 +1,46 @@
+{
+  "scope": "A210/B217 real consumer-mutation recovery with independent stock continuation",
+  "local_change": {
+    "cause": "standalone startup-loading CLI flags were discarded when the stage constructed fresh candidate/control arguments",
+    "fix": "shared startup setup resolution before candidate capture, stock catalog lookup and stock capture; incompatible resumed setup rejected",
+    "red": [
+      "docs/evidence/rollback-g1-startup-options-red-2026-09-24.json",
+      "docs/evidence/rollback-g1-startup-resume-red-2026-09-24.json"
+    ],
+    "green": "docs/evidence/rollback-g1-startup-options-green-2026-09-24.json",
+    "focused_tests": "22 PASS",
+    "build_manifest": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/manifests/aa9f2ddccb1bc11986b61772f28534235dcecc65fd64035abf695ecf4947e1d8.json",
+    "source_manifest_sha256": "048254fc11cb75d0819128c043f29a1c46f2337acf9227a7408befa8ba8a5c92",
+    "required_checks": "build/native and two CTests PASS"
+  },
+  "run": {
+    "manifest": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/manifests/38161e181d174def7b5af165d12485aa4e792f84af63cdf774cd0e05bce4da54.json",
+    "sha256": "38161e181d174def7b5af165d12485aa4e792f84af63cdf774cd0e05bce4da54",
+    "candidate_run_id": "replay-5e9c8c1581a44d73980f86ac33e2ac5e",
+    "candidate_report": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/de8360d8eb263cc872907dd8425021909a43595b31d4f9f07ac101633dac8e92.json",
+    "candidate_raw_log": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/7543ff2bbb846f1e703338509d40b1735703066ff87ef8e61636b021cecd5266.log",
+    "control_run_id": "replay-0b56d86dd3b64134b7821e7ba73d82bb",
+    "control_report": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/6f1a7724ca5230e5a56b75946bd6056ed2ccb1cfc5162ca1dc28430ae05d2b95.json",
+    "control_raw_log": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/2f26a67a2057072461c1f3ec32749cae6eb13b5185d413e0ae16400ef08c6eb5.log"
+  },
+  "compatibility": {
+    "startup_signature_sha256": "37b3ddbfd9c2c98717a64758f92be61dd83399768ea4828b1adc26d646094605",
+    "through_tick": 210,
+    "compared_callbacks": 836,
+    "particle_observations": 763,
+    "both": "no_async_loading_thread=true, flush_startup_loading=true, skip_intros=true; native loading thread absent; seven native startup flush calls with asset completion and registration restored",
+    "identities": "exact game/runtime/framework/observer/replay/config/PhysX/UCRT hashes in the retained manifest"
+  },
+  "result": {
+    "consumer_mutation": "real prerequisite removal detected at corrected tick211 before dependent consumption; native wrapper and corrected application complete",
+    "recovery": "complete B217 Recovered after C-only retirement, GPU/render and application completion; B_retained=false, executed_ticks=1, executed_intervals=1",
+    "continuation": "120 independently matching native continuation ticks, 480 native callbacks compared and complete Lux animation-proxy pose comparison PASS",
+    "simulation": "PASS for the bounded independent gameplay/native callback/pose comparison under recorded input policy",
+    "presentation": "incomplete: actor/effect presence, HUD freshness and persistent visual corruption unobserved; normal rendering needed for qualification",
+    "performance": "120 resumed ticks at 60.213 TPS, but rollback-update cost not measured; viewport cadence is not displayed FPS",
+    "overall_stage": "pass, certifying=false, milestone_complete=false"
+  },
+  "cleanup": "Both captures report complete with zero games. Final journal clean, all six prior file states independently match; no game remains and Steam PID 98544 remained running.",
+  "remaining": "G1 boundary proof remains open for debris outgoing consumer closure and unverified callback/physics/particle routes. G2 remains open; debris exact/Unresolved; no408 retry without publication change and no600 before G1/G2 close.",
+  "next_resolving_test": "Audit the already mapped G1 unresolved consumers against production witnesses, choose the first declared supported route with a bounded before-consumption negative, and retain RED/GREEN for any locally reproduced gap. No broad replay campaign."
+}

@@ -1,0 +1,96 @@
+{
+  "red": {
+    "log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\3ede8b25d825e7b6a53eaab23f02167bb96d479ba7eef62e02431b44c20674d9.log",
+      "sha256": "3ede8b25d825e7b6a53eaab23f02167bb96d479ba7eef62e02431b44c20674d9",
+      "bytes": 3729
+    },
+    "source": {
+      "manifest_sha256": "1a9d104f809987add319744b911becbc7209a601e6bf205b25fa231119f2d939",
+      "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-1a9d104f809987add319744b911becbc7209a601e6bf205b25fa231119f2d939.zip",
+      "archive_sha256": "5bae5e3d0e47395b4904482d9f4f3aa3d1f9b25c4e130fabca69514da3545a48",
+      "files": 16569,
+      "uncompressed_bytes": 92301855,
+      "reconstructible": true
+    },
+    "first_failure": "Foreign-thread receiver row was ignored (existing negative case now targets the new receiver row). Output/RNG and missing/duplicate row negatives also required."
+  },
+  "status": "Full integration613 passes after isolating the temporary-loader fixture process query. New receiver short live/native proof passes; affected30 pending. Closing the identified trace-attachment native dispatch admission gap before the next combined deployment.",
+  "targeted_green": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0028b606c075f76cdf23bf827f20bfa76a810f9bb715a28e497f8f67cc643223.log",
+    "sha256": "0028b606c075f76cdf23bf827f20bfa76a810f9bb715a28e497f8f67cc643223",
+    "bytes": 100
+  },
+  "required_build_native": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\66f38e168c1d4eebe11a5cdb199eecffd642011e928908fa75b37b8f9d8dc59b.json",
+    "sha256": "66f38e168c1d4eebe11a5cdb199eecffd642011e928908fa75b37b8f9d8dc59b",
+    "bytes": 6239
+  },
+  "fresh_preflight": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4a9787103185410e161873d8cd55898ebf0be8c46feefd6e12f071a20e862371.log",
+    "sha256": "4a9787103185410e161873d8cd55898ebf0be8c46feefd6e12f071a20e862371",
+    "bytes": 310
+  },
+  "live_one": {
+    "report": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1900e3c2250ee75ac516f81a91be2635209c3bf34d142665ec9c56f1f4b76342.json",
+      "sha256": "1900e3c2250ee75ac516f81a91be2635209c3bf34d142665ec9c56f1f4b76342",
+      "bytes": 21417
+    },
+    "console": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\ce37f1dae82873beb70e444796ba8f5c12085117d592aa32bccfdeadea38339c.log",
+      "sha256": "ce37f1dae82873beb70e444796ba8f5c12085117d592aa32bccfdeadea38339c",
+      "bytes": 659
+    },
+    "result": "pass",
+    "traversals": [
+      {
+        "result": "pass",
+        "cycles": 1,
+        "pose_traversals": 127,
+        "lifecycle_events": 127,
+        "receiver_traversals": 127,
+        "receiver_calls": 127,
+        "continuation_ticks": 120,
+        "scope": "independent complete Lux poses, ordered lifecycle and native receiver return/state/RNG receipts; downstream coherence and performance separate"
+      }
+    ],
+    "acceptance_results": {
+      "observer_validity": "pass",
+      "simulation": "pass"
+    },
+    "journal": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d16887fadac017c41d4080250dd461966c9c8b98741abcf315f69678dc99c808.json",
+      "sha256": "d16887fadac017c41d4080250dd461966c9c8b98741abcf315f69678dc99c808",
+      "bytes": 4432
+    }
+  },
+  "integration_first_failure": {
+    "receipt": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\bd998147dc24e89058d418a9034bc514960d5955aa11f206f1f8986ecdc35553.json",
+      "sha256": "bd998147dc24e89058d418a9034bc514960d5955aa11f206f1f8986ecdc35553"
+    },
+    "passed_before_stop": 196,
+    "test": "test_loader_temporary_activation_restores_original_state[False]",
+    "earliest_predicate": "RunResources.restore refuses deployment recovery when list_game_processes finds any unowned game. The temporary-file loader fixture did not isolate that process query.",
+    "process": {
+      "pid": 53492,
+      "parent_pid": 20552,
+      "parent": "StreamDeck.exe",
+      "created_local": "2026-09-22 16:06:47",
+      "qualification_flag": false
+    },
+    "action": "Stopped at first failure. User game untouched. No source changes until live session is clear; targeted fixture isolation is the next concrete change."
+  },
+  "full_integration_green": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\24b4bf9e73af164e7a28f6386d7025b03edc6846430498614cf8329d3a3b38ae.json",
+    "sha256": "24b4bf9e73af164e7a28f6386d7025b03edc6846430498614cf8329d3a3b38ae",
+    "tests": 613,
+    "elapsed_seconds": 281.78
+  },
+  "loader_fixture_green": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\db518bef77b7fff65041e929a54f8237e785a252accd9bcad309c07225ba6ff2.log",
+    "sha256": "db518bef77b7fff65041e929a54f8237e785a252accd9bcad309c07225ba6ff2",
+    "bytes": 100
+  }
+}

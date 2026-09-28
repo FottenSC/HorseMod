@@ -1,0 +1,584 @@
+{
+  "scope": "G7 original A210/B217 pending-preparation cancellation; complete native candidate, comparison blocked by startup parser",
+  "first_failure_manifest": "build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/manifests/b77ed883bc7661e9543022742b08cda9ed6e93309a59ec3a3e86430723f72f1a.json",
+  "failure": "invalid expected historical traversal plan",
+  "cause": "startup_signature treated every runtime capture as a nonempty historical traversal although expected_historical_rewinds explicitly returns [] for before/after publication cancellation",
+  "fix": "Use the requested explicit rewind plan to select historical traversal validation; unchanged validator still checks every observation and rejects extra rewind or execution marker",
+  "red": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1d39572cfbffbdaf732ff9487bb8f2068a3874c9dc687b27e76b861ec7a92147.log",
+    "sha256": "1d39572cfbffbdaf732ff9487bb8f2068a3874c9dc687b27e76b861ec7a92147",
+    "bytes": 3914
+  },
+  "green": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\85401e331a098a23860605bd894546e74b9d8af455887dba7c0d9860a3be96bd.log",
+    "sha256": "85401e331a098a23860605bd894546e74b9d8af455887dba7c0d9860a3be96bd",
+    "bytes": 115
+  },
+  "tests": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\520b2e2ddbf3ada3266fcbbb3eba1d17a0be7273cfa3e5694b04eff3bdec09ed.py",
+    "sha256": "520b2e2ddbf3ada3266fcbbb3eba1d17a0be7273cfa3e5694b04eff3bdec09ed",
+    "bytes": 31374
+  },
+  "native_candidate": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e6f6be4a300bb6bb6d3e0bbbcad6e201dc1d180d88699659bf055a4e9387bb8b.json",
+    "sha256": "e6f6be4a300bb6bb6d3e0bbbcad6e201dc1d180d88699659bf055a4e9387bb8b",
+    "bytes": 17471
+  },
+  "status": "Recovery batch passes required build/native, after-A complete-B120, full627 integration and affected30/120. Broader recovery matrix and G1/G2/local readiness remain open.",
+  "required_build": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\ee73fce5ac7ac5752866b1d9336a3cbfcf9041fcb02402440d31bdce5c9ef126.json",
+    "sha256": "ee73fce5ac7ac5752866b1d9336a3cbfcf9041fcb02402440d31bdce5c9ef126",
+    "bytes": 6433,
+    "summary": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\f59239a5619662d54b130d157631fba260d7b0b6e6913eff33b2b73dc3d76929.md",
+      "sha256": "f59239a5619662d54b130d157631fba260d7b0b6e6913eff33b2b73dc3d76929",
+      "bytes": 533
+    }
+  },
+  "source_retention": {
+    "manifest_sha256": "c1ef92e0979850bf29627ecd9cc1b385619c3346ae9942e12bf5bb8cea662265",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-c1ef92e0979850bf29627ecd9cc1b385619c3346ae9942e12bf5bb8cea662265.zip",
+    "archive_sha256": "2c5645332931a5bf7f8a82fe91dfba676ef101b7d7232c536f7a98f48c96ebf7",
+    "files": 17285,
+    "uncompressed_bytes": 126900574,
+    "reconstructible": true
+  },
+  "binaries": {
+    "runtime": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\HorseMod.dll",
+      "sha256": "cfba87e98af2c5526f6e4acc006b69a30a8193e45f93cba7e1386b1c83cc97a9"
+    },
+    "observer": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\ReplayQualificationMod.dll",
+      "sha256": "fa828c8b94e3da0269eb856fc1977ccf857db4572dc76f95f384505fa87544d7"
+    },
+    "framework": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\LessEqual421__Shipping__Win64\\bin\\UE4SS.dll",
+      "sha256": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6"
+    },
+    "core_test": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\DeterministicCoreSelfTest.exe",
+      "sha256": "97c1bd21bc3d089e1fa13efea33c4926356bf812b551e607a628f58f56738533"
+    },
+    "native_test": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\NativeCandidateRegionsSelfTest.exe",
+      "sha256": "d3f7506c2030eab253c1ff90f10d0c9fdaa2ce53133cb90f4acb8609fb819c2a"
+    }
+  },
+  "before_result": {
+    "result": "pass",
+    "retained_evidence": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\1b8958017fa7a79161769886eecee9b063f3f0c48f6ac908707ca358a2c83000.json",
+      "sha256": "1b8958017fa7a79161769886eecee9b063f3f0c48f6ac908707ca358a2c83000",
+      "bytes": 39673,
+      "summary": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\1f8c9812d4071d1092f7a77677c58aad2464fe963bceaaa4ad07d2e4b2e2f427.md",
+        "sha256": "1f8c9812d4071d1092f7a77677c58aad2464fe963bceaaa4ad07d2e4b2e2f427",
+        "bytes": 534
+      }
+    },
+    "experiments": [
+      {
+        "result": "pass",
+        "resume_performance": {
+          "native_ticks": 120,
+          "elapsed_us": 1997614,
+          "viewport_frames": 120,
+          "max_observation_gap_us": 19312,
+          "gaps_over_20ms": 0,
+          "tick_rate_milli": 60071,
+          "viewport_fps_milli": 60071,
+          "result": "pass"
+        },
+        "seek_performance": {
+          "result": "not_measured",
+          "readiness_result": "not_measured",
+          "scope": "completed application and retirement required; request-to-ready is reported separately",
+          "ceiling_us": 500000,
+          "rollback_cost_measured": false,
+          "desktop_capture_timing_perturbed": false,
+          "diagnostic_gpu_readbacks": false
+        },
+        "identities": {
+          "config": "26a017d28e1e3d1c9175fe94712258c816976fbb092a5e0dc6bc7eb13a18eac4",
+          "framework": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6",
+          "game": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553",
+          "observer": "fa828c8b94e3da0269eb856fc1977ccf857db4572dc76f95f384505fa87544d7",
+          "physx": "c3c7bd6e13260ee5f850552b6e9a15f69e58e0b41cd4f4bcb48e1b419719b5a2",
+          "replay": "95e12e394d35c13d5e0dd3dce692f9e0a4022e2a84205a9ec75f2fa6726d7879",
+          "runtime": "cfba87e98af2c5526f6e4acc006b69a30a8193e45f93cba7e1386b1c83cc97a9",
+          "ucrt": "5e7709a6b71bb818260b6f05c5bb3b6ca0c3ca9bc2f58c6242c1cd9d826d0079"
+        },
+        "native_control_dependencies": {
+          "config": "26a017d28e1e3d1c9175fe94712258c816976fbb092a5e0dc6bc7eb13a18eac4",
+          "framework": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6",
+          "game": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553",
+          "observer": "fa828c8b94e3da0269eb856fc1977ccf857db4572dc76f95f384505fa87544d7",
+          "physx": "c3c7bd6e13260ee5f850552b6e9a15f69e58e0b41cd4f4bcb48e1b419719b5a2",
+          "replay": "95e12e394d35c13d5e0dd3dce692f9e0a4022e2a84205a9ec75f2fa6726d7879",
+          "ucrt": "5e7709a6b71bb818260b6f05c5bb3b6ca0c3ca9bc2f58c6242c1cd9d826d0079"
+        },
+        "target_tick": 210,
+        "advanced_tick": 217,
+        "particle_topology": "publication_not_exercised",
+        "particle_birth_reproduction": {
+          "result": "missing_coverage",
+          "scope": "fixed tick210 birth witness is outside this checkpoint window"
+        },
+        "continuation_ticks": 120,
+        "native_callbacks_compared": 480,
+        "resume_timing": {
+          "native_ticks": 120,
+          "elapsed_us": 1997614,
+          "viewport_frames": 120,
+          "max_observation_gap_us": 19312,
+          "gaps_over_20ms": 0,
+          "tick_rate_milli": 60071,
+          "viewport_fps_milli": 60071,
+          "result": "pass"
+        },
+        "cancellation": "before",
+        "resumed_tick": 217,
+        "advance_prefix_ticks": 0,
+        "exact_advance": {
+          "result": "pass",
+          "target_presentation": "unproven",
+          "single_step": false,
+          "ui_step": {
+            "result": "not_exercised"
+          },
+          "completed_application": {
+            "result": "not_exercised"
+          }
+        },
+        "simulation_correctness": {
+          "result": "pass",
+          "continuation_ticks": 120,
+          "changed_inputs": {
+            "result": "not_exercised"
+          },
+          "scene_vector_fields": {
+            "result": "not_exercised"
+          },
+          "callback_admission": {
+            "result": "pass",
+            "policy": "quiescent_streamable_v2",
+            "capture_registration_stamps": [
+              [
+                0,
+                0
+              ]
+            ],
+            "domain_identity": 14695981039346656037,
+            "pending_streamable_loads_rejected": true,
+            "final_registration_stamp": [
+              0,
+              0
+            ],
+            "active_loading_owned": false,
+            "registration_invalidation_exercised": false,
+            "preparation_cancellation": {
+              "result": "pass",
+              "original_tick": 217,
+              "complete_B_captured": false,
+              "A_published": false,
+              "native_recovery_completed": true,
+              "cancelled_pending_work": "render_command"
+            }
+          },
+          "mt": {
+            "result": "compared",
+            "bytes": 5008,
+            "distinct_suffix_states": 1,
+            "scope": "complete native state comparison; consumption coverage requires a state transition"
+          },
+          "widget_clock": {
+            "result": "pass",
+            "policy": "fixed60_application_widget_v1",
+            "calls": [
+              14412,
+              17311
+            ],
+            "scope": "admitted native widget calls keep native skip/callback semantics; fixed delta and independently witnessed nonlinear player transitions; continuation compared separately",
+            "independent_continuation": {
+              "result": "pass",
+              "active_player_updates": 13,
+              "first_tick": 218,
+              "last_tick": 230,
+              "instance_identity": "unobserved",
+              "scope": "independent ordered widget-class/player clock observations with exact multiplicity; not per-widget identity, complete widget state or pixel proof"
+            }
+          }
+        },
+        "visual_coherence": {
+          "result": "incomplete",
+          "native_poses": {
+            "result": "pass",
+            "prefix_ticks": 20,
+            "continuation_ticks": 120,
+            "scope": "complete Lux animation-proxy outputs; not downstream native rendering proof"
+          },
+          "captures": {
+            "result": "not_requested"
+          },
+          "held_output_ownership": {
+            "result": "pass",
+            "original_window": true,
+            "held_ticks": [
+              217
+            ],
+            "backbuffer_restored": true,
+            "gpu_retired": true,
+            "scope": "original-window ownership and completed copy receipts; scene coherence and displayed FPS require separate evidence"
+          },
+          "missing_coverage": [
+            "actor/effect presence",
+            "HUD freshness",
+            "persistent visual corruption"
+          ]
+        },
+        "pixel_diagnostics": {
+          "result": "not_run",
+          "required": false,
+          "gpu_readbacks": false
+        },
+        "capture_owner": {
+          "result": "pass",
+          "tick": 210,
+          "request_to_ready_us": 83400,
+          "owned_bytes": 217151215,
+          "immutable_handle": true,
+          "gpu_completion_before_ready": true,
+          "cancellation_coverage": false,
+          "multiple_capture_coverage": false
+        },
+        "restore_owner": {
+          "result": "pass",
+          "image_and_B_preparation": "host_owned",
+          "cancellation_while_preparing_coverage": true,
+          "original_tick": 217,
+          "complete_B_captured": false,
+          "A_published": false,
+          "native_recovery_completed": true,
+          "cancelled_pending_work": "render_command"
+        },
+        "seek_request": {
+          "result": "pass",
+          "requested_target": 217,
+          "cancelled_at": "before",
+          "recovered_tick": 217,
+          "repeated_backward_seek": false,
+          "repeated_forward_seek": false,
+          "cancellation_coverage": true,
+          "failed_wrapper_recovery": {
+            "result": "not_exercised"
+          },
+          "index_complete": false,
+          "release": {
+            "completed_release_after_retirement": true,
+            "retirement_tick": 217
+          },
+          "unpaced_applications": 0,
+          "application_clock_policy": "physical_clock_fixed60_seek_v1"
+        },
+        "costs": {
+          "capture": {
+            "run_id": "replay-c2862d8253cb47c68ae0207d7aeee247",
+            "elapsed_us": "84214",
+            "gpu_bytes": "149042344",
+            "diagnostic_gpu_readbacks": "false",
+            "transaction_readback_maps": "0",
+            "readback_scope": "observer_and_transaction"
+          },
+          "restore_plus_resimulation": {
+            "result": "not_measured",
+            "reason": "cancelled transaction; completed C work and recovery are reported separately"
+          },
+          "application_calls": {
+            "result": "not_measured"
+          }
+        },
+        "native_display_boundaries": [
+          120,
+          120
+        ],
+        "completion_repeat": {
+          "result": "not_run"
+        },
+        "native_poses": {
+          "result": "pass",
+          "prefix_ticks": 20,
+          "continuation_ticks": 120,
+          "scope": "complete Lux animation-proxy outputs; not downstream native rendering proof"
+        },
+        "scope": "bounded independent gameplay, native callback and pose comparison under the recorded input policy; visual coherence and general seeking remain incomplete",
+        "milestone_complete": false
+      }
+    ],
+    "callback_admission": {
+      "result": "pass",
+      "policy": "quiescent_streamable_v2",
+      "capture_registration_stamps": [
+        [
+          0,
+          0
+        ]
+      ],
+      "domain_identity": 14695981039346656037,
+      "pending_streamable_loads_rejected": true,
+      "final_registration_stamp": [
+        0,
+        0
+      ],
+      "active_loading_owned": false,
+      "registration_invalidation_exercised": false,
+      "preparation_cancellation": {
+        "result": "pass",
+        "original_tick": 217,
+        "complete_B_captured": false,
+        "A_published": false,
+        "native_recovery_completed": true,
+        "cancelled_pending_work": "render_command"
+      }
+    },
+    "trace_source": {
+      "result": "not_applicable",
+      "reason": "no identical-input A suffix"
+    },
+    "elapsed_seconds": 137.391
+  },
+  "before_scope": "120 independently matching continuation ticks and480 native callbacks after pending preparation cancellation. A was never published and complete_B_captured=false: this proves preservation/release before publication, not restoration of a complete B image.",
+  "after_publication_first_failure": {
+    "manifest": "build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/manifests/65917e7b3d18e48830bc04d2a4d78c3a95a0aadc5df1020e960757cc76845e66.json",
+    "run_id": "replay-e847e8ebd7df47929292dcfb903ea01a",
+    "result": "fail",
+    "reason": "host_seek_failed / UndoFailed after B CPU reconstruction and native display recovery completion",
+    "complete_B_captured": true,
+    "A_published": true,
+    "continuation_verified": false,
+    "cleanup_complete": true,
+    "next_change": "failure-only native restore witness diagnostic via existing exported read interface; no recovery relaxation"
+  },
+  "after_diagnostic_manifest": "build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/manifests/49a53c5278dc7d562e60ebc54a7f58d5e816517486e8f689925ea7115df80b65.json",
+  "unexecuted_owner_fix": {
+    "cause": "Publication-only cancellation never settled fresh owners through execution and never retired them through the private inactive-owner path. B CPU undo passed, then ReleaseFreshParticleOwnership rejected unretired owners.",
+    "change": "Before copy Finish, use existing RetirePreparedFreshParticles for never-executed recovery; admit its fresh GPU drain only at verified restored B with complete undo retained; execution and dirty-state guards retained.",
+    "evidence": {
+      "cancel-after-unexecuted-red-20260923.log": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\757ebed267a4f69bb4dd1f0be2de76f9b7b6c869890914549cb9bda44918ffd4.log",
+        "sha256": "757ebed267a4f69bb4dd1f0be2de76f9b7b6c869890914549cb9bda44918ffd4",
+        "bytes": 7258
+      },
+      "cancel-after-host-red-20260923.log": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1f0293128600a4a0e33bb8016fdb82cd2f9171990819e43602244505960135ee.log",
+        "sha256": "1f0293128600a4a0e33bb8016fdb82cd2f9171990819e43602244505960135ee",
+        "bytes": 4191
+      },
+      "cancel-after-unexecuted-green3-20260923.log": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\3f27b3156009de296796e0229945578eba885446de6b8627bdbcce9516e4deeb.log",
+        "sha256": "3f27b3156009de296796e0229945578eba885446de6b8627bdbcce9516e4deeb",
+        "bytes": 116
+      }
+    },
+    "live": "pass on final private-value fix",
+    "first_retry_manifest": "build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/manifests/b8d7121217313a556f09621f9ca67cccbe335c27af86718395bd23863d5c2080.json"
+  },
+  "private_component_undo": {
+    "cause": "PreparedManager::Write(false) omits fresh projected A components absent from complete B. They retain A activation/values and cannot satisfy native inactive retirement.",
+    "fix": "Retain separately charged, actual prepublication private component values. Restore/validate them only when execution never started. Native-dead C pointers remain excluded after execution.",
+    "red": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c1a7d689bd70e9022c44933ae3db0b6809f15182d27f179f7121166dedccacd5.log",
+      "sha256": "c1a7d689bd70e9022c44933ae3db0b6809f15182d27f179f7121166dedccacd5",
+      "bytes": 2463
+    },
+    "green": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4cdea0016f4e49f9211922d3837b11a5d611c9ca0c7fa96beeb20a26b10cfff0.log",
+      "sha256": "4cdea0016f4e49f9211922d3837b11a5d611c9ca0c7fa96beeb20a26b10cfff0",
+      "bytes": 117
+    },
+    "live": "pass"
+  },
+  "after_result": {
+    "result": "pass",
+    "retained_evidence": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\e2683ab33dc8550fb6a77ff6c33b4b16eaf41bae96fad4e010ef2a58986d1440.json",
+      "sha256": "e2683ab33dc8550fb6a77ff6c33b4b16eaf41bae96fad4e010ef2a58986d1440",
+      "bytes": 40374,
+      "summary": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\c11765a43714301b4a3786ac6aa2f0d0f5742a1bd0c014478f48a2202bda5840.md",
+        "sha256": "c11765a43714301b4a3786ac6aa2f0d0f5742a1bd0c014478f48a2202bda5840",
+        "bytes": 534
+      }
+    },
+    "continuation_ticks": 120,
+    "native_callbacks_compared": 480,
+    "cancellation": "after",
+    "resumed_tick": 217,
+    "simulation_correctness": {
+      "result": "pass",
+      "continuation_ticks": 120,
+      "changed_inputs": {
+        "result": "not_exercised"
+      },
+      "scene_vector_fields": {
+        "result": "pass",
+        "policy": "reject_nonempty_v1",
+        "slots": 0,
+        "scope": "empty registry at capture/publication admission; active fields unsupported"
+      },
+      "callback_admission": {
+        "result": "pass",
+        "policy": "quiescent_streamable_v2",
+        "capture_registration_stamps": [
+          [
+            0,
+            0
+          ],
+          [
+            0,
+            0
+          ]
+        ],
+        "domain_identity": 14695981039346656037,
+        "pending_streamable_loads_rejected": true,
+        "final_registration_stamp": [
+          0,
+          0
+        ],
+        "active_loading_owned": false,
+        "registration_invalidation_exercised": false
+      },
+      "mt": {
+        "result": "compared",
+        "bytes": 5008,
+        "distinct_suffix_states": 1,
+        "scope": "complete native state comparison; consumption coverage requires a state transition"
+      },
+      "widget_clock": {
+        "result": "pass",
+        "policy": "fixed60_application_widget_v1",
+        "calls": [
+          14412,
+          17311
+        ],
+        "scope": "admitted native widget calls keep native skip/callback semantics; fixed delta and independently witnessed nonlinear player transitions; continuation compared separately",
+        "independent_continuation": {
+          "result": "pass",
+          "active_player_updates": 13,
+          "first_tick": 218,
+          "last_tick": 230,
+          "instance_identity": "unobserved",
+          "scope": "independent ordered widget-class/player clock observations with exact multiplicity; not per-widget identity, complete widget state or pixel proof"
+        }
+      }
+    },
+    "visual_coherence": {
+      "result": "incomplete",
+      "native_poses": {
+        "result": "pass",
+        "prefix_ticks": 20,
+        "continuation_ticks": 120,
+        "scope": "complete Lux animation-proxy outputs; not downstream native rendering proof"
+      },
+      "captures": {
+        "result": "not_requested"
+      },
+      "held_output_ownership": {
+        "result": "pass",
+        "original_window": true,
+        "held_ticks": [
+          217
+        ],
+        "backbuffer_restored": true,
+        "gpu_retired": true,
+        "scope": "original-window ownership and completed copy receipts; scene coherence and displayed FPS require separate evidence"
+      },
+      "missing_coverage": [
+        "actor/effect presence",
+        "HUD freshness",
+        "persistent visual corruption"
+      ]
+    },
+    "build_identities": {
+      "runtime": "2267a071d42a724df3e836a2c544c75302162cbac5465920850208c628d2a1f5",
+      "observer": "50ce0f46e22372460f3c68bd5a89ff04a75af1ee13e32636dcce4787a04fb234",
+      "framework": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6"
+    },
+    "identities": {
+      "config": "26a017d28e1e3d1c9175fe94712258c816976fbb092a5e0dc6bc7eb13a18eac4",
+      "framework": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6",
+      "game": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553",
+      "observer": "50ce0f46e22372460f3c68bd5a89ff04a75af1ee13e32636dcce4787a04fb234",
+      "physx": "c3c7bd6e13260ee5f850552b6e9a15f69e58e0b41cd4f4bcb48e1b419719b5a2",
+      "replay": "95e12e394d35c13d5e0dd3dce692f9e0a4022e2a84205a9ec75f2fa6726d7879",
+      "runtime": "2267a071d42a724df3e836a2c544c75302162cbac5465920850208c628d2a1f5",
+      "ucrt": "5e7709a6b71bb818260b6f05c5bb3b6ca0c3ca9bc2f58c6242c1cd9d826d0079"
+    },
+    "costs": {
+      "capture": {
+        "run_id": "replay-a8b5d5f5db9b424c8bdaeb93e007f98b",
+        "elapsed_us": "87698",
+        "gpu_bytes": "149042344",
+        "diagnostic_gpu_readbacks": "false",
+        "transaction_readback_maps": "0",
+        "readback_scope": "observer_and_transaction"
+      },
+      "restore": {
+        "run_id": "replay-a8b5d5f5db9b424c8bdaeb93e007f98b",
+        "elapsed_us": "108258",
+        "owned_bytes": "327975411",
+        "diagnostic_gpu_readbacks": "false",
+        "transaction_readback_maps": "0",
+        "readback_scope": "observer_and_transaction",
+        "includes_B_undo": "true",
+        "includes_image_reopen": "true",
+        "request_origin": "held_B",
+        "owned_bytes_kind": "conservative_reservation"
+      },
+      "restore_plus_resimulation": {
+        "result": "not_measured",
+        "reason": "cancelled transaction; completed C work and recovery are reported separately"
+      },
+      "application_calls": {
+        "result": "not_measured"
+      }
+    },
+    "complete_B_captured": true,
+    "A_published": true,
+    "source_retention": {
+      "manifest_sha256": "e95711e6a0ec80cb86469712f282fc07f960436c9a19e5ca20d6fe4956de7472",
+      "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-e95711e6a0ec80cb86469712f282fc07f960436c9a19e5ca20d6fe4956de7472.zip",
+      "archive_sha256": "276ad1bf5b24ebee209ba9845986cca413caccdc35ef2c88b9ca49763714fc55",
+      "files": 17286,
+      "uncompressed_bytes": 126914717,
+      "reconstructible": true
+    }
+  },
+  "current_integration": {
+    "result": "pass",
+    "tests": 627,
+    "seconds": 261.73,
+    "receipt": "build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c176ed2f444cf67bdaa2d452f11ed93600dea5785a5b2f6390e102bd64a72f72.json",
+    "raw": "build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8173e33165e355dbad8b21dc73d6c6a169503885e8c524e380e161cf194549eb.log"
+  },
+  "affected30": {
+    "result": "pass",
+    "retained_evidence": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\79215d55deff1b556f9f5d8cf011c71a50c66e16ca4eaaa5aa889e3e13ecf0a5.json",
+      "sha256": "79215d55deff1b556f9f5d8cf011c71a50c66e16ca4eaaa5aa889e3e13ecf0a5",
+      "bytes": 56760,
+      "summary": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\527e214c80f9fe0a829d7cb8765addd752a188f97543b46642c5e8f3315319b0.md",
+        "sha256": "527e214c80f9fe0a829d7cb8765addd752a188f97543b46642c5e8f3315319b0",
+        "bytes": 518
+      }
+    },
+    "continuation_ticks": 120,
+    "native_callbacks_compared": 2300,
+    "rolling_cycles": 30,
+    "acceptance_results": {
+      "observer_validity": "pass",
+      "simulation": "pass"
+    }
+  }
+}

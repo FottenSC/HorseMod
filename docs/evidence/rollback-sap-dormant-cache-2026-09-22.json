@@ -1,0 +1,77 @@
+{
+  "live_failure": "fbe8c3d2ba980e5b5b52910077abc908d15afa156530a276541854033c66a494",
+  "native": "Actual SDK converts one marker to contact while SAP cache names freed marker slot;120 independent continuation ticks match; SAP pair removed while contact remains registered. Shipped E434F and EFD8E call11AFE0 to resolve overlap shapes anew and overwrite overlap+10 before consumers. 160EB0 allocates pair keys without initializing+8. Commit is retirement only; no history writes.",
+  "red": {
+    "log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b8ebcf61bb4040da8a0e813ef9a00a7080c11d51d4b11e6f38275662215efb4e.log",
+      "sha256": "b8ebcf61bb4040da8a0e813ef9a00a7080c11d51d4b11e6f38275662215efb4e",
+      "bytes": 5063
+    },
+    "native_probe": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\cc5bb5ed110a0e60fb3493fa92fe1bc37ef2275506eb16b06ac661afaca00e0b.inl",
+      "sha256": "cc5bb5ed110a0e60fb3493fa92fe1bc37ef2275506eb16b06ac661afaca00e0b",
+      "bytes": 13035
+    },
+    "test": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\56336c20e0e750c7df99dbd265969d25d2e49f3b7255ae0eefd4908bd7e9f789.inl",
+      "sha256": "56336c20e0e750c7df99dbd265969d25d2e49f3b7255ae0eefd4908bd7e9f789",
+      "bytes": 119053
+    },
+    "production": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\814e563d7c68657f01be9e6bdb30933cf430e3fae006fd63877f8ce0122ef5ad.inl",
+      "sha256": "814e563d7c68657f01be9e6bdb30933cf430e3fae006fd63877f8ce0122ef5ad",
+      "bytes": 48212
+    }
+  },
+  "invalid_probes": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8a22938b3739b483ef21286631bd9b1338c794214ca0657663fbbf2e54f438d4.log",
+      "sha256": "8a22938b3739b483ef21286631bd9b1338c794214ca0657663fbbf2e54f438d4",
+      "bytes": 1741
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f41ffbc683a50d622e2490f685aadf10130f6bd0d05e2e92e6ee459d1d8c0140.log",
+      "sha256": "f41ffbc683a50d622e2490f685aadf10130f6bd0d05e2e92e6ee459d1d8c0140",
+      "bytes": 3374
+    }
+  ],
+  "invalid_notes": "Initial probe wrong aabb broadphase offset10 instead100; next probe cleanup expected0 after first of2 bodies removed. Both corrected before valid RED.",
+  "native_disassembly": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b7a67307c3a40f50b5ecf0d01502b728186a8bb3d8dd2bf83def1124aac650e3.txt",
+    "sha256": "b7a67307c3a40f50b5ecf0d01502b728186a8bb3d8dd2bf83def1124aac650e3",
+    "bytes": 9764
+  },
+  "invalid_empty_B_assertion": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a9051bdcdf04d9576b8a583eb3fe049e0a79af0b23b5434d2dedd48e85609cdc.log",
+    "sha256": "a9051bdcdf04d9576b8a583eb3fe049e0a79af0b23b5434d2dedd48e85609cdc",
+    "bytes": 4238
+  },
+  "invalid_empty_B_note": "Added B cache assertion ran for b_count0, substituted null and wrongly expected rejection; restrict to actual retained B cases. Production unchanged.",
+  "green": {
+    "build": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b7b28e99a8ed037a9757d1ead77247773381974e5bd5c2bb56c64b5dfd3c705b.json",
+      "sha256": "b7b28e99a8ed037a9757d1ead77247773381974e5bd5c2bb56c64b5dfd3c705b",
+      "bytes": 5870
+    },
+    "log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e0beecaa0fc0aa927a6576def968a6f93559bfbdc4a5b538254530feaea8f8e1.log",
+      "sha256": "e0beecaa0fc0aa927a6576def968a6f93559bfbdc4a5b538254530feaea8f8e1",
+      "bytes": 3979
+    },
+    "test": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\32495bfe10b1b73979560ce1656498472a844ab97be9a3cff3125ca3f41153ba.inl",
+      "sha256": "32495bfe10b1b73979560ce1656498472a844ab97be9a3cff3125ca3f41153ba",
+      "bytes": 119264
+    },
+    "native_probe": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\cc5bb5ed110a0e60fb3493fa92fe1bc37ef2275506eb16b06ac661afaca00e0b.inl",
+      "sha256": "cc5bb5ed110a0e60fb3493fa92fe1bc37ef2275506eb16b06ac661afaca00e0b",
+      "bytes": 13035
+    },
+    "production": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\cca0d4a35998100c767e8a1e05573542e148ea6158f2c6207193d84124ed7db2.inl",
+      "sha256": "cca0d4a35998100c767e8a1e05573542e148ea6158f2c6207193d84124ed7db2",
+      "bytes": 48283
+    }
+  }
+}

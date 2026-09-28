@@ -1,0 +1,97 @@
+{
+  "schema": 1,
+  "name": "rolling-cycle42-repro",
+  "purpose": "diagnostic",
+  "arguments": [
+    "combat-restore",
+    "--combat-case",
+    "commit",
+    "--host-seek",
+    "--combat-exact-advance",
+    "--combat-anchor-tick",
+    "210",
+    "--combat-advanced-tick",
+    "217",
+    "--host-seek-target",
+    "217",
+    "--rolling-cycles",
+    "48",
+    "--replay-budget-gib",
+    "1",
+    "--timeout",
+    "180",
+    "--diagnostic-mask",
+    "7",
+    "--diagnostic-stack-depth",
+    "16",
+    "--diagnostic-first-tick",
+    "248",
+    "--diagnostic-last-tick",
+    "260",
+    "--diagnostic-byte-limit",
+    "1048576"
+  ],
+  "continuation_ticks": 120,
+  "setup": {
+    "skip_intros": true,
+    "include_setup": true,
+    "native_fixed_seed": true,
+    "serial_particles": true
+  },
+  "comparison": "independent stock; every regenerated traversal and 120 continuation ticks",
+  "observation": {
+    "normal_renderer": true,
+    "pixel_diagnostics": false,
+    "coherence_images": false
+  },
+  "evidence_source": "artifacts/rollback-owner-integration-20260915/contact-side-control-three-comparison.json",
+  "scope": "unchanged-input correctness only; coherence, recovery and performance require their own evidence",
+  "timeout_policy": "180 seconds for short tests; 900 seconds for diagnostic-cost 600-cycle campaign",
+  "diagnostics": {
+    "mask": 7,
+    "stack_depth": 16,
+    "output_byte_limit_per_dll": 1048576,
+    "reserved_bytes_both_dlls": 8192
+  },
+  "contract": {
+    "version": 1,
+    "hypothesis": "Every requested transaction settles and independently agrees with its authored history.",
+    "decision": "Accept this mechanism diagnostic or retain its first falsifying observation.",
+    "required_event": "committed rolling cycle",
+    "phase": "rolling",
+    "window": [
+      210,
+      384
+    ],
+    "setup": {
+      "skip_intros": true,
+      "include_setup": true,
+      "native_fixed_seed": true,
+      "serial_particles": true
+    },
+    "identities": [
+      "game",
+      "runtime",
+      "framework",
+      "observer",
+      "replay",
+      "state_policy",
+      "source"
+    ],
+    "success": "Complete requested coverage and independent comparisons pass.",
+    "falsification": "Unexpected rejection, missing traversal or independent mismatch.",
+    "expected_injections": [],
+    "stop_conditions": [
+      "first unexpected failure",
+      "timeout retains ownership for cleanup"
+    ],
+    "permitted_claims": [
+      "scoped mechanism diagnostic; lifecycle differences and normal-rendered coherence require separate proof"
+    ],
+    "validator": "rolling_mechanism",
+    "coverage": {
+      "continuation_ticks": 120,
+      "cycles": 48
+    }
+  }
+}

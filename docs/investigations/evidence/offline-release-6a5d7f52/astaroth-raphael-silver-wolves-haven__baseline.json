@@ -1,0 +1,218 @@
+{
+  "artifacts": {
+    "config": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\rollback.ini",
+      "sha256": "0b8d84c6379ef14a2cfc9b45fcdd6e383b29b9d2471ee252621b6b9658b6b1f9"
+    },
+    "config_fields": {
+      "config_version": "1",
+      "correction_probe": "false",
+      "enabled": "true",
+      "forced_depth7_qualification": "false",
+      "input_delay": "1",
+      "qualification_depth": "7",
+      "qualification_location": "2",
+      "rollback_window": "12",
+      "trace": "true"
+    },
+    "game_executable": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\SoulcaliburVI.exe",
+      "sha256": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553"
+    },
+    "generated_schema": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\generated\\deterministic_contract.json",
+      "sha256": "14328dd85210934d2e16db6880aea22fe3f0976b9e4d6476a5fa6c0ba415017e"
+    },
+    "horsemod_dll": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll",
+      "sha256": "6a5d7f52e41937dd1d59b1962e4c5d65d4f60fa8edfba4cabca72c1e5028a42b"
+    },
+    "horsemod_dll_sha256": "6a5d7f52e41937dd1d59b1962e4c5d65d4f60fa8edfba4cabca72c1e5028a42b",
+    "replay": {
+      "path": "E:\\myMods\\ReplayExample\\REPLAY_10224262924037108963.bin",
+      "sha256": "c30f1368c918188c87127db1411aa5466d1b39d91e60ca0d658a0da79b5e3a41"
+    },
+    "replay_qualification_mod": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\ReplayQualificationMod.dll",
+      "sha256": "17fd5bbd2d1ec8c33d250d009393a0f17ef3d01378d424a6109e161d9cb7906d"
+    },
+    "runner_sha256": "da5ade207fa2507473ba4676923d7a5d214f1dd7f1aefa67b757e77110987b7a",
+    "schema_sha256": "14328dd85210934d2e16db6880aea22fe3f0976b9e4d6476a5fa6c0ba415017e",
+    "stock_outcome_control": {
+      "path": "E:\\myMods\\docs\\investigations\\evidence\\offline-release-6a5d7f52\\raw\\astaroth-raphael-silver-wolves-haven__baseline-vanilla.json",
+      "sha256": "68ba8bef5d7bb54b31157167607a0db5d145e203f8d1a5297dc0ef0d2e379bfd"
+    }
+  },
+  "case_id": "astaroth-raphael-silver-wolves-haven",
+  "certifying": true,
+  "created_utc": "2026-08-29T17:50:11.579747+00:00",
+  "display_map_name": "Silver Wolves' Haven",
+  "kind": "replay_entry_probe",
+  "reason": "native replay import, stock launch request, and bounded normal-play frame observation",
+  "renderer": "normal",
+  "report_schema": 2,
+  "result": "pass",
+  "row_id": "astaroth-raphael-silver-wolves-haven__baseline",
+  "runtime": {
+    "aggregate_owned_bytes": 515476914,
+    "authored_outcomes_required": true,
+    "canonical_convergence": "exact",
+    "capacity_failures": 0,
+    "capacity_growth_events": 0,
+    "clean_exit": true,
+    "clean_exit_requested": true,
+    "consecutive_corrections": 0,
+    "correction_probes": [],
+    "corrections": 0,
+    "depth": 0,
+    "final_canonical": {
+      "frame": 8285,
+      "generation": 17,
+      "sha256": "495ab0ca0509c5492d6851ca6b423bc7a4fef5cfc68fa1547fb56c8d1a75ed62"
+    },
+    "forced_depth7": null,
+    "frame_fencepost_observed": true,
+    "gameplay_rng_coverage": {
+      "if_draws": 26,
+      "known_callers": "0x1a001003001185",
+      "probability_state_mask_p0": "0x811040088022690009019ce00000040000040004100088022690009019ce",
+      "probability_state_mask_p1": "0x8100400000264960001194d000000880000000001000000264960001194d",
+      "probability_transition_batches": 19,
+      "short25_p0": 0,
+      "short25_p1": 0,
+      "state19_at_tira_transition_p0": 0,
+      "state19_at_tira_transition_p1": 0,
+      "state19_final_p0": 0,
+      "state19_final_p1": 0,
+      "state19_initial_p0": 0,
+      "state19_initial_p1": 0,
+      "state19_initial_valid": true,
+      "state19_sequence_p0": "0x0000000000000000",
+      "state19_sequence_p1": "0x0000000000000000",
+      "state_changes_p0": 5769,
+      "state_changes_p1": 6315,
+      "tira_last_target": "0x0000",
+      "tira_probability_batches": 0,
+      "tira_random_transitions": 0,
+      "tira_sequence": "0x0000000000000000",
+      "tira_slot_mask": "0x0",
+      "tira_stance_batches": 0,
+      "tira_targets": "0x0",
+      "transition07_calls": 571,
+      "transition07_sequence": "0x500ce2a34c56944a",
+      "unknown_callers": 0,
+      "weighted_draws": 14,
+      "xorshift_draws": 12386,
+      "xorshift_landing": [
+        "0xa472ed59",
+        "0x2f0db6dc",
+        "0x15644bcb"
+      ],
+      "xorshift_sequence": "0xe355bb52a02a29ef"
+    },
+    "graceful_exit_observed": true,
+    "horsemod_version": "1.2.1",
+    "launch_requested": true,
+    "location": null,
+    "min_resume_tick_rate": 58.0,
+    "native_replay_import_ready": true,
+    "performance": {
+      "capture_max_us": 0,
+      "capture_p99_us": 0,
+      "correction_max_us": 0,
+      "correction_p99_us": 0
+    },
+    "presentation": {
+      "ephemeral_exactly_once": true,
+      "identity": {
+        "audio_events": 3463,
+        "audio_identity": "0xd1a2a37703ae528c",
+        "batches": 1509,
+        "camera_batches": 1509,
+        "camera_identity": "0x595724a1f6f5baae",
+        "failures": 0,
+        "journal_committed": 0,
+        "order_events": 4178,
+        "order_identity": "0x000ba83f6b7939a6"
+      },
+      "leaks": 0,
+      "ordered_audio_payload_ids": true,
+      "persistent_final_exact": true,
+      "required_activity": 0,
+      "terminal_coverage": "not_applicable"
+    },
+    "presentation_duplicate_failures": 0,
+    "presentation_owned_bytes": 5185536,
+    "presentation_publish_failures": 0,
+    "presentation_source_coverage": {
+      "audio": 4293,
+      "audio_blueprint": 1297,
+      "audio_direct": 2997,
+      "audio_remap": 756,
+      "audio_source": 1297,
+      "audio_stop_all": 55,
+      "particle_spawn": 0,
+      "stage_barrier": 0,
+      "stage_dispatch": 0,
+      "stage_wall": 0
+    },
+    "process_absent_after_exit": true,
+    "reentry": true,
+    "reentry_proof": {
+      "clean_exit": true,
+      "distinct_run_id": true,
+      "native_import_ready": true,
+      "process_absent_after_exit": true,
+      "temporary_mod_removed": true
+    },
+    "reentry_run_id": "17596fccfbef4e0c8fd671314a37b205",
+    "repeat_canonical_equal": false,
+    "replay_metadata": {
+      "left_character": 12,
+      "map": 17,
+      "right_character": 14,
+      "stage": 273,
+      "state_reset_records": 4
+    },
+    "reported_source_commit": "17aa7c31d9977a8522d7f6121227f3ae6e2c1021",
+    "resume_tick_window": 120,
+    "run_id": "a1554ae6c8954ac1b408a0c090737f50",
+    "seek_percentages": [],
+    "seeks": [],
+    "stage_terminal": null,
+    "stock_round_outcome": {
+      "match_winner": 0,
+      "round_winners": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "rounds": 4,
+      "source_commit": "17aa7c31d9977a8522d7f6121227f3ae6e2c1021"
+    },
+    "temporary_mod_removed": true,
+    "timeline_accounting_failures": 0,
+    "vanilla_outcome_equal": true,
+    "watch_frames": 600
+  },
+  "source": {
+    "commit": "17aa7c31d9977a8522d7f6121227f3ae6e2c1021",
+    "dirty": false,
+    "status_porcelain_v2": [],
+    "submodules": [
+      "f21698d85367c8d97585cf7610897316c873681c third_party/GekkoNet (v20260629200724-02c447c-6-gf21698d)",
+      " 6b3fd8a175f1e164eb1bd1be6f766f48b980f7c0 tools/BlueprintToCpp (heads/codex/pre-rollback-rewrite-snapshot-20260823)",
+      " 75f3878b7a348cbda3927048b142a0a6923e79c0 tools/BlueprintToCpp/CUE4Parse (v1.2.2-719-g75f3878b)",
+      " 414689d5cff4286a7898487a46dc5e48005d38da tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl (v2.1.0)",
+      " 0d98dba29d66e93259db7daa53a9327df767a415 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/benchmark (v1.6.1)",
+      " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/catch2 (v2.13.7)",
+      " d7982f2b2524feeb322f424b29cf43df30b5d5b7 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm (v2.2.0)",
+      " 0d98dba29d66e93259db7daa53a9327df767a415 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm/external/benchmark (v1.6.1)",
+      " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm/external/catch2 (v2.13.7)",
+      " 54b3985e8ccc5efb5f24dabf0b4b802a996366e6 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/sjson-cpp (v0.9.0)",
+      " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/sjson-cpp/external/catch2 (v2.13.7)"
+    ]
+  },
+  "stage_package_root": "/Game/DLC/07/Stage/STG011_R"
+}

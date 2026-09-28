@@ -1,0 +1,154 @@
+{
+  "created_utc": "2026-09-24T06:29:19.050905+00:00",
+  "scope": "one shortest A210/B217 forwarding-only VFX completion observation; non-certifying",
+  "build_green": "docs/evidence/rollback-g1-vfx-completion-observer-green-2026-09-24.json",
+  "stage_result": "pass",
+  "stage_manifest": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\8baf2304f00d9bc5054cd4efaf639c19134af5760bfa6be1791610c73e11851a.json",
+    "sha256": "8baf2304f00d9bc5054cd4efaf639c19134af5760bfa6be1791610c73e11851a",
+    "bytes": 43317,
+    "summary": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\49b8996fe9841821012a2213e3e24ee665b9cf19f783b6863d3ea3eed9de809d.md",
+      "sha256": "49b8996fe9841821012a2213e3e24ee665b9cf19f783b6863d3ea3eed9de809d",
+      "bytes": 686
+    }
+  },
+  "stage_report": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\991ca00e3303cfaca0bee8ce7aae92b6d1fd72d403858cd5e3164add3aa08d21.json",
+    "sha256": "991ca00e3303cfaca0bee8ce7aae92b6d1fd72d403858cd5e3164add3aa08d21",
+    "bytes": 30204
+  },
+  "candidate_report": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7a76c8c075e55de2475f0bc7f3d5f4e90409f61e60f99fa0cd4d2d670a296b22.json",
+    "sha256": "7a76c8c075e55de2475f0bc7f3d5f4e90409f61e60f99fa0cd4d2d670a296b22",
+    "bytes": 57397
+  },
+  "candidate_raw_log": {
+    "at_capacity": false,
+    "limit_bytes": 67108864,
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\combat-restore-cancel-after.UE4SS.log",
+    "sha256": "3b42bef03bc4a2e751f88ce6346c8c51ae65aade45dfa46c7d23010f46fca0f4"
+  },
+  "candidate_run_id": "replay-8a9b9a84c6fc4504bcc90892be88b9b5",
+  "control_report": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\73f238e36f47ef4483693948c0de1a3e5b00360acc00e970c729dd839a8f7650.json",
+    "sha256": "73f238e36f47ef4483693948c0de1a3e5b00360acc00e970c729dd839a8f7650",
+    "bytes": 13497
+  },
+  "control_raw_log": {
+    "at_capacity": false,
+    "limit_bytes": 67108864,
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\combat-restore-native.UE4SS.log",
+    "sha256": "864ab0384667ef516c19db19a4e22eb780ade5ef67cf757b90681e3ca31a01e0"
+  },
+  "control_run_id": "replay-82cd9570964a4d558ddb800ae871486c",
+  "build_identities": {
+    "runtime": "17e4742b6da56268455e21b48f82c8220fbca85141fcc6a545db9ddb4919bf6a",
+    "observer": "3b6edc1662591affc8c7108a4206589861229cd891ecf603bedac77b2f7da8b9",
+    "framework": "e1136a410343cc5caad0dfce2b2722002a20d5707ef6077ff794541f48a4847f"
+  },
+  "selected_recovery": {
+    "result": "pass",
+    "failure": "native prerequisite mutation detected before dependent consumption",
+    "recovered_tick": 217,
+    "independent_continuation_ticks": 120,
+    "ownership": {
+      "states": [
+        "BRetained",
+        "APublished",
+        "ExecutionActive",
+        "FailedRecoverable",
+        "RecoveryQuiescing",
+        "Recovering",
+        "Recovered"
+      ],
+      "completed_C_tick": 211,
+      "executed_ticks": 1,
+      "executed_intervals": 1,
+      "C_only_particles": 1,
+      "B_recovered_tick": 217,
+      "native_destroyed_CPU_members": 1,
+      "cancellation_boundary": "ConsumerPrerequisite"
+    }
+  },
+  "continuation_ticks": 120,
+  "native_callbacks_compared": 480,
+  "visual_coherence": "incomplete",
+  "observer": {
+    "sidecar": {
+      "bytes": 23219,
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\508fd4a9395438bbc432595933828a3df17aa8f1bdb25c35e19a00312583249b.json",
+      "sha256": "508fd4a9395438bbc432595933828a3df17aa8f1bdb25c35e19a00312583249b"
+    },
+    "prefix_valid": false,
+    "retained_records": 32,
+    "retained_entry_counts": {
+      "0x3d74d0": 12,
+      "0x8c9120": 4
+    },
+    "retained_threads": [
+      29672
+    ],
+    "retained_manager_generations": [
+      [
+        310120,
+        8362
+      ]
+    ],
+    "retained_dropped_lower_bound": 1,
+    "live_status": "VFX completion observation status run_id=replay-8a9b9a84c6fc4504bcc90892be88b9b5 available=true records=32 dropped=45 persistence_failed=0 pending_pairs=0 unstable_records=0 truncated_records=0 admission_proof=false writer_coverage_proven=false",
+    "interpretation": "actual registration and dispatch reached; overflow invalidates full-window observation; no writer synchronization or enforcement claim"
+  },
+  "post_cleanup": {
+    "journal_state": "clean",
+    "journal_sha256": "3cdc11908a16be6e83e08583b84be23883122565dac69307f26bb0e704770fe4",
+    "all_prior_states_match": true,
+    "files": [
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll",
+        "before": "b583b65388616e4fc6bbac841a1de6bc7d87467e67132a0983c69eb5d0c40c2b",
+        "actual": "b583b65388616e4fc6bbac841a1de6bc7d87467e67132a0983c69eb5d0c40c2b",
+        "matches": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\UE4SS.dll",
+        "before": "df9e6e9a2280972b1c28ce590700feacc752b447204f8baadeb95f5776957055",
+        "actual": "df9e6e9a2280972b1c28ce590700feacc752b447204f8baadeb95f5776957055",
+        "matches": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\rollback.ini",
+        "before": "22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514",
+        "actual": "22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514",
+        "matches": true
+      },
+      {
+        "path": "C:\\Users\\prest\\AppData\\Local\\HorseMod\\Qualification\\replay_diagnostics.ini",
+        "before": null,
+        "actual": null,
+        "matches": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\dlls\\main.dll",
+        "before": null,
+        "actual": null,
+        "matches": true
+      },
+      {
+        "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\enabled.txt",
+        "before": null,
+        "actual": null,
+        "matches": true
+      }
+    ],
+    "candidate_cleanup": {
+      "complete": true,
+      "games_remaining": 0
+    },
+    "control_cleanup": {
+      "complete": true,
+      "games_remaining": 0
+    },
+    "independent_process_check": "no SoulcaliburVI process; Steam PID98544 active"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "stage": "RED",
+  "date": "2026-09-24",
+  "purpose": "Second consumer recovery failure witness and durable empty diagnostic cleanup",
+  "source_retention": {
+    "manifest_sha256": "ea3b859d05dcf591c46d8830fa16352dde59b622be924b1d2d95703d6e180783",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-ea3b859d05dcf591c46d8830fa16352dde59b622be924b1d2d95703d6e180783.zip",
+    "archive_sha256": "f5c9cc6fa26d84b99ee32b747ddd6f6db0f75dd15e23b6f3d597a07a52613b2d",
+    "files": 16606,
+    "uncompressed_bytes": 92821216,
+    "reconstructible": true
+  },
+  "logs": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0ce216ed9fde5959d52bf959c1d0b21ea6deb58ce83ddfae4728fcd63070aa3c.json",
+      "sha256": "0ce216ed9fde5959d52bf959c1d0b21ea6deb58ce83ddfae4728fcd63070aa3c",
+      "bytes": 2206
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c251dd56ed97455d4c70d3c0b6e6df6d3bb497d7ac29146e94fbda2daa48c372.json",
+      "sha256": "c251dd56ed97455d4c70d3c0b6e6df6d3bb497d7ac29146e94fbda2daa48c372",
+      "bytes": 3428
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b35d7b946fc1ea0723c1e0b6aefb57893cd99f39252ce06346fc46818c749f68.json",
+      "sha256": "b35d7b946fc1ea0723c1e0b6aefb57893cd99f39252ce06346fc46818c749f68",
+      "bytes": 1406
+    }
+  ],
+  "live_manifest": "a4b176cb56a91644a055ce8c56e9a25c6a409cf7cfee26e79a51e9232c59f106",
+  "results": [
+    "observer exit81: second failure short-circuits witness read",
+    "journal reload refuses preopened empty sidecar",
+    "collector omits empty bytes"
+  ]
+}

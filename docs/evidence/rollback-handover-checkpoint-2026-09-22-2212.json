@@ -1,0 +1,91 @@
+{
+  "recorded_at": "2026-09-22T22:12:17+02:00",
+  "purpose": "User-requested handover; implementation stopped after a deliberately failing boundary regression.",
+  "red": {
+    "command": "python -m pytest -q -x tools/deterministic_qualification/tests/test_replay_run.py::test_ground_capture_uses_native_scene_transform",
+    "pytest_result": "1 failed in 4.62s",
+    "compiled_selftest_exit_code": 46,
+    "message": "ground update ignored the current collision domain",
+    "raw_log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\79d6fe28a98b33a875d352fa9f6ab454f9d3804562336e3630d3195f17141028.log",
+      "sha256": "79d6fe28a98b33a875d352fa9f6ab454f9d3804562336e3630d3195f17141028",
+      "bytes": 3638
+    },
+    "interpretation": "Production ValidateUpdate does not consult the new controlled collision_update edge. This tests boundary dispatch only, not real native collision isolation. The shell wrapper exited zero because its final command printed the log; the retained pytest and child result are red."
+  },
+  "source_retention": {
+    "manifest_sha256": "61eff721daf11ccb9a0b2a1343c579b4fd2d611cba29540a21e799ce017945e9",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\source-61eff721daf11ccb9a0b2a1343c579b4fd2d611cba29540a21e799ce017945e9.zip",
+    "archive_sha256": "8022d903d859738708ed44d716389916d3f18fbe7b0f4c9f1b5139294f9bbc78",
+    "files": 17281,
+    "uncompressed_bytes": 126868961,
+    "reconstructible": true
+  },
+  "files": {
+    "tools/replay_ground_capture_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c9d2a96fed36069a9d50a154aad4a7bf425305e1b9276e180fe3a209e51a8757.cpp",
+      "sha256": "c9d2a96fed36069a9d50a154aad4a7bf425305e1b9276e180fe3a209e51a8757",
+      "bytes": 30404
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayHost.GroundDebris.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\3a69989c8584197dcdec91ee5f80e2217e60f6721c817591fc97e70b43b9505e.inl",
+      "sha256": "3a69989c8584197dcdec91ee5f80e2217e60f6721c817591fc97e70b43b9505e",
+      "bytes": 95382
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayGroundDebrisState.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6d8eac958281600b8321d65f2d8fbfde1404bc56f3bda576471b30a05fa3e3fe.hpp",
+      "sha256": "6d8eac958281600b8321d65f2d8fbfde1404bc56f3bda576471b30a05fa3e3fe",
+      "bytes": 8587
+    },
+    "HorseMod/horselib/deterministic/ReplayPhysicsRemovalGuard.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\19d3a0a1e0539d8d5c847c3bb4b9161d8f90a830da2942af2eb8d1d231b404a9.hpp",
+      "sha256": "19d3a0a1e0539d8d5c847c3bb4b9161d8f90a830da2942af2eb8d1d231b404a9",
+      "bytes": 31695
+    },
+    "tools/deterministic_qualification/tests/test_replay_run.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1852aa0a518f413ef0eacddee2aa5b23795baccde467ee1765329c9a17aeb72b.py",
+      "sha256": "1852aa0a518f413ef0eacddee2aa5b23795baccde467ee1765329c9a17aeb72b",
+      "bytes": 501686
+    },
+    "docs/evidence/rollback-ground-reader-handover-followup-2026-09-22.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\10b81ec0ac55d2adb16a9ca2b63952d6523379f4eeae1abf5fe25ef71ddad947.json",
+      "sha256": "10b81ec0ac55d2adb16a9ca2b63952d6523379f4eeae1abf5fe25ef71ddad947",
+      "bytes": 25229
+    },
+    "docs/evidence/rollback-ground-component-reader-native-2026-09-22.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0ba0e6a5e2eab8eed12914112914650fdff2e785801ef133ce1531a304a1516a.json",
+      "sha256": "0ba0e6a5e2eab8eed12914112914650fdff2e785801ef133ce1531a304a1516a",
+      "bytes": 190994
+    },
+    "docs/evidence/rollback-ground-motion-probe-2026-09-22.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\eb6d8ed51574789bcb63181c7a9d5e47e177099bc1403dad0cba5e467450febb.json",
+      "sha256": "eb6d8ed51574789bcb63181c7a9d5e47e177099bc1403dad0cba5e467450febb",
+      "bytes": 22274
+    }
+  },
+  "process_state": {
+    "qualification_build_suite_game_active": false,
+    "steam_pid": 98544,
+    "steam_left_running": true,
+    "journal_state": "clean",
+    "last_journal_run": "replay-5f4c1ccf51a04199b17602bf09600a7b",
+    "last_recorded_game_pid": 34052,
+    "last_game_pid_absent": true,
+    "free_E_bytes": 18310303744
+  },
+  "journal": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0ddc4d7504ce0ef8c4b8fe33d813509b48db3c5443d09d8ccda545c85b1cfd3b.json",
+    "sha256": "0ddc4d7504ce0ef8c4b8fe33d813509b48db3c5443d09d8ccda545c85b1cfd3b",
+    "bytes": 4432
+  },
+  "handover": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8986c09864e1783248a89723216106d3e2a311fcd252e1c631b90c4caeca6c87.md",
+    "sha256": "8986c09864e1783248a89723216106d3e2a311fcd252e1c631b90c4caeca6c87",
+    "bytes": 20340
+  },
+  "continuation_prompt": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\aa6e688e36e14ea36be5e382a66b8f13dfca61627ec802e2b76865ec1f5f8101.md",
+    "sha256": "aa6e688e36e14ea36be5e382a66b8f13dfca61627ec802e2b76865ec1f5f8101",
+    "bytes": 3388
+  }
+}

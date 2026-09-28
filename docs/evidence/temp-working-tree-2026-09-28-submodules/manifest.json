@@ -1,0 +1,17 @@
+{
+  "purpose": "Preserve dirty submodule sources within one parent temporary checkpoint commit.",
+  "submodules": [
+    {
+      "path": "third_party/GekkoNet",
+      "base_commit": "f21698d85367c8d97585cf7610897316c873681c",
+      "patch": "GekkoNet.patch",
+      "sha256": "baab00cabef5905a4a47856ac3b7ee24b27d07bb0427a689d9e615e8fe7e5ec4"
+    },
+    {
+      "path": "tools/BlueprintToCpp",
+      "base_commit": "6b3fd8a175f1e164eb1bd1be6f766f48b980f7c0",
+      "patch": "BlueprintToCpp.patch",
+      "sha256": "9ef0007d63f733305c226f32f5422a20011bb188102b5543b96d029de6c2ac39"
+    }
+  ]
+}

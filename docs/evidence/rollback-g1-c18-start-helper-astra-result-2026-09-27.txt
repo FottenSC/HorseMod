@@ -1,0 +1,16 @@
+Implemented bounded C18 broadcast → Start → helper receipts through the existing hook owner. Records include pointers, parent/ordinal/thread, caller PC, packed FName, four float bits, return pairing, and sampled actor/provider links. Capacity is 64 calls, charged within existing memory reservations. Fail-closed restore/retirement guards remain intact.
+
+Changed exactly six files:
+
+- [NativeReplayMaterialTaskGuard.hpp](/E:/myMods/HorseMod/horselib/deterministic/NativeReplayMaterialTaskGuard.hpp)
+- [NativeReplayVfxCompletionObservation.hpp](/E:/myMods/HorseMod/horselib/deterministic/NativeReplayVfxCompletionObservation.hpp)
+- [NativeReplayVfxCompletionObservation.Collection18.inl](/E:/myMods/HorseMod/horselib/deterministic/NativeReplayVfxCompletionObservation.Collection18.inl)
+- [replay_control.py](/E:/myMods/tools/deterministic_qualification/replay_control.py)
+- [test_vfx_completion_observation.py](/E:/myMods/tools/deterministic_qualification/tests/test_vfx_completion_observation.py)
+- [replay_vfx_completion_observation_selftest.cpp](/E:/myMods/tools/replay_vfx_completion_observation_selftest.cpp)
+
+Validation: retained [RED](/E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/cb70fd1a83e64757de32b7fe2548499bb9ace6b1d464ce9059031523f64c6f56.log), then [42 focused passes](/E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/6b94ba495a59ddc93132a18ca950bf267287a7746c332119f76b5f42a90e37e3.log) and [105 adjacent passes](/E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/809997b91841ca53b1e7670c998ee96a46d47a00b31e3641143d7a6e824ebec6.log). Current files match the [retained source snapshot](/E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/source-archives/source-8478d7687b7479080418d14f4659255ad25fe5c7046684885edb2194b0b33f21.json).
+
+Explicitly unresolved: native tick, individual listener attribution, current component→actor membership, exact MID/slot writes, color source, and provider body. Root’s Ghidra evidence must resolve these; nesting and entry-snapshot matches do not establish ownership.
+
+No broad suite, project build, deployment, or live run performed. Unrelated work was preserved.

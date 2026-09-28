@@ -1,0 +1,76 @@
+{
+  "run_id": "paired-423b92628d4c4fbf889152879f866e01",
+  "result": "fail",
+  "failure": {
+    "cleanup_errors": [],
+    "message": "sandbox native online terminal failure during paired online polling: generation_mismatch",
+    "native_root": {
+      "cross_peer_ordering": "logger_timestamp",
+      "earliest_root_failure": {
+        "coordinator_phase": "active",
+        "frame": 362,
+        "generation": 1,
+        "lifecycle_phase": "owned",
+        "local_slot": 0,
+        "owned": true,
+        "peer": "sandbox",
+        "run_id": "paired-423b92628d4c4fbf889152879f866e01-sandbox",
+        "status": "generation_mismatch",
+        "timestamp": "2026-09-05 16:09:16.0876989"
+      },
+      "peer_root_failures": [
+        {
+          "coordinator_phase": "active",
+          "frame": 361,
+          "generation": 1,
+          "lifecycle_phase": "owned",
+          "local_slot": 1,
+          "owned": true,
+          "peer": "host",
+          "run_id": "paired-423b92628d4c4fbf889152879f866e01-host",
+          "status": "peer_disconnected",
+          "timestamp": "2026-09-05 16:09:16.0892122"
+        },
+        {
+          "coordinator_phase": "active",
+          "frame": 362,
+          "generation": 1,
+          "lifecycle_phase": "owned",
+          "local_slot": 0,
+          "owned": true,
+          "peer": "sandbox",
+          "run_id": "paired-423b92628d4c4fbf889152879f866e01-sandbox",
+          "status": "generation_mismatch",
+          "timestamp": "2026-09-05 16:09:16.0876989"
+        }
+      ],
+      "responsible_peer": "sandbox"
+    },
+    "type": "NativeOnlineTerminal"
+  },
+  "cleanup": {
+    "deployment_restored": true,
+    "diagnostic_flags_false": true,
+    "emergency_cleanup_used": false,
+    "game_processes_remaining": 0,
+    "graceful_process_teardown": true,
+    "requests_disarmed": true
+  },
+  "runtime_dll_sha256": "a8ebeb0e893f9c4327ba3ec1e2c25c78397a5c81c24a7d3c05710be66d7d5f26",
+  "snapshot_schema": 55,
+  "report_sha256": "05ab30c222b0fc4dd982cd202d11c53361d75700f44279bb61bcecd0409e3cfe",
+  "raw_logs": [
+    {
+      "path": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\online-scheduler-binding\\raw\\paired-423b92628d4c4fbf889152879f866e01-cycle-001-host.log",
+      "sha256": "d6ad5e920c729d411964c8c9999820012c510c5a266a2d9c8669b0fa5acfd0dd",
+      "first_boundary_lines": []
+    },
+    {
+      "path": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\online-scheduler-binding\\raw\\paired-423b92628d4c4fbf889152879f866e01-cycle-001-sandbox.log",
+      "sha256": "3e8e18a27184dbad2ea5c552d9f5e01da57c77304c90c32deb6b98e76f6b6ef7",
+      "first_boundary_lines": [
+        "[2026-09-05 16:09:16.0830742] [HorseMod] online qualification run_id=paired-423b92628d4c4fbf889152879f866e01-sandbox owned_frame_coordinate_mismatch observed=1:362 expected=1:361 next_gekko_frame=238"
+      ]
+    }
+  ]
+}

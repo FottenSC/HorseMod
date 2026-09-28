@@ -1,0 +1,17 @@
+{
+  "result": "expected RED",
+  "scope": "Actual production PumpOne and DispatchTask execute native fastfail; durable failure file missing",
+  "log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\2ced01818056e237fdd424ce67ed69ef2de9549dbbc9c0a4763b2907d8126eca.json",
+    "sha256": "2ced01818056e237fdd424ce67ed69ef2de9549dbbc9c0a4763b2907d8126eca",
+    "bytes": 4566
+  },
+  "source_retention": {
+    "manifest_sha256": "00dcb79bed2363b446d7111bb61182de3e70cc3890d13874d0ac99ba1dd6566c",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-00dcb79bed2363b446d7111bb61182de3e70cc3890d13874d0ac99ba1dd6566c.zip",
+    "archive_sha256": "222ac84b04159ba57827d59f4b6f273e621dcb2413d9d0067f4ceae6ea2b3869",
+    "files": 16600,
+    "uncompressed_bytes": 92747574,
+    "reconstructible": true
+  }
+}

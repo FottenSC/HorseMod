@@ -1,0 +1,20 @@
+{
+  "candidate_report": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\rewrite-trajectory-seek.json",
+  "fresh_samples": 10,
+  "identities": {
+    "game_executable": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553",
+    "generated_schema": "e5e7a06f0067099587628d56f62a0bb184da966e56fb027890cc5d13996b90fd",
+    "horsemod_dll": "21e472c35d9b42be37bb1d2fee0d944702fd9819d0aaa47b7c8520c164c42a20",
+    "replay": "95e12e394d35c13d5e0dd3dce692f9e0a4022e2a84205a9ec75f2fa6726d7879",
+    "replay_qualification_mod": "4bd51c9b2c188949bc3fd4989b38f7fa6b00dfd7599b63eae38a801f534ff545"
+  },
+  "limitations": "Does not establish full-frame or independent stock replay fidelity.",
+  "reference_report": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\rewrite-uninterrupted-reference.json",
+  "result": "pass",
+  "samples_compared": 21,
+  "scope": "sampled_seek_neutrality",
+  "source_frontier": [
+    0,
+    721
+  ]
+}

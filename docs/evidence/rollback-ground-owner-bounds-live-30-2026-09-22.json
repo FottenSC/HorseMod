@@ -1,0 +1,91 @@
+{
+  "result": "pass",
+  "continuation_ticks": 120,
+  "native_callbacks_compared": 2300,
+  "acceptance_results": {
+    "observer_validity": "pass",
+    "simulation": "pass"
+  },
+  "retained_evidence": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\a35ddf615fa908eafebd6d10173bc0ef4bd4e36fe97e978449edc76269a5731e.json",
+    "sha256": "a35ddf615fa908eafebd6d10173bc0ef4bd4e36fe97e978449edc76269a5731e",
+    "bytes": 57879,
+    "summary": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\a13c569a0f07bc263e788d94836f13f03aca31a2687772e7134d1bce793c3d53.md",
+      "sha256": "a13c569a0f07bc263e788d94836f13f03aca31a2687772e7134d1bce793c3d53",
+      "bytes": 518
+    }
+  },
+  "build_identities": {
+    "runtime": "136569ccf72ade46df7aa260e439fae5e538d97254dd633633fb873206b073c4",
+    "observer": "9fc1cbe0beaf947293bab4f0a0dc82f87df4aedb17008236787ca5f1ab78d007",
+    "framework": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6"
+  },
+  "independent_controls": {
+    "0": {
+      "run_id": "replay-23561409cef64f76bc1f0d8b1b238468",
+      "reuse": {
+        "reason": "exact control-side identities, setup, protocol and coverage",
+        "key": "c27cf9aec6aa4d485a497a9778d1af4e398c2eae35e42cebeae75353a5aef922"
+      }
+    },
+    "1": {
+      "run_id": "replay-8a02eb09747a47a584c6b1679810abc7",
+      "reuse": {
+        "reason": "exact control-side identities, setup, protocol and coverage",
+        "key": "5d53813649f31ff0b1012074882254f2fdbcbd9b83be1d4e2654e8e2aeb3b105"
+      }
+    },
+    "2": {
+      "run_id": "replay-946521f6d53e4d228c71f177beabc5a5",
+      "reuse": {
+        "reason": "exact control-side identities, setup, protocol and coverage",
+        "key": "7632d07a0d9a5a9ec61574a5d87d120f81c3bde1a655ac0c8bbe5ae1b2f491cf"
+      }
+    },
+    "3": {
+      "run_id": "replay-2a14651fa98343ae957c7ed29663ee16",
+      "reuse": {
+        "reason": "exact control-side identities, setup, protocol and coverage",
+        "key": "732516f562076839133cec54200265e7c72cb572b33944c8ccaeec94748c6dea"
+      }
+    }
+  },
+  "candidate": {
+    "result": "pass",
+    "cycles": 30,
+    "first_T": 217,
+    "last_T": 246,
+    "resimulated_ticks": 210,
+    "peak_bytes": 906368544,
+    "scope": "native transaction receipts; independent comparison required"
+  },
+  "stage_receipt": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c7f6ced1f5d0636ceeddeb1d5f66df882a7add7e8f72e2aad8be1e33a18582fc.json",
+    "sha256": "c7f6ced1f5d0636ceeddeb1d5f66df882a7add7e8f72e2aad8be1e33a18582fc",
+    "bytes": 38413
+  },
+  "console": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\78bd52470f02a39cdd6d1cd5a7cfaf0e60b3c362846f8805c545af52efeda1e5.log",
+    "sha256": "78bd52470f02a39cdd6d1cd5a7cfaf0e60b3c362846f8805c545af52efeda1e5",
+    "bytes": 663
+  },
+  "cost_summary_us": {
+    "capture_us": {
+      "median": 82383.0,
+      "p95": 94600,
+      "max": 109822
+    },
+    "correction_us": {
+      "median": 300279.5,
+      "p95": 1064234,
+      "max": 1086541
+    },
+    "preceding_forward_us": {
+      "median": 30045.5,
+      "p95": 33262,
+      "max": 33983
+    }
+  },
+  "scope": "Affected30 startup-serial passed, including120 independent continuation. Complete local readiness remains open; this profile does not reach A617->C624. Cleanup complete/games0 verified at18:56 CEST; Steam untouched."
+}

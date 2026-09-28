@@ -1,0 +1,34 @@
+{
+  "result": "PASS 17 focused tests",
+  "scope": "Local production-boundary dispatch, prerequisite admission, native Call before/after under SRW lock, concurrent crash writer, and raw collector. No live ownership/recovery proof.",
+  "log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4f978b35c8b9d0ce0cca5970c4cb0a7398f7f7ba37be1393e1ea08c524983db7.json",
+    "sha256": "4f978b35c8b9d0ce0cca5970c4cb0a7398f7f7ba37be1393e1ea08c524983db7",
+    "bytes": 112
+  },
+  "source_retention": {
+    "manifest_sha256": "004191ce26a8d011f4c3273c8ab7df2d28edb019aa5b1c8b0046342400b29334",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-004191ce26a8d011f4c3273c8ab7df2d28edb019aa5b1c8b0046342400b29334.zip",
+    "archive_sha256": "ea6fc9f1db0aa22748bdf272c2fc4e6b533ee6d8a2dc82ad51efa30ab79f9545",
+    "files": 16601,
+    "uncompressed_bytes": 92769764,
+    "reconstructible": true
+  },
+  "sites": {
+    "1": "DispatchAdmission generic hook Reject",
+    "2": "ComponentConsumer; reason 1 null owner, 2 invalid/excluded table, 3 null dispatch, 4 Niagara dispatch, 5 read fault",
+    "3": "PrerequisiteAdmission; reason 1 root unarmed, 2 root wrong thread, 3 root predicate, 4 mesh unarmed, 5 Observe, 6 ReadTask, 7 dequeued task mismatch, 8 protocol rejection",
+    "4": "QueueScope; reason 1 thread, 2 active native consumer, 3 depth, 4 enter/exit mismatch",
+    "5": "NativeBefore; native_site is index of installed entry",
+    "6": "NativeAfter; native_started=1",
+    "7": "NativeHeld rejection at owned entry",
+    "8": "ObservedCompletion invariant"
+  },
+  "root_operands": "For site3 reason3, operands0=root check (1..5 indexed component/manager/chara/scene/world; 6..9 class tables; 10..16 links; 17 callback+460; 18 read fault), operands1=expected, operands2=actual.",
+  "protocol_operands": "For site3 mesh reasons, operands0=third argument, 1=armed, 2=pop, 3=expected edge count, 4=observed edge count, 5=contract equality, 6=admitted stamp, 7=queued stamp, 8=dependencies, 9=event head, 10=flags, 11=enabled, 12=constructed, 13=desired thread, 14=payload thread, 15=queued_on_gt predicate.",
+  "limitations": [
+    "Diagnostic native_tick is last published executor completed tick; UINT64_MAX means unavailable. Epoch may be zero at generic sites without a captured value.",
+    "No build or native game retry executed by code agent. Guards and terminal disposition remain unchanged.",
+    "File writes are synchronous and flushed; IO failure remains terminal and may leave only bounded raw bytes."
+  ]
+}

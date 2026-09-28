@@ -1,0 +1,1595 @@
+{
+  "artifacts": {
+    "armed_config_sha256": "8dc51120f7871e02848ff86e1e2fffc7a778cdee4366275c53a24fa83ce32579",
+    "bounded_log": {
+      "path": "E:\\myMods\\docs\\investigations\\evidence\\grouped-spaced-full-all-locations-silver-wolves.log",
+      "sha256": "622db7209ee7195d38027c856c74c7acdf2a7fc20e5174ed3abb3897a56b2f53",
+      "size": 12732
+    },
+    "capture_harness_sha256": "edf3609136213d479f7ba4dcafacd130d76d0a070f36fb0911a5a01e162e33c1",
+    "config": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\rollback.ini",
+      "sha256": "8dc51120f7871e02848ff86e1e2fffc7a778cdee4366275c53a24fa83ce32579"
+    },
+    "config_fields": {
+      "config_version": "1",
+      "correction_probe": "false",
+      "enabled": "false",
+      "forced_depth7_qualification": "false",
+      "input_delay": "1",
+      "qualification_depth": "7",
+      "qualification_location": "2",
+      "rollback_window": "12",
+      "trace": "true"
+    },
+    "game_executable": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\SoulcaliburVI.exe",
+      "sha256": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553"
+    },
+    "horsemod_dll_sha256": "51f57906673ae8aefe5a6327797536ca4c70a833d84bc23ea6799cdd6dc23901",
+    "replay": {
+      "path": "E:\\myMods\\ReplayExample\\REPLAY_10224262924037108963.bin",
+      "sha256": "c30f1368c918188c87127db1411aa5466d1b39d91e60ca0d658a0da79b5e3a41"
+    },
+    "replay_qualification_mod": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\ReplayQualificationMod.dll",
+      "sha256": "6f0db1e2df73a6b85ad22187d646e78dee9a67d277f529f2f2059f06e824745e"
+    },
+    "runner_sha256": "61df9ddff42d9f491953a5e38a0c06ab2c4b723bc52c46b963416595d8932c61",
+    "schema_sha256": "8262be45a992275fce6586ca33cf5deaf2910b18c2fecc84205b3e5fbd55594b"
+  },
+  "case_id": "astaroth-raphael-silver-wolves-haven",
+  "certifying": false,
+  "cleanup": {
+    "config_disarmed": true,
+    "process_absent": true,
+    "temporary_mod_removed": true
+  },
+  "created_utc": "2026-09-01T21:36:30.179129+00:00",
+  "cycles": [
+    {
+      "anchor_hash": 17828934036591157272,
+      "anchors": "40/40",
+      "capacity_growth": 0,
+      "capture_max_us": 447,
+      "capture_p99_us": 200,
+      "cleanup": {
+        "forced_bytes": 90624,
+        "ordinal": 3,
+        "owned_bytes": 298840496,
+        "pending": "0/0",
+        "run_id": "f5d838fa3a5c4f1badbf3e119ce64255",
+        "stale_mask": 0,
+        "timeline_bytes": 286337600
+      },
+      "completed": "600/600",
+      "cycle_max_us": 5654,
+      "cycle_p99_us": 4850,
+      "depth": 11,
+      "drift_ms": 0,
+      "duplicates": 0,
+      "elapsed_ms": 14562,
+      "failure": 0,
+      "failure_anchor": 0,
+      "failure_repeat": 0,
+      "forced_bytes": 8470666,
+      "frames": "1096-1682",
+      "generations": "1-1",
+      "location": 1,
+      "ordinal": 3,
+      "owned_bytes": "298840496->554486444",
+      "pending": "0/0",
+      "presentation_activity": "1631/1631/0",
+      "presentation_bytes": 5185536,
+      "private_bytes": 3461980160,
+      "publish_failures": 0,
+      "repeats": 15,
+      "replay_entry": 1,
+      "run_id": "f5d838fa3a5c4f1badbf3e119ce64255",
+      "scratch_bytes": 11596448,
+      "status": 3,
+      "terminal_coverage": 1,
+      "timeline_bytes": 529233794,
+      "transitions": 0,
+      "working_set_bytes": 2806145024
+    },
+    {
+      "anchor_hash": 17828934036591157272,
+      "anchors": "40/40",
+      "capacity_growth": 0,
+      "capture_max_us": 447,
+      "capture_p99_us": 200,
+      "cleanup": {
+        "forced_bytes": 90624,
+        "ordinal": 4,
+        "owned_bytes": 298840496,
+        "pending": "0/0",
+        "run_id": "a89aca9c5c5343ab9b800198e2724513",
+        "stale_mask": 0,
+        "timeline_bytes": 286337600
+      },
+      "completed": "600/600",
+      "cycle_max_us": 2786,
+      "cycle_p99_us": 2350,
+      "depth": 1,
+      "drift_ms": 0,
+      "duplicates": 0,
+      "elapsed_ms": 14562,
+      "failure": 0,
+      "failure_anchor": 0,
+      "failure_repeat": 0,
+      "forced_bytes": 8470666,
+      "frames": "1096-1682",
+      "generations": "1-1",
+      "location": 1,
+      "ordinal": 4,
+      "owned_bytes": "298840496->554486444",
+      "pending": "0/0",
+      "presentation_activity": "1631/1631/0",
+      "presentation_bytes": 5185536,
+      "private_bytes": 3461980160,
+      "publish_failures": 0,
+      "repeats": 15,
+      "replay_entry": 1,
+      "run_id": "a89aca9c5c5343ab9b800198e2724513",
+      "scratch_bytes": 11596448,
+      "status": 3,
+      "terminal_coverage": 1,
+      "timeline_bytes": 529233794,
+      "transitions": 0,
+      "working_set_bytes": 2806145024
+    },
+    {
+      "anchor_hash": 17828934036591157272,
+      "anchors": "40/40",
+      "capacity_growth": 0,
+      "capture_max_us": 447,
+      "capture_p99_us": 200,
+      "cleanup": {
+        "forced_bytes": 90624,
+        "ordinal": 5,
+        "owned_bytes": 298840496,
+        "pending": "0/0",
+        "run_id": "be72bb5eebbd4dd5a1fd359307cf0c1f",
+        "stale_mask": 0,
+        "timeline_bytes": 286337600
+      },
+      "completed": "600/600",
+      "cycle_max_us": 4132,
+      "cycle_p99_us": 3600,
+      "depth": 6,
+      "drift_ms": 0,
+      "duplicates": 0,
+      "elapsed_ms": 14562,
+      "failure": 0,
+      "failure_anchor": 0,
+      "failure_repeat": 0,
+      "forced_bytes": 8470666,
+      "frames": "1096-1682",
+      "generations": "1-1",
+      "location": 1,
+      "ordinal": 5,
+      "owned_bytes": "298840496->554486444",
+      "pending": "0/0",
+      "presentation_activity": "1631/1631/0",
+      "presentation_bytes": 5185536,
+      "private_bytes": 3461980160,
+      "publish_failures": 0,
+      "repeats": 15,
+      "replay_entry": 1,
+      "run_id": "be72bb5eebbd4dd5a1fd359307cf0c1f",
+      "scratch_bytes": 11596448,
+      "status": 3,
+      "terminal_coverage": 1,
+      "timeline_bytes": 529233794,
+      "transitions": 0,
+      "working_set_bytes": 2806145024
+    },
+    {
+      "anchor_hash": 7295794112016529515,
+      "anchors": "40/40",
+      "capacity_growth": 0,
+      "capture_max_us": 132,
+      "capture_p99_us": 140,
+      "cleanup": {
+        "forced_bytes": 90624,
+        "ordinal": 6,
+        "owned_bytes": 298840496,
+        "pending": "0/0",
+        "run_id": "8e9ecac9cf854e5a942ed65bc5a48f33",
+        "stale_mask": 0,
+        "timeline_bytes": 286337600
+      },
+      "completed": "600/600",
+      "cycle_max_us": 5715,
+      "cycle_p99_us": 5100,
+      "depth": 11,
+      "drift_ms": 1750,
+      "duplicates": 0,
+      "elapsed_ms": 16312,
+      "failure": 0,
+      "failure_anchor": 0,
+      "failure_repeat": 0,
+      "forced_bytes": 8463392,
+      "frames": "1695-2383",
+      "generations": "1-6",
+      "location": 2,
+      "ordinal": 6,
+      "owned_bytes": "298840496->554484272",
+      "pending": "0/0",
+      "presentation_activity": "1453/1376/77",
+      "presentation_bytes": 5185536,
+      "private_bytes": 3486806016,
+      "publish_failures": 0,
+      "repeats": 15,
+      "replay_entry": 1,
+      "run_id": "8e9ecac9cf854e5a942ed65bc5a48f33",
+      "scratch_bytes": 11594920,
+      "status": 3,
+      "terminal_coverage": 1,
+      "timeline_bytes": 529240424,
+      "transitions": 2,
+      "working_set_bytes": 2830278656
+    },
+    {
+      "anchor_hash": 7295794112016529515,
+      "anchors": "40/40",
+      "capacity_growth": 0,
+      "capture_max_us": 132,
+      "capture_p99_us": 140,
+      "cleanup": {
+        "forced_bytes": 90624,
+        "ordinal": 7,
+        "owned_bytes": 298840496,
+        "pending": "0/0",
+        "run_id": "9c22a61fc4a745bdba6ded2a507b071c",
+        "stale_mask": 0,
+        "timeline_bytes": 286337600
+      },
+      "completed": "600/600",
+      "cycle_max_us": 2837,
+      "cycle_p99_us": 2450,
+      "depth": 1,
+      "drift_ms": 1750,
+      "duplicates": 0,
+      "elapsed_ms": 16312,
+      "failure": 0,
+      "failure_anchor": 0,
+      "failure_repeat": 0,
+      "forced_bytes": 8463392,
+      "frames": "1695-2383",
+      "generations": "1-6",
+      "location": 2,
+      "ordinal": 7,
+      "owned_bytes": "298840496->554484272",
+      "pending": "0/0",
+      "presentation_activity": "1453/1376/77",
+      "presentation_bytes": 5185536,
+      "private_bytes": 3486806016,
+      "publish_failures": 0,
+      "repeats": 15,
+      "replay_entry": 1,
+      "run_id": "9c22a61fc4a745bdba6ded2a507b071c",
+      "scratch_bytes": 11594920,
+      "status": 3,
+      "terminal_coverage": 1,
+      "timeline_bytes": 529240424,
+      "transitions": 2,
+      "working_set_bytes": 2830278656
+    },
+    {
+      "anchor_hash": 7295794112016529515,
+      "anchors": "40/40",
+      "capacity_growth": 0,
+      "capture_max_us": 132,
+      "capture_p99_us": 140,
+      "cleanup": {
+        "forced_bytes": 90624,
+        "ordinal": 8,
+        "owned_bytes": 298840496,
+        "pending": "0/0",
+        "run_id": "37a0099470f5454bb7f9b49b63cc1287",
+        "stale_mask": 0,
+        "timeline_bytes": 286337600
+      },
+      "completed": "600/600",
+      "cycle_max_us": 5201,
+      "cycle_p99_us": 3900,
+      "depth": 6,
+      "drift_ms": 1750,
+      "duplicates": 0,
+      "elapsed_ms": 16312,
+      "failure": 0,
+      "failure_anchor": 0,
+      "failure_repeat": 0,
+      "forced_bytes": 8463392,
+      "frames": "1695-2383",
+      "generations": "1-6",
+      "location": 2,
+      "ordinal": 8,
+      "owned_bytes": "298840496->554484272",
+      "pending": "0/0",
+      "presentation_activity": "1453/1376/77",
+      "presentation_bytes": 5185536,
+      "private_bytes": 3486806016,
+      "publish_failures": 0,
+      "repeats": 15,
+      "replay_entry": 1,
+      "run_id": "37a0099470f5454bb7f9b49b63cc1287",
+      "scratch_bytes": 11594920,
+      "status": 3,
+      "terminal_coverage": 1,
+      "timeline_bytes": 529240424,
+      "transitions": 2,
+      "working_set_bytes": 2830278656
+    },
+    {
+      "anchor_hash": 4807460778733128585,
+      "anchors": "40/40",
+      "capacity_growth": 0,
+      "capture_max_us": 401,
+      "capture_p99_us": 180,
+      "cleanup": {
+        "forced_bytes": 90624,
+        "ordinal": 9,
+        "owned_bytes": 298840496,
+        "pending": "0/0",
+        "run_id": "87b77b8084bf41afbae9252250c958b9",
+        "stale_mask": 0,
+        "timeline_bytes": 286337600
+      },
+      "completed": "600/600",
+      "cycle_max_us": 6027,
+      "cycle_p99_us": 5550,
+      "depth": 11,
+      "drift_ms": 172,
+      "duplicates": 0,
+      "elapsed_ms": 14734,
+      "failure": 0,
+      "failure_anchor": 0,
+      "failure_repeat": 0,
+      "forced_bytes": 8467774,
+      "frames": "3289-3875",
+      "generations": "2-2",
+      "location": 3,
+      "ordinal": 9,
+      "owned_bytes": "298840496->554401901",
+      "pending": "0/0",
+      "presentation_activity": "3424/3424/0",
+      "presentation_bytes": 5185536,
+      "private_bytes": 3529355264,
+      "publish_failures": 0,
+      "repeats": 15,
+      "replay_entry": 1,
+      "run_id": "87b77b8084bf41afbae9252250c958b9",
+      "scratch_bytes": 11595122,
+      "status": 3,
+      "terminal_coverage": 1,
+      "timeline_bytes": 529153469,
+      "transitions": 0,
+      "working_set_bytes": 2905710592
+    },
+    {
+      "anchor_hash": 4807460778733128585,
+      "anchors": "40/40",
+      "capacity_growth": 0,
+      "capture_max_us": 401,
+      "capture_p99_us": 180,
+      "cleanup": {
+        "forced_bytes": 90624,
+        "ordinal": 10,
+        "owned_bytes": 298840496,
+        "pending": "0/0",
+        "run_id": "6d407e42e9624dc28e07c933c7327540",
+        "stale_mask": 0,
+        "timeline_bytes": 286337600
+      },
+      "completed": "600/600",
+      "cycle_max_us": 3981,
+      "cycle_p99_us": 2650,
+      "depth": 1,
+      "drift_ms": 172,
+      "duplicates": 0,
+      "elapsed_ms": 14734,
+      "failure": 0,
+      "failure_anchor": 0,
+      "failure_repeat": 0,
+      "forced_bytes": 8467774,
+      "frames": "3289-3875",
+      "generations": "2-2",
+      "location": 3,
+      "ordinal": 10,
+      "owned_bytes": "298840496->554401901",
+      "pending": "0/0",
+      "presentation_activity": "3424/3424/0",
+      "presentation_bytes": 5185536,
+      "private_bytes": 3529355264,
+      "publish_failures": 0,
+      "repeats": 15,
+      "replay_entry": 1,
+      "run_id": "6d407e42e9624dc28e07c933c7327540",
+      "scratch_bytes": 11595122,
+      "status": 3,
+      "terminal_coverage": 1,
+      "timeline_bytes": 529153469,
+      "transitions": 0,
+      "working_set_bytes": 2905710592
+    },
+    {
+      "anchor_hash": 4807460778733128585,
+      "anchors": "40/40",
+      "capacity_growth": 0,
+      "capture_max_us": 401,
+      "capture_p99_us": 180,
+      "cleanup": {
+        "forced_bytes": 90624,
+        "ordinal": 11,
+        "owned_bytes": 298840496,
+        "pending": "0/0",
+        "run_id": "25a2022722d5479882794905ec5c5ac2",
+        "stale_mask": 0,
+        "timeline_bytes": 286337600
+      },
+      "completed": "600/600",
+      "cycle_max_us": 7152,
+      "cycle_p99_us": 4000,
+      "depth": 6,
+      "drift_ms": 172,
+      "duplicates": 0,
+      "elapsed_ms": 14734,
+      "failure": 0,
+      "failure_anchor": 0,
+      "failure_repeat": 0,
+      "forced_bytes": 8467774,
+      "frames": "3289-3875",
+      "generations": "2-2",
+      "location": 3,
+      "ordinal": 11,
+      "owned_bytes": "298840496->554401901",
+      "pending": "0/0",
+      "presentation_activity": "3424/3424/0",
+      "presentation_bytes": 5185536,
+      "private_bytes": 3529355264,
+      "publish_failures": 0,
+      "repeats": 15,
+      "replay_entry": 1,
+      "run_id": "25a2022722d5479882794905ec5c5ac2",
+      "scratch_bytes": 11595122,
+      "status": 3,
+      "terminal_coverage": 1,
+      "timeline_bytes": 529153469,
+      "transitions": 0,
+      "working_set_bytes": 2905710592
+    },
+    {
+      "anchor_hash": 634948853082332535,
+      "anchors": "40/40",
+      "capacity_growth": 0,
+      "capture_max_us": 283,
+      "capture_p99_us": 200,
+      "cleanup": {
+        "forced_bytes": 90624,
+        "ordinal": 12,
+        "owned_bytes": 298840496,
+        "pending": "0/0",
+        "run_id": "3143a1ff47ad4fdd8288bbe7d81273b4",
+        "stale_mask": 0,
+        "timeline_bytes": 286337600
+      },
+      "completed": "600/600",
+      "cycle_max_us": 6081,
+      "cycle_p99_us": 5250,
+      "depth": 11,
+      "drift_ms": 719,
+      "duplicates": 0,
+      "elapsed_ms": 15281,
+      "failure": 0,
+      "failure_anchor": 0,
+      "failure_repeat": 0,
+      "forced_bytes": 8467572,
+      "frames": "4844-5445",
+      "generations": "2-4",
+      "location": 4,
+      "ordinal": 12,
+      "owned_bytes": "298840496->554569421",
+      "pending": "0/0",
+      "presentation_activity": "2647/2641/6",
+      "presentation_bytes": 5185536,
+      "private_bytes": 3491389440,
+      "publish_failures": 0,
+      "repeats": 15,
+      "replay_entry": 1,
+      "run_id": "3143a1ff47ad4fdd8288bbe7d81273b4",
+      "scratch_bytes": 11595564,
+      "status": 3,
+      "terminal_coverage": 1,
+      "timeline_bytes": 529320749,
+      "transitions": 2,
+      "working_set_bytes": 2852413440
+    },
+    {
+      "anchor_hash": 634948853082332535,
+      "anchors": "40/40",
+      "capacity_growth": 0,
+      "capture_max_us": 283,
+      "capture_p99_us": 200,
+      "cleanup": {
+        "forced_bytes": 90624,
+        "ordinal": 13,
+        "owned_bytes": 298840496,
+        "pending": "0/0",
+        "run_id": "9f670d0de925481da2d4997fc9ba7f3b",
+        "stale_mask": 0,
+        "timeline_bytes": 286337600
+      },
+      "completed": "600/600",
+      "cycle_max_us": 3497,
+      "cycle_p99_us": 2750,
+      "depth": 1,
+      "drift_ms": 719,
+      "duplicates": 0,
+      "elapsed_ms": 15281,
+      "failure": 0,
+      "failure_anchor": 0,
+      "failure_repeat": 0,
+      "forced_bytes": 8467572,
+      "frames": "4844-5445",
+      "generations": "2-4",
+      "location": 4,
+      "ordinal": 13,
+      "owned_bytes": "298840496->554569421",
+      "pending": "0/0",
+      "presentation_activity": "2647/2641/6",
+      "presentation_bytes": 5185536,
+      "private_bytes": 3491389440,
+      "publish_failures": 0,
+      "repeats": 15,
+      "replay_entry": 1,
+      "run_id": "9f670d0de925481da2d4997fc9ba7f3b",
+      "scratch_bytes": 11595564,
+      "status": 3,
+      "terminal_coverage": 1,
+      "timeline_bytes": 529320749,
+      "transitions": 2,
+      "working_set_bytes": 2852413440
+    },
+    {
+      "anchor_hash": 634948853082332535,
+      "anchors": "40/40",
+      "capacity_growth": 0,
+      "capture_max_us": 283,
+      "capture_p99_us": 200,
+      "cleanup": {
+        "forced_bytes": 90624,
+        "ordinal": 14,
+        "owned_bytes": 298840496,
+        "pending": "0/0",
+        "run_id": "7b546cfdd3a046bcaa7da341eca4e017",
+        "stale_mask": 0,
+        "timeline_bytes": 286337600
+      },
+      "completed": "600/600",
+      "cycle_max_us": 4402,
+      "cycle_p99_us": 4050,
+      "depth": 6,
+      "drift_ms": 719,
+      "duplicates": 0,
+      "elapsed_ms": 15281,
+      "failure": 0,
+      "failure_anchor": 0,
+      "failure_repeat": 0,
+      "forced_bytes": 8467572,
+      "frames": "4844-5445",
+      "generations": "2-4",
+      "location": 4,
+      "ordinal": 14,
+      "owned_bytes": "298840496->554569421",
+      "pending": "0/0",
+      "presentation_activity": "2647/2641/6",
+      "presentation_bytes": 5185536,
+      "private_bytes": 3491389440,
+      "publish_failures": 0,
+      "repeats": 15,
+      "replay_entry": 1,
+      "run_id": "7b546cfdd3a046bcaa7da341eca4e017",
+      "scratch_bytes": 11595564,
+      "status": 3,
+      "terminal_coverage": 1,
+      "timeline_bytes": 529320749,
+      "transitions": 2,
+      "working_set_bytes": 2852413440
+    }
+  ],
+  "depth_order": [
+    11,
+    1,
+    6,
+    11,
+    1,
+    6,
+    11,
+    1,
+    6,
+    11,
+    1,
+    6
+  ],
+  "display_map_name": "Silver Wolves' Haven",
+  "kind": "persistent_replay_qualification_campaign",
+  "parent_run_ids": [
+    "b02b856f4582484588f5984e38d7aced"
+  ],
+  "qualification_anchors": 40,
+  "qualification_repeats_per_anchor": 15,
+  "renderer": "normal",
+  "report_schema": 2,
+  "result": "pass",
+  "runtime": {
+    "active_battle_tick_rate": 60.401,
+    "native_left_character": 12,
+    "native_map": 17,
+    "native_right_character": 14,
+    "native_stage": 273,
+    "normal_render_tick_rate": 60.403,
+    "process_launches": 1,
+    "process_restarts": 0,
+    "replay_entries": 1
+  },
+  "source": {
+    "build": {
+      "build_command": "cmake --build E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64 --config Shipping -j 4",
+      "cmake": "cmake version 4.3.1",
+      "compiler": {
+        "cmake_cxx_compiler": "E:/ProgramFiles/vsStudioCommunity/VC/Tools/MSVC/14.50.35717/bin/Hostx64/x64/cl.exe",
+        "cmake_generator": "Ninja",
+        "cmake_generator_platform": ""
+      },
+      "compiler_artifact": {
+        "banner": "usage: cl [ option... ] filename... [ /link linkoption... ]",
+        "path": "E:\\ProgramFiles\\vsStudioCommunity\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+        "sha256": "194ddf4aafcb74452218a982309a97de30e0adb33edf4af02904ee107213e782",
+        "size": 682568
+      },
+      "configure_command": "cmake -S E:\\myMods -B E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64"
+    },
+    "commit": "b6a623b14d799f11f8d7872648362b78f4608bb5",
+    "deterministic_binary_patch": "diff --git a/HorseMod/HorseModService.PublicApiAndLifetime.inl b/HorseMod/HorseModService.PublicApiAndLifetime.inl\nindex 9f289bc4..75a231ff 100644\n--- a/HorseMod/HorseModService.PublicApiAndLifetime.inl\n+++ b/HorseMod/HorseModService.PublicApiAndLifetime.inl\n@@ -74,6 +74,106 @@ public:\n         return false;\n     }\n #endif\n+\n+    bool ArmReplayQualificationGroup(std::string_view run_id,\n+        std::uint32_t location, std::uint32_t anchors,\n+        std::uint32_t repeats_per_anchor) noexcept\n+    {\n+        std::uint64_t rejection_mask{};\n+        if (run_id.empty() || run_id.size() > 96\n+            || std::any_of(run_id.begin(), run_id.end(), [](char value) {\n+                return !(std::isalnum(static_cast<unsigned char>(value))\n+                    || value == '-' || value == '_' || value == '.');\n+            })) rejection_mask |= 1ull << 0;\n+        if (location < 1 || location > 4) rejection_mask |= 1ull << 1;\n+        if (anchors == 0 || anchors > 40\n+            || repeats_per_anchor == 0 || repeats_per_anchor > 15)\n+            rejection_mask |= 1ull << 2;\n+        if (m_forced_qualification_run_id_count\n+            >= m_forced_qualification_run_ids.size()) rejection_mask |= 1ull << 3;\n+        if (m_deterministic_config.enabled || !m_deterministic_config.trace\n+            || m_deterministic_config.correction_probe\n+            || m_deterministic_config.forced_depth7_qualification)\n+            rejection_mask |= 1ull << 4;\n+        if (!m_deterministic_hooks.installed()) rejection_mask |= 1ull << 5;\n+        if (!m_replay_identity_active.load(std::memory_order_acquire))\n+            rejection_mask |= 1ull << 6;\n+        const auto& previous = m_forced_correction_qualification;\n+        if (previous.lifecycle != 0\n+            && (previous.lifecycle != 5 || !previous.cleanup_verified))\n+            rejection_mask |= 1ull << 7;\n+        for (std::size_t index = 0;\n+             index < m_forced_qualification_run_id_count; ++index)\n+            if (run_id == m_forced_qualification_run_ids[index].data())\n+                rejection_mask |= 1ull << 8;\n+        if (rejection_mask != 0)\n+        {\n+            Output::send<LogLevel::Warning>(STR(\n+                \"[HorseMod] qualification group arm rejected run_id={} \"\n+                \"location={} anchors={} repeats={} rejection_mask=0x{:x}\\n\"),\n+                RC::to_generic_string(std::string(run_id)), location,\n+                anchors, repeats_per_anchor, rejection_mask);\n+            return false;\n+        }\n+\n+        invalidate_stage_break_presentation_identity();\n+        m_deterministic_hooks.InvalidateBattleAudioPresentationIdentity();\n+        std::uint64_t stale_state_mask{};\n+        const auto reset = m_replay_native_runtime.ResetQualificationCycle(\n+            stale_state_mask);\n+        const auto rng_release = m_ucrt_rand_broker.ReleaseOwnership(\n+            ::GetCurrentThreadId());\n+        if (!m_deterministic_hooks.QualificationPresentationIdentityClear())\n+            stale_state_mask |= 1ull << 17;\n+        if (!rng_release.ok()\n+            || m_ucrt_rand_broker.mode()\n+                != Horse::Deterministic::UcrtRandBrokerMode::Observing)\n+            stale_state_mask |= 1ull << 19;\n+        if (!reset.ok() || stale_state_mask != 0) return false;\n+\n+        m_frame_fencepost_failure.store(\n+            Horse::Deterministic::FailureCode::None,\n+            std::memory_order_release);\n+        m_frame_fencepost_failure_logged = false;\n+        auto& remembered = m_forced_qualification_run_ids[\n+            m_forced_qualification_run_id_count++];\n+        std::copy(run_id.begin(), run_id.end(), remembered.begin());\n+        remembered[run_id.size()] = '\\0';\n+\n+        m_forced_correction_qualification = {};\n+        auto& qualification = m_forced_correction_qualification;\n+        std::copy(run_id.begin(), run_id.end(), qualification.run_id.begin());\n+        qualification.run_id[run_id.size()] = '\\0';\n+        qualification.depth = kGroupedQualificationDepths.front();\n+        qualification.location = location;\n+        qualification.cycle_ordinal = ++m_forced_qualification_cycle_ordinal;\n+        qualification.lifecycle = 1;\n+        qualification.runtime_armed = true;\n+        qualification.grouped = true;\n+        qualification.grouped_anchor_target = anchors;\n+        qualification.grouped_repeats_per_anchor = repeats_per_anchor;\n+        qualification.grouped_anchor_sequence_hash.fill(\n+            1469598103934665603ull);\n+        qualification.storage_begin =\n+            m_replay_native_runtime.owned_storage_status();\n+        m_replay_native_runtime.SetForcedDepth7QualificationEnabled(true);\n+        const auto presentation =\n+            m_replay_native_runtime.EnablePresentationOwnership();\n+        if (!presentation.ok())\n+        {\n+            qualification.failure = presentation.code;\n+            qualification.lifecycle = 4;\n+            qualification.reported = true;\n+            return false;\n+        }\n+        Output::send<LogLevel::Default>(STR(\n+            \"[HorseMod] qualification group armed run_id={} ordinal={} \"\n+            \"location={} anchors={} repeats={} depths=11,1,6\\n\"),\n+            RC::to_generic_string(std::string(run_id)),\n+            qualification.cycle_ordinal, location, anchors,\n+            repeats_per_anchor);\n+        return true;\n+    }\n #if HORSE_ENABLE_OBSERVER_PROBE\n     bool ArmOnlineObserverProbe(\n         const Horse::Deterministic::OnlineObserverProbeRequest& request) noexcept\n@@ -340,6 +440,77 @@ public:\n         return externally_failed ? 4 : q.lifecycle;\n     }\n \n+    std::uint32_t GetReplayQualificationGroupRowReport(\n+        std::string_view run_id, std::uint32_t row_index,\n+        std::uint64_t* values, std::size_t count) const noexcept\n+    {\n+        if (values == nullptr || count < 50 || row_index >= 3\n+            || run_id.empty()\n+            || run_id != m_forced_correction_qualification.run_id.data())\n+            return 0;\n+        const auto& q = m_forced_correction_qualification;\n+        if (!q.grouped) return 0;\n+        const auto latched_failure = m_frame_fencepost_failure.load(\n+            std::memory_order_acquire);\n+        const bool externally_failed = (q.lifecycle == 1 || q.lifecycle == 2)\n+            && latched_failure != Horse::Deterministic::FailureCode::None;\n+        const auto status = externally_failed ? 4u : q.lifecycle;\n+        const auto target = static_cast<std::uint64_t>(\n+            q.grouped_anchor_target) * q.grouped_repeats_per_anchor;\n+        values[0] = 1;\n+        values[1] = status;\n+        values[2] = kGroupedQualificationDepths[row_index];\n+        values[3] = q.location;\n+        values[4] = q.cycle_ordinal * 3 + row_index;\n+        values[5] = q.grouped_completed[row_index];\n+        values[6] = target;\n+        values[7] = static_cast<std::uint16_t>(externally_failed\n+            ? latched_failure : q.failure);\n+        values[8] = q.first_generation;\n+        values[9] = q.generation;\n+        values[10] = q.generation_transitions;\n+        values[11] = q.first_frame;\n+        values[12] = q.last_frame;\n+        values[13] = q.GroupedP99(row_index);\n+        values[14] = q.grouped_maximum_ns[row_index];\n+        values[15] = q.capture_end.total_capture.p99_ns;\n+        values[16] = q.capture_end.total_capture.maximum_ns;\n+        values[17] = q.capture_end.scratch_capacity_growth_events;\n+        values[18] = q.storage_begin.aggregate_bytes;\n+        values[19] = q.storage_end.aggregate_bytes;\n+        values[20] = q.storage_end.timeline_bytes;\n+        values[21] = q.storage_end.forced_snapshot_bytes;\n+        values[22] = q.storage_end.presentation_bytes;\n+        values[23] = q.storage_end.scratch_metadata_bytes;\n+        values[24] = q.pending_events_end;\n+        values[25] = q.pending_payload_end;\n+        values[26] = q.presentation_end.capacity_failures;\n+        values[27] = q.presentation_end.duplicates;\n+        values[28] = q.presentation_end.publish_failures;\n+        values[29] = q.elapsed_ms;\n+        values[30] = q.timing_drift_ms;\n+        values[31] = q.cleanup_stale_state_mask;\n+        values[32] = q.cleanup_verified ? 1 : 0;\n+        values[33] = q.storage_cleanup.aggregate_bytes;\n+        values[34] = q.storage_cleanup.timeline_bytes;\n+        values[35] = q.storage_cleanup.forced_snapshot_bytes;\n+        values[36] = q.pending_events_cleanup;\n+        values[37] = q.pending_payload_cleanup;\n+        values[38] = q.audio_sequence_mismatches;\n+        values[39] = q.presentation_failures;\n+        values[40] = q.presentation_end.attempted;\n+        values[41] = q.presentation_end.committed;\n+        values[42] = q.presentation_end.discarded;\n+        values[43] = q.presentation_terminal_coverage ? 1 : 0;\n+        values[44] = q.grouped_anchors_completed;\n+        values[45] = q.grouped_anchor_target;\n+        values[46] = q.grouped_repeats_per_anchor;\n+        values[47] = q.grouped_anchor_sequence_hash[row_index];\n+        values[48] = q.grouped_failure_anchor;\n+        values[49] = q.grouped_failure_repeat;\n+        return status;\n+    }\n+\n     bool DisarmReplayQualificationCycle(std::string_view run_id) noexcept\n     {\n         auto& q = m_forced_correction_qualification;\ndiff --git a/HorseMod/HorseModService.QualificationDiagnostics.inl b/HorseMod/HorseModService.QualificationDiagnostics.inl\nindex 8ee57ea5..2a0e97b2 100644\n--- a/HorseMod/HorseModService.QualificationDiagnostics.inl\n+++ b/HorseMod/HorseModService.QualificationDiagnostics.inl\n@@ -522,9 +522,321 @@\n             result.primary_performance.total_restore.maximum_ns / 1000);\n     }\n \n+    void service_grouped_qualification() noexcept\n+    {\n+        auto& q = m_forced_correction_qualification;\n+        if (!q.grouped || !q.runtime_armed || q.reported) return;\n+        const auto timeline = m_replay_native_runtime.timeline_status();\n+        const bool location_ready = [&]() noexcept {\n+            switch (q.location)\n+            {\n+            case 1: return timeline.round_state_frame > 16;\n+            case 2: return timeline.round_state_frame > 120;\n+            case 3: return timeline.observed_resolved_hit_calls != 0;\n+            case 4:\n+                if (timeline.round_state_frame <= 16\n+                    || timeline.unpause_countdown != 0) return false;\n+                if (!q.round_terminal_baseline_ready)\n+                {\n+                    q.round_terminal_audio_stop_all_baseline =\n+                        timeline.observed_battle_audio_stop_all_calls;\n+                    q.round_terminal_baseline_ready = true;\n+                    return false;\n+                }\n+                q.round_terminal_source_stop_all =\n+                    timeline.observed_battle_audio_stop_all_calls\n+                        > q.round_terminal_audio_stop_all_baseline;\n+                return q.round_terminal_source_stop_all;\n+            default: return false;\n+            }\n+        }();\n+        if (timeline.partial\n+            || timeline.failure != Horse::Deterministic::FailureCode::None\n+            || timeline.round_state_frame <= 16\n+            || timeline.unpause_countdown != 0\n+            || timeline.last_coordinate.generation == 0\n+            || timeline.last_coordinate.frame\n+                < kGroupedQualificationDepths.front()\n+            || !location_ready) return;\n+\n+        const auto fail = [&](Horse::Deterministic::Status status,\n+                              std::uint32_t depth,\n+                              std::uint32_t repetition) noexcept {\n+            q.failure = status.code;\n+            q.grouped_failure_depth = depth;\n+            q.grouped_failure_anchor = q.grouped_anchors_completed;\n+            q.grouped_failure_repeat = repetition;\n+            q.reported = true;\n+            q.lifecycle = 4;\n+            q.storage_end = m_replay_native_runtime.owned_storage_status();\n+            q.presentation_end =\n+                m_replay_native_runtime.presentation_statistics();\n+            q.capture_end = m_replay_native_runtime.capture_performance();\n+            q.pending_events_end =\n+                m_replay_native_runtime.pending_presentation_events();\n+            q.pending_payload_end =\n+                m_replay_native_runtime.presentation_payload_bytes();\n+            q.elapsed_ms = q.started_ms == 0 ? 0\n+                : ::GetTickCount64() - q.started_ms;\n+            m_frame_fencepost_failure.store(status.code,\n+                std::memory_order_release);\n+            Output::send<LogLevel::Warning>(STR(\n+                \"[HorseMod] grouped qualification failed location={} \"\n+                \"depth={} anchor={}/{} repetition={}/{} frame={}:{} \"\n+                \"status={} pending={}/{}\\n\"), q.location, depth,\n+                q.grouped_anchors_completed, q.grouped_anchor_target,\n+                repetition, q.grouped_repeats_per_anchor,\n+                timeline.last_coordinate.generation,\n+                timeline.last_coordinate.frame,\n+                RC::to_generic_string(std::string(\n+                    Horse::Deterministic::failure_code_name(status.code))),\n+                q.pending_events_end, q.pending_payload_end);\n+        };\n+\n+        if (!q.active)\n+        {\n+            q.active = true;\n+            q.lifecycle = 2;\n+            q.started_ms = ::GetTickCount64();\n+            q.warmup_pending = true;\n+            q.first_generation = timeline.last_coordinate.generation;\n+            q.generation = timeline.last_coordinate.generation;\n+            q.first_frame = timeline.last_coordinate.frame;\n+            q.awaiting_generation_history = true;\n+            Output::send<LogLevel::Default>(STR(\n+                \"[HorseMod] grouped qualification started location={} \"\n+                \"generation={} frame={} anchors={} repeats={} \"\n+                \"depths=11,1,6 normal_render=true\\n\"), q.location,\n+                q.generation, q.first_frame, q.grouped_anchor_target,\n+                q.grouped_repeats_per_anchor);\n+        }\n+        if (timeline.last_coordinate.generation != q.generation)\n+        {\n+            ++q.generation_transitions;\n+            q.generation = timeline.last_coordinate.generation;\n+            q.awaiting_generation_history = true;\n+            return;\n+        }\n+\n+        for (const auto depth : kGroupedQualificationDepths)\n+        {\n+            const Horse::Deterministic::FrameCoordinate earliest{\n+                timeline.last_coordinate.generation,\n+                timeline.last_coordinate.frame - depth + 1};\n+            const auto preflight =\n+                m_replay_native_runtime.PreflightOwnedCorrection(earliest);\n+            if (!preflight.ok()) return;\n+        }\n+        q.awaiting_generation_history = false;\n+\n+        // Repeated restores share an exact authoritative anchor, while\n+        // successive anchors retain the former 600-tick temporal exposure.\n+        // This keeps route/lifecycle coverage without repeating process or\n+        // replay entry setup for every depth.\n+        if (q.grouped_anchors_completed != 0\n+            && q.grouped_last_anchor_generation\n+                == timeline.last_coordinate.generation\n+            && timeline.last_coordinate.frame\n+                < q.grouped_last_anchor_frame\n+                    + kGroupedQualificationAnchorSpacing)\n+            return;\n+\n+        auto& expected = q.expected_scratch;\n+        auto status = m_replay_native_runtime.CaptureCurrentCanonical(expected);\n+        if (!status.ok())\n+        {\n+            fail(status, 0, 0);\n+            return;\n+        }\n+        const auto execute = [&](std::size_t depth_index,\n+                                 std::uint32_t repetition,\n+                                 bool measured) noexcept -> bool {\n+            const auto depth = kGroupedQualificationDepths[depth_index];\n+            const Horse::Deterministic::FrameCoordinate earliest{\n+                timeline.last_coordinate.generation,\n+                timeline.last_coordinate.frame - depth + 1};\n+            Horse::Deterministic::OwnedCorrectionResult result{};\n+            auto correction = m_replay_native_runtime.ExecuteOwnedCorrection(\n+                earliest, expected.canonical_hash, m_deterministic_hooks,\n+                result);\n+            const bool exact = correction.ok()\n+                && result.replayed_coordinates == depth\n+                && result.final_coordinate == timeline.last_coordinate\n+                && result.final_hash == expected.canonical_hash;\n+            if (!exact && correction.ok())\n+                correction = Horse::Deterministic::Status::failure(\n+                    Horse::Deterministic::FailureCode::IllegalTransition);\n+            if (!correction.ok())\n+            {\n+                fail(correction, depth, repetition);\n+                return false;\n+            }\n+            if (!measured) return true;\n+            q.RecordGrouped(depth_index, result.total_ns);\n+            q.suppressed_stage_wall_calls +=\n+                result.suppressed_stage_wall_calls;\n+            q.suppressed_stage_barrier_calls +=\n+                result.suppressed_stage_barrier_calls;\n+            q.semantic_stage_dispatch_calls +=\n+                result.semantic_stage_dispatch_calls;\n+            q.suppressed_audio_calls += result.suppressed_audio_calls;\n+            q.discarded_audio_calls += result.discarded_audio_calls;\n+            q.suppressed_audio_stop_all_calls +=\n+                result.suppressed_audio_stop_all_calls;\n+            q.suppressed_audio_terminal_calls +=\n+                result.suppressed_audio_terminal_calls;\n+            q.suppressed_audio_blueprint_calls +=\n+                result.suppressed_audio_blueprint_calls;\n+            q.suppressed_particle_spawn_calls +=\n+                result.suppressed_particle_spawn_calls;\n+            q.suppressed_particle_finished_binds +=\n+                result.suppressed_particle_finished_binds;\n+            q.unknown_particle_routes += result.unknown_particle_routes;\n+            q.verified_audio_batches += result.verified_audio_batches;\n+            q.verified_camera_batches += result.verified_camera_batches;\n+            q.camera_publication_mismatches +=\n+                result.camera_publication_mismatches;\n+            q.audio_sequence_mismatches +=\n+                result.audio_sequence_mismatches;\n+            q.presentation_failures += result.presentation_failures;\n+            return true;\n+        };\n+\n+        if (q.warmup_pending)\n+        {\n+            for (std::size_t depth_index = 0;\n+                 depth_index < kGroupedQualificationDepths.size();\n+                 ++depth_index)\n+                if (!execute(depth_index, 0, false)) return;\n+            q.warmup_pending = false;\n+            q.first_frame = timeline.last_coordinate.frame;\n+            m_replay_native_runtime.ResetCapturePerformanceWindow();\n+            Output::send<LogLevel::Default>(STR(\n+                \"[HorseMod] grouped qualification warmup complete \"\n+                \"location={} frame={}:{}\\n\"), q.location,\n+                timeline.last_coordinate.generation,\n+                timeline.last_coordinate.frame);\n+            return;\n+        }\n+\n+        for (std::uint32_t repetition = 0;\n+             repetition < q.grouped_repeats_per_anchor; ++repetition)\n+            for (std::size_t depth_index = 0;\n+                 depth_index < kGroupedQualificationDepths.size();\n+                 ++depth_index)\n+                if (!execute(depth_index, repetition, true)) return;\n+\n+        const auto mix = [](std::uint64_t hash,\n+                            std::uint64_t value) noexcept {\n+            for (std::size_t byte = 0; byte < sizeof(value); ++byte)\n+            {\n+                hash ^= (value >> (byte * 8)) & 0xffu;\n+                hash *= 1099511628211ull;\n+            }\n+            return hash;\n+        };\n+        for (auto& hash : q.grouped_anchor_sequence_hash)\n+        {\n+            hash = mix(hash, timeline.last_coordinate.generation);\n+            hash = mix(hash, timeline.last_coordinate.frame);\n+            for (const auto value : expected.canonical_hash)\n+            {\n+                hash ^= std::to_integer<std::uint8_t>(value);\n+                hash *= 1099511628211ull;\n+            }\n+        }\n+        ++q.grouped_anchors_completed;\n+        q.grouped_last_anchor_generation =\n+            timeline.last_coordinate.generation;\n+        q.grouped_last_anchor_frame = timeline.last_coordinate.frame;\n+        q.completed = q.grouped_completed.front();\n+        q.last_frame = timeline.last_coordinate.frame;\n+        if (q.grouped_anchors_completed < q.grouped_anchor_target) return;\n+\n+        const auto presentation_commit =\n+            m_replay_native_runtime.CommitPresentationThrough(\n+                timeline.last_coordinate, m_deterministic_hooks);\n+        q.presentation_end =\n+            m_replay_native_runtime.presentation_statistics();\n+        q.capture_end = m_replay_native_runtime.capture_performance();\n+        q.storage_end = m_replay_native_runtime.owned_storage_status();\n+        q.pending_events_end =\n+            m_replay_native_runtime.pending_presentation_events();\n+        q.pending_payload_end =\n+            m_replay_native_runtime.presentation_payload_bytes();\n+        const bool presentation_journal_complete = presentation_commit.ok()\n+            && q.pending_events_end == 0 && q.pending_payload_end == 0\n+            && q.presentation_end.capacity_failures == 0;\n+        const bool full_qualification = q.grouped_anchor_target == 40\n+            && q.grouped_repeats_per_anchor == 15;\n+        q.presentation_terminal_coverage = presentation_journal_complete\n+            && (!full_qualification\n+                || (q.suppressed_audio_terminal_calls != 0\n+                    && q.suppressed_audio_blueprint_calls != 0\n+                    && q.verified_audio_batches != 0\n+                    && q.verified_camera_batches != 0\n+                    && (q.location != 4\n+                        || q.round_terminal_source_stop_all)));\n+        bool performance_ok = true;\n+        for (std::size_t index = 0;\n+             index < kGroupedQualificationDepths.size(); ++index)\n+            performance_ok = performance_ok\n+                && q.GroupedP99(index) < 16'670'000;\n+        const bool capture_ok = q.capture_end.total_capture.p99_ns <= 500'000\n+            && q.capture_end.total_capture.maximum_ns <= 1'000'000\n+            && q.capture_end.scratch_capacity_growth_events == 0;\n+        if (!q.presentation_terminal_coverage)\n+            q.failure = Horse::Deterministic::FailureCode::PresentationFailed;\n+        else if (!performance_ok || !capture_ok)\n+            q.failure =\n+                Horse::Deterministic::FailureCode::PerformanceBudgetExceeded;\n+        q.elapsed_ms = ::GetTickCount64() - q.started_ms;\n+        if (m_forced_qualification_first_elapsed_ms == 0)\n+            m_forced_qualification_first_elapsed_ms = q.elapsed_ms;\n+        q.timing_drift_ms = q.elapsed_ms\n+                >= m_forced_qualification_first_elapsed_ms\n+            ? q.elapsed_ms - m_forced_qualification_first_elapsed_ms\n+            : m_forced_qualification_first_elapsed_ms - q.elapsed_ms;\n+        q.reported = true;\n+        q.lifecycle = q.failure == Horse::Deterministic::FailureCode::None\n+            ? 3u : 4u;\n+        if (q.failure != Horse::Deterministic::FailureCode::None)\n+            m_frame_fencepost_failure.store(q.failure,\n+                std::memory_order_release);\n+        Output::send<LogLevel::Default>(STR(\n+            \"[HorseMod] grouped qualification {} location={} anchors={}/{} \"\n+            \"repeats={} completed={}/{}/{} anchor_hash={:016x} \"\n+            \"p99_us={}/{}/{} max_us={}/{}/{} pending={}/{} \"\n+            \"capacity_growth={} terminal_coverage={} \"\n+            \"audio_terminals={} audio_blueprint={} audio_batches={} \"\n+            \"camera_batches={} round_terminal={} drift_ms={}\\n\"),\n+            q.failure == Horse::Deterministic::FailureCode::None\n+                ? STR(\"passed\") : STR(\"failed\"), q.location,\n+            q.grouped_anchors_completed, q.grouped_anchor_target,\n+            q.grouped_repeats_per_anchor, q.grouped_completed[0],\n+            q.grouped_completed[1], q.grouped_completed[2],\n+            q.grouped_anchor_sequence_hash[0], q.GroupedP99(0) / 1000,\n+            q.GroupedP99(1) / 1000, q.GroupedP99(2) / 1000,\n+            q.grouped_maximum_ns[0] / 1000,\n+            q.grouped_maximum_ns[1] / 1000,\n+            q.grouped_maximum_ns[2] / 1000, q.pending_events_end,\n+            q.pending_payload_end,\n+            q.capture_end.scratch_capacity_growth_events,\n+            q.presentation_terminal_coverage ? 1 : 0,\n+            q.suppressed_audio_terminal_calls,\n+            q.suppressed_audio_blueprint_calls, q.verified_audio_batches,\n+            q.verified_camera_batches,\n+            q.round_terminal_source_stop_all ? 1 : 0, q.timing_drift_ms);\n+    }\n+\n     void service_forced_depth7_qualification() noexcept\n     {\n         auto& qualification = m_forced_correction_qualification;\n+        if (qualification.grouped)\n+        {\n+            service_grouped_qualification();\n+            return;\n+        }\n         if (!m_deterministic_config.trace\n             || (!m_deterministic_config.forced_depth7_qualification\n                 && !qualification.runtime_armed)\ndiff --git a/HorseMod/HorseModService.SettingsAndRequests.inl b/HorseMod/HorseModService.SettingsAndRequests.inl\nindex f2bd224e..402011ea 100644\n--- a/HorseMod/HorseModService.SettingsAndRequests.inl\n+++ b/HorseMod/HorseModService.SettingsAndRequests.inl\n@@ -932,6 +932,9 @@\n     std::atomic_bool m_candidate_batch_entry_first_failure_logged{};\n     std::size_t m_owned_correction_probe_index{};\n     static constexpr std::uint32_t kForcedQualificationCorrections = 600;\n+    static constexpr std::array<std::uint32_t, 3> kGroupedQualificationDepths{\n+        11, 1, 6};\n+    static constexpr std::uint64_t kGroupedQualificationAnchorSpacing = 15;\n     struct ForcedCorrectionQualification\n     {\n         static constexpr std::uint64_t bucket_width_ns = 50'000;\n@@ -995,6 +998,20 @@\n         bool reported{};\n         bool runtime_armed{};\n         bool cleanup_verified{};\n+        bool grouped{};\n+        std::uint32_t grouped_anchor_target{};\n+        std::uint32_t grouped_repeats_per_anchor{};\n+        std::uint32_t grouped_anchors_completed{};\n+        std::uint32_t grouped_failure_depth{};\n+        std::uint32_t grouped_failure_anchor{};\n+        std::uint32_t grouped_failure_repeat{};\n+        std::uint64_t grouped_last_anchor_generation{};\n+        std::uint64_t grouped_last_anchor_frame{};\n+        std::array<std::uint32_t, 3> grouped_completed{};\n+        std::array<std::uint64_t, 3> grouped_maximum_ns{};\n+        std::array<std::uint64_t, 3> grouped_anchor_sequence_hash{};\n+        std::array<std::array<std::uint32_t, bucket_count>, 3>\n+            grouped_buckets{};\n \n         void Record(std::uint64_t value) noexcept\n         {\n@@ -1017,6 +1034,35 @@\n             }\n             return bucket_count * bucket_width_ns;\n         }\n+\n+        void RecordGrouped(std::size_t depth_index,\n+            std::uint64_t value) noexcept\n+        {\n+            const auto bucket = static_cast<std::size_t>((std::min)(\n+                value / bucket_width_ns,\n+                static_cast<std::uint64_t>(bucket_count - 1)));\n+            ++grouped_buckets[depth_index][bucket];\n+            grouped_maximum_ns[depth_index] = (std::max)(\n+                grouped_maximum_ns[depth_index], value);\n+            ++grouped_completed[depth_index];\n+        }\n+\n+        [[nodiscard]] std::uint64_t GroupedP99(\n+            std::size_t depth_index) const noexcept\n+        {\n+            const auto completed_count = grouped_completed[depth_index];\n+            if (completed_count == 0) return 0;\n+            const auto target = (completed_count * 99u + 99u) / 100u;\n+            std::uint32_t cumulative{};\n+            for (std::size_t index = 0;\n+                 index < grouped_buckets[depth_index].size(); ++index)\n+            {\n+                cumulative += grouped_buckets[depth_index][index];\n+                if (cumulative >= target)\n+                    return (index + 1) * bucket_width_ns;\n+            }\n+            return bucket_count * bucket_width_ns;\n+        }\n     } m_forced_correction_qualification{};\n     std::array<std::array<char, 97>, 128> m_forced_qualification_run_ids{};\n     std::size_t m_forced_qualification_run_id_count{};\ndiff --git a/HorseMod/dllmain.cpp b/HorseMod/dllmain.cpp\nindex eed2066c..768175fd 100644\n--- a/HorseMod/dllmain.cpp\n+++ b/HorseMod/dllmain.cpp\n@@ -584,6 +584,30 @@ extern \"C\"\n                 std::string_view(run_id, run_id_size), depth, location);\n     }\n \n+    HORSE_MOD_API bool horsemod_arm_replay_qualification_group_v1(\n+        const char* run_id, std::size_t run_id_size,\n+        std::uint32_t location, std::uint32_t anchors,\n+        std::uint32_t repeats_per_anchor)\n+    {\n+        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);\n+        return mod != nullptr && run_id != nullptr\n+            && mod->ArmReplayQualificationGroup(\n+                std::string_view(run_id, run_id_size), location, anchors,\n+                repeats_per_anchor);\n+    }\n+\n+    HORSE_MOD_API std::uint32_t\n+    horsemod_get_replay_qualification_group_row_report_v1(\n+        const char* run_id, std::size_t run_id_size,\n+        std::uint32_t row_index, std::uint64_t* values, std::size_t count)\n+    {\n+        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);\n+        return mod != nullptr && run_id != nullptr\n+            ? mod->GetReplayQualificationGroupRowReport(\n+                std::string_view(run_id, run_id_size), row_index,\n+                values, count) : 0;\n+    }\n+\n     HORSE_MOD_API std::uint32_t\n     horsemod_get_replay_qualification_cycle_report_v1(\n         const char* run_id, std::size_t run_id_size,\ndiff --git a/HorseMod/horselib/deterministic/Sc6ReplayRuntime.PresentationAndSeek.inl b/HorseMod/horselib/deterministic/Sc6ReplayRuntime.PresentationAndSeek.inl\nindex d8d16698..24f9c043 100644\n--- a/HorseMod/horselib/deterministic/Sc6ReplayRuntime.PresentationAndSeek.inl\n+++ b/HorseMod/horselib/deterministic/Sc6ReplayRuntime.PresentationAndSeek.inl\n@@ -364,8 +364,10 @@ Status Sc6ReplayRuntime::ResetQualificationCycle(\n     std::uint64_t& stale_state_mask) noexcept\n {\n     stale_state_mask = 0;\n-    if (pending_presentation_events() != 0) stale_state_mask |= 1ull << 0;\n-    if (presentation_payload_bytes() != 0) stale_state_mask |= 1ull << 1;\n+    // Pending speculative presentation is normal while a correction group is\n+    // active. Aborting or completing the group owns this journal, so teardown\n+    // discards it through EndGeneration and verifies the empty postcondition\n+    // below. Only an in-flight native batch or seek makes reset unsafe.\n     if (pending_batch_id_ != 0) stale_state_mask |= 1ull << 2;\n     if (resume_validation_active_ || resume_catchup_pending_)\n         stale_state_mask |= 1ull << 3;\ndiff --git a/tools/deterministic_qualification/offline_campaign.py b/tools/deterministic_qualification/offline_campaign.py\nindex 11c8141c..ff5cf80f 100644\n--- a/tools/deterministic_qualification/offline_campaign.py\n+++ b/tools/deterministic_qualification/offline_campaign.py\n@@ -124,7 +124,7 @@ def _persistent_campaign_reusable(\n             == contract_sha256(expected_config)\n         and capture_log_artifact_is_intact(report, path.with_suffix(\".log\"))\n         and runtime.get(\"process_restarts\") == 0\n-        and runtime.get(\"replay_entries\") == len(rows)\n+        and runtime.get(\"replay_entries\") == 1\n         and report.get(\"cleanup\", {}).get(\"process_absent\") is True\n         and report.get(\"cleanup\", {}).get(\"temporary_mod_removed\") is True\n         and report.get(\"cleanup\", {}).get(\"config_disarmed\") is True\n@@ -136,8 +136,8 @@ def _persistent_campaign_reusable(\n         valid = (\n             all(run_ids)\n             and len(set(run_ids)) == len(run_ids)\n-            and replay_entries == list(range(1, len(rows) + 1))\n-            and len(set(report.get(\"parent_run_ids\", []))) == len(rows)\n+            and replay_entries == [1] * len(rows)\n+            and len(report.get(\"parent_run_ids\", [])) == 1\n         )\n     if valid:\n         for cycle, row in zip(cycles, rows):\n@@ -147,6 +147,10 @@ def _persistent_campaign_reusable(\n                     or cycle.get(\"location\") != LOCATION_CODES[row.location]\n                     or cycle.get(\"status\") != 3\n                     or cycle.get(\"completed\") != \"600/600\"\n+                    or cycle.get(\"anchors\") != \"40/40\"\n+                    or cycle.get(\"repeats\") != 15\n+                    or not isinstance(cycle.get(\"anchor_hash\"), int)\n+                    or cycle.get(\"anchor_hash\") == 0\n                     or cycle.get(\"failure\") != 0\n                     or cycle.get(\"capacity_growth\") != 0\n                     or cycle.get(\"duplicates\") != 0\n@@ -160,6 +164,16 @@ def _persistent_campaign_reusable(\n                     or cleanup.get(\"owned_bytes\") != int(owned[0])):\n                 valid = False\n                 break\n+        if valid:\n+            for index in range(0, len(cycles), 3):\n+                group = cycles[index:index + 3]\n+                valid = (len(group) == 3\n+                         and [item.get(\"depth\") for item in group]\n+                             == [11, 1, 6]\n+                         and len({item.get(\"location\") for item in group}) == 1\n+                         and len({item.get(\"anchor_hash\") for item in group}) == 1)\n+                if not valid:\n+                    break\n     return report if valid else None\n \n \n@@ -181,7 +195,7 @@ def _invoke_persistent_campaign(\n         \"--display-map-name\", rows[0].display_map_name,\n         \"--stage-package-root\", rows[0].stage_package_root,\n         \"--case-id\", rows[0].case_id, \"--certifying\",\n-        \"--reenter-each-cycle\",\n+        \"--anchors\", \"40\", \"--repeats\", \"15\",\n     ]\n     for row in rows:\n         command.extend([\n@@ -259,8 +273,9 @@ def _compose_persistent_row(\n             \"replay_entry\": cycle[\"replay_entry\"],\n             \"location\": row.location,\n             \"depth\": row.depth,\n-            \"consecutive_corrections\": 600,\n-            \"corrections\": 600,\n+            \"consecutive_corrections\": int(\n+                str(cycle[\"completed\"]).split(\"/\", 1)[0]),\n+            \"corrections\": int(str(cycle[\"completed\"]).split(\"/\", 1)[0]),\n             \"canonical_convergence\": \"exact\",\n             \"capacity_failures\": 0,\n             \"capacity_growth_events\": cycle[\"capacity_growth\"],\n@@ -278,6 +293,9 @@ def _compose_persistent_row(\n                 \"pending_clear\": cleanup[\"pending\"] == \"0/0\",\n                 \"stale_mask\": cleanup[\"stale_mask\"],\n                 \"pending_events\": cleanup[\"pending\"],\n+                \"anchors\": cycle[\"anchors\"],\n+                \"repeats_per_anchor\": cycle[\"repeats\"],\n+                \"anchor_sequence_hash\": cycle[\"anchor_hash\"],\n                 \"owned_bytes_before_cycle\": initial_owned,\n                 \"owned_bytes_after_cleanup\": cleanup[\"owned_bytes\"],\n                 \"fresh_process_lifecycle_report\": baseline_artifact,\ndiff --git a/tools/deterministic_qualification/offline_matrix.py b/tools/deterministic_qualification/offline_matrix.py\nindex 35e7e527..58e50447 100644\n--- a/tools/deterministic_qualification/offline_matrix.py\n+++ b/tools/deterministic_qualification/offline_matrix.py\n@@ -196,9 +196,8 @@ def evaluate_row(row: OfflineMatrixRow, report: dict[str, Any],\n                  and isinstance(performance.get(\"private_bytes\"), int)\n                  and performance.get(\"private_bytes\") > 0,\n                  \"per-cycle process memory was not recorded\", failures)\n-        if row.depth == 7:\n-            _require(performance.get(\"correction_p99_us\", 10**9) < 16670,\n-                     \"depth-7 correction p99 exceeded 16.67 ms\", failures)\n+        _require(performance.get(\"correction_p99_us\", 10**9) < 16670,\n+                 \"correction p99 exceeded 16.67 ms\", failures)\n     else:\n         _require(runtime.get(\"corrections\") == 0,\n                  \"baseline unexpectedly corrected\", failures)\n@@ -246,5 +245,5 @@ def evaluate_matrix(candidate_manifest: Path, output_dir: Path,\n     return {\"report_schema\": 2, \"kind\": \"offline_matrix_evaluation\",\n             \"certifying\": failures == 0, \"result\": \"pass\" if failures == 0 else \"fail\",\n             \"evaluator_sha256\": evaluator_sha256,\n-            \"expected_rows\": 51, \"passed_rows\": 51 - failures,\n+            \"expected_rows\": 39, \"passed_rows\": 39 - failures,\n             \"failed_rows\": failures, \"rows\": row_results}\ndiff --git a/tools/deterministic_qualification/offline_spec.py b/tools/deterministic_qualification/offline_spec.py\nindex e7ea616f..bb3f1154 100644\n--- a/tools/deterministic_qualification/offline_spec.py\n+++ b/tools/deterministic_qualification/offline_spec.py\n@@ -9,8 +9,7 @@ from typing import Any\n LOCATIONS = (\"near_round_start\", \"active_combat\", \"confirmed_hit\", \"round_end\")\n # Exercise the widest rollback exposure first so a structural defect stops the\n # matrix before the lower-risk depth rows consume qualification time.\n-MODES = ((\"depth_11\", 11), (\"depth_1\", 1), (\"depth_6\", 6),\n-         (\"continuous_depth_7\", 7))\n+MODES = ((\"depth_11\", 11), (\"depth_1\", 1), (\"depth_6\", 6))\n \n \n @dataclass(frozen=True)\n@@ -70,6 +69,6 @@ def build_rows(candidate_manifest: Path) -> tuple[OfflineMatrixRow, ...]:\n                     row_id=f\"{case_id}__{location}__{mode}\",\n                     location=location, mode=mode, depth=depth,\n                     required_corrections=600, **common))\n-    if len(rows) != 51 or len({row.row_id for row in rows}) != 51:\n-        raise RuntimeError(\"offline matrix must contain exactly 51 unique rows\")\n+    if len(rows) != 39 or len({row.row_id for row in rows}) != 39:\n+        raise RuntimeError(\"offline matrix must contain exactly 39 unique rows\")\n     return tuple(rows)\ndiff --git a/tools/deterministic_qualification/release_publish.py b/tools/deterministic_qualification/release_publish.py\nindex 488315c7..42a38511 100644\n--- a/tools/deterministic_qualification/release_publish.py\n+++ b/tools/deterministic_qualification/release_publish.py\n@@ -287,7 +287,7 @@ def publish_release(args: Any, root: Path) -> int:\n     matrix = evaluate_matrix(manifest, offline_dir, hashes[\"dll\"], hashes[\"schema\"],\n                              runner_hash, expected,\n                              hashes[\"offline_evaluator\"])\n-    _require(matrix[\"certifying\"] is True, \"51-row offline matrix is incomplete\")\n+    _require(matrix[\"certifying\"] is True, \"39-row offline matrix is incomplete\")\n     tira = _load(Path(index[\"tira_report\"]).resolve())\n     _require(tira.get(\"certifying\") is True and tira.get(\"transition_runs\", 0) > 0,\n              \"actual Tira helper 0x321B RNG/state19 transition gate is incomplete\")\ndiff --git a/tools/deterministic_qualification/replay_entry.py b/tools/deterministic_qualification/replay_entry.py\nindex 25f3e0f3..4d93d8b0 100644\n--- a/tools/deterministic_qualification/replay_entry.py\n+++ b/tools/deterministic_qualification/replay_entry.py\n@@ -78,6 +78,8 @@ def create_request(\n     expected_match_winner: int | None = None,\n     development_smoke: bool = False,\n     qualification_cycles: tuple[tuple[str, int, int], ...] = (),\n+    qualification_anchors: int = 40,\n+    qualification_repeats: int = 15,\n ) -> str:\n     if watch_frames < 1 or watch_frames > 36000:\n         raise RuntimeError(\"watch frames must be between 1 and 36000\")\n@@ -123,6 +125,13 @@ def create_request(\n     if qualification_cycles:\n         if len(qualification_cycles) > 128:\n             raise RuntimeError(\"qualification campaign supports at most 128 cycles\")\n+        if len(qualification_cycles) % 3:\n+            raise RuntimeError(\n+                \"qualification cycles must be grouped as depth 11, 1, 6 triplets\")\n+        if not 1 <= qualification_anchors <= 40:\n+            raise RuntimeError(\"qualification anchors must be between 1 and 40\")\n+        if not 1 <= qualification_repeats <= 15:\n+            raise RuntimeError(\"qualification repeats must be between 1 and 15\")\n         seen: set[str] = set()\n         for cycle_run_id, depth, location in qualification_cycles:\n             if (not cycle_run_id or len(cycle_run_id) > 96\n@@ -131,14 +140,21 @@ def create_request(\n                 raise RuntimeError(\"qualification cycle run ID is invalid\")\n             if cycle_run_id in seen:\n                 raise RuntimeError(\"qualification cycle run IDs must be unique\")\n-            if depth not in (1, 6, 7, 11) or location not in (1, 2, 3, 4):\n+            if depth not in (1, 6, 11) or location not in (1, 2, 3, 4):\n                 raise RuntimeError(\"qualification cycle depth/location is invalid\")\n             seen.add(cycle_run_id)\n+        for index in range(0, len(qualification_cycles), 3):\n+            group = qualification_cycles[index:index + 3]\n+            if ([item[1] for item in group] != [11, 1, 6]\n+                    or len({item[2] for item in group}) != 1):\n+                raise RuntimeError(\n+                    \"qualification cycles must be grouped as depth 11, 1, 6 \"\n+                    \"at one location\")\n         if (development_smoke or seek_percentages or stage_terminal\n                 or stock_round_outcome_control or require_authored_outcomes):\n             raise RuntimeError(\n                 \"persistent qualification cycles cannot combine with other replay modes\")\n-    version = 10 if qualification_cycles else 9\n+    version = 11 if qualification_cycles else 9\n     seek_line = (\n         \"seek_percentages=\" + \",\".join(map(str, seek_percentages)) + \"\\n\"\n         f\"min_resume_tick_rate_milli={round(min_resume_tick_rate * 1000)}\\n\"\n@@ -172,10 +188,16 @@ def create_request(\n         + \"\\n\"\n         if qualification_cycles else \"\"\n     )\n+    group_lines = (\n+        f\"qualification_anchors={qualification_anchors}\\n\"\n+        f\"qualification_repeats={qualification_repeats}\\n\"\n+        if qualification_cycles else \"\"\n+    )\n     temporary.write_text(\n         f\"version={version}\\nrun_id={run_id}\\nreplay_path={replay_text}\\n\"\n         f\"watch_frames={watch_frames}\\n{seek_line}{terminal_line}{outcome_line}\"\n-        f\"{authored_outcome_line}{expected_outcome_lines}{smoke_line}{cycles_line}\",\n+        f\"{authored_outcome_line}{expected_outcome_lines}{smoke_line}\"\n+        f\"{cycles_line}{group_lines}\",\n         encoding=\"utf-8\",\n     )\n     os.replace(temporary, request)\ndiff --git a/tools/deterministic_qualification/runner.py b/tools/deterministic_qualification/runner.py\nindex b91c8349..979f98e9 100644\n--- a/tools/deterministic_qualification/runner.py\n+++ b/tools/deterministic_qualification/runner.py\n@@ -1247,6 +1247,9 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:\n     schema = required_file(args.schema, \"generated schema\")\n     executable = required_file(args.game_executable, \"SoulcaliburVI executable\")\n     require_disarmed(config)\n+    if args.certifying and (args.anchors != 40 or args.repeats != 15):\n+        raise RuntimeError(\n+            \"certifying qualification requires exactly 40 anchors and 15 repeats\")\n     identity = source_identity(ROOT)\n     if identity[\"dirty\"] and (args.certifying or not args.allow_dirty):\n         raise RuntimeError(\"qualification campaign requires immutable source or --allow-dirty\")\n@@ -1257,6 +1260,15 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:\n                         for depth, location in requested_cycles)\n     if not cycle_specs:\n         raise RuntimeError(\"at least one --cycle DEPTH LOCATION is required\")\n+    if len(cycle_specs) % 3:\n+        raise RuntimeError(\n+            \"qualification cycles must be depth 11, 1, 6 triplets\")\n+    for index in range(0, len(cycle_specs), 3):\n+        group = cycle_specs[index:index + 3]\n+        if ([item[1] for item in group] != [11, 1, 6]\n+                or len({item[2] for item in group}) != 1):\n+            raise RuntimeError(\n+                \"qualification cycles must be depth 11, 1, 6 at one location\")\n     pid: int | None = None\n     parent_run_id = \"\"\n     parent_run_ids: list[str] = []\n@@ -1274,9 +1286,7 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:\n             armed_config_fields = read_fields(config)\n             with TemporaryReplayMod(replay_mod, mods_root):\n                 try:\n-                    groups = ([tuple([spec]) for spec in cycle_specs]\n-                              if getattr(args, \"reenter_each_cycle\", False)\n-                              else [cycle_specs])\n+                    groups = [cycle_specs]\n                     for replay_entry_index, entry_specs in enumerate(groups, 1):\n                         log_start = capture_log_offset(args.log)\n                         args._failure_log_start = log_start\n@@ -1284,6 +1294,8 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:\n                             replay, 120, (), args.min_resume_tick_rate, 120,\n                             stock_round_outcome_control=False,\n                             qualification_cycles=entry_specs,\n+                            qualification_anchors=args.anchors,\n+                            qualification_repeats=args.repeats,\n                         )\n                         parent_run_ids.append(parent_run_id)\n                         if pid is None:\n@@ -1329,10 +1341,19 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:\n                             activity_valid = (len(activity) == 3\n                                 and all(value.isdigit() for value in activity)\n                                 and int(activity[0]) > 0)\n+                            expected_corrections = args.anchors * args.repeats\n                             if (cycle.get(\"depth\") != depth\n                                     or cycle.get(\"location\") != location\n                                     or cycle.get(\"status\") != 3\n-                                    or cycle.get(\"completed\") != \"600/600\"\n+                                    or cycle.get(\"completed\")\n+                                        != (f\"{expected_corrections}/\"\n+                                            f\"{expected_corrections}\")\n+                                    or cycle.get(\"anchors\")\n+                                        != f\"{args.anchors}/{args.anchors}\"\n+                                    or cycle.get(\"repeats\") != args.repeats\n+                                    or not isinstance(\n+                                        cycle.get(\"anchor_hash\"), int)\n+                                    or cycle.get(\"anchor_hash\") == 0\n                                     or cycle.get(\"failure\") != 0\n                                     or cycle.get(\"capacity_growth\") != 0\n                                     or cycle.get(\"duplicates\") != 0\n@@ -1348,7 +1369,15 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:\n                                     f\"{cycle.get('run_id')}\")\n                             cycle[\"replay_entry\"] = replay_entry_index\n                             cycles.append(cycle)\n-                        if entry.reason != \"qualification_cycles_passed\":\n+                        for index in range(0, len(entry_cycles), 3):\n+                            hashes = {\n+                                cycle.get(\"anchor_hash\")\n+                                for cycle in entry_cycles[index:index + 3]\n+                            }\n+                            if len(hashes) != 1:\n+                                raise RuntimeError(\n+                                    \"grouped depth rows did not use identical anchors\")\n+                        if entry.reason != \"qualification_groups_passed\":\n                             raise RuntimeError(\n                                 \"persistent qualification did not reach terminal pass\")\n                         rates.append(rate)\n@@ -1399,6 +1428,8 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:\n         \"renderer\": \"normal\",\n         \"parent_run_ids\": parent_run_ids,\n         \"depth_order\": [depth for _, depth, _ in cycle_specs],\n+        \"qualification_anchors\": args.anchors,\n+        \"qualification_repeats_per_anchor\": args.repeats,\n         \"cycles\": cycles,\n         \"runtime\": {\n             \"process_launches\": 1,\n@@ -1621,17 +1652,19 @@ def build_parser() -> argparse.ArgumentParser:\n     qualification_campaign.add_argument(\"--cycle\", type=int, nargs=2,\n         action=\"append\", metavar=(\"DEPTH\", \"LOCATION\"),\n         help=\"repeatable; defaults to 11/1, 1/1, 6/1\")\n-    qualification_campaign.add_argument(\"--reenter-each-cycle\",\n-        action=\"store_true\",\n-        help=(\"re-enter the authored replay for every cycle while retaining \"\n-              \"the same SC6 process\"))\n+    qualification_campaign.add_argument(\"--anchors\", type=int, default=40,\n+        choices=range(1, 41), metavar=\"N\",\n+        help=\"authoritative replay anchors per depth/location group\")\n+    qualification_campaign.add_argument(\"--repeats\", type=int, default=15,\n+        choices=range(1, 16), metavar=\"N\",\n+        help=\"repeated restores at each exact anchor\")\n     qualification_campaign.add_argument(\"--certifying\", action=\"store_true\")\n     qualification_campaign.add_argument(\"--allow-dirty\", action=\"store_true\")\n     qualification_campaign.set_defaults(\n         handler=run_replay_qualification_campaign)\n     offline = subcommands.add_parser(\n         \"offline-matrix\",\n-        help=\"run the complete 51-row normal-render offline qualification campaign\",\n+        help=\"run the complete 39-row normal-render offline qualification campaign\",\n     )\n     offline.add_argument(\"--case-manifest\", type=Path,\n         default=ROOT / \"docs\" / \"investigations\" / \"deterministic-production-candidate-manifest.json\")\ndiff --git a/tools/deterministic_qualification/tests/test_offline_matrix.py b/tools/deterministic_qualification/tests/test_offline_matrix.py\nindex b8457017..e2ae7dd3 100644\n--- a/tools/deterministic_qualification/tests/test_offline_matrix.py\n+++ b/tools/deterministic_qualification/tests/test_offline_matrix.py\n@@ -7,14 +7,14 @@ ROOT = Path(__file__).resolve().parents[3]\n MANIFEST = ROOT / \"docs\" / \"investigations\" / \"deterministic-production-candidate-manifest.json\"\n \n \n-def test_exact_51_row_shape_and_native_names() -> None:\n+def test_exact_39_row_shape_and_native_names() -> None:\n     rows = build_rows(MANIFEST)\n-    assert len(rows) == 51\n+    assert len(rows) == 39\n     assert {row.display_map_name for row in rows} == {\n         \"Silver Wolves' Haven\", \"Snow-Capped Showdown\", \"Murakumo Shrine Grounds\"\n     }\n     assert sum(row.required_corrections == 0 for row in rows) == 3\n-    assert sum(row.required_corrections == 600 for row in rows) == 48\n+    assert sum(row.required_corrections == 600 for row in rows) == 36\n     metadata = {\n         row.case_id: (row.replay_metadata_stage, row.replay_metadata_map,\n                       row.replay_metadata_fighters)\n@@ -36,7 +36,6 @@ def test_depth_rows_fail_fast_in_widest_first_order() -> None:\n         (\"depth_11\", 11),\n         (\"depth_1\", 1),\n         (\"depth_6\", 6),\n-        (\"continuous_depth_7\", 7),\n     ]\n \n \ndiff --git a/tools/deterministic_qualification/tests/test_offline_resume.py b/tools/deterministic_qualification/tests/test_offline_resume.py\nindex cc5884ae..afb2a5bd 100644\n--- a/tools/deterministic_qualification/tests/test_offline_resume.py\n+++ b/tools/deterministic_qualification/tests/test_offline_resume.py\n@@ -196,11 +196,13 @@ def _persistent_campaign_fixture(tmp_path, rows):\n     cycles = []\n     for index, row in enumerate(rows, 1):\n         cycles.append({\n-            \"run_id\": f\"cycle-{index}\", \"replay_entry\": index,\n+            \"run_id\": f\"cycle-{index}\", \"replay_entry\": 1,\n             \"depth\": row.depth,\n             \"location\": (\"near_round_start\", \"active_combat\",\n                          \"confirmed_hit\", \"round_end\").index(row.location) + 1,\n             \"status\": 3, \"completed\": \"600/600\", \"failure\": 0,\n+            \"anchors\": \"40/40\", \"repeats\": 15,\n+            \"anchor_hash\": 0x1234,\n             \"capacity_growth\": 0, \"duplicates\": 0, \"publish_failures\": 0,\n             \"pending\": \"0/0\", \"terminal_coverage\": 1,\n             \"presentation_activity\": \"12/12/0\",\n@@ -217,11 +219,10 @@ def _persistent_campaign_fixture(tmp_path, rows):\n         \"source\": {\"commit\": \"frozen\"}, \"case_id\": rows[0].case_id,\n         \"display_map_name\": rows[0].display_map_name,\n         \"stage_package_root\": rows[0].stage_package_root,\n-        \"parent_run_ids\": [f\"parent-{index}\"\n-                           for index in range(1, len(rows) + 1)],\n+        \"parent_run_ids\": [\"parent-1\"],\n         \"cycles\": cycles,\n         \"runtime\": {\n-            \"process_restarts\": 0, \"replay_entries\": len(rows),\n+            \"process_restarts\": 0, \"replay_entries\": 1,\n             \"normal_render_tick_rate\": 60.0,\n             \"active_battle_tick_rate\": 60.0,\n             \"native_stage\": rows[0].replay_metadata_stage,\ndiff --git a/tools/deterministic_qualification/tests/test_replay_entry_request.py b/tools/deterministic_qualification/tests/test_replay_entry_request.py\nindex 2f0a205b..1100b68d 100644\n--- a/tools/deterministic_qualification/tests/test_replay_entry_request.py\n+++ b/tools/deterministic_qualification/tests/test_replay_entry_request.py\n@@ -160,7 +160,7 @@ def test_active_request_guard_surfaces_native_terminal_failure(\n     require_replay_request_healthy(\"stale\")\n \n \n-def test_persistent_cycles_use_version_ten_and_unique_runtime_ids(\n+def test_persistent_cycles_use_grouped_version_and_unique_runtime_ids(\n     tmp_path: Path, monkeypatch: pytest.MonkeyPatch\n ) -> None:\n     monkeypatch.setenv(\"LOCALAPPDATA\", str(tmp_path))\n@@ -168,13 +168,30 @@ def test_persistent_cycles_use_version_ten_and_unique_runtime_ids(\n     replay.write_bytes(b\"ULX1test\")\n     cycles = ((\"run11\", 11, 1), (\"run1\", 1, 1), (\"run6\", 6, 1))\n \n-    create_request(replay, 120, qualification_cycles=cycles)\n+    create_request(replay, 120, qualification_cycles=cycles,\n+                   qualification_anchors=2, qualification_repeats=3)\n     request = (tmp_path / \"HorseMod\" / \"Qualification\"\n                / \"replay_request.txt\").read_text(encoding=\"utf-8\")\n \n-    assert request.startswith(\"version=10\\n\")\n+    assert request.startswith(\"version=11\\n\")\n     assert \"stock_round_outcome_control=false\\n\" in request\n     assert \"qualification_cycles=run11:11:1,run1:1:1,run6:6:1\\n\" in request\n+    assert \"qualification_anchors=2\\n\" in request\n+    assert \"qualification_repeats=3\\n\" in request\n     with pytest.raises(RuntimeError, match=\"must be unique\"):\n         create_request(replay, 120,\n-                       qualification_cycles=((\"same\", 11, 1), (\"same\", 1, 1)))\n+                       qualification_cycles=((\"same\", 11, 1),\n+                                             (\"same\", 1, 1),\n+                                             (\"run6\", 6, 1)))\n+\n+    with pytest.raises(RuntimeError, match=\"depth 11, 1, 6\"):\n+        create_request(replay, 120,\n+                       qualification_cycles=((\"run11\", 11, 1),\n+                                             (\"run6\", 6, 1),\n+                                             (\"run1\", 1, 1)))\n+\n+    with pytest.raises(RuntimeError, match=\"depth/location\"):\n+        create_request(replay, 120,\n+                       qualification_cycles=((\"run11\", 11, 1),\n+                                             (\"run1\", 1, 1),\n+                                             (\"run7\", 7, 1)))\ndiff --git a/tools/replay_qualification_mod/ReplayQualificationMod.cpp b/tools/replay_qualification_mod/ReplayQualificationMod.cpp\nindex ef7b6088..8d4eb00f 100644\n--- a/tools/replay_qualification_mod/ReplayQualificationMod.cpp\n+++ b/tools/replay_qualification_mod/ReplayQualificationMod.cpp\n@@ -73,6 +73,8 @@ struct Request\n     std::int32_t expected_match_winner{-1};\n     bool development_smoke{};\n     std::vector<QualificationCycle> qualification_cycles{};\n+    std::uint32_t qualification_anchors{40};\n+    std::uint32_t qualification_repeats{15};\n };\n \n struct BattleResult\n@@ -108,6 +110,10 @@ using ArmReplayQualificationCycleFn = bool (*)(\n using GetReplayQualificationCycleReportFn = std::uint32_t (*)(\n     const char*, std::size_t, std::uint64_t*, std::size_t);\n using DisarmReplayQualificationCycleFn = bool (*)(const char*, std::size_t);\n+using ArmReplayQualificationGroupFn = bool (*)(\n+    const char*, std::size_t, std::uint32_t, std::uint32_t, std::uint32_t);\n+using GetReplayQualificationGroupRowReportFn = std::uint32_t (*)(\n+    const char*, std::size_t, std::uint32_t, std::uint64_t*, std::size_t);\n using ArmOnlineQualificationFn = bool (*)(\n     const char*, std::size_t, std::uint32_t);\n using GetOnlineQualificationStatusFn = std::uint32_t (*)();\n@@ -700,7 +706,7 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)\n             && fields[\"version\"] != \"4\" && fields[\"version\"] != \"5\"\n             && fields[\"version\"] != \"6\" && fields[\"version\"] != \"7\"\n             && fields[\"version\"] != \"8\" && fields[\"version\"] != \"9\"\n-            && fields[\"version\"] != \"10\")\n+            && fields[\"version\"] != \"10\" && fields[\"version\"] != \"11\")\n         || (fields[\"version\"] == \"2\" && fields.size() != 4)\n         || (fields[\"version\"] == \"3\" && fields.size() != 5)\n         || (fields[\"version\"] == \"4\" && fields.size() != 7)\n@@ -709,7 +715,8 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)\n         || (fields[\"version\"] == \"7\" && fields.size() != 10)\n         || (fields[\"version\"] == \"8\" && fields.size() != 12)\n         || (fields[\"version\"] == \"9\" && fields.size() != 13)\n-        || (fields[\"version\"] == \"10\" && fields.size() != 14))\n+        || (fields[\"version\"] == \"10\" && fields.size() != 14)\n+        || (fields[\"version\"] == \"11\" && fields.size() != 16))\n     {\n         return false;\n     }\n@@ -727,7 +734,8 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)\n     if (fields[\"version\"] == \"3\" || fields[\"version\"] == \"4\"\n         || fields[\"version\"] == \"5\" || fields[\"version\"] == \"6\"\n         || fields[\"version\"] == \"7\" || fields[\"version\"] == \"8\"\n-        || fields[\"version\"] == \"9\" || fields[\"version\"] == \"10\")\n+        || fields[\"version\"] == \"9\" || fields[\"version\"] == \"10\"\n+        || fields[\"version\"] == \"11\")\n     {\n         std::string_view remaining = fields[\"seek_percentages\"];\n         while (!remaining.empty())\n@@ -748,7 +756,7 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)\n         if (percentages.empty() && fields[\"version\"] != \"5\"\n             && fields[\"version\"] != \"6\" && fields[\"version\"] != \"7\"\n             && fields[\"version\"] != \"8\" && fields[\"version\"] != \"9\"\n-            && fields[\"version\"] != \"10\")\n+            && fields[\"version\"] != \"10\" && fields[\"version\"] != \"11\")\n             return false;\n     }\n     std::uint32_t min_resume_tick_rate_milli = 58'000;\n@@ -756,7 +764,7 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)\n     if (fields[\"version\"] == \"4\" || fields[\"version\"] == \"5\"\n         || fields[\"version\"] == \"6\" || fields[\"version\"] == \"7\"\n         || fields[\"version\"] == \"8\" || fields[\"version\"] == \"9\"\n-        || fields[\"version\"] == \"10\")\n+        || fields[\"version\"] == \"10\" || fields[\"version\"] == \"11\")\n     {\n         try\n         {\n@@ -776,7 +784,8 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)\n     if (fields[\"version\"] == \"5\"\n         || ((fields[\"version\"] == \"6\" || fields[\"version\"] == \"7\"\n                 || fields[\"version\"] == \"8\")\n-                || fields[\"version\"] == \"9\" || fields[\"version\"] == \"10\")\n+                || fields[\"version\"] == \"9\" || fields[\"version\"] == \"10\"\n+                || fields[\"version\"] == \"11\")\n             && !fields[\"stage_terminal\"].empty())\n     {\n         if (fields[\"stage_terminal\"] == \"wall\") stage_terminal = 1;\n@@ -787,28 +796,30 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)\n     const bool stock_round_outcome_control =\n         (fields[\"version\"] == \"6\" || fields[\"version\"] == \"7\"\n             || fields[\"version\"] == \"8\" || fields[\"version\"] == \"9\"\n-            || fields[\"version\"] == \"10\")\n+            || fields[\"version\"] == \"10\" || fields[\"version\"] == \"11\")\n         ? fields[\"stock_round_outcome_control\"] == \"true\"\n         : percentages.empty() && stage_terminal == 0;\n     if ((fields[\"version\"] == \"6\" || fields[\"version\"] == \"7\"\n             || fields[\"version\"] == \"8\" || fields[\"version\"] == \"9\"\n-            || fields[\"version\"] == \"10\")\n+            || fields[\"version\"] == \"10\" || fields[\"version\"] == \"11\")\n         && fields[\"stock_round_outcome_control\"] != \"true\"\n         && fields[\"stock_round_outcome_control\"] != \"false\")\n         return false;\n     const bool require_authored_outcomes =\n         (fields[\"version\"] == \"7\" || fields[\"version\"] == \"8\"\n-            || fields[\"version\"] == \"9\" || fields[\"version\"] == \"10\")\n+            || fields[\"version\"] == \"9\" || fields[\"version\"] == \"10\"\n+            || fields[\"version\"] == \"11\")\n         && fields[\"require_authored_outcomes\"] == \"true\";\n     if ((fields[\"version\"] == \"7\" || fields[\"version\"] == \"8\"\n-            || fields[\"version\"] == \"9\" || fields[\"version\"] == \"10\")\n+            || fields[\"version\"] == \"9\" || fields[\"version\"] == \"10\"\n+            || fields[\"version\"] == \"11\")\n         && fields[\"require_authored_outcomes\"] != \"true\"\n         && fields[\"require_authored_outcomes\"] != \"false\")\n         return false;\n     std::vector<std::int8_t> expected_round_winners;\n     std::int32_t expected_match_winner = -1;\n     if (fields[\"version\"] == \"8\" || fields[\"version\"] == \"9\"\n-        || fields[\"version\"] == \"10\")\n+        || fields[\"version\"] == \"10\" || fields[\"version\"] == \"11\")\n     {\n         std::string_view remaining = fields[\"expected_round_winners\"];\n         while (!remaining.empty())\n@@ -835,9 +846,10 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)\n                 || expected_match_winner < 0)) return false;\n     }\n     const bool development_smoke = (fields[\"version\"] == \"9\"\n-            || fields[\"version\"] == \"10\")\n+            || fields[\"version\"] == \"10\" || fields[\"version\"] == \"11\")\n         && fields[\"development_smoke\"] == \"true\";\n-    if ((fields[\"version\"] == \"9\" || fields[\"version\"] == \"10\")\n+    if ((fields[\"version\"] == \"9\" || fields[\"version\"] == \"10\"\n+            || fields[\"version\"] == \"11\")\n         && fields[\"development_smoke\"] != \"true\"\n         && fields[\"development_smoke\"] != \"false\") return false;\n     if (development_smoke\n@@ -845,7 +857,7 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)\n             || stock_round_outcome_control || require_authored_outcomes\n             || stage_terminal != 0 || !percentages.empty())) return false;\n     std::vector<Request::QualificationCycle> qualification_cycles;\n-    if (fields[\"version\"] == \"10\")\n+    if (fields[\"version\"] == \"10\" || fields[\"version\"] == \"11\")\n     {\n         std::string_view remaining = fields[\"qualification_cycles\"];\n         while (!remaining.empty())\n@@ -866,7 +878,7 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)\n                     token.substr(first + 1, second - first - 1)));\n                 const auto location = std::stoul(std::string(\n                     token.substr(second + 1)));\n-                if ((depth != 1 && depth != 6 && depth != 7 && depth != 11)\n+                if ((depth != 1 && depth != 6 && depth != 11)\n                     || location < 1 || location > 4) return false;\n                 if (std::any_of(qualification_cycles.begin(),\n                         qualification_cycles.end(), [&](const auto& cycle) {\n@@ -880,16 +892,45 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)\n             if (comma == std::string_view::npos) break;\n             remaining.remove_prefix(comma + 1);\n         }\n-        if (qualification_cycles.empty() || development_smoke\n+        if (qualification_cycles.empty() || qualification_cycles.size() % 3 != 0\n+            || development_smoke\n             || stock_round_outcome_control || require_authored_outcomes\n             || stage_terminal != 0 || !percentages.empty()) return false;\n+        for (std::size_t index = 0; index < qualification_cycles.size();\n+             index += 3)\n+        {\n+            const auto location = qualification_cycles[index].location;\n+            if (qualification_cycles[index].depth != 11\n+                || qualification_cycles[index + 1].depth != 1\n+                || qualification_cycles[index + 2].depth != 6\n+                || qualification_cycles[index + 1].location != location\n+                || qualification_cycles[index + 2].location != location)\n+                return false;\n+        }\n+    }\n+    std::uint32_t qualification_anchors = 40;\n+    std::uint32_t qualification_repeats = 15;\n+    if (fields[\"version\"] == \"11\")\n+    {\n+        try\n+        {\n+            qualification_anchors = static_cast<std::uint32_t>(\n+                std::stoul(fields[\"qualification_anchors\"]));\n+            qualification_repeats = static_cast<std::uint32_t>(\n+                std::stoul(fields[\"qualification_repeats\"]));\n+        }\n+        catch (...) { return false; }\n+        if (qualification_anchors == 0 || qualification_anchors > 40\n+            || qualification_repeats == 0 || qualification_repeats > 15)\n+            return false;\n     }\n     output = {fields[\"run_id\"], std::filesystem::path(replay_path),\n         watch_frames, std::move(percentages), min_resume_tick_rate_milli,\n         resume_tick_window, stage_terminal, stock_round_outcome_control,\n         require_authored_outcomes, std::move(expected_round_winners),\n         expected_match_winner, development_smoke,\n-        std::move(qualification_cycles)};\n+        std::move(qualification_cycles), qualification_anchors,\n+        qualification_repeats};\n     return output.replay_path.is_absolute();\n }\n \n@@ -1369,8 +1410,9 @@ private:\n             ? 1 : request_.stage_terminal;\n         qualification_cycle_index_ = 0;\n         qualification_cycle_armed_ = false;\n-        arm_qualification_cycle_ = nullptr;\n-        get_qualification_cycle_report_ = nullptr;\n+        qualification_group_run_id_.clear();\n+        arm_qualification_group_ = nullptr;\n+        get_qualification_group_row_report_ = nullptr;\n         disarm_qualification_cycle_ = nullptr;\n         state_ = State::Importing;\n         const bool history_required = !request_.seek_percentages.empty();\n@@ -1495,47 +1537,52 @@ private:\n         if (request_.qualification_cycles.empty()) return false;\n         if (qualification_cycle_index_ >= request_.qualification_cycles.size())\n         {\n-            WriteResult(\"launch_requested\", \"qualification_cycles_passed\");\n+            WriteResult(\"launch_requested\", \"qualification_groups_passed\");\n             require_replay_list_before_ready_ = true;\n             state_ = State::Idle;\n             return true;\n         }\n-        if (arm_qualification_cycle_ == nullptr)\n+        if (arm_qualification_group_ == nullptr)\n         {\n-            arm_qualification_cycle_ = ResolveHorseModExport<\n-                ArmReplayQualificationCycleFn>(\n-                    \"horsemod_arm_replay_qualification_cycle_v1\");\n-            get_qualification_cycle_report_ = ResolveHorseModExport<\n-                GetReplayQualificationCycleReportFn>(\n-                    \"horsemod_get_replay_qualification_cycle_report_v1\");\n+            arm_qualification_group_ = ResolveHorseModExport<\n+                ArmReplayQualificationGroupFn>(\n+                    \"horsemod_arm_replay_qualification_group_v1\");\n+            get_qualification_group_row_report_ = ResolveHorseModExport<\n+                GetReplayQualificationGroupRowReportFn>(\n+                    \"horsemod_get_replay_qualification_group_row_report_v1\");\n             disarm_qualification_cycle_ = ResolveHorseModExport<\n                 DisarmReplayQualificationCycleFn>(\n                     \"horsemod_disarm_replay_qualification_cycle_v1\");\n-            if (arm_qualification_cycle_ == nullptr\n-                || get_qualification_cycle_report_ == nullptr\n+            if (arm_qualification_group_ == nullptr\n+                || get_qualification_group_row_report_ == nullptr\n                 || disarm_qualification_cycle_ == nullptr)\n             {\n-                Fail(\"horsemod_qualification_cycle_api_unavailable\");\n+                Fail(\"horsemod_qualification_group_api_unavailable\");\n                 return true;\n             }\n         }\n-        const auto& cycle = request_.qualification_cycles[\n+        const auto& first = request_.qualification_cycles[\n             qualification_cycle_index_];\n         if (!qualification_cycle_armed_)\n         {\n-            if (!arm_qualification_cycle_(cycle.run_id.data(),\n-                    cycle.run_id.size(), cycle.depth, cycle.location))\n+            qualification_group_run_id_ = first.run_id;\n+            if (!arm_qualification_group_(qualification_group_run_id_.data(),\n+                    qualification_group_run_id_.size(), first.location,\n+                    request_.qualification_anchors,\n+                    request_.qualification_repeats))\n             {\n-                Fail(\"horsemod_qualification_cycle_arm_rejected\");\n+                qualification_group_run_id_.clear();\n+                Fail(\"horsemod_qualification_group_arm_rejected\");\n                 return true;\n             }\n             qualification_cycle_armed_ = true;\n             return true;\n         }\n-        std::array<std::uint64_t, 44> report{};\n-        const auto status = get_qualification_cycle_report_(\n-            cycle.run_id.data(), cycle.run_id.size(), report.data(),\n-            report.size());\n+        std::array<std::uint64_t, 50> first_report{};\n+        const auto status = get_qualification_group_row_report_(\n+            qualification_group_run_id_.data(),\n+            qualification_group_run_id_.size(), 0, first_report.data(),\n+            first_report.size());\n         if (status == 0) return true;\n         if (status != 3 && status != 4) return true;\n         PROCESS_MEMORY_COUNTERS_EX memory{};\n@@ -1543,62 +1590,95 @@ private:\n         const bool memory_valid = K32GetProcessMemoryInfo(\n             GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(\n                 &memory), sizeof(memory)) != FALSE;\n-        Output::send<LogLevel::Default>(STR(\n-            \"[ReplayQualification] qualification cycle terminal \"\n-            \"run_id={} ordinal={} depth={} location={} status={} \"\n-            \"completed={}/{} failure={} generations={}-{} transitions={} \"\n-            \"frames={}-{} cycle_p99_us={} cycle_max_us={} \"\n-            \"capture_p99_us={} capture_max_us={} capacity_growth={} \"\n-            \"owned_bytes={}->{} timeline_bytes={} forced_bytes={} \"\n-            \"presentation_bytes={} scratch_bytes={} pending={}/{} \"\n-            \"duplicates={} publish_failures={} elapsed_ms={} drift_ms={} \"\n-            \"working_set_bytes={} private_bytes={} \"\n-            \"presentation_activity={}/{}/{} terminal_coverage={}\\n\"),\n-            RC::to_generic_string(cycle.run_id), report[4], report[2],\n-            report[3], status, report[5], report[6], report[7], report[8],\n-            report[9], report[10], report[11], report[12], report[13] / 1000,\n-            report[14] / 1000, report[15] / 1000, report[16] / 1000,\n-            report[17], report[18], report[19], report[20], report[21],\n-            report[22], report[23], report[24], report[25], report[27],\n-            report[28], report[29], report[30],\n-            memory_valid ? memory.WorkingSetSize : 0,\n-            memory_valid ? memory.PrivateUsage : 0,\n-            report[40], report[41], report[42], report[43]);\n+        std::array<std::array<std::uint64_t, 50>, 3> reports{};\n+        bool reports_valid = true;\n+        for (std::uint32_t row = 0; row < 3; ++row)\n+        {\n+            const auto row_status = get_qualification_group_row_report_(\n+                qualification_group_run_id_.data(),\n+                qualification_group_run_id_.size(), row,\n+                reports[row].data(), reports[row].size());\n+            reports_valid = reports_valid && row_status == status;\n+            const auto& report = reports[row];\n+            const auto& cycle = request_.qualification_cycles[\n+                qualification_cycle_index_ + row];\n+            Output::send<LogLevel::Default>(STR(\n+                \"[ReplayQualification] qualification cycle terminal \"\n+                \"run_id={} ordinal={} depth={} location={} status={} \"\n+                \"completed={}/{} failure={} generations={}-{} transitions={} \"\n+                \"frames={}-{} cycle_p99_us={} cycle_max_us={} \"\n+                \"capture_p99_us={} capture_max_us={} capacity_growth={} \"\n+                \"owned_bytes={}->{} timeline_bytes={} forced_bytes={} \"\n+                \"presentation_bytes={} scratch_bytes={} pending={}/{} \"\n+                \"duplicates={} publish_failures={} elapsed_ms={} drift_ms={} \"\n+                \"working_set_bytes={} private_bytes={} \"\n+                \"presentation_activity={}/{}/{} terminal_coverage={} \"\n+                \"anchors={}/{} repeats={} anchor_hash=0x{:016x} \"\n+                \"failure_anchor={} failure_repeat={}\\n\"),\n+                RC::to_generic_string(cycle.run_id), report[4], report[2],\n+                report[3], status, report[5], report[6], report[7], report[8],\n+                report[9], report[10], report[11], report[12],\n+                report[13] / 1000, report[14] / 1000, report[15] / 1000,\n+                report[16] / 1000, report[17], report[18], report[19],\n+                report[20], report[21], report[22], report[23], report[24],\n+                report[25], report[27], report[28], report[29], report[30],\n+                memory_valid ? memory.WorkingSetSize : 0,\n+                memory_valid ? memory.PrivateUsage : 0, report[40],\n+                report[41], report[42], report[43], report[44], report[45],\n+                report[46], report[47], report[48], report[49]);\n+        }\n+        const bool anchor_identity_valid = reports[0][47] != 0\n+            && reports[0][47] == reports[1][47]\n+            && reports[0][47] == reports[2][47];\n         const bool disarmed = disarm_qualification_cycle_(\n-            cycle.run_id.data(), cycle.run_id.size());\n-        std::array<std::uint64_t, 44> cleanup{};\n-        const auto cleanup_status = get_qualification_cycle_report_(\n-            cycle.run_id.data(), cycle.run_id.size(), cleanup.data(),\n+            qualification_group_run_id_.data(),\n+            qualification_group_run_id_.size());\n+        qualification_cycle_armed_ = false;\n+        std::array<std::uint64_t, 50> cleanup{};\n+        const auto cleanup_status = get_qualification_group_row_report_(\n+            qualification_group_run_id_.data(),\n+            qualification_group_run_id_.size(), 0, cleanup.data(),\n             cleanup.size());\n         if (!disarmed || cleanup_status != 5 || cleanup[31] != 0\n-            || cleanup[32] != 1 || cleanup[36] != 0 || cleanup[37] != 0)\n+            || cleanup[32] != 1 || cleanup[36] != 0 || cleanup[37] != 0\n+            || !reports_valid || !anchor_identity_valid)\n         {\n             Output::send<LogLevel::Error>(STR(\n-                \"[ReplayQualification] qualification cycle cleanup failed \"\n+                \"[ReplayQualification] qualification group cleanup failed \"\n                 \"run_id={} status={} stale_mask=0x{:x} verified={} \"\n                 \"owned_bytes={} timeline_bytes={} forced_bytes={} \"\n-                \"pending={}/{}\\n\"), RC::to_generic_string(cycle.run_id),\n+                \"pending={}/{} reports_valid={} anchor_identity={}\\n\"),\n+                RC::to_generic_string(qualification_group_run_id_),\n                 cleanup_status, cleanup[31], cleanup[32], cleanup[33],\n-                cleanup[34], cleanup[35], cleanup[36], cleanup[37]);\n-            Fail(\"horsemod_qualification_cycle_cleanup_failed\");\n+                cleanup[34], cleanup[35], cleanup[36], cleanup[37],\n+                reports_valid ? 1 : 0, anchor_identity_valid ? 1 : 0);\n+            qualification_group_run_id_.clear();\n+            Fail(\"horsemod_qualification_group_cleanup_failed\");\n             return true;\n         }\n-        Output::send<LogLevel::Default>(STR(\n-            \"[ReplayQualification] qualification cycle cleanup passed \"\n-            \"run_id={} ordinal={} stale_mask=0x{:x} owned_bytes={} \"\n-            \"timeline_bytes={} forced_bytes={} pending={}/{}\\n\"),\n-            RC::to_generic_string(cycle.run_id), cleanup[4], cleanup[31],\n-            cleanup[33], cleanup[34], cleanup[35], cleanup[36], cleanup[37]);\n+        for (std::uint32_t row = 0; row < 3; ++row)\n+        {\n+            const auto& cycle = request_.qualification_cycles[\n+                qualification_cycle_index_ + row];\n+            Output::send<LogLevel::Default>(STR(\n+                \"[ReplayQualification] qualification cycle cleanup passed \"\n+                \"run_id={} ordinal={} stale_mask=0x{:x} owned_bytes={} \"\n+                \"timeline_bytes={} forced_bytes={} pending={}/{}\\n\"),\n+                RC::to_generic_string(cycle.run_id), reports[row][4],\n+                cleanup[31], cleanup[33], cleanup[34], cleanup[35],\n+                cleanup[36], cleanup[37]);\n+        }\n         if (status == 4)\n         {\n-            Fail(\"horsemod_qualification_cycle_failed\");\n+            qualification_group_run_id_.clear();\n+            Fail(\"horsemod_qualification_group_failed\");\n             return true;\n         }\n-        qualification_cycle_armed_ = false;\n-        ++qualification_cycle_index_;\n+        qualification_group_run_id_.clear();\n+        qualification_cycle_index_ += 3;\n         if (qualification_cycle_index_ == request_.qualification_cycles.size())\n         {\n-            WriteResult(\"launch_requested\", \"qualification_cycles_passed\");\n+            WriteResult(\"launch_requested\", \"qualification_groups_passed\");\n             // Persistent qualification owns multiple independent replay\n             // entries without restarting SC6.  Reuse the navigator's proven\n             // smoke-campaign teardown path before accepting the next request.\n@@ -2472,19 +2552,19 @@ private:\n \n     void Fail(std::string_view reason)\n     {\n-        if (qualification_cycle_armed_\n-            && qualification_cycle_index_ < request_.qualification_cycles.size()\n+        if (qualification_cycle_armed_ && !qualification_group_run_id_.empty()\n             && disarm_qualification_cycle_ != nullptr)\n         {\n-            const auto& cycle = request_.qualification_cycles[\n-                qualification_cycle_index_];\n             const bool cleaned = disarm_qualification_cycle_(\n-                cycle.run_id.data(), cycle.run_id.size());\n+                qualification_group_run_id_.data(),\n+                qualification_group_run_id_.size());\n             Output::send<LogLevel::Warning>(STR(\n                 \"[ReplayQualification] failure-path qualification cleanup \"\n                 \"run_id={} accepted={}\\n\"),\n-                RC::to_generic_string(cycle.run_id), cleaned ? 1 : 0);\n+                RC::to_generic_string(qualification_group_run_id_),\n+                cleaned ? 1 : 0);\n             qualification_cycle_armed_ = false;\n+            qualification_group_run_id_.clear();\n         }\n         importer_.ReleasePlaybackContext();\n         state_ = State::Failed;\n@@ -2565,11 +2645,13 @@ private:\n     RequestStageTerminalFn request_stage_terminal_{};\n     GetStageTerminalStatusFn get_stage_terminal_status_{};\n     GetForcedQualificationStatusFn get_forced_qualification_status_{};\n-    ArmReplayQualificationCycleFn arm_qualification_cycle_{};\n-    GetReplayQualificationCycleReportFn get_qualification_cycle_report_{};\n+    ArmReplayQualificationGroupFn arm_qualification_group_{};\n+    GetReplayQualificationGroupRowReportFn\n+        get_qualification_group_row_report_{};\n     DisarmReplayQualificationCycleFn disarm_qualification_cycle_{};\n     std::size_t qualification_cycle_index_{};\n     bool qualification_cycle_armed_{};\n+    std::string qualification_group_run_id_{};\n     ArmOnlineQualificationFn arm_online_{};\n     GetOnlineQualificationStatusFn get_online_status_{};\n     std::uint32_t online_last_status_{UINT32_MAX};\n",
+    "deterministic_binary_patch_bytes": 80914,
+    "deterministic_binary_patch_sha256": "eadacc6e054dfd192c48adc4b606f04f0ce1528e7f9b92fcf907b90990d71136",
+    "dirty": true,
+    "status_porcelain_v2": [
+      "1 .M N... 100644 100644 100644 9f289bc4154eb1127ef224e783ff110c5633a52a 9f289bc4154eb1127ef224e783ff110c5633a52a HorseMod/HorseModService.PublicApiAndLifetime.inl",
+      "1 .M N... 100644 100644 100644 8ee57ea517276d21e232e878812d9af87b8aaebb 8ee57ea517276d21e232e878812d9af87b8aaebb HorseMod/HorseModService.QualificationDiagnostics.inl",
+      "1 .M N... 100644 100644 100644 f2bd224e3b020138710cffdade4fabff985d8fd6 f2bd224e3b020138710cffdade4fabff985d8fd6 HorseMod/HorseModService.SettingsAndRequests.inl",
+      "1 .M N... 100644 100644 100644 eed2066c496b93e538ad7ef37c8a412e16aba0d7 eed2066c496b93e538ad7ef37c8a412e16aba0d7 HorseMod/dllmain.cpp",
+      "1 .M N... 100644 100644 100644 d8d1669891fbb9eebcb2adca433b3738050675fc d8d1669891fbb9eebcb2adca433b3738050675fc HorseMod/horselib/deterministic/Sc6ReplayRuntime.PresentationAndSeek.inl",
+      "1 .M N... 100644 100644 100644 11c8141cd5baa65727613f3fcc17a66374c3472d 11c8141cd5baa65727613f3fcc17a66374c3472d tools/deterministic_qualification/offline_campaign.py",
+      "1 .M N... 100644 100644 100644 35e7e527a21e5aba7c7e2be93612633f3d0dd01c 35e7e527a21e5aba7c7e2be93612633f3d0dd01c tools/deterministic_qualification/offline_matrix.py",
+      "1 .M N... 100644 100644 100644 e7ea616ffc4999f57c3095a258ba1c965867f192 e7ea616ffc4999f57c3095a258ba1c965867f192 tools/deterministic_qualification/offline_spec.py",
+      "1 .M N... 100644 100644 100644 488315c73de9c577be2b54c3350c1bfbebb102a3 488315c73de9c577be2b54c3350c1bfbebb102a3 tools/deterministic_qualification/release_publish.py",
+      "1 .M N... 100644 100644 100644 25f3e0f39d31dfb581f68d10276f0a4bdd19e1fb 25f3e0f39d31dfb581f68d10276f0a4bdd19e1fb tools/deterministic_qualification/replay_entry.py",
+      "1 .M N... 100644 100644 100644 b91c83492759c883e960bd17f29f2068c31078e0 b91c83492759c883e960bd17f29f2068c31078e0 tools/deterministic_qualification/runner.py",
+      "1 .M N... 100644 100644 100644 b84570173fd4ea81c1e64b21abd42e3be4e01076 b84570173fd4ea81c1e64b21abd42e3be4e01076 tools/deterministic_qualification/tests/test_offline_matrix.py",
+      "1 .M N... 100644 100644 100644 cc5884ae89a9d3b8becee422efcccf74bc4ba7aa cc5884ae89a9d3b8becee422efcccf74bc4ba7aa tools/deterministic_qualification/tests/test_offline_resume.py",
+      "1 .M N... 100644 100644 100644 2f0a205b4cfd3d215f138e7c0fffd3ac6ce52913 2f0a205b4cfd3d215f138e7c0fffd3ac6ce52913 tools/deterministic_qualification/tests/test_replay_entry_request.py",
+      "1 .M N... 100644 100644 100644 ef7b6088c2ded984163a1d1708abf7bcb0094bff ef7b6088c2ded984163a1d1708abf7bcb0094bff tools/replay_qualification_mod/ReplayQualificationMod.cpp"
+    ],
+    "submodules": [
+      "f21698d85367c8d97585cf7610897316c873681c third_party/GekkoNet (v20260629200724-02c447c-6-gf21698d)",
+      " 6b3fd8a175f1e164eb1bd1be6f766f48b980f7c0 tools/BlueprintToCpp (heads/codex/pre-rollback-rewrite-snapshot-20260823)",
+      " 75f3878b7a348cbda3927048b142a0a6923e79c0 tools/BlueprintToCpp/CUE4Parse (v1.2.2-719-g75f3878b)",
+      " 414689d5cff4286a7898487a46dc5e48005d38da tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl (v2.1.0)",
+      " 0d98dba29d66e93259db7daa53a9327df767a415 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/benchmark (v1.6.1)",
+      " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/catch2 (v2.13.7)",
+      " d7982f2b2524feeb322f424b29cf43df30b5d5b7 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm (v2.2.0)",
+      " 0d98dba29d66e93259db7daa53a9327df767a415 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm/external/benchmark (v1.6.1)",
+      " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm/external/catch2 (v2.13.7)",
+      " 54b3985e8ccc5efb5f24dabf0b4b802a996366e6 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/sjson-cpp (v0.9.0)",
+      " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/sjson-cpp/external/catch2 (v2.13.7)"
+    ],
+    "tracked_inputs": [
+      {
+        "path": "CMakeLists.txt",
+        "sha256": "0ee3de61f39d1362738ce9a1973c4522ceccf2807936fbcce2fbc89f3489464a",
+        "size": 5011
+      },
+      {
+        "path": "HorseMod/CMakeLists.txt",
+        "sha256": "79ea35b7fed4d4090d007bfd927835ca2bc78712bb3c97df144c09bfae1c2422",
+        "size": 20275
+      },
+      {
+        "path": "HorseMod/HorseModService.KHitAudit.inl",
+        "sha256": "73c896ed486d496cad0c6d116422c66618bf517a9afdc7b79cb22c950df1087d",
+        "size": 51795
+      },
+      {
+        "path": "HorseMod/HorseModService.LabbingAndGeneral.inl",
+        "sha256": "298878f3099b4cbdcb9e9407be299351c8d13e55d090c5798ee5b886a326436f",
+        "size": 26622
+      },
+      {
+        "path": "HorseMod/HorseModService.OnlineCallbacks.inl",
+        "sha256": "11bd41cff7f0a5c8f40eb8f9da6504daaf943f130b32a729761e09903d712919",
+        "size": 63683
+      },
+      {
+        "path": "HorseMod/HorseModService.OnlineOwnership.inl",
+        "sha256": "2fb06798ff5c6197724e1b8edb5357e1855e515029a6c3a6cbc1c0309174d536",
+        "size": 51207
+      },
+      {
+        "path": "HorseMod/HorseModService.PresenceAndOverlay.inl",
+        "sha256": "e5d0024e4764e806315e756199a181a76d146014667b3b06d68d04627e9ff65e",
+        "size": 51927
+      },
+      {
+        "path": "HorseMod/HorseModService.PublicApiAndLifetime.inl",
+        "sha256": "144bda230457e2d1e6b8b415b5b8c090ee1edfdff8f6c5d5fda4cdf12624d96b",
+        "size": 85217
+      },
+      {
+        "path": "HorseMod/HorseModService.QualificationDiagnostics.inl",
+        "sha256": "d9d3a06de1bd282ebec29e559c2f67d26496a5f7fc606a228b85edc00cca0a90",
+        "size": 83519
+      },
+      {
+        "path": "HorseMod/HorseModService.RuntimeControls.inl",
+        "sha256": "e1e5c90a62090b84bc83683c35be7b5cd5e7ce5b2716185d1a9f96314ac2fcc5",
+        "size": 53972
+      },
+      {
+        "path": "HorseMod/HorseModService.SettingsAndRequests.inl",
+        "sha256": "4f3a994e093df35ea20678cd7ac3786aff81adc7a5fc67c18a56189a7e6605dc",
+        "size": 55293
+      },
+      {
+        "path": "HorseMod/HorseModService.TypesAndState.inl",
+        "sha256": "a1c660bb88faca819540dda8827792dd6faec8c10fc0fa07b13680ff9039ca66",
+        "size": 49628
+      },
+      {
+        "path": "HorseMod/HorseModService.UiTabs.inl",
+        "sha256": "4af4d8cbb9a0849bc5ecabab9b3503d1ada2ee0abee10469b79b473e00e4b87c",
+        "size": 58474
+      },
+      {
+        "path": "HorseMod/OnlineQualificationService.inl",
+        "sha256": "9796d7a3d6b5bce1e70974ea252c8c1e2e9c39e632c6f45b295a7a58794e2694",
+        "size": 19063
+      },
+      {
+        "path": "HorseMod/dllmain.cpp",
+        "sha256": "01da2fa0dcb6db66e3efc334a27ecfe52611f357e1e67be14fbaff5856b873a3",
+        "size": 27906
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/AudioPresentation.cpp",
+        "sha256": "4f3342cd6e3052bb0ceef557477390367e7ad3b58567316df8a3874bc3b5efaf",
+        "size": 7775
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/AudioPresentation.hpp",
+        "sha256": "439a9554543b2f9172761a01d5e2a47975100c1f324a973d2bdc6922c9555658",
+        "size": 14604
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/AuthoritativeInputGate.hpp",
+        "sha256": "09bdfe232abeb92c913341ba5217b1456627a0962716b86b396451669f2420b4",
+        "size": 2787
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/BattleAudioSelectorState.cpp",
+        "sha256": "2e5efa4b85b776960d68e2d4263ed615cac21f80d3de3bb355548613ae9583c3",
+        "size": 6552
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/BattleAudioSelectorState.hpp",
+        "sha256": "4838fb424721ca77d91fc8dd15150580453fa8e9c85166038c1a64facfc4e347",
+        "size": 2090
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CallbackTopology.cpp",
+        "sha256": "342d9122d442be31238e3cd938c4ada45013643b7d7471c2af782140ca072802",
+        "size": 7276
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CallbackTopology.hpp",
+        "sha256": "1cc96f59f06b9b7bf2dfaeb9ae7c6ed45cb49a068376996c9cad780956dc6e62",
+        "size": 1619
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CandidateCheckpoint.cpp",
+        "sha256": "af46fdcb35d2f3cad7e904f368bb2a8e4cf73539622e2730e8d1c13370593caf",
+        "size": 44067
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CandidateCheckpoint.hpp",
+        "sha256": "2eb9716401c4996a45cedeabac5730c8adbc5358ad7dab8b2cb875ec955e4c54",
+        "size": 2789
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CandidateGameStateAdapter.cpp",
+        "sha256": "ebbc7d0746cf654e9d19c18b2fa2c7ac74222966ae29e9b501d52a2599dceaa6",
+        "size": 31992
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CandidateGameStateAdapter.hpp",
+        "sha256": "2180073f9e7ff39774cab3ea59a532135eb23fc5bd419890b69a9f83bae83f70",
+        "size": 9939
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CanonicalHashTimeline.cpp",
+        "sha256": "26259f9ed9827d381b6e2e893828a3bec6ea6c2093cf11722342dcc10959bf60",
+        "size": 4556
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CanonicalHashTimeline.hpp",
+        "sha256": "d9bc546a84bd10ed9451043d5901be4a07fbb0cc2e843c8094b1d93568e0ffdc",
+        "size": 1959
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CharaAnimationState.cpp",
+        "sha256": "8451badf13d5d2bbe75067fe87285c7dd0fd632cc6c70e701912a7173ad61af5",
+        "size": 24367
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CharaAnimationState.hpp",
+        "sha256": "f110e66a17f4f7fcd0c33e4b6f1da1ada8c84de2af0ed091f553978467d61cb1",
+        "size": 5727
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Config.cpp",
+        "sha256": "c6a9a32e3adc72889339f02ed149401d9cdc861df790ec500f7aac73983c1a4f",
+        "size": 4118
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Config.hpp",
+        "sha256": "d2a736c48af1f8ee443160e27d17ff6a1b6ec93d6534158c239ccc38930a560f",
+        "size": 1204
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/DeterministicHookSet.Audio.inl",
+        "sha256": "2513f1944166a15ddbda9ec16c6a0700e33d830f6bbe80f752a603a100077764",
+        "size": 55890
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/DeterministicHookSet.FrameAndStage.inl",
+        "sha256": "0558f29a62b500728313c84f291e085969b0a84adec3dc78b8e142a05a83239f",
+        "size": 66078
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/DeterministicHookSet.LifecycleAndJournal.inl",
+        "sha256": "fd4a88dc219ba71fe6af612ce3d11d707e53dc1c9ebcaf0deef38ce9271d1f84",
+        "size": 64675
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/DeterministicHookSet.PresentationTerminals.inl",
+        "sha256": "cbdc937b5ff2435f3e4675f166cf058f461049c0c5239f7b8d6a50526c3c6301",
+        "size": 56762
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/DeterministicHookSet.cpp",
+        "sha256": "4a730c5d99095ef1adb20e5cfb6ca8bb84cc57a0241cb8c85be8773b6fabc33d",
+        "size": 51516
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/DeterministicHookSet.hpp",
+        "sha256": "2714c30bc7af1791e834d63cbd5f777501ecfceca52f97b5245eb5ad18c11192",
+        "size": 41326
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/FloatingPointEnvironment.cpp",
+        "sha256": "900ac867fd069b5106a52858a02daa0713bc774db7e18e71585e15f1ab9cf620",
+        "size": 2424
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/FloatingPointEnvironment.hpp",
+        "sha256": "8aa548aa0b633f2e99f106334264c0cbb480b950615587ed0b11a73f39016c42",
+        "size": 1446
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/GekkoRollbackSession.cpp",
+        "sha256": "94ebb25d87c1eaf030c1703840e577ea32702833f275d311b615061921d1bbf8",
+        "size": 12412
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/GekkoRollbackSession.hpp",
+        "sha256": "e3591d792f51d38159324e682eb96ec0fa9cd76c1f0808a437a66fbfc09cd67f",
+        "size": 3288
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/HgCpuCoverageProbe.cpp",
+        "sha256": "3760ebc6275b907dcef279f3955f2be33e4987f09859d3beb3d9a2262871b307",
+        "size": 6194
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/HgCpuCoverageProbe.hpp",
+        "sha256": "7c40e9027a3f15b74313c36ebab3fdace334f0d4eddc8cf2df38090630113b99",
+        "size": 2279
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/HgCpuRuntimeDiagnostics.cpp",
+        "sha256": "77f899ec860ba9795d65482bd93677c3d8131e9b5ef8a8d720f39f95dddced54",
+        "size": 7203
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/HgCpuRuntimeDiagnostics.hpp",
+        "sha256": "76515ead4989a832b565ebaa2d7d5cd2c2213626526af17e141f5fd87bdc1250",
+        "size": 1569
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/HgCpuStream.cpp",
+        "sha256": "c216af0bf6a9e66e80e100e9cccac8596f77c57014da6a58fc4c7cbe98725c3b",
+        "size": 7668
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/HgCpuStream.hpp",
+        "sha256": "1102a3ca1583387bcf2c27ff14ac61f240f387a6380ad739c5d4d39d3866d827",
+        "size": 2849
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/InputTimeline.cpp",
+        "sha256": "e668751f8db9a431b39da180986ae266052cf887203f0d2234d7ce3509be6605",
+        "size": 4771
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/InputTimeline.hpp",
+        "sha256": "9fa58aa43e105d81506cdb8193e69814e3b3b4d306db7ccf24628d4810b599df",
+        "size": 1461
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Interfaces.hpp",
+        "sha256": "eeb7c8a75f43870d1322d19d88a308372137827d35a708e2131838b5625a5123",
+        "size": 4142
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/LocalImageChecksum.hpp",
+        "sha256": "85a6b204203c40e0668268a55115622b5ac0d4664ea04f2699b010abb483bd31",
+        "size": 2395
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/MotionBankSnapshot.cpp",
+        "sha256": "02258b1ce2a0bc372e0af96380e37e0b5ef1cb2bbcb82302feb9d3ebf35c02a2",
+        "size": 10923
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/MotionBankSnapshot.hpp",
+        "sha256": "d932b7d53b14eaa1c04a77073753ce43b664e45cb54977c246be0cec28f09e67",
+        "size": 2259
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/MoveDispatchState.cpp",
+        "sha256": "61626f70e4fc30a0507520596a5796c763598aa1488e5de4e0fbe141b8a883ed",
+        "size": 18887
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/MoveDispatchState.hpp",
+        "sha256": "c3e832fa18ef913568333a15e2a0f60b08814d164667573491e2fc1cd5ef9474",
+        "size": 4446
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativeAudioPresentationController.cpp",
+        "sha256": "2d1dc051ba93ee8edc3fb3e1a1c1457891819e9d19be5e4dbcb7fdc3ffdef805",
+        "size": 4938
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativeAudioPresentationController.hpp",
+        "sha256": "471a4ab4b159fcbf4b059ee608b45de7cd774a293fca8756fde0f0d60727ded2",
+        "size": 1333
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativeBatchTimeline.cpp",
+        "sha256": "796ac67c6f5fe701213fadbf8b9f53e6c7e343a5cf7714e5f814aeaabe810fad",
+        "size": 18449
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativeBatchTimeline.hpp",
+        "sha256": "52747740daca96b3858512f000a53c5734143db53864eb217b8930247c10be8b",
+        "size": 13545
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativeCandidateRegions.cpp",
+        "sha256": "cb8177ca7d6074780f6ec6caa53ddb1e347c9a7a7a812d650ab980ffec1fca84",
+        "size": 125458
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativeCandidateRegions.hpp",
+        "sha256": "48b70e85d56ab5992cac2c7bacceec20d9b80ce81e79591aede5f4ec3d9aec4c",
+        "size": 19438
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativePresentationJournal.cpp",
+        "sha256": "e84c53ad43000daad5c59d3d5447b44a2c5f1a9f035510f79209d0b3dc75ca17",
+        "size": 10361
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativePresentationJournal.hpp",
+        "sha256": "4b39d528acf1397c67ba203049af04e44fa226ea9b23269f386c6d4db94a04c4",
+        "size": 652
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativeReplayMaterializer.cpp",
+        "sha256": "ac7f5be2a145bb584d59605c9b1419918d741c0899114af4c4ed9942536142de",
+        "size": 5256
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativeReplayMaterializer.hpp",
+        "sha256": "981027b969dbe670c8283b2fd83695212bacaafb34370824b58172aadf6d16b9",
+        "size": 1925
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/OnlineContractTypes.hpp",
+        "sha256": "cc8b9f97d8d8e6f259f2320e9a667c5887c783bae7053d64212025e1532fd827",
+        "size": 1551
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/OnlineCoordinator.cpp",
+        "sha256": "46f8d02345106fd012d1c7231be52b73cd0d4dd7d01cac54efd0b8c66222303f",
+        "size": 42031
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/OnlineCoordinator.hpp",
+        "sha256": "cd63814b855e3b89faf990c5b72823dd6339598a2ae0e42f0a90bf5a9bfc058e",
+        "size": 7196
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/OnlineLifecycle.hpp",
+        "sha256": "41f38ed5f201974e679aefa5395e964e9d23ddea4eca792cb7731b99b3eb8f63",
+        "size": 3322
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/OnlineQualificationMetrics.hpp",
+        "sha256": "55e8e3fa99243e67f5506be7d04235e564ff1382ec20e5e5ec6367c15b1021fa",
+        "size": 3079
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ParticlePresentation.cpp",
+        "sha256": "6fa30f546885d388b65a1d9650f2a477808558ee7467123e77ac976392f510f1",
+        "size": 6401
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ParticlePresentation.hpp",
+        "sha256": "b9d451b8c79bd69eb12a35f8ce0f76751627f9119330d6b9f647d33f8ac208cd",
+        "size": 1530
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/PresentationJournal.cpp",
+        "sha256": "0e22260b89f8539fb1bdb53742ce6c2e571ca4288d450d619e74c3c9d1ad5427",
+        "size": 11909
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/PresentationJournal.hpp",
+        "sha256": "9e3c121e5491316d900f3028de291311fe71dd233a260d788bce5bfa5a9d851f",
+        "size": 3744
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ProductionOnlineAllowlist.cpp",
+        "sha256": "1255e566c1431e161295f91a586393ba69b8202114de74660784968dbaff36b0",
+        "size": 4124
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ProductionOnlineAllowlist.hpp",
+        "sha256": "a010f8c22128a394c1a684f1cff0d3b8bb40c1e9db177dfa8c2b65b024ba60e8",
+        "size": 2029
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ProductionReleaseLoader.cpp",
+        "sha256": "d91ce662c385fb834e8f29960c01a53418e510f88d1b54258a038578c8c2cd14",
+        "size": 12417
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ProductionReleaseLoader.hpp",
+        "sha256": "7566c423c667aa82411d60f20a015666d2471f169a1baab54c752d78b9e59ec6",
+        "size": 742
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ReplayCoordinator.cpp",
+        "sha256": "470b3a645d596bc81083a8fa7ab3ef27c3ea507889c11a5ab7085f39e48295d1",
+        "size": 7626
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ReplayCoordinator.hpp",
+        "sha256": "ad6c2fcc1c5a2ef6a5d24e1bb9aa87e4e1e24e096df1cae614c1fae235449071",
+        "size": 2181
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ReplaySeekPlanner.cpp",
+        "sha256": "92dbc4e74e0f30ef51b8b45290507e31fa1e4370edf4e253c593d44aae558c52",
+        "size": 7313
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ReplaySeekPlanner.hpp",
+        "sha256": "8f6d60dbe7aa60e5da4c620ebd4362347debe2fc7e82652e83735390875d4777",
+        "size": 1267
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6CandidateCheckpointCapture.cpp",
+        "sha256": "583f4c831e3225dd49f5d2dcfb66ad7915c39247dcf5c18571cdab6de9859ed2",
+        "size": 43965
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6CandidateCheckpointCapture.hpp",
+        "sha256": "9100789f851ff57032ad96251e651dcd4671c6d7e2386db9e315550cd76023ee",
+        "size": 10243
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6HookLayout.hpp",
+        "sha256": "322515ed226ab706d470219b45a467a5c4b1c2e5649c0246f68bc89a6311dba7",
+        "size": 1908
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6OnlineContractObserver.cpp",
+        "sha256": "e404c9e014c1789b8657dce295522b8eaefacda3348d3e6f0373c71f75f19264",
+        "size": 23720
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6OnlineContractObserver.hpp",
+        "sha256": "f899588ba72f59c89f2afe7b4c7aff188c3a53391686d81ebdd26b8eeac7f233",
+        "size": 3823
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6OnlineObserverProbe.cpp",
+        "sha256": "18cc2466a38d3b22835c037cde527b105844ca4e95696cac5178ab321966877a",
+        "size": 7487
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6OnlineObserverProbe.hpp",
+        "sha256": "7f298bbad83700dbbd18142ae2dc6df61fe16a54f6ab7575924f43bebabc215a",
+        "size": 3698
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6PresentationSink.cpp",
+        "sha256": "ea58f941260a50019475774dbfab1cb1a6e77655252fe4b49fa834547843c6e7",
+        "size": 1182
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6PresentationSink.hpp",
+        "sha256": "edf0ff6fcb4c53af8a628015c81544050b7d185f3139c36d1a4f7a535957f906",
+        "size": 467
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6ReplayNativeBridge.cpp",
+        "sha256": "d46d856b364b506d897c803e71af7a72314c998269f5358c58cf85d231779d0b",
+        "size": 10344
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6ReplayNativeBridge.hpp",
+        "sha256": "d08c16c7b255467ed5c7af022aaa6cdb6566785d09053617181af12bbab22502",
+        "size": 1914
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.Correction.inl",
+        "sha256": "156ef854acc93aea41941b3374ad780879963b200c34392192ef6efc4ad2a9a9",
+        "size": 42989
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.Observation.inl",
+        "sha256": "91b74a45f04276c65ab505b5463645d7eb344769d53a598b107eea022363468e",
+        "size": 67184
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.PresentationAndSeek.inl",
+        "sha256": "8f9386d03111cae1b0e5c1eecc01ad510054971a65f10c4139d93ece07acdb55",
+        "size": 64635
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.cpp",
+        "sha256": "6b4474fd0f29c0085014c24588e1fe5a235bc55971f66ebf08dff84a3797840b",
+        "size": 14212
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.hpp",
+        "sha256": "acbd44ad695f750bf3a10bf935da8a67d7fec3961d42e3919b528ac6f27d94b8",
+        "size": 33161
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6StageCatalog.cpp",
+        "sha256": "36ba7136138abd82131ab6f4367f8d59e5612c6e0d0f4196a0e929329e85fdcf",
+        "size": 472
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6StageCatalog.hpp",
+        "sha256": "bdb3218212e3ced5f2eafd45bffe67904a54389ae72225315dd1037ee147ebab",
+        "size": 1142
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Schema.hpp",
+        "sha256": "39acaa8aa96e1d5f3f0ee82f07c16fa25502d497c468d2d5ee87e02f59e92eae",
+        "size": 22520
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/SecondaryEventState.cpp",
+        "sha256": "2120e095984a6773ddc19dd2d4e1879bc834493fdf4799a1d47334747893ca82",
+        "size": 10269
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/SecondaryEventState.hpp",
+        "sha256": "5d3e63e15ee2e060a96b46578f83d29fe8c3dc739627bc86d0d469596d951b29",
+        "size": 2406
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/SimulationSession.cpp",
+        "sha256": "dbb1d3bfb2ec7ce1b9a72739ea711c720e8fff6c10274d828d3acf79d6f6a20e",
+        "size": 8982
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/SimulationSession.hpp",
+        "sha256": "0aaf0a372ac4296951799bea9ff12ea932326286bdfc5cf167501453d445f7ff",
+        "size": 1746
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/SnapshotStore.cpp",
+        "sha256": "65302b284e4fde88999137a197d5fed4da73022deb23e9a54a9b6f66181d82ce",
+        "size": 17497
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/SnapshotStore.hpp",
+        "sha256": "c56cf91742e971f8cc5e6f50d3cd7d5e5aaed919b4e801c7e5ea2b1a81850d02",
+        "size": 3282
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StageBreakListenerDiagnostics.cpp",
+        "sha256": "fa1cf9fd3c2dc5a6b008e23b1791dbd0bf882d8cdefd7761471ba318562bbb9f",
+        "size": 19157
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StageBreakListenerDiagnostics.hpp",
+        "sha256": "9ac86b2df3bd6b9c0eb5da8fd589d5adc19f77fc8d66dd396e153e2dbc02ee94",
+        "size": 6418
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StageBreakPresentationIdentity.cpp",
+        "sha256": "2a99efcb7c4dc81c5475b86c69bc3721d69670182303e38bf2d161fbbeb5ebd9",
+        "size": 14823
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StageBreakPresentationIdentity.hpp",
+        "sha256": "74b2aac17c7fdbb4682ee5584798ecad713ee4fbb931f8642ca47995bebf7eae",
+        "size": 3404
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StagePresentation.cpp",
+        "sha256": "cf031b6882d9722ac19b85a9b4900c51e46f65cfe642eb067dea45be5992c43d",
+        "size": 7598
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StagePresentation.hpp",
+        "sha256": "c07537bfde2e52a5dae57c48781af516c82d99ab3b53fde1b57054fad143ca6b",
+        "size": 1333
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StageWindGraphTransaction.cpp",
+        "sha256": "f315f979eba893e754c095817506038cd101433fdf75eface0a27cd6efecd95c",
+        "size": 10525
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StageWindGraphTransaction.hpp",
+        "sha256": "495c3866c204decae95a958db22953c0baf3c48dd5ff90c4d970858668fe2080",
+        "size": 885
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StageWindTopology.cpp",
+        "sha256": "bfd4c4201784468dd9af1eeed880a219612849d0a08cbcbb2861612d93ebc473",
+        "size": 16669
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StageWindTopology.hpp",
+        "sha256": "922d7d3094bc1b413b07de8b06d57bb48e9e8622c820c3a404060b2d29d7e287",
+        "size": 8572
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/SteamP2PTransport.cpp",
+        "sha256": "a85b264f278c78b02e4793de7b68969960aee65d802cd1482fd36dc6c41bb4c4",
+        "size": 25435
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/SteamP2PTransport.hpp",
+        "sha256": "2670e8c78e9d8d2ec69c4b0a539b8e4e1f8fefa56478c595ac5f286bd16426f0",
+        "size": 6525
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Types.hpp",
+        "sha256": "3f760f0a78aa702217e9c45ae7b35157b8efb95801f763d512ec78f0c140eb0b",
+        "size": 10788
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/UcrtRandBroker.cpp",
+        "sha256": "ddf2d44ced0b810deed17fb83f30ea8e5d759ad53b55959b9590e0dc1f770395",
+        "size": 4937
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/UcrtRandBroker.hpp",
+        "sha256": "e8c08cec4288726d7e686cdde3260eeeb1160899682fdd39e4aecd95f89c88af",
+        "size": 1978
+      },
+      {
+        "path": "HorseMod/rollback.ini.example",
+        "sha256": "6c014794b0511992033d90574ab7e92bde00b0f324867eae22c136f927b8c029",
+        "size": 76
+      },
+      {
+        "path": "docs/investigations/deterministic-production-candidate-manifest.json",
+        "sha256": "c0cba1c615ae02e4e754421565f83bf35be655f1eb37e2904f82a878e8a948fe",
+        "size": 3026
+      },
+      {
+        "path": "docs/investigations/deterministic-production-region-manifest.json",
+        "sha256": "242b33289b6bce0bc54ef742b1b4490bb97f2ee54ad7a605a73921b17cd55e1e",
+        "size": 11111
+      },
+      {
+        "path": "docs/investigations/deterministic-tira-qualification-manifest.json",
+        "sha256": "6d6afcbd1cedbd063ca978ef3d8e4b365d79080ca6c37cbfbe5e47f8471bc53f",
+        "size": 1359
+      },
+      {
+        "path": "tools/deterministic_core_selftest.cpp",
+        "sha256": "8059c0ec0f9d61659127620fc0b131f6310980430e172e9429737c7be3946064",
+        "size": 88126
+      },
+      {
+        "path": "tools/deterministic_iteration.py",
+        "sha256": "5975e2cfa406d416269960a2e766fd64194a3f1cddbd4bd195e2e8ec07b87f7c",
+        "size": 3119
+      },
+      {
+        "path": "tools/deterministic_qualification.py",
+        "sha256": "7722d89b24cd3ff1c377bbbc96dd711a36afb93e819f986d24cd1dfe04997702",
+        "size": 110
+      },
+      {
+        "path": "tools/deterministic_qualification/__init__.py",
+        "sha256": "17b7b701f8753af2779a08a65245389862295ffcb90c9f7fe700c6da3a27e312",
+        "size": 79
+      },
+      {
+        "path": "tools/deterministic_qualification/artifacts.py",
+        "sha256": "baf8f2967e3961901c414cf97de9223be10a39a1634151f0de110de14cc40487",
+        "size": 12083
+      },
+      {
+        "path": "tools/deterministic_qualification/configuration.py",
+        "sha256": "06509d24cb7e62704cab35cda17307298d905ccbf69506d9f18cf3c036c27365",
+        "size": 5631
+      },
+      {
+        "path": "tools/deterministic_qualification/impairment.py",
+        "sha256": "50a5970d89c932f6a16d9e99c7d7347769d2ba46621da76353b9c57819e9e65d",
+        "size": 5043
+      },
+      {
+        "path": "tools/deterministic_qualification/observer_pair.py",
+        "sha256": "3a07fe37480a25a0fd738160d396303a0289376640b5ef6eb6593d73ecbb3e51",
+        "size": 17204
+      },
+      {
+        "path": "tools/deterministic_qualification/offline_campaign.py",
+        "sha256": "cc025a4ec2ed7d20f618a68b269f4c661c0f50cecad6261bcb8446ae14281dcf",
+        "size": 32352
+      },
+      {
+        "path": "tools/deterministic_qualification/offline_capture.py",
+        "sha256": "a55733f4f328d84cfe6a81430d20ef1393cb39d6a6010f92c2358c88ea559810",
+        "size": 8017
+      },
+      {
+        "path": "tools/deterministic_qualification/offline_matrix.py",
+        "sha256": "cfdf4912625d02f4ce7c5595230bfaf463252b200df4149cbf5f1beaa1ae1b8e",
+        "size": 13624
+      },
+      {
+        "path": "tools/deterministic_qualification/offline_spec.py",
+        "sha256": "12dc961bbfe041eb3b9f5074f7d109002f6f55828087ced6d9a4fe3242132e56",
+        "size": 3063
+      },
+      {
+        "path": "tools/deterministic_qualification/paired_online.py",
+        "sha256": "308ec595c70f2722da46ac03d773e351e93a2663cddfc23f01764c33f1193361",
+        "size": 46457
+      },
+      {
+        "path": "tools/deterministic_qualification/process_control.py",
+        "sha256": "ea31173201387609be6e5b822c904c78aed9ad5037e7d72f137cb168154676f1",
+        "size": 6126
+      },
+      {
+        "path": "tools/deterministic_qualification/process_memory.py",
+        "sha256": "a8f84399744ef394c08cf359f64f96c693917e23005b8a505fe56bbb88390c60",
+        "size": 2245
+      },
+      {
+        "path": "tools/deterministic_qualification/release_publish.py",
+        "sha256": "a69008ee6b957c38e0fde5298d26fbb0101821552971fb129fefc39eba30975d",
+        "size": 18948
+      },
+      {
+        "path": "tools/deterministic_qualification/replay_entry.py",
+        "sha256": "8ca1043de6c7e031248b27ec20181a8177bdc29bffc8325e95bd58fdc975662d",
+        "size": 11267
+      },
+      {
+        "path": "tools/deterministic_qualification/report.py",
+        "sha256": "4d4572fb3a0e521817c2adaab7d27e918b940eb11372b3770380be9e8b09700e",
+        "size": 408
+      },
+      {
+        "path": "tools/deterministic_qualification/runner.py",
+        "sha256": "ee7e7883cfc8e85fbc1f09c3b3151391fc6bd537545ade9d9d8e3176c55284ac",
+        "size": 96238
+      },
+      {
+        "path": "tools/deterministic_qualification/sandboxie_pair.py",
+        "sha256": "cdb25acc83b0d047629429aba522f384e3fbdaf52dca6ab6414dc9f668b979c6",
+        "size": 3927
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_configuration.py",
+        "sha256": "0140c15278430457b799f821195f06f0e36dfa7fb92b72617134caf97adf263f",
+        "size": 3008
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_impairment.py",
+        "sha256": "e77125f37b3511c756bdef01f15392ba285085b5844366b5c57d86464044abdd",
+        "size": 1419
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_observer_pair.py",
+        "sha256": "40cf71ea6f60d028cf69a8b5a52161de175f6151967cad10c2dea4a4f12b5ed6",
+        "size": 3719
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_offline_matrix.py",
+        "sha256": "ba675238c07b8f7bf3625a7b586b5e6dcd79e1a33be588b060d66adcaffcf8cd",
+        "size": 3091
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_offline_resume.py",
+        "sha256": "157d1f77ce61e158a8490ba4111220634d7ad6a04a5b828aaf1256b7dab71b40",
+        "size": 12604
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_paired_online_cycles.py",
+        "sha256": "15343cf2c885632c080c25574b836659a5e82b18b785e39a8e6bfdb223371fe9",
+        "size": 5866
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_process_memory.py",
+        "sha256": "c70d56fe53e6de963a3172a77e214f1199e41783b08c6b2c1e1df237d840fc2e",
+        "size": 886
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_release_publish.py",
+        "sha256": "54533a481f6824614aa4d305974cf265868b88e5f3319d5bf5f7d84742da583c",
+        "size": 2514
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_replay_entry_request.py",
+        "sha256": "8f871866975b9e130ce99375e6e31415f2f4c901084f737794fb6b7c3822d57f",
+        "size": 7256
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_runner.py",
+        "sha256": "d0960540452c3f28846fa99d3e1e2e28f63c0b82756251ce9284cb7d429f132c",
+        "size": 15365
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_sandboxie_pair.py",
+        "sha256": "c9838f425d1dc2c0413b787f2cb1d2f58de00742e1e53d6aa76ddb62f42ba21b",
+        "size": 2018
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_tira_campaign.py",
+        "sha256": "630797238b4224a9dfc99ddcd6d92fb13c85970ad9fde0bfb38f1241d0568baa",
+        "size": 5115
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_trace_parser.py",
+        "sha256": "5515ef8b56f65cc747eee0fa23e75422fc306f25e57f208b781e12d8aab3b658",
+        "size": 15605
+      },
+      {
+        "path": "tools/deterministic_qualification/tira_campaign.py",
+        "sha256": "017e50b9f872ea26c02df1f3ecfe881edc692c3817a1832542f137a8e803fb52",
+        "size": 16268
+      },
+      {
+        "path": "tools/deterministic_qualification/trace_parser.py",
+        "sha256": "a3ae1ccf3c09dab07f8168dbc437bbbab6a6796ebdcf944c8eb21233669c9f69",
+        "size": 38266
+      },
+      {
+        "path": "tools/deterministic_schema_exporter.cpp",
+        "sha256": "ab55af76165a0f3010e7890582b7145b0ed1b8550179819a32c831a58c06a9e6",
+        "size": 6826
+      },
+      {
+        "path": "tools/gekko_rollback_session_selftest.cpp",
+        "sha256": "1e06229ca791b24a27573547cbe4b7d9293f2acde1d26db49fd7398e28b0b000",
+        "size": 14010
+      },
+      {
+        "path": "tools/generate_compiled_release_identities.py",
+        "sha256": "097bb1512af037668e2cd28b8ee5a75294f38bfc352d9c103fc125999b4dcad6",
+        "size": 1735
+      },
+      {
+        "path": "tools/generate_production_candidate_manifest.py",
+        "sha256": "6867aaea32825bd2074a0412173eeaae84cdc7f4b2dbf8f5eaac9c30aea0feb3",
+        "size": 3326
+      },
+      {
+        "path": "tools/generate_production_regions.py",
+        "sha256": "c9fa3d3221a3fa667e9546123b1335b89bdd7a4daeba780eb8b1ba3ec80ed88f",
+        "size": 2475
+      },
+      {
+        "path": "tools/native_candidate_regions_selftest.cpp",
+        "sha256": "30822336a4aa64e57704213b8cd06d0711ce2f32f6c19e31f619128526ca0e2d",
+        "size": 133815
+      },
+      {
+        "path": "tools/online_coordinator_selftest.cpp",
+        "sha256": "0331547b7c589414ca72b96a81e21f4ee96d588fdb8ecbe8c7b2e9bc96ae43e8",
+        "size": 30665
+      },
+      {
+        "path": "tools/production_release_loader_selftest.cpp",
+        "sha256": "f8a81717876a1a382f6838a308c07e216b57df8555a291ae08cc9f1e5eff95fa",
+        "size": 6370
+      },
+      {
+        "path": "tools/replay_qualification_mod/OnlineRoomAutomation.cpp",
+        "sha256": "4fa5223931289dce54e47e3fe04f388e956645ab8516a44d7d4649c793ae681a",
+        "size": 27764
+      },
+      {
+        "path": "tools/replay_qualification_mod/OnlineRoomAutomation.hpp",
+        "sha256": "71956bcdad47cebf6c5134b0ad4c45e298174d1bb84652d736b81ff6415857d8",
+        "size": 1080
+      },
+      {
+        "path": "tools/replay_qualification_mod/ReplayPayloadImporter.cpp",
+        "sha256": "4a8ae7e1018c028a9392112fd84f16721bedb4d08be6327aab7c4b07ba7afddc",
+        "size": 15059
+      },
+      {
+        "path": "tools/replay_qualification_mod/ReplayPayloadImporter.hpp",
+        "sha256": "92591ea769191e2cf56ceba867bd09589e3e84100f00c76ff2a19e7312a41734",
+        "size": 2326
+      },
+      {
+        "path": "tools/replay_qualification_mod/ReplayQualificationMod.cpp",
+        "sha256": "371e0e64db51219ff3a0d11119b5ba87db55cc9f047bf93a1f442a7b6ea732f7",
+        "size": 117830
+      },
+      {
+        "path": "tools/replay_qualification_mod/ReplaySceneNavigator.cpp",
+        "sha256": "b1387c7e21332e254ec4e0f94d7c4f7aef03d03aac4ac3a7e22c7f9cb53837fd",
+        "size": 17486
+      },
+      {
+        "path": "tools/replay_qualification_mod/ReplaySceneNavigator.hpp",
+        "sha256": "def7ba2cf5aacae193a6ee09fbdf4037252e778149c606fba18ea4c85ec9d393",
+        "size": 591
+      },
+      {
+        "path": "tools/sc6_online_contract_observer_selftest.cpp",
+        "sha256": "e1cd2f15508ec2b4d47f0be5b3968435313a89247d77a93bfb9fc96d0406198e",
+        "size": 4473
+      },
+      {
+        "path": "tools/sc6_online_observer_probe_selftest.cpp",
+        "sha256": "d6400b0c535347490c7591d1aa6b970b4800b8215666386081403b13958784ec",
+        "size": 3804
+      },
+      {
+        "path": "tools/steam_p2p_transport_selftest.cpp",
+        "sha256": "4a6da0bfd5fcf318ad5c04a01da73d129ac5e639e2af0e98f4d9468a61deb846",
+        "size": 11527
+      }
+    ],
+    "untracked_inputs": []
+  },
+  "stage_package_root": "/Game/DLC/07/Stage/STG011_R"
+}

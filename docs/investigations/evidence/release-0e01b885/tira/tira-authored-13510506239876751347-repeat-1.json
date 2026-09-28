@@ -1,0 +1,33 @@
+{
+  "case_id": "tira-authored-13510506239876751347",
+  "certifying": false,
+  "cleanup": {
+    "diagnostic_flags_restored_false": {
+      "correction_probe": true,
+      "forced_depth7_qualification": true,
+      "trace": true
+    },
+    "process_absent": true
+  },
+  "created_utc": "2026-09-03T22:31:51.981693+00:00",
+  "display_map_name": "Astral Chaos: Tide of the Damned",
+  "failure": {
+    "bounded_log": "E:\\myMods\\docs\\investigations\\evidence\\release-0e01b885\\tira\\tira-authored-13510506239876751347-repeat-1.failure.log",
+    "bounded_log_lines": 256,
+    "field_or_mask": null,
+    "fields": {},
+    "first_failing_frame": null,
+    "first_failure_line": "",
+    "graph_provenance": null,
+    "lifecycle_phase": null,
+    "owner_pointer": null,
+    "owner_selector": null,
+    "return_rva": null
+  },
+  "kind": "replay_entry_failure",
+  "reason": "native replay entry failed: development_smoke_diagnostics_unavailable",
+  "report_schema": 2,
+  "result": "fail",
+  "row_id": "",
+  "stage_package_root": "/Game/Stage/STG004"
+}

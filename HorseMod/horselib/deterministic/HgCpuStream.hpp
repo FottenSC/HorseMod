@@ -3,6 +3,7 @@
 #include "Types.hpp"
 
 #include <cstddef>
+#include <array>
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -33,6 +34,7 @@ class HgCpuStreamShim
 {
 public:
     HgCpuStreamShim() noexcept;
+    void BindStatOwners(std::array<std::uintptr_t,2> fighters) noexcept { stat_fighters_=fighters; }
 
     Status Capture(
         HgCpuExecFn writer,
@@ -90,6 +92,12 @@ private:
     std::size_t capacity_{};
     std::size_t cursor_{};
     HgCpuWriteTrace* trace_{};
+    std::array<std::uintptr_t,2> stat_fighters_{};
+    std::array<std::uintptr_t,2> stat_trees_{};
+    unsigned stat_seen_{};
+    bool PrepareStatOwners() noexcept;
+    bool ValidateStatOwners() const noexcept;
+    int StatTransfer(void* address,std::size_t bytes) noexcept;
     bool overflow_{};
 };
 }

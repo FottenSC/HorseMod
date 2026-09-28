@@ -1,0 +1,38 @@
+{
+  "scope": "A210/B217 consumer-mutation live retry after the Finish-to-Released owner fix",
+  "build": {
+    "manifest": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/manifests/f2104ab740ecbb0ed7c3c5692c88d3b7e0ebaa6e6c6c59ba4ceb962db7840592.json",
+    "source_manifest_sha256": "ad5566345e66e355a2837330e476bbd1ecebf3f9beb505ed906ee36b4baddd4a",
+    "result": "required build/native and two CTests pass",
+    "red": "docs/evidence/rollback-g1-owner-retirement-red-2026-09-24.json",
+    "green": "docs/evidence/rollback-g1-owner-retirement-green-2026-09-24.json"
+  },
+  "run": {
+    "manifest": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/manifests/82c79eca772c4477f208a75d434e22d5ac695effa5d8c045efbb4e9f4e66cfd6.json",
+    "sha256": "82c79eca772c4477f208a75d434e22d5ac695effa5d8c045efbb4e9f4e66cfd6",
+    "candidate_run_id": "replay-f710f87c68d242e5924c29beb9b0c78f",
+    "candidate_report": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/174b2afc46cc1a76bb54b944b09f4b1f55881b1a443ca3e3a924b9b221c60470.json",
+    "candidate_raw_log": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/84ebddac59c92c5fbe6616b43be4a58a7dc881bff3bed72b780c7fa31097f5f8.log",
+    "control_run_id": "replay-10e12c580c9745939122e41faa3244f7",
+    "control_report": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/73b7dc7a60184397fa7687a0db0e5638127525c869a9d8c0dde657c195cbb413.json",
+    "control_raw_log": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/f58ef90754ec2ab096dc4a3720beddc7f48d62c60c0ba9431357ba64073f99e1.log"
+  },
+  "candidate_witness": {
+    "tick211": "real native prerequisite change, selected task native_completed=true, corrected application_complete=true, B_retained=true",
+    "recovery": "ownership Recovered at B217, B_retained=false, commit_decided=false, executed_ticks=1, executed_intervals=1; historical_recovered and host seek resume accepted",
+    "continuation": "historical combat resumed from held tick217; candidate trajectory reaches frame483, over 120 subsequent frames, without independent comparison",
+    "classification": "complete-B recovery locally demonstrated live; 120 independently matching continuation ticks unproven"
+  },
+  "first_failure": {
+    "reason": "independent control startup incompatible; not a rollback divergence",
+    "candidate_startup_sha256": "8ee9161ac5eacfe3ad4f60c5a18f20ee6d3fed650ca140ece93cff5dee39f3a0",
+    "control_startup_sha256": "b5f275e8871111e88f3f1d65ec3d23f8395749935bbd105d08943d65b0582abe",
+    "callback_prefix": "836 common callback rows; candidate has one additional row through tick210",
+    "first_particle_difference": "tick3 candidate time=3ed5555a shared_rng=23a4d004; stock control time=3eeeeef5 shared_rng=3dabd8de",
+    "setup": "game/runtime/framework/observer/config/replay hashes identical; both reports skip_intros=true and native_fixed_seed=true",
+    "open_investigation": "CLI requested flush-startup-loading and no-async-loading-thread, but both capture reports record false; determine whether profile resolution intentionally overrides these options"
+  },
+  "cleanup": "Both captures report complete and zero games. Final deployment journal state clean; all six final journal file prior hashes/absence independently match, no game process remains, Steam PID 98544 remained running. Generated build OBJ/PDB NTFS compression preserved SHA256 for 655 files and restored preflight disk headroom.",
+  "gates": "Observer validity, simulation, coherence, recovery qualification and performance not measured due control startup incompatibility. G1/G2 open; debris exact/Unresolved; no408 or600 retry.",
+  "next_resolving_test": "Investigate the explicit startup-option resolution and earliest phase2 manager RNG/time difference. Add a local RED/GREEN regression only for a verified runner defect, then required build/native checks and one shortest compatible candidate/control run. Preserve strict startup comparison."
+}

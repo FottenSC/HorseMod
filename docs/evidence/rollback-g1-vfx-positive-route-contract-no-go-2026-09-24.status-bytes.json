@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "status": "docs/rollback-status.md",
+  "prefix_bytes": 1264,
+  "before_bytes": 265989,
+  "before_sha256": "f4b0b0e99744e16007bdd0c32f2aa54e49a2a7c72eafa9a0c27b128d83e016de",
+  "after_bytes": 267253,
+  "after_sha256": "9e5a2bff3337dbf5e022a1d9804d89c2050439828a04a8872257bba7d1abcc21",
+  "old_bytes_preserved_verbatim": true,
+  "production_and_test_edits": false,
+  "reviewed_source_hashes_unchanged": true
+}

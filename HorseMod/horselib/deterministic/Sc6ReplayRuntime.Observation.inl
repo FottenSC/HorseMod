@@ -17,6 +17,7 @@ Status Sc6ReplayRuntime::Initialize(
     resolvers.set_move_state = reinterpret_cast<SetBattleManagerMoveStateFn>(
         image_base + Schema::Sc6ReplayLayout::set_move_state_rva);
     resolvers.set_move_state_signature_valid = true;
+    resolvers.image_base = image_base;
     bridge_.emplace(resolvers);
     try
     {
@@ -72,6 +73,14 @@ void Sc6ReplayRuntime::Shutdown() noexcept
     last_movevm_short25_valid_ = false;
     resume_target_ = {};
     resume_source_end_ = {};
+    resume_next_batch_ = 0;
+    resume_end_batch_ = 0;
+    pending_consumer_count_ = 0;
+    pending_producer_count_ = 0;
+    last_completed_outer_batch_id_ = 0;
+    pending_replay_source_ = {};
+    pending_replay_input_ = {};
+    pending_replay_input_valid_ = false;
     resume_validation_active_ = false;
     resume_catchup_pending_ = false;
     generation_rebaseline_pending_ = false;
@@ -239,19 +248,22 @@ Status Sc6ReplayRuntime::PrepareOnlineOwnedStorage(
             if (!OnlineScratchRequiresTransientPayload(
                     role, forced_depth7_qualification_enabled_))
                 continue;
-            const auto prepared = PrepareSnapshotCopyStorage(
+            // These buffers are capture destinations during correction.  The
+            // status-4 prototype is only one legal encoded size; later game
+            // content can require any size in the bounded capture envelope.
+            const auto prepared = PrepareSnapshotCaptureStorage(
                 *snapshot, *prototype);
             if (!prepared.ok()) return prepared;
         }
         for (auto& snapshot : corrected_replay_capture_.replacement_landing)
         {
-            const auto prepared = PrepareSnapshotCopyStorage(
+            const auto prepared = PrepareSnapshotCaptureStorage(
                 snapshot, *prototype);
             if (!prepared.ok()) return prepared;
         }
         for (auto& snapshot : corrected_replay_capture_.replacement_batch_entry)
         {
-            const auto prepared = PrepareSnapshotCopyStorage(
+            const auto prepared = PrepareSnapshotCaptureStorage(
                 snapshot, *prototype);
             if (!prepared.ok()) return prepared;
         }
@@ -694,6 +706,18 @@ Status Sc6ReplayRuntime::ValidateResumedFrame(
     return Status::success();
 }
 
+void Sc6ReplayRuntime::RecordIdentityReplacement(FailureCode failure,
+    std::uint8_t source, FrameCoordinate coordinate,
+    const CandidateTransientCaptureDiagnostic& capture) noexcept
+{
+    // Later observations may skip capture entirely. Preserve the first
+    // detector instead of letting their cleared diagnostics erase it.
+    if (timeline_status_.first_identity_replacement.failure == FailureCode::None)
+        timeline_status_.first_identity_replacement = {
+            failure, source, coordinate, active_outer_tick_id_, capture};
+    generation_rebaseline_pending_ = true;
+}
+
 void Sc6ReplayRuntime::CaptureLandingCheckpoint(
     const FrameFencepostObservation& observation,
     FrameCoordinate coordinate, bool new_generation) noexcept
@@ -722,12 +746,13 @@ void Sc6ReplayRuntime::CaptureLandingCheckpoint(
     if (timeline_status_.captured_frames == 1 || new_generation
         || coordinate.frame % Schema::checkpoint_interval == 0)
     {
+        CandidateTransientCaptureDiagnostic diagnostic{};
         const Status checkpoint = checkpoint_capture_.Capture(
             CandidateCheckpointRole::Landing,
             observation.battle_manager,
             coordinate,
             timeline_session_generation_,
-            observation.thread_id);
+            observation.thread_id, &diagnostic);
         const auto checkpoint_status = checkpoint_capture_.status(
             CandidateCheckpointRole::Landing);
         timeline_status_.captured_checkpoints = checkpoint_status.captured;
@@ -760,7 +785,7 @@ void Sc6ReplayRuntime::CaptureLandingCheckpoint(
         }
         else if (IsIdentityReplacementStatus(checkpoint.code))
         {
-            generation_rebaseline_pending_ = true;
+            RecordIdentityReplacement(checkpoint.code, 1, coordinate, diagnostic);
             timeline_status_.checkpoint_failure = FailureCode::None;
         }
     }
@@ -812,11 +837,21 @@ Status Sc6ReplayRuntime::CaptureCanonicalFrame(
             timeline_status_.canonical_capture_failure_coordinate = coordinate;
             if (IsIdentityReplacementStatus(captured.code))
             {
-                generation_rebaseline_pending_ = true;
+                RecordIdentityReplacement(captured.code, 2, coordinate, capture_diagnostic);
                 return Status::success();
             }
             timeline_status_.failure = captured.code;
             return captured;
+        }
+        ReplaySourceState replay_source{};
+        if (!online_predicted_remote_player_.has_value())
+        {
+            const Status source_status = bridge_->CapturePlaybackSource(replay_source);
+            if (!source_status.ok())
+            {
+                timeline_status_.failure = source_status.code;
+                return source_status;
+            }
         }
         const Status stored = canonical_timeline_.Append(
             coordinate, canonical.canonical_hash,
@@ -827,7 +862,7 @@ Status Sc6ReplayRuntime::CaptureCanonicalFrame(
             canonical.canonical_wind,
             canonical.canonical_wind_node,
             canonical.canonical_animation,
-            canonical.canonical_stage_emitters);
+            canonical.canonical_stage_emitters, replay_source);
         timeline_status_.canonical_frames = archived_canonical_frames_
             + canonical_timeline_.size();
         timeline_status_.canonical_hash_bytes = canonical_timeline_.bytes_used();
@@ -988,6 +1023,18 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
     }
     pending_batch_id_ = observation.batch_id;
     pending_batch_entry_ = timeline_status_.last_coordinate;
+    pending_replay_source_ = {};
+    pending_replay_input_ = {};
+    pending_replay_input_valid_ = false;
+    if (!online_predicted_remote_player_.has_value())
+    {
+        const Status source = bridge_->CapturePlaybackSource(pending_replay_source_);
+        if (!source.ok())
+        {
+            timeline_status_.failure = source.code;
+            return source;
+        }
+    }
     pending_camera_source_frame_ = {};
     pending_movevm_short25_change_mask_ = 0;
     pending_movevm_short25_before_ = {};
@@ -1053,12 +1100,13 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
     }
     if (action == ResimulationBaseAction::Retain)
         return CapturePendingCameraSource();
+    CandidateTransientCaptureDiagnostic diagnostic{};
     const Status captured = checkpoint_capture_.Capture(
         CandidateCheckpointRole::BatchEntry,
         observation.battle_manager,
         coordinate,
         timeline_session_generation_,
-        observation.thread_id);
+        observation.thread_id, &diagnostic);
     if (captured.ok() && required_online_baseline_checkpoint_.has_value()
         && *required_online_baseline_checkpoint_ == coordinate)
         required_online_baseline_checkpoint_.reset();
@@ -1095,7 +1143,7 @@ Status Sc6ReplayRuntime::ObserveOuterTickBegin(
     {
         if (IsIdentityReplacementStatus(captured.code))
         {
-            generation_rebaseline_pending_ = true;
+            RecordIdentityReplacement(captured.code, 3, coordinate, diagnostic);
             timeline_status_.batch_entry_checkpoint_failure = FailureCode::None;
         }
         return Status::success();
@@ -1124,11 +1172,34 @@ Status Sc6ReplayRuntime::CapturePendingCameraSource() noexcept
         // exactly like the landing/canonical/checkpoint capture paths so the
         // completed transition batch reaches the seal-before-discard barrier.
         pending_camera_source_frame_ = {};
-        generation_rebaseline_pending_ = true;
+        RecordIdentityReplacement(captured.code, 4, timeline_status_.last_coordinate);
         return Status::success();
     }
-    if (!captured.ok()) timeline_status_.failure = captured.code;
-    return captured;
+    if (!captured.ok())
+    {
+        timeline_status_.failure = captured.code;
+        return captured;
+    }
+    if (replay_history_capture_required_ && !online_predicted_remote_player_.has_value())
+    {
+        auto& entry = timeline_canonical_capture_scratch_;
+        CandidateTransientCaptureDiagnostic diagnostic{};
+        const auto input = checkpoint_capture_.CaptureCanonical(
+            timeline_status_.last_coordinate, entry, &diagnostic);
+        if (IsIdentityReplacementStatus(input.code))
+        {
+            RecordIdentityReplacement(input.code, 5, timeline_status_.last_coordinate, diagnostic);
+            return Status::success();
+        }
+        if (!input.ok())
+        {
+            timeline_status_.failure = input.code;
+            return input;
+        }
+        pending_replay_input_ = entry.canonical_input;
+        pending_replay_input_valid_ = true;
+    }
+    return Status::success();
 }
 
 Status Sc6ReplayRuntime::PrepareResumeOuterTick(
@@ -1144,28 +1215,30 @@ Status Sc6ReplayRuntime::PrepareResumeOuterTick(
     }
     const FrameCoordinate next{timeline_status_.last_coordinate.generation,
         timeline_status_.last_coordinate.frame + 1};
-    const auto member = batch_timeline_.FindCoordinate(next);
-    if (!member.has_value())
+    const auto* expected = batch_timeline_.GetBatch(resume_next_batch_);
+    if (resume_next_batch_ >= resume_end_batch_ || expected == nullptr
+        || expected->entry_coordinate != timeline_status_.last_coordinate)
     {
         timeline_status_.failure = FailureCode::MissingInput;
         return Status::failure(timeline_status_.failure);
     }
-    if (member->offset_in_batch != 0)
+    // The real producer runs before BattleManager. Resumed playback must use
+    // its output; overwriting the cache here made historical validation hide
+    // an advancing, unrestored replay cursor. Verify continuation instead.
+    ReplaySourceState observed{};
+    const Status captured = bridge_->CapturePlaybackSource(observed);
+    if (!captured.ok() || !expected->replay_source_before.active()
+        || observed != expected->replay_source_before)
     {
-        timeline_status_.failure = FailureCode::AdapterUnqualified;
+        timeline_status_.resume_failure_coordinate = next;
+        timeline_status_.identity_issue = 310;
+        timeline_status_.identity_expected = expected->replay_source_before.cursor;
+        timeline_status_.identity_observed = observed.cursor;
+        timeline_status_.failure = captured.ok()
+            ? FailureCode::IdentityMismatch : captured.code;
         return Status::failure(timeline_status_.failure);
     }
-    const auto expected = canonical_timeline_.GetExact(next);
-    const auto input = input_timeline_.GetExact(next);
-    if (!expected.has_value() || !input.has_value())
-    {
-        timeline_status_.failure = FailureCode::MissingInput;
-        return Status::failure(timeline_status_.failure);
-    }
-    const Status restored = checkpoint_capture_.PrepareInputLogForReplay(
-        expected->input, *input);
-    if (!restored.ok()) timeline_status_.failure = restored.code;
-    return restored;
+    return Status::success();
 }
 
 void Sc6ReplayRuntime::RebaselineAfterIdentityDrift(
@@ -1256,6 +1329,14 @@ void Sc6ReplayRuntime::RebaselineAfterIdentityDrift(
     last_movevm_short25_valid_ = false;
     resume_target_ = {};
     resume_source_end_ = {};
+    resume_next_batch_ = 0;
+    resume_end_batch_ = 0;
+    pending_consumer_count_ = 0;
+    pending_producer_count_ = 0;
+    last_completed_outer_batch_id_ = 0;
+    pending_replay_source_ = {};
+    pending_replay_input_ = {};
+    pending_replay_input_valid_ = false;
     resume_validation_active_ = false;
     resume_catchup_pending_ = false;
     generation_rebaseline_pending_ = false;
@@ -1693,4 +1774,83 @@ void Sc6ReplayRuntime::FillObservedPresentationEnvelope(
     envelope.round_state_before = observation.before.round_state;
     envelope.round_state_after = observation.after.round_state;
     envelope.input_generation_changed = input_generation_changed;
+}
+
+Status Sc6ReplayRuntime::CaptureOnlineHandoff(CanonicalHash& hash, std::uint64_t& context,
+    DeterministicHookSet& hooks, OuterTickState& native) noexcept
+{
+    if (timeline_thread_id_ != ::GetCurrentThreadId()
+        || !AtCompletedOuterTickBoundary(timeline_status_.last_coordinate))
+        return Status::failure(FailureCode::WrongThread);
+    auto* manager = ResolveBattleManager(this);
+    if (reinterpret_cast<std::uintptr_t>(manager) != timeline_manager_)
+        return Status::failure(FailureCode::IdentityMismatch);
+    const auto observed = hooks.ReadOnlineHandoffState(manager, native);
+    if (!observed.ok() || native.input_log != timeline_input_log_)
+        return Status::failure(FailureCode::IdentityMismatch);
+    const auto status = checkpoint_capture_.CaptureCanonical(
+        timeline_status_.last_coordinate, timeline_canonical_capture_scratch_);
+    if (!status.ok()) return status;
+    hash = timeline_canonical_capture_scratch_.canonical_hash;
+    context = timeline_canonical_capture_scratch_.context_identity;
+    return Status::success();
+}
+
+bool Sc6ReplayRuntime::ObserveInputProducerTick(
+    const InputProducerObservation& observation) noexcept
+{
+    if (observation.before.owner != timeline_input_log_
+        || (!replay_history_capture_required_
+            && !online_predicted_remote_player_.has_value())
+        || resume_validation_active_ || timeline_status_.last_coordinate.generation == 0
+        || generation_rebaseline_pending_ || timeline_status_.partial
+        || timeline_status_.failure != FailureCode::None) return false;
+    if (!observation.valid || observation.thread_id != timeline_thread_id_
+        || active_outer_tick_id_ != 0
+        || observation.native_frame_before != timeline_status_.last_coordinate.frame
+        || observation.native_frame_after != observation.native_frame_before
+        || pending_producer_count_ == pending_producers_.size())
+    {
+        timeline_status_.identity_issue = 325;
+        timeline_status_.identity_expected = timeline_status_.last_coordinate.frame;
+        timeline_status_.identity_observed = observation.native_frame_after;
+        timeline_status_.failure = !observation.valid ? FailureCode::CaptureFailed
+            : pending_producer_count_ == pending_producers_.size()
+                ? FailureCode::CapacityExceeded : FailureCode::IdentityMismatch;
+        return true;
+    }
+    auto& saved = pending_producers_[pending_producer_count_++];
+    saved = observation;
+    saved.preceding_consumers = pending_consumer_count_;
+    return true;
+}
+
+bool Sc6ReplayRuntime::ObserveTutorialTick(
+    const TutorialConsumerObservation& observation) noexcept
+{
+    if (!checkpoint_capture_.OwnsTutorialConsumer(observation.before.owner)
+        || (!replay_history_capture_required_
+            && !online_predicted_remote_player_.has_value())
+        || resume_validation_active_
+        || timeline_status_.last_coordinate.generation == 0
+        || generation_rebaseline_pending_ || timeline_status_.partial
+        || timeline_status_.failure != FailureCode::None) return false;
+    if (observation.native_frame != timeline_status_.last_coordinate.frame
+        || observation.thread_id != timeline_thread_id_ || active_outer_tick_id_ != 0)
+    {
+        timeline_status_.identity_issue = active_outer_tick_id_ != 0 ? 321
+            : observation.thread_id != timeline_thread_id_ ? 322 : 320;
+        timeline_status_.identity_expected = timeline_status_.last_coordinate.frame;
+        timeline_status_.identity_observed = observation.native_frame;
+        timeline_status_.failure = FailureCode::IdentityMismatch;
+        return true; // Never turn an unobserved ordering violation into zero calls.
+    }
+    if (!observation.valid || pending_consumer_count_ == pending_consumers_.size())
+    {
+        timeline_status_.failure = observation.valid
+            ? FailureCode::CapacityExceeded : FailureCode::CaptureFailed;
+        return true;
+    }
+    pending_consumers_[pending_consumer_count_++] = observation;
+    return true;
 }

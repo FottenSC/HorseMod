@@ -136,8 +136,9 @@ class MotionBankFile:
         +0x04 u32 reserved/zero
         +0x08 u32 offsets[count]
 
-    There is no guaranteed count+1 sentinel. Section size is computed from
-    the next offset, or EOF for the final entry.
+    There is no guaranteed count+1 sentinel. Repeated offsets are clip
+    aliases, so section size is computed from the next strictly greater
+    offset, or EOF for the final distinct clip.
     """
 
     count: int
@@ -181,10 +182,13 @@ def parse_mot(data: bytes) -> MotionBankFile:
         if off == 0:
             raise ValueError(f"MOT offset index {idx} points at file header")
         prev = off
-    sizes: list[int] = []
-    for i, off in enumerate(offsets):
-        next_off = offsets[i + 1] if i + 1 < len(offsets) else len(data)
-        sizes.append(next_off - off)
+    next_distinct: dict[int, int] = {}
+    distinct_offsets = sorted(set(offsets))
+    for i, off in enumerate(distinct_offsets):
+        next_distinct[off] = (
+            distinct_offsets[i + 1] if i + 1 < len(distinct_offsets) else len(data)
+        )
+    sizes = [next_distinct[off] - off for off in offsets]
     return MotionBankFile(count=count, reserved_04=reserved_04, offsets=offsets, sizes=sizes, raw=data)
 
 
@@ -390,6 +394,10 @@ YARARE_REACTION_NAMED = {
     0x43: "KnockdownLike",
     0x44: "QuickRise_A",
     0x45: "QuickRise_B",
+    # These ids use TickActiveYarareReaction's default cleanup-to-idle path;
+    # they are not members of the neighbouring shared get-up branch.
+    0x49: "IdleCleanup_Default_A",
+    0x4A: "IdleCleanup_Default_B",
     0x4F: "ParryRecovery",
     0x50: "GetUp_Terminal",
 }
@@ -413,7 +421,7 @@ def yarare_name(rid: int) -> str:
         return "HeavyReaction"
     if 0x3E <= rid <= 0x41:
         return "HeavyMidReaction"
-    if 0x46 <= rid <= 0x4E:
+    if rid in (0x46, 0x47, 0x48, 0x4B, 0x4C, 0x4D, 0x4E):
         return "GetUp_ParryBreak"
     return f"YarareId_0x{rid:02X}"
 
@@ -582,6 +590,14 @@ def attack_flags_to_str(flags: int) -> str:
 
 
 @dataclass
+class LuxMoveOffsetCells3:
+    """One signed spherical movement-offset record used after contact."""
+    nRangeRaw: int = 0
+    nHorizontalAngleDegrees: int = 0
+    nVerticalAngleDegrees: int = 0
+
+
+@dataclass
 class LuxBattleAttackCell:
     """One 0x70-byte attack cell from KHD Section A.
 
@@ -591,6 +607,7 @@ class LuxBattleAttackCell:
     offset_in_file: int = 0
     # Whole-cell fields
     u64SlotMask: int = 0          # +0x00 — per-attacker bit assignment (bits 31/55 = throw partition)
+    moveOffsetCells: tuple = field(default_factory=tuple) # +0x08 — six range/horizontal/vertical i16 triples
     wU16AttackFlags: int = 0      # +0x32 — high/low/mid/UB classification (see ATTACK_FLAG_BITS)
     wU16InputCond: int = 0        # +0x34 — input precondition mask
     wI16MasterWindowStart: int = 0  # +0x36 — active-frame start (60ths)
@@ -610,11 +627,16 @@ class LuxBattleAttackCell:
     wI16HitstunSpecialContact: int = 0                 # +0x48 standard air/cinematic
     wI16HitstunAlternatePostureBaseContact: int = 0    # +0x4C promoted grounded
     wI16HitstunAlternatePostureSpecialContact: int = 0 # +0x4E promoted air/cinematic
-    wI16ReactionIdBaseContact: int = 0                 # +0x50 grounded row
-    wI16ReactionIdSpecialContact: int = 0              # +0x52 air/cinematic row
+    wI16ReactionRowBaseContact: int = 0                 # +0x50 grounded row
+    wI16ReactionRowSpecialContact: int = 0              # +0x52 air/cinematic row
     wI16ThrowReactionRowId: int = 0     # +0x54 — classifier-7 throw reaction row
+    wI16GuardReactionRowBase: int = 0   # +0x56 — base guard reaction row
+    wI16GuardReactionRowAlternate: int = 0 # +0x58 — alternate guard reaction row
     wU16PassthroughTagA: int = 0        # +0x5A — usually 0xFFFD (default tag)
-    wU16HitboxGroupBitfield: int = 0    # +0x5E — hitbox group bitmask (high byte = "type tag" 0/FF observed)
+    # +0x5E is copied to chara+0x20F6. ClassifyHitboxFrameState decodes its
+    # low 11-bit index plus bits 11..13 and 14..15 to select a banked
+    # subwindow record. The per-node activation mask is the u64 at +0x00.
+    wU16PackedSubwindowSelector: int = 0
     wU16PassthroughTagC: int = 0        # +0x60
     cI8RangeStandMin: int = 0           # +0x62 — min range (standing)
     cI8RangeStandMax: int = 0           # +0x63 — max range (standing)
@@ -640,6 +662,20 @@ class LuxBattleAttackCell:
     @property
     def wI16CounterPromotedAirOrCinematic(self) -> int:
         return self.wI16HitstunAlternatePostureSpecialContact
+
+    # Compatibility aliases for older reports. These are reaction-table row
+    # indices, not EYarare handler ids.
+    @property
+    def wI16ReactionIdBaseContact(self) -> int:
+        return self.wI16ReactionRowBaseContact
+
+    @property
+    def wI16ReactionIdSpecialContact(self) -> int:
+        return self.wI16ReactionRowSpecialContact
+
+    @property
+    def wU16HitboxGroupBitfield(self) -> int:
+        return self.wU16PackedSubwindowSelector
 
     @property
     def wI16ReactionRowGrounded(self) -> int:
@@ -857,6 +893,10 @@ def parse_attack_cell(buf: bytes, off: int) -> LuxBattleAttackCell:
         raw=raw,
         offset_in_file=off,
         u64SlotMask=struct.unpack_from("<Q", raw, 0x00)[0],
+        moveOffsetCells=tuple(
+            LuxMoveOffsetCells3(*struct.unpack_from("<3h", raw, 0x08 + index * 6))
+            for index in range(6)
+        ),
         wU16AttackFlags=struct.unpack_from("<H", raw, 0x32)[0],
         wU16InputCond=struct.unpack_from("<H", raw, 0x34)[0],
         wI16MasterWindowStart=struct.unpack_from("<h", raw, 0x36)[0],
@@ -869,11 +909,13 @@ def parse_attack_cell(buf: bytes, off: int) -> LuxBattleAttackCell:
         wI16HitstunSpecialContact=struct.unpack_from("<h", raw, 0x48)[0],
         wI16HitstunAlternatePostureBaseContact=struct.unpack_from("<h", raw, 0x4C)[0],
         wI16HitstunAlternatePostureSpecialContact=struct.unpack_from("<h", raw, 0x4E)[0],
-        wI16ReactionIdBaseContact=struct.unpack_from("<h", raw, 0x50)[0],
-        wI16ReactionIdSpecialContact=struct.unpack_from("<h", raw, 0x52)[0],
+        wI16ReactionRowBaseContact=struct.unpack_from("<h", raw, 0x50)[0],
+        wI16ReactionRowSpecialContact=struct.unpack_from("<h", raw, 0x52)[0],
         wI16ThrowReactionRowId=struct.unpack_from("<h", raw, 0x54)[0],
+        wI16GuardReactionRowBase=struct.unpack_from("<h", raw, 0x56)[0],
+        wI16GuardReactionRowAlternate=struct.unpack_from("<h", raw, 0x58)[0],
         wU16PassthroughTagA=struct.unpack_from("<H", raw, 0x5A)[0],
-        wU16HitboxGroupBitfield=struct.unpack_from("<H", raw, 0x5E)[0],
+        wU16PackedSubwindowSelector=struct.unpack_from("<H", raw, 0x5E)[0],
         wU16PassthroughTagC=struct.unpack_from("<H", raw, 0x60)[0],
         cI8RangeStandMin=struct.unpack_from("<b", raw, 0x62)[0],
         cI8RangeStandMax=struct.unpack_from("<b", raw, 0x63)[0],

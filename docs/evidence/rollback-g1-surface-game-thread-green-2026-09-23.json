@@ -1,0 +1,62 @@
+{
+  "local": "8 passed; additional nativeGT identity/nonempty scratch/RT routing regression1 passed",
+  "required_build": "PASS67.781s, two CTests, shipped synchronous callback/event/TLS lifecyclePASS",
+  "scope": "Actual native task lifecycle and production routing; no live surface/hold success claimed yet, GPU completion remains separate",
+  "files": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4ce9b6fc6f279b3cbe916990f4c42e916a9a16ac2156c610051b1a70d8621a43.inl",
+      "sha256": "4ce9b6fc6f279b3cbe916990f4c42e916a9a16ac2156c610051b1a70d8621a43",
+      "bytes": 28793
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\88519bc898e8198341e961e7f683d0f8b3606f5052866935cbc45c19b392e1a7.inl",
+      "sha256": "88519bc898e8198341e961e7f683d0f8b3606f5052866935cbc45c19b392e1a7",
+      "bytes": 40969
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\653dfc43428cf74bc66fb1a8795ed195e6acf786ac780bfa72bbe7139b765690.cpp",
+      "sha256": "653dfc43428cf74bc66fb1a8795ed195e6acf786ac780bfa72bbe7139b765690",
+      "bytes": 423207
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e197565dfd4fea864910911d226a18ef0165fd11b7f934e0246007f6e0e68dbe.py",
+      "sha256": "e197565dfd4fea864910911d226a18ef0165fd11b7f934e0246007f6e0e68dbe",
+      "bytes": 30163
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f5635d6976a333444512d37f373bbc7a814158523576658b1a14f97a6f1aec0e.json",
+      "sha256": "f5635d6976a333444512d37f373bbc7a814158523576658b1a14f97a6f1aec0e",
+      "bytes": 6239
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\620acb407bfb223fe36aa258e3f47f91f1d195d5d3b9a6d25c80e68626d642db.json",
+      "sha256": "620acb407bfb223fe36aa258e3f47f91f1d195d5d3b9a6d25c80e68626d642db",
+      "bytes": 2373
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\08363bfce0fc619f605a84daee391deb904c42bddd74435b1ffa5e22cbe6014d.log",
+      "sha256": "08363bfce0fc619f605a84daee391deb904c42bddd74435b1ffa5e22cbe6014d",
+      "bytes": 5290
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\31ca0ce88c1db390dd8a8a5fd2e2c5639776b3b1bc594769a219bb55a0dbbcd0.cmd",
+      "sha256": "31ca0ce88c1db390dd8a8a5fd2e2c5639776b3b1bc594769a219bb55a0dbbcd0",
+      "bytes": 268
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\602b2b6620ca7b6037ec97dc96e6efad6b62c1e2501ce3aef0687b6bb2cc8db4.exe",
+      "sha256": "602b2b6620ca7b6037ec97dc96e6efad6b62c1e2501ce3aef0687b6bb2cc8db4",
+      "bytes": 125440
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\aa7d77099d7f6adeb35c8dcf323886a568f899afde574de2d4a97402d715795c.obj",
+      "sha256": "aa7d77099d7f6adeb35c8dcf323886a568f899afde574de2d4a97402d715795c",
+      "bytes": 58228
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0f697965618dd2c83313064c50305afdf0fc248c1c5e072823bc95229488ee6c.cpp",
+      "sha256": "0f697965618dd2c83313064c50305afdf0fc248c1c5e072823bc95229488ee6c",
+      "bytes": 6702
+    }
+  ]
+}

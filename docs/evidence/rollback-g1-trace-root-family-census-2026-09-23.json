@@ -1,0 +1,39 @@
+{
+  "scope": "stock selected trace chara/root scene class census; not heldownership orrecovery proof",
+  "run_id": "replay-18f10ec2fbd24538a164374f24bd2a70",
+  "roots": [
+    "[2026-09-23 16:35:27.1605080] [ReplayQualification] trace retained root native_tick=205 component_index=311113 role=chara owner_index=311209 owner_serial=8081 class_index=38 class_serial=0 class=Class /Script/LuxorGame.LuxBattleChara owner_table_rva=3268078 destructor_rva=3b1980 diagnostic_only=true",
+    "[2026-09-23 16:35:27.1605189] [ReplayQualification] trace retained root native_tick=205 component_index=311113 role=scene owner_index=311208 owner_serial=8361 class_index=280 class_serial=0 class=Class /Script/Engine.SceneComponent owner_table_rva=3360370 destructor_rva=8cd720 diagnostic_only=true",
+    "[2026-09-23 16:35:27.1605870] [ReplayQualification] trace retained root native_tick=205 component_index=310590 role=chara owner_index=310680 owner_serial=8167 class_index=38 class_serial=0 class=Class /Script/LuxorGame.LuxBattleChara owner_table_rva=3268078 destructor_rva=3b1980 diagnostic_only=true",
+    "[2026-09-23 16:35:27.1605963] [ReplayQualification] trace retained root native_tick=205 component_index=310590 role=scene owner_index=310679 owner_serial=8362 class_index=280 class_serial=0 class=Class /Script/Engine.SceneComponent owner_table_rva=3360370 destructor_rva=8cd720 diagnostic_only=true"
+  ],
+  "cleanup": {
+    "complete": true,
+    "games_remaining": 0
+  },
+  "report": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0f8ca94be1d9ded375fc1b86bcd20f234a533be27d222928cfc27b0e56b3d9de.json",
+    "sha256": "0f8ca94be1d9ded375fc1b86bcd20f234a533be27d222928cfc27b0e56b3d9de",
+    "bytes": 9958
+  },
+  "stage": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0b2a6f08c786425f1211f54150019ed0f297c70a00cd4ffaedfaa34a32fe7b01.json",
+    "sha256": "0b2a6f08c786425f1211f54150019ed0f297c70a00cd4ffaedfaa34a32fe7b01",
+    "bytes": 44365
+  },
+  "raw_log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\2b4addf45dfc15c0307bcde160522b2558819a314327097f5d8e51430a50077f.log",
+    "sha256": "2b4addf45dfc15c0307bcde160522b2558819a314327097f5d8e51430a50077f",
+    "bytes": 5313145
+  },
+  "journal": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\5bf88c9fb3b6a26ec0d4d7126e34d30ee88a9fe8f3c4550fbd976ff8b7e97833.json",
+    "sha256": "5bf88c9fb3b6a26ec0d4d7126e34d30ee88a9fe8f3c4550fbd976ff8b7e97833",
+    "bytes": 4431
+  },
+  "immutable": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\446b281272115843b5d8207d53f40f4384c40d4722dd7cd6bf252c6e6df7e5af.json",
+    "sha256": "446b281272115843b5d8207d53f40f4384c40d4722dd7cd6bf252c6e6df7e5af",
+    "bytes": 2643
+  }
+}

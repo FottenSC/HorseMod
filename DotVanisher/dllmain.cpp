@@ -1,7 +1,7 @@
 // ============================================================================
 // DotVanisher
 //
-// Standalone UE4SS C++ mod for Soulcalibur VI spectator loads.
+// Standalone UE4SS C++ mod for Soulcalibur VI spectator recovery.
 //
 // Ghidra notes:
 //   HandleHostTickWatchEventQueues @ SoulcaliburVI.exe+0x2E613A0
@@ -9,11 +9,10 @@
 //   pHostSysState+0xB8 : pending watch spectator count
 //   pHostSysState+0xC0 : host watch timeout timer
 //
-// The vanilla function forces a host-side watch-end when the timeout timer
-// expires while spectators are still pending. Slow HDD loads and heavier stages
-// can make that timer expire even though the player match is fine. DotVanisher
-// gives pending watch spectators a bounded 90-second grace window by offsetting
-// the timeout timer before forwarding to the original tick function.
+// This list is populated at battle end, not initial admission. The legacy hook
+// gives retirement a bounded 90-second grace. WatchRecovery.inl separately handles
+// successful watch assignments that arrive before the native peer route exists.
+// Neither mechanism establishes a general remedy for BattleSync loading failures.
 // ============================================================================
 
 #define WIN32_LEAN_AND_MEAN
@@ -34,6 +33,10 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <mutex>
+
+#include "WatchRecoveryState.hpp"
+#include "WatchRecoverySites.hpp"
 
 namespace DotVanisher
 {
@@ -691,14 +694,16 @@ namespace DotVanisher
         bool m_epoch_summary_logged = false;
     };
 
+    #include "WatchRecovery.inl"
+
     class Mod final : public RC::CppUserModBase
     {
     public:
         Mod() : CppUserModBase()
         {
             ModName = STR("DotVanisher");
-            ModVersion = STR("0.1.0");
-            ModDescription = STR("Softens SC6 host spectator timeout during slow match loads.");
+            ModVersion = STR("1.1.0");
+            ModDescription = STR("Bounded spectator assignment recovery and host battle-end grace.");
             ModAuthors = STR("HorseMod contributors");
         }
 
@@ -709,6 +714,7 @@ namespace DotVanisher
         auto on_unreal_init() -> void override
         {
             WatchTimeoutHook::instance().install();
+            WatchRecoveryHook::instance().install();
         }
     };
 } // namespace DotVanisher

@@ -1,0 +1,163 @@
+{
+  "program": "SoulcaliburVI.exe",
+  "date": "2026-09-23",
+  "scope": "Raw service acquisition/destruction race and process-lifetime tombstone recommendation; read-only.",
+  "verified_native": [
+    "142DDAE10 takes service in RDX, ignores incomingRCX, returnsvoid. First effect on nonnullservice is DeleteCriticalSection(service+60). RCX overwrittenbyLEA[RDX+60] beforefirstcall; RDX copiedRBX.",
+    "142DDAE10 frees service without clearing global1440E3A28. Registrydeleting142DDB260 rewritesregistryvtable, calls142DDAE10(registry+8,registry[1]), optionallyfreesregistry, doesnotnullservicefield. atexit143229010 loadsserviceglobal, rewritesregistryvtable andtailcalls142DDAE10. Staticguard1443FD2FC remains initialized. Thus postdestructor global is dangling.",
+    "Native rawservice initialization andonlyverifiedpublication is142DDD630; globalxrefreceipt frompreviousaudit shows solewrite142DDD6AE. No recreationprotocol established."
+  ],
+  "recommended_protocol": [
+    "Install destruction sentinel atinitialstartup togetherwithprocesslifetimesentinels; hookpublicationmustprecedefirstpossiblecleanup.",
+    "Static raw_service_retired_ tombstone under staticguardmutex is set atdestructorentry BEFOREforwarding evenwithoutactiveprobe. Conservatively permanentclosed afteranyrawservicedestruction; no need buildnewgenerationframework.",
+    "Acquisition underguardmutex rejects tombstone/nonzero relevantinflight thenreadsglobal/initguard. ONLY TryEnterCriticalSection onservice+60 whileholdingguardmutex; failure releasesguardwithoutwaiting. Successvalidatescount/capacityandpublishesleasepointerbeforeunlockingguard.",
+    "Callback'srawCS->guard order cannotdeadlock this guard->TryRaw sequence becauseTryEnterdoesnotwait. DoNOTreplaceTryEnterwithEnter orcallnative arbitrarycodeunderguard.",
+    "Destruction entry under sameguardmutex: ifRDX matcheslive/acquiringlease terminatebeforeDeleteCriticalSection; otherwise marktombstone thenforward. Inflightcount+permanenttombstone rejectalreadyenteredorcompletedcleanup.",
+    "Releasewhileguardmutexheld: markexecutionhandoffvalidated, LeaveCriticalSection onoriginalOSthread, clearleasepointer beforeunlock. Do nottouchservice afterward. Selectedrootsentinels remainforeignthreadactive throughwrapper; rawservice may cleanup normallyafterleaseends.",
+    "AcquireCRIouter first ifneeded, beforeguard/raw. Neveracquire/waitforCRI afterrawlease; no audiocallsduringhold. Existing service callback can seekguardorCRI, so nonblockingTryRawfailuremustunwindallpartiallocks."
+  ],
+  "limitations": [
+    "Protocoldesign notimplemented/testedbyagent.",
+    "SEH around TryEnter doesnotmake freedCS safe; synchronization andtombstone areessential.",
+    "Tombstone is processlocal admissionstate, notsimulationcheckpointstate; neverrewind.",
+    "No sourceedits orliveproof."
+  ],
+  "prior_evidence": "docs/evidence/rollback-g1-raw-service-lock-lifetime-2026-09-23.json",
+  "raw": {
+    "delete_and_request": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nvoid FUN_142ddae10(undefined8 param_1,undefined8 *param_2)\r\n\r\n{\r\n  if (param_2 != (undefined8 *)0x0) {\r\n    DeleteCriticalSection((LPCRITICAL_SECTION)(param_2 + 0xc));\r\n    FUN_1419ce880(param_2 + 10);\r\n    *(undefined4 *)(param_2 + 9) = 0;\r\n    if ((void *)param_2[8] != (void *)0x0) {\r\n      FMemory_Free((void *)param_2[8]);\r\n    }\r\n    FUN_142ddceb0(param_2,0);\r\n    if ((void *)param_2[4] != (void *)0x0) {\r\n      FMemory_Free((void *)param_2[4]);\r\n    }\r\n    if ((void *)*param_2 != (void *)0x0) {\r\n      FMemory_Free((void *)*param_2);\r\n    }\r\n    UE_FMemory_Free(param_2);\r\n  }\r\n  return;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nvoid FUN_142ddae10(undefined8 param_1,undefined8 *param_2)\r\n\r\n{\r\n  if (param_2 != (undefined8 *)0x0) {\r\n    DeleteCriticalSection((LPCRITICAL_SECTION)(param_2 + 0xc));\r\n    FUN_1419ce880(param_2 + 10);\r\n    *(undefined4 *)(param_2 + 9) = 0;\r\n    if ((void *)param_2[8] != (void *)0x0) {\r\n      FMemory_Free((void *)param_2[8]);\r\n    }\r\n    FUN_142ddceb0(param_2,0);\r\n    if ((void *)param_2[4] != (void *)0x0) {\r\n      FMemory_Free((void *)param_2[4]);\r\n    }\r\n    if ((void *)*param_2 != (void *)0x0) {\r\n      FMemory_Free((void *)*param_2);\r\n    }\r\n    UE_FMemory_Free(param_2);\r\n  }\r\n  return;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nlonglong * FUN_142ddb8c0(undefined8 param_1,longlong *param_2,undefined8 param_3)\r\n\r\n{\r\n  int *piVar1;\r\n  longlong *plVar2;\r\n  int iVar3;\r\n  longlong lVar4;\r\n  void *pvVar5;\r\n  undefined8 *puVar6;\r\n  longlong *plVar7;\r\n  longlong local_b8;\r\n  longlong *plStack_b0;\r\n  longlong local_a8;\r\n  longlong *plStack_a0;\r\n  longlong local_98;\r\n  longlong *local_90;\r\n  longlong local_88;\r\n  longlong *plStack_80;\r\n  longlong local_78;\r\n  longlong *plStack_70;\r\n  undefined1 *local_68 [2];\r\n  undefined1 local_58 [32];\r\n  undefined8 local_38;\r\n  undefined4 local_28;\r\n  \r\n  FUN_142dde1c0(param_1,&local_98);\r\n  if (local_98 == 0) {\r\n    pvVar5 = FMemory_Malloc(0xc0);\r\n    if (pvVar5 == (void *)0x0) {\r\n      local_b8 = 0;\r\n    }\r\n    else {\r\n      local_38 = 0;\r\n      local_28 = 0;\r\n      puVar6 = (undefined8 *)UE4_SmallArray_Resize(0x10,local_58);\r\n      if (puVar6 != (undefined8 *)0x0) {\r\n        puVar6[1] = param_1;\r\n        *puVar6 = 0x1432a9058;\r\n      }\r\n      local_68[0] = &LAB_142ddc840;\r\n      local_b8 = FUN_142dd9bb0(pvVar5,param_3,local_68);\r\n    }\r\n    plStack_b0 = FMemory_Malloc(0x18);\r\n    if (plStack_b0 != (longlong *)0x0) {\r\n      *(undefined4 *)(plStack_b0 + 1) = 1;\r\n      *plStack_b0 = (longlong)&PTR_FUN_1436e9d40;\r\n      *(undefined4 *)((longlong)plStack_b0 + 0xc) = 1;\r\n      plStack_b0[2] = local_b8;\r\n    }\r\n    Noop_Stub(&local_b8,local_b8,local_b8);\r\n    plVar7 = plStack_b0;\r\n    local_a8 = local_b8;\r\n    plStack_a0 = plStack_b0;\r\n    if (plStack_b0 != (longlong *)0x0) {\r\n      LOCK();\r\n      *(int *)((longlong)plStack_b0 + 0xc) = *(int *)((longlong)plStack_b0 + 0xc) + 1;\r\n      UNLOCK();\r\n    }\r\n    local_88 = local_b8;\r\n    plStack_80 = plStack_b0;\r\n    if (plStack_b0 != (longlong *)0x0) {\r\n      LOCK();\r\n      *(int *)((longlong)plStack_b0 + 0xc) = *(int *)((longlong)plStack_b0 + 0xc) + 1;\r\n      UNLOCK();\r\n    }\r\n    FUN_142de1670(local_b8,&local_88);\r\n    local_78 = local_b8;\r\n    plStack_70 = plStack_b0;\r\n    if (plStack_b0 != (longlong *)0x0) {\r\n      LOCK();\r\n      *(int *)(plStack_b0 + 1) = (int)plStack_b0[1] + 1;\r\n      UNLOCK();\r\n      plVar7 = plStack_a0;\r\n    }\r\n    FUN_142de0c80(param_1,param_3,&local_78);\r\n    *param_2 = local_b8;\r\n    param_2[1] = (longlong)plStack_b0;\r\n    if (plStack_b0 != (longlong *)0x0) {\r\n      LOCK();\r\n      *(int *)(plStack_b0 + 1) = (int)plStack_b0[1] + 1;\r\n      UNLOCK();\r\n      plVar7 = plStack_a0;\r\n    }\r\n    if (plVar7 != (longlong *)0x0) {\r\n      LOCK();\r\n      piVar1 = (int *)((longlong)plVar7 + 0xc);\r\n      iVar3 = *piVar1;\r\n      *piVar1 = *piVar1 + -1;\r\n      UNLOCK();\r\n      if (iVar3 == 1) {\r\n        (**(code **)(*plStack_a0 + 8))(plStack_a0,1);\r\n      }\r\n    }\r\n    plVar7 = plStack_b0;\r\n    if (plStack_b0 != (longlong *)0x0) {\r\n      LOCK();\r\n      plVar2 = plStack_b0 + 1;\r\n      lVar4 = *plVar2;\r\n      *(int *)plVar2 = (int)*plVar2 + -1;\r\n      UNLOCK();\r\n      if ((int)lVar4 == 1) {\r\n        (**(code **)*plStack_b0)(plStack_b0);\r\n        LOCK();\r\n        piVar1 = (int *)((longlong)plVar7 + 0xc);\r\n        iVar3 = *piVar1;\r\n        *piVar1 = *piVar1 + -1;\r\n        UNLOCK();\r\n        if (iVar3 == 1) {\r\n          (**(code **)(*plVar7 + 8))(plVar7,1);\r\n        }\r\n      }\r\n    }\r\n    plVar7 = local_90;\r\n    if (local_90 != (longlong *)0x0) {\r\n      LOCK();\r\n      plVar2 = local_90 + 1;\r\n      lVar4 = *plVar2;\r\n      *(int *)plVar2 = (int)*plVar2 + -1;\r\n      UNLOCK();\r\n      if ((int)lVar4 == 1) {\r\n        (**(code **)*local_90)(local_90);\r\n        LOCK();\r\n        piVar1 = (int *)((longlong)plVar7 + 0xc);\r\n        iVar3 = *piVar1;\r\n        *piVar1 = *piVar1 + -1;\r\n        UNLOCK();\r\n        if (iVar3 == 1) {\r\n          (**(code **)(*local_90 + 8))(local_90,1);\r\n        }\r\n      }\r\n    }\r\n  }\r\n  else {\r\n    *param_2 = local_98;\r\n    param_2[1] = (longlong)local_90;\r\n  }\r\n  return param_2;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nlonglong * FUN_142ddb8c0(undefined8 param_1,longlong *param_2,undefined8 param_3)\r\n\r\n{\r\n  int *piVar1;\r\n  longlong *plVar2;\r\n  int iVar3;\r\n  longlong lVar4;\r\n  void *pvVar5;\r\n  undefined8 *puVar6;\r\n  longlong *plVar7;\r\n  longlong local_b8;\r\n  longlong *plStack_b0;\r\n  longlong local_a8;\r\n  longlong *plStack_a0;\r\n  longlong local_98;\r\n  longlong *local_90;\r\n  longlong local_88;\r\n  longlong *plStack_80;\r\n  longlong local_78;\r\n  longlong *plStack_70;\r\n  undefined1 *local_68 [2];\r\n  undefined1 local_58 [32];\r\n  undefined8 local_38;\r\n  undefined4 local_28;\r\n  \r\n  FUN_142dde1c0(param_1,&local_98);\r\n  if (local_98 == 0) {\r\n    pvVar5 = FMemory_Malloc(0xc0);\r\n    if (pvVar5 == (void *)0x0) {\r\n      local_b8 = 0;\r\n    }\r\n    else {\r\n      local_38 = 0;\r\n      local_28 = 0;\r\n      puVar6 = (undefined8 *)UE4_SmallArray_Resize(0x10,local_58);\r\n      if (puVar6 != (undefined8 *)0x0) {\r\n        puVar6[1] = param_1;\r\n        *puVar6 = 0x1432a9058;\r\n      }\r\n      local_68[0] = &LAB_142ddc840;\r\n      local_b8 = FUN_142dd9bb0(pvVar5,param_3,local_68);\r\n    }\r\n    plStack_b0 = FMemory_Malloc(0x18);\r\n    if (plStack_b0 != (longlong *)0x0) {\r\n      *(undefined4 *)(plStack_b0 + 1) = 1;\r\n      *plStack_b0 = (longlong)&PTR_FUN_1436e9d40;\r\n      *(undefined4 *)((longlong)plStack_b0 + 0xc) = 1;\r\n      plStack_b0[2] = local_b8;\r\n    }\r\n    Noop_Stub(&local_b8,local_b8,local_b8);\r\n    plVar7 = plStack_b0;\r\n    local_a8 = local_b8;\r\n    plStack_a0 = plStack_b0;\r\n    if (plStack_b0 != (longlong *)0x0) {\r\n      LOCK();\r\n      *(int *)((longlong)plStack_b0 + 0xc) = *(int *)((longlong)plStack_b0 + 0xc) + 1;\r\n      UNLOCK();\r\n    }\r\n    local_88 = local_b8;\r\n    plStack_80 = plStack_b0;\r\n    if (plStack_b0 != (longlong *)0x0) {\r\n      LOCK();\r\n      *(int *)((longlong)plStack_b0 + 0xc) = *(int *)((longlong)plStack_b0 + 0xc) + 1;\r\n      UNLOCK();\r\n    }\r\n    FUN_142de1670(local_b8,&local_88);\r\n    local_78 = local_b8;\r\n    plStack_70 = plStack_b0;\r\n    if (plStack_b0 != (longlong *)0x0) {\r\n      LOCK();\r\n      *(int *)(plStack_b0 + 1) = (int)plStack_b0[1] + 1;\r\n      UNLOCK();\r\n      plVar7 = plStack_a0;\r\n    }\r\n    FUN_142de0c80(param_1,param_3,&local_78);\r\n    *param_2 = local_b8;\r\n    param_2[1] = (longlong)plStack_b0;\r\n    if (plStack_b0 != (longlong *)0x0) {\r\n      LOCK();\r\n      *(int *)(plStack_b0 + 1) = (int)plStack_b0[1] + 1;\r\n      UNLOCK();\r\n      plVar7 = plStack_a0;\r\n    }\r\n    if (plVar7 != (longlong *)0x0) {\r\n      LOCK();\r\n      piVar1 = (int *)((longlong)plVar7 + 0xc);\r\n      iVar3 = *piVar1;\r\n      *piVar1 = *piVar1 + -1;\r\n      UNLOCK();\r\n      if (iVar3 == 1) {\r\n        (**(code **)(*plStack_a0 + 8))(plStack_a0,1);\r\n      }\r\n    }\r\n    plVar7 = plStack_b0;\r\n    if (plStack_b0 != (longlong *)0x0) {\r\n      LOCK();\r\n      plVar2 = plStack_b0 + 1;\r\n      lVar4 = *plVar2;\r\n      *(int *)plVar2 = (int)*plVar2 + -1;\r\n      UNLOCK();\r\n      if ((int)lVar4 == 1) {\r\n        (**(code **)*plStack_b0)(plStack_b0);\r\n        LOCK();\r\n        piVar1 = (int *)((longlong)plVar7 + 0xc);\r\n        iVar3 = *piVar1;\r\n        *piVar1 = *piVar1 + -1;\r\n        UNLOCK();\r\n        if (iVar3 == 1) {\r\n          (**(code **)(*plVar7 + 8))(plVar7,1);\r\n        }\r\n      }\r\n    }\r\n    plVar7 = local_90;\r\n    if (local_90 != (longlong *)0x0) {\r\n      LOCK();\r\n      plVar2 = local_90 + 1;\r\n      lVar4 = *plVar2;\r\n      *(int *)plVar2 = (int)*plVar2 + -1;\r\n      UNLOCK();\r\n      if ((int)lVar4 == 1) {\r\n        (**(code **)*local_90)(local_90);\r\n        LOCK();\r\n        piVar1 = (int *)((longlong)plVar7 + 0xc);\r\n        iVar3 = *piVar1;\r\n        *piVar1 = *piVar1 + -1;\r\n        UNLOCK();\r\n        if (iVar3 == 1) {\r\n          (**(code **)(*local_90 + 8))(local_90,1);\r\n        }\r\n      }\r\n    }\r\n  }\r\n  else {\r\n    *param_2 = local_98;\r\n    param_2[1] = (longlong)local_90;\r\n  }\r\n  return param_2;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "delete_prefix": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"dry_run\":true,\"success\":true,\"start_address\":\"142ddae10\",\"end_address\":\"142ddae32\",\"bytes_disassembled\":35,\"message\":\"Successfully disassembled 35 byte(s)\",\"instructions\":[{\"address\":\"142ddae10\",\"mnemonic\":\"TEST\",\"operands\":\"RDX, RDX\",\"length\":3,\"bytes\":\"4885d2\"},{\"address\":\"142ddae13\",\"mnemonic\":\"JZ\",\"operands\":\"0x142ddae7c\",\"length\":2,\"bytes\":\"7467\"},{\"address\":\"142ddae15\",\"mnemonic\":\"PUSH\",\"operands\":\"RBX\",\"length\":1,\"bytes\":\"53\"},{\"address\":\"142ddae16\",\"mnemonic\":\"SUB\",\"operands\":\"RSP, 0x20\",\"length\":4,\"bytes\":\"4883ec20\"},{\"address\":\"142ddae1a\",\"mnemonic\":\"LEA\",\"operands\":\"RCX, [RDX + 0x60]\",\"length\":4,\"bytes\":\"488d4a60\"},{\"address\":\"142ddae1e\",\"mnemonic\":\"MOV\",\"operands\":\"RBX, RDX\",\"length\":3,\"bytes\":\"488bda\"},{\"address\":\"142ddae21\",\"mnemonic\":\"CALL\",\"operands\":\"qword ptr [0x14322c680]\",\"length\":6,\"bytes\":\"ff1559184500\"},{\"address\":\"142ddae27\",\"mnemonic\":\"LEA\",\"operands\":\"RCX, [RBX + 0x50]\",\"length\":4,\"bytes\":\"488d4b50\"},{\"address\":\"142ddae2b\",\"mnemonic\":\"CALL\",\"operands\":\"0x1419ce880\",\"length\":5,\"bytes\":\"e8503abffe\"},{\"address\":\"142ddae30\",\"mnemonic\":\"MOV\",\"operands\":\"dword ptr [RBX + 0x48], 0x0\",\"length\":7,\"bytes\":\"c7434800000000\"}],\"instructions_total\":10,\"truncated\":false}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"dry_run\":true,\"success\":true,\"start_address\":\"142ddae10\",\"end_address\":\"142ddae32\",\"bytes_disassembled\":35,\"message\":\"Successfully disassembled 35 byte(s)\",\"instructions\":[{\"address\":\"142ddae10\",\"mnemonic\":\"TEST\",\"operands\":\"RDX, RDX\",\"length\":3,\"bytes\":\"4885d2\"},{\"address\":\"142ddae13\",\"mnemonic\":\"JZ\",\"operands\":\"0x142ddae7c\",\"length\":2,\"bytes\":\"7467\"},{\"address\":\"142ddae15\",\"mnemonic\":\"PUSH\",\"operands\":\"RBX\",\"length\":1,\"bytes\":\"53\"},{\"address\":\"142ddae16\",\"mnemonic\":\"SUB\",\"operands\":\"RSP, 0x20\",\"length\":4,\"bytes\":\"4883ec20\"},{\"address\":\"142ddae1a\",\"mnemonic\":\"LEA\",\"operands\":\"RCX, [RDX + 0x60]\",\"length\":4,\"bytes\":\"488d4a60\"},{\"address\":\"142ddae1e\",\"mnemonic\":\"MOV\",\"operands\":\"RBX, RDX\",\"length\":3,\"bytes\":\"488bda\"},{\"address\":\"142ddae21\",\"mnemonic\":\"CALL\",\"operands\":\"qword ptr [0x14322c680]\",\"length\":6,\"bytes\":\"ff1559184500\"},{\"address\":\"142ddae27\",\"mnemonic\":\"LEA\",\"operands\":\"RCX, [RBX + 0x50]\",\"length\":4,\"bytes\":\"488d4b50\"},{\"address\":\"142ddae2b\",\"mnemonic\":\"CALL\",\"operands\":\"0x1419ce880\",\"length\":5,\"bytes\":\"e8503abffe\"},{\"address\":\"142ddae30\",\"mnemonic\":\"MOV\",\"operands\":\"dword ptr [RBX + 0x48], 0x0\",\"length\":7,\"bytes\":\"c7434800000000\"}],\"instructions_total\":10,\"truncated\":false}"
+      },
+      "isError": false
+    },
+    "atexit": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"dry_run\":true,\"success\":true,\"start_address\":\"143229010\",\"end_address\":\"143229087\",\"bytes_disassembled\":120,\"message\":\"Successfully disassembled 120 byte(s)\",\"instructions\":[{\"address\":\"143229010\",\"mnemonic\":\"MOV\",\"operands\":\"RDX, qword ptr [0x1440e3a28]\",\"length\":7,\"bytes\":\"488b1511aaeb00\"},{\"address\":\"143229017\",\"mnemonic\":\"LEA\",\"operands\":\"RAX, [0x143cea0b0]\",\"length\":7,\"bytes\":\"488d059210ac00\"},{\"address\":\"14322901e\",\"mnemonic\":\"LEA\",\"operands\":\"RCX, [0x1440e3a28]\",\"length\":7,\"bytes\":\"488d0d03aaeb00\"},{\"address\":\"143229025\",\"mnemonic\":\"MOV\",\"operands\":\"qword ptr [0x1440e3a20], RAX\",\"length\":7,\"bytes\":\"488905f4a9eb00\"},{\"address\":\"14322902c\",\"mnemonic\":\"JMP\",\"operands\":\"0x142ddae10\",\"length\":5,\"bytes\":\"e9df1dbbff\"},{\"address\":\"143229031\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229032\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229033\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229034\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229035\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229036\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229037\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229038\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229039\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"14322903a\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"14322903b\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"14322903c\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"14322903d\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"14322903e\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"14322903f\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229040\",\"mnemonic\":\"MOV\",\"operands\":\"RCX, qword ptr [0x1440e3ad0]\",\"length\":7,\"bytes\":\"488b0d89aaeb00\"},{\"address\":\"143229047\",\"mnemonic\":\"TEST\",\"operands\":\"RCX, RCX\",\"length\":3,\"bytes\":\"4885c9\"},{\"address\":\"14322904a\",\"mnemonic\":\"JNZ\",\"operands\":\"0x140d46a00\",\"length\":6,\"bytes\":\"0f85b0d9b1fd\"},{\"address\":\"143229050\",\"mnemonic\":\"RET\",\"operands\":\"\",\"length\":1,\"bytes\":\"c3\"},{\"address\":\"143229051\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229052\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229053\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229054\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229055\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229056\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229057\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229058\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229059\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"14322905a\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"14322905b\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"14322905c\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"14322905d\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"14322905e\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"14322905f\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229060\",\"mnemonic\":\"PUSH\",\"operands\":\"RBX\",\"length\":2,\"bytes\":\"4053\"},{\"address\":\"143229062\",\"mnemonic\":\"SUB\",\"operands\":\"RSP, 0x20\",\"length\":4,\"bytes\":\"4883ec20\"},{\"address\":\"143229066\",\"mnemonic\":\"MOV\",\"operands\":\"RBX, qword ptr [0x1443fe2a0]\",\"length\":7,\"bytes\":\"488b1d33521d01\"},{\"address\":\"14322906d\",\"mnemonic\":\"TEST\",\"operands\":\"RBX, RBX\",\"length\":3,\"bytes\":\"4885db\"},{\"address\":\"143229070\",\"mnemonic\":\"JZ\",\"operands\":\"0x14322909a\",\"length\":2,\"bytes\":\"7428\"},{\"address\":\"143229072\",\"mnemonic\":\"SUB\",\"operands\":\"dword ptr [RBX + 0x8], 0x1\",\"length\":4,\"bytes\":\"836b0801\"}],\"instructions_total\":52,\"truncated\":true,\"truncation_note\":\"max_instructions=45 reached; raise the cap to get the rest.\"}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"dry_run\":true,\"success\":true,\"start_address\":\"143229010\",\"end_address\":\"143229087\",\"bytes_disassembled\":120,\"message\":\"Successfully disassembled 120 byte(s)\",\"instructions\":[{\"address\":\"143229010\",\"mnemonic\":\"MOV\",\"operands\":\"RDX, qword ptr [0x1440e3a28]\",\"length\":7,\"bytes\":\"488b1511aaeb00\"},{\"address\":\"143229017\",\"mnemonic\":\"LEA\",\"operands\":\"RAX, [0x143cea0b0]\",\"length\":7,\"bytes\":\"488d059210ac00\"},{\"address\":\"14322901e\",\"mnemonic\":\"LEA\",\"operands\":\"RCX, [0x1440e3a28]\",\"length\":7,\"bytes\":\"488d0d03aaeb00\"},{\"address\":\"143229025\",\"mnemonic\":\"MOV\",\"operands\":\"qword ptr [0x1440e3a20], RAX\",\"length\":7,\"bytes\":\"488905f4a9eb00\"},{\"address\":\"14322902c\",\"mnemonic\":\"JMP\",\"operands\":\"0x142ddae10\",\"length\":5,\"bytes\":\"e9df1dbbff\"},{\"address\":\"143229031\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229032\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229033\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229034\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229035\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229036\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229037\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229038\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229039\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"14322903a\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"14322903b\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"14322903c\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"14322903d\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"14322903e\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"14322903f\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229040\",\"mnemonic\":\"MOV\",\"operands\":\"RCX, qword ptr [0x1440e3ad0]\",\"length\":7,\"bytes\":\"488b0d89aaeb00\"},{\"address\":\"143229047\",\"mnemonic\":\"TEST\",\"operands\":\"RCX, RCX\",\"length\":3,\"bytes\":\"4885c9\"},{\"address\":\"14322904a\",\"mnemonic\":\"JNZ\",\"operands\":\"0x140d46a00\",\"length\":6,\"bytes\":\"0f85b0d9b1fd\"},{\"address\":\"143229050\",\"mnemonic\":\"RET\",\"operands\":\"\",\"length\":1,\"bytes\":\"c3\"},{\"address\":\"143229051\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229052\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229053\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229054\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229055\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229056\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229057\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229058\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229059\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"14322905a\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"14322905b\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"14322905c\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"14322905d\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"14322905e\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"14322905f\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"},{\"address\":\"143229060\",\"mnemonic\":\"PUSH\",\"operands\":\"RBX\",\"length\":2,\"bytes\":\"4053\"},{\"address\":\"143229062\",\"mnemonic\":\"SUB\",\"operands\":\"RSP, 0x20\",\"length\":4,\"bytes\":\"4883ec20\"},{\"address\":\"143229066\",\"mnemonic\":\"MOV\",\"operands\":\"RBX, qword ptr [0x1443fe2a0]\",\"length\":7,\"bytes\":\"488b1d33521d01\"},{\"address\":\"14322906d\",\"mnemonic\":\"TEST\",\"operands\":\"RBX, RBX\",\"length\":3,\"bytes\":\"4885db\"},{\"address\":\"143229070\",\"mnemonic\":\"JZ\",\"operands\":\"0x14322909a\",\"length\":2,\"bytes\":\"7428\"},{\"address\":\"143229072\",\"mnemonic\":\"SUB\",\"operands\":\"dword ptr [RBX + 0x8], 0x1\",\"length\":4,\"bytes\":\"836b0801\"}],\"instructions_total\":52,\"truncated\":true,\"truncation_note\":\"max_instructions=45 reached; raise the cap to get the rest.\"}"
+      },
+      "isError": false
+    },
+    "wrapper": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nundefined8 * FUN_142ddb260(undefined8 *param_1,uint param_2)\r\n\r\n{\r\n  *param_1 = &PTR_FUN_143cea0b0;\r\n  FUN_142ddae10(param_1 + 1,param_1[1]);\r\n  if ((param_2 & 1) != 0) {\r\n    UE_FMemory_Free(param_1);\r\n  }\r\n  return param_1;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nundefined8 * FUN_142ddb260(undefined8 *param_1,uint param_2)\r\n\r\n{\r\n  *param_1 = &PTR_FUN_143cea0b0;\r\n  FUN_142ddae10(param_1 + 1,param_1[1]);\r\n  if ((param_2 & 1) != 0) {\r\n    UE_FMemory_Free(param_1);\r\n  }\r\n  return param_1;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nvoid FUN_1429b9940(longlong param_1)\r\n\r\n{\r\n  longlong *plVar1;\r\n  \r\n  plVar1 = *(longlong **)(param_1 + 0x10);\r\n  if (plVar1 != (longlong *)0x0) {\r\n                    /* WARNING: Could not recover jumptable at 0x0001429b9951. Too many branches */\r\n                    /* WARNING: Treating indirect jump as call */\r\n    (**(code **)(*plVar1 + 0x38))(plVar1,1);\r\n    return;\r\n  }\r\n  return;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nvoid FUN_1429b9940(longlong param_1)\r\n\r\n{\r\n  longlong *plVar1;\r\n  \r\n  plVar1 = *(longlong **)(param_1 + 0x10);\r\n  if (plVar1 != (longlong *)0x0) {\r\n                    /* WARNING: Could not recover jumptable at 0x0001429b9951. Too many branches */\r\n                    /* WARNING: Treating indirect jump as call */\r\n    (**(code **)(*plVar1 + 0x38))(plVar1,1);\r\n    return;\r\n  }\r\n  return;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nundefined8\r\nFUN_142ddbfb0(undefined8 param_1,undefined8 param_2,undefined8 param_3,undefined4 param_4)\r\n\r\n{\r\n  longlong lVar1;\r\n  \r\n  lVar1 = GetRawAssetServiceRegistry();\r\n  FUN_142ddc010(*(undefined8 *)(lVar1 + 8),param_1,param_2,param_3,param_4);\r\n  return param_1;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nundefined8\r\nFUN_142ddbfb0(undefined8 param_1,undefined8 param_2,undefined8 param_3,undefined4 param_4)\r\n\r\n{\r\n  longlong lVar1;\r\n  \r\n  lVar1 = GetRawAssetServiceRegistry();\r\n  FUN_142ddc010(*(undefined8 *)(lVar1 + 8),param_1,param_2,param_3,param_4);\r\n  return param_1;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "references": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "From 144a6970c [DATA]\nFrom 142ddb281 in FUN_142ddb260 [UNCONDITIONAL_CALL]\nFrom 14322902c [UNCONDITIONAL_CALL]"
+            }
+          ],
+          "structuredContent": {
+            "result": "From 144a6970c [DATA]\nFrom 142ddb281 in FUN_142ddb260 [UNCONDITIONAL_CALL]\nFrom 14322902c [UNCONDITIONAL_CALL]"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "From 144a698bc [DATA]\nFrom 1408a1e4f in LuxAssetLoader_ProcessPathSets [UNCONDITIONAL_CALL]"
+            }
+          ],
+          "structuredContent": {
+            "result": "From 144a698bc [DATA]\nFrom 1408a1e4f in LuxAssetLoader_ProcessPathSets [UNCONDITIONAL_CALL]"
+          },
+          "isError": false
+        }
+      }
+    ]
+  }
+}

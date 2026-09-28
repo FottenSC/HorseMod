@@ -1,0 +1,42 @@
+{
+  "artifacts": {
+    "loaded_horsemod": null,
+    "raw_log": {
+      "complete_within_bound": true,
+      "path": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\rewrite-consumer-interval-seek.UE4SS.log",
+      "sha256": "80da99b0fe9b01f1f72a307cd31644de6991e76321479a0c667bf027514f7fa6"
+    }
+  },
+  "case_id": "raphael-maxi-snow-capped-showdown",
+  "certifying": false,
+  "cleanup": {
+    "diagnostic_flags_restored_false": {
+      "correction_probe": true,
+      "forced_depth7_qualification": true,
+      "trace": true
+    },
+    "process_absent": true
+  },
+  "created_utc": "2026-09-05T10:31:26.792063+00:00",
+  "display_map_name": "Snow-Capped Showdown",
+  "failure": {
+    "bounded_log": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\rewrite-consumer-interval-seek.failure.log",
+    "bounded_log_lines": 54,
+    "field_or_mask": null,
+    "fields": {},
+    "first_failing_frame": null,
+    "first_failure_line": "",
+    "graph_provenance": null,
+    "lifecycle_phase": null,
+    "owner_pointer": null,
+    "owner_selector": null,
+    "requested_target": null,
+    "return_rva": null
+  },
+  "kind": "replay_entry_failure",
+  "reason": "owned game exited before evidence completed: pid=73100 exit_code=1 exit_hex=0x00000001",
+  "report_schema": 2,
+  "result": "fail",
+  "row_id": "strict-seek-consumer-interval",
+  "stage_package_root": "/Game/Stage/STG009"
+}

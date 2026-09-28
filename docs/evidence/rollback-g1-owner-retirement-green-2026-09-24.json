@@ -1,0 +1,33 @@
+{
+  "stage": "GREEN",
+  "result": "PASS five production-boundary tests in8.74seconds",
+  "source_retention": {
+    "manifest_sha256": "7b1fdd4bc1b1d28bc0d17aee429db922e73952c08e8fdb6dacee6a3127199896",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-7b1fdd4bc1b1d28bc0d17aee429db922e73952c08e8fdb6dacee6a3127199896.zip",
+    "archive_sha256": "9c112799df4d6106520d5ef3cb5cee406de5df2ffa3341f52ef8dd483454f13a",
+    "files": 16607,
+    "uncompressed_bytes": 92831680,
+    "reconstructible": true
+  },
+  "log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d68a72305be6b3b0911ee6796f94d5e90c834217840c2a6593344d5f4f88de98.json",
+    "sha256": "d68a72305be6b3b0911ee6796f94d5e90c834217840c2a6593344d5f4f88de98",
+    "bytes": 100
+  },
+  "red_slots_log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\480bb0a79d267007d32cbf2f4161c12bbf1747ecb9fd5caa9cea6682d32aac72.json",
+    "sha256": "480bb0a79d267007d32cbf2f4161c12bbf1747ecb9fd5caa9cea6682d32aac72",
+    "bytes": 40
+  },
+  "red": "docs/evidence/rollback-g1-owner-retirement-red-2026-09-24.json",
+  "live_manifest": "d4800db54b215bf1ff188bdc9de4ed3f7d69159d6cf5a7a3398ad106fa4d0525",
+  "command": "PYTHONPATH=tools python -m pytest -q -x tools/deterministic_qualification/tests/test_consumer_host.py::test_prepared_owner_retirement_after_finish_and_predicate_witness tools/deterministic_qualification/tests/test_replay_run.py::test_trace_child_cleanup_waits_for_new_gpu_completion tools/deterministic_qualification/tests/test_replay_run.py::test_fresh_owner_release_requires_settlement_and_completed_render_retirement tools/deterministic_qualification/tests/test_consumer_host.py::test_second_consumer_failure_preserves_actual_recovery_witness tools/deterministic_qualification/tests/test_consumer_host.py::test_consumer_recovery_requires_native_mutation_and_complete_retirement",
+  "cause": "Finish clears transient execution_started before publishing Released. Later Recovered poll wrongly selects unexecuted private retirement before checking Released. Actual executed interval and Finish precede the live rejection.",
+  "fix": "Unexecuted private retirement only before copy Released. Executed path continues existing ReleaseFreshParticleOwnership settlement, native-death, lease and GPU completion guards.",
+  "diagnostic": "First rejecting private-owner predicate: lease, header_slots, header_count, header_capacity or slot_root; observed/expected, ordinal and ownership fields. No header read on invalid lease; no slot read on header mismatch.",
+  "limits": [
+    "Exact previous header/slot mismatch not observed; live evidence supports incorrect route, not a native mutation attribution",
+    "No native lifetime or ownership guard relaxed",
+    "Complete B recovery and continuation require live proof; build/native pending parent"
+  ]
+}

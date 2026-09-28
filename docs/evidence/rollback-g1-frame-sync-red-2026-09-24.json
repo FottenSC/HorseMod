@@ -1,0 +1,18 @@
+{
+  "result": "Expected RED exit81 at actual FinishApplication native frame-sync invocation",
+  "log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d37e1718a7aeef0b4ceebd07056b305a1bdd25d56eff0618b94c5219888e9c18.json",
+    "sha256": "d37e1718a7aeef0b4ceebd07056b305a1bdd25d56eff0618b94c5219888e9c18",
+    "bytes": 2470
+  },
+  "source_retention": {
+    "manifest_sha256": "a14a9e649aa45983448c209e2837848d4b07506966a86d8c194b52b6c4b0b2c9",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-a14a9e649aa45983448c209e2837848d4b07506966a86d8c194b52b6c4b0b2c9.zip",
+    "archive_sha256": "80832a6abafaabcd806db8d35adca5bf69b71de044c5fed2842ce56bd5df8d2c",
+    "files": 16604,
+    "uncompressed_bytes": 92806023,
+    "reconstructible": true
+  },
+  "native_manifest": "fa4d6ff8c570c628d11e856a473dd2727167f4d0e9d81bc27ec3e8aaccacf692",
+  "command": "PYTHONPATH=tools python -m pytest -q -x tools/deterministic_qualification/tests/test_consumer_host.py::test_application_frame_sync_preserves_admitted_waits"
+}

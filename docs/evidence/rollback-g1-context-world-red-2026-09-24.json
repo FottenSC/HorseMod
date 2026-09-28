@@ -1,0 +1,18 @@
+{
+  "result": "Expected RED exit81: actual TickEngineWorld routes a different context world to native UWorld_Tick and bypasses admitted shared GT task pump",
+  "log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\eccce0a7826f4106bcc88cb4aa791a4df3219315b2a18eb468ab483020977f7e.json",
+    "sha256": "eccce0a7826f4106bcc88cb4aa791a4df3219315b2a18eb468ab483020977f7e",
+    "bytes": 2166
+  },
+  "source_retention": {
+    "manifest_sha256": "50f5d159c95d55f448e28516a4adebecfc55f5f8f0ae29bbe23c587ce6576fc9",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-50f5d159c95d55f448e28516a4adebecfc55f5f8f0ae29bbe23c587ce6576fc9.zip",
+    "archive_sha256": "ece920eeeb63bc6a385fc0314f9a5299ca4c090d774138cb7a43a6c04f86500b",
+    "files": 16603,
+    "uncompressed_bytes": 92797692,
+    "reconstructible": true
+  },
+  "native_run_manifest": "8fa41a248631d185fbb869afb986519060c5aece17e56b4c732e261a48c35119",
+  "command": "PYTHONPATH=tools python -m pytest -q -x tools/deterministic_qualification/tests/test_consumer_host.py::test_engine_context_worlds_preserve_owned_dispatch"
+}

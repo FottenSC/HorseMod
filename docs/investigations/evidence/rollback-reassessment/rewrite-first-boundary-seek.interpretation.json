@@ -1,0 +1,12 @@
+{
+  "scope": "failed_development_capture_interpretation",
+  "source_report": "rewrite-first-boundary-seek.json",
+  "raw_log_sha256": "559f4669588defba34a6e6a3b75d6cc37a315cf4db278dda1c5e7f81752d3b3c",
+  "requested_target": 1204,
+  "first_failing_frame": null,
+  "first_failing_batch": 594,
+  "first_reconstruction_batch": 583,
+  "matching_completed_calls": 11,
+  "first_failing_input_time": 354,
+  "reason": "Legacy report mislabeled requested target as observed failing frame. Raw log identifies first failed native batch and InputLog time, but lacks its native coordinate."
+}

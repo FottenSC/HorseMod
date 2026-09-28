@@ -1,0 +1,44 @@
+{
+  "certifying": false,
+  "cleanup": {
+    "process_absent": true,
+    "temporary_mod_removed": true
+  },
+  "created_utc": "2026-08-30T12:31:57.613510+00:00",
+  "cycles": [
+    {
+      "active_battle_tick_rate": 58.718,
+      "cycle": 1,
+      "map": 17,
+      "normal_render_frames": 120,
+      "normal_render_tick_rate": 58.72,
+      "run_id": "ca6a701f32ce4fb0bbca81c2f1ba274a",
+      "stage": 273
+    },
+    {
+      "active_battle_tick_rate": 58.685,
+      "cycle": 2,
+      "map": 17,
+      "normal_render_frames": 120,
+      "normal_render_tick_rate": 58.687,
+      "run_id": "2b87604db0254775984b6f7d3027c6aa",
+      "stage": 273
+    },
+    {
+      "active_battle_tick_rate": 58.906,
+      "cycle": 3,
+      "map": 17,
+      "normal_render_frames": 120,
+      "normal_render_tick_rate": 58.908,
+      "run_id": "77e65b9af02c4ca7a4faba61b7aabcc7",
+      "stage": 273
+    }
+  ],
+  "display_map_name": "Silver Wolves' Haven",
+  "kind": "persistent_replay_development_campaign",
+  "reason": "same-process normal-render authored replay re-entry smoke",
+  "reentry_count": 3,
+  "report_schema": 2,
+  "result": "pass",
+  "stage_package_root": "/Game/DLC/07/Stage/STG011_R"
+}

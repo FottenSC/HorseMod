@@ -1,0 +1,802 @@
+{
+  "schema": "rollback-native-investigation-v1",
+  "date": "2026-09-23",
+  "program": "SoulcaliburVI.exe",
+  "scope": "Independent CRI callback registrations in native integration initialization143084BE0 and concrete file adapter ownership; read-only native/repository inspection.",
+  "limitations": [
+    "This bounded constructor-registration review is not a complete proof that every CRI callback setter throughout the program has been enumerated.",
+    "Static native targets are verified; a runtime admission witness must reject replacement file manager/platform vtables or callback table publication inconsistent with these targets.",
+    "No live run, source edits, Ghidra mutations, hooks, or qualification performed. Error-return callback prototype remains decompiler-derived; thunk assembly is authoritative.",
+    "No claim that CRI-owned buffer allocation/free is UObject/component lifetime."
+  ],
+  "findings": [
+    {
+      "entry": "140540E70 -> 140544470",
+      "disposition": "Known dynamic game-delegate route needs admission/in-flight terminal-before-entry monitor. This entry does not dominate independent file, allocator and error callbacks."
+    },
+    {
+      "entry": "14308FF00 -> 1431299B4",
+      "registration": "143129DF8, global144411C48",
+      "disposition": "CRI error formatting only: strlen, placeholder parsing, bounded sprintf buffer144411A40; no native game lifecycle delegate in inspected body."
+    },
+    {
+      "entry": "143078C50",
+      "signature": "void* __fastcall(void* ignored,uint32 bytes)",
+      "disposition": "Assembly movesEDX toECX, clearsEDX, tailcalls140D4F760 GMalloc allocation; paired14108BED0 void(void*,void*) forwards free. CRI resource buffer ownership, no component destructor call."
+    },
+    {
+      "entry": "14308A390",
+      "signature": "int64 __fastcall(void* ignored,uint32* result,void*** outTable)",
+      "registration": "14313448C -> 143135A80 stores global1444124E0; constructor call143084E49",
+      "disposition": "Writes result0, table1440E4F90, returns0. Factory contains no lifecycle callback."
+    },
+    {
+      "table": "1440E4F90",
+      "callbacks": [
+        "1430785E0 exists",
+        "1430786B0 delete file",
+        "143078770 open",
+        "143078980 close",
+        "1430789C0 size cached",
+        "1430789D0 seek+read",
+        "143078AD0 completed constant",
+        "143078A40 read count",
+        "143078A50 seek+write",
+        "143078AE0 write count",
+        "143078AF0 unwrap native handle"
+      ],
+      "disposition": "Resource-only for shipped concrete platform/file manager and handle targets mapped below. No need suppress native file callbacks to protect selected component."
+    },
+    {
+      "owner": "140E028D0 returns fixed singleton144077808",
+      "vtable": "1434EB8D8",
+      "methods": {
+        "68": "140DFBD20 GetFileAttributesW",
+        "70": "140DFBD80 GetFileAttributesExW",
+        "78": "140DFB4D0 DeleteFileW",
+        "160": "140E08B50 FString path conversion",
+        "B8": "140E09640 CreateFileW read then140DF54D0",
+        "C8": "140E097D0 CreateFileW write then140DF5820"
+      }
+    },
+    {
+      "owner": "140D47280 file manager",
+      "defaultVtable": "1434B8110",
+      "methodE8": "140D44140 delegates to fixed platform+70 for size, not game-code notifications",
+      "limitation": "Runtime file-manager singleton144169F98 can be nondefault; require runtime vtable/method witness if claiming exact shipped path."
+    },
+    {
+      "owner": "read handle",
+      "constructor": "140DF54D0",
+      "size": "0x78",
+      "vtable": "1434EB858",
+      "destructor": "140DF91B0 waits140E13040, CloseHandle, frees own two buffers+28/+30 and optional own allocation",
+      "methods": [
+        "140E0CE60 buffered read",
+        "140E0EA30 seek",
+        "140E10150 ReadFile overlapped",
+        "140E13040 GetOverlappedResult(wait=true)"
+      ],
+      "disposition": "Native Win32 file IO plus handle-owned offsets/buffers. No game delegate registration/invocation."
+    },
+    {
+      "owner": "write handle",
+      "constructor": "140DF5820",
+      "size": "0x40",
+      "vtable": "1434EB898",
+      "destructor": "140DF9230 CloseHandle and own allocation only",
+      "methods": [
+        "140E0CF60 ReadFile/GetOverlappedResult",
+        "140E130C0 WriteFile/GetOverlappedResult/GetFileSizeEx",
+        "140E0EAF0 updates seek offsets only"
+      ],
+      "disposition": "Native Win32 resource ownership only, not UObject/world/tick retirement."
+    }
+  ],
+  "raw": {
+    "cri_integration_init": {
+      "content": [
+        {
+          "type": "text",
+          "text": "\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */\r\n\r\nvoid FUN_143084be0(undefined8 *param_1)\r\n\r\n{\r\n  undefined8 *puVar1;\r\n  ushort uVar2;\r\n  int iVar3;\r\n  undefined4 uVar4;\r\n  int iVar5;\r\n  undefined8 uVar6;\r\n  wchar_t *pwVar7;\r\n  void *pvVar8;\r\n  wchar_t *pwVar9;\r\n  char *pcVar10;\r\n  wchar_t *pwVar11;\r\n  int iVar12;\r\n  ushort *puVar13;\r\n  wchar_t *pMemory;\r\n  uint uVar14;\r\n  longlong lVar15;\r\n  undefined1 auStack_228 [32];\r\n  uint local_208 [4];\r\n  undefined4 local_1f8;\r\n  undefined4 local_1f4;\r\n  undefined8 local_1f0;\r\n  int local_1e8;\r\n  int local_1e4;\r\n  undefined4 local_1e0;\r\n  undefined4 local_1dc;\r\n  undefined4 local_1d8;\r\n  int local_1d4;\r\n  int local_1d0;\r\n  int local_1cc;\r\n  undefined4 local_1c8;\r\n  undefined4 local_1c4;\r\n  undefined8 local_1c0;\r\n  undefined8 local_1b8;\r\n  undefined4 *local_1b0;\r\n  undefined8 local_1a8;\r\n  undefined8 uStack_1a0;\r\n  undefined4 local_198;\r\n  undefined4 local_194;\r\n  undefined4 local_190;\r\n  undefined4 local_18c;\r\n  undefined4 local_188;\r\n  undefined4 local_184;\r\n  undefined4 local_180;\r\n  undefined8 local_178;\r\n  undefined8 local_170;\r\n  undefined4 local_168;\r\n  uint local_164;\r\n  int local_160;\r\n  undefined4 local_15c;\r\n  undefined4 local_158;\r\n  undefined4 local_154;\r\n  undefined4 local_150;\r\n  undefined4 local_14c;\r\n  undefined8 local_148;\r\n  int local_140;\r\n  ushort uStack_13c;\r\n  ushort uStack_13a;\r\n  undefined2 local_138;\r\n  undefined2 uStack_136;\r\n  undefined4 uStack_134;\r\n  undefined4 local_130;\r\n  undefined4 uStack_12c;\r\n  undefined4 uStack_128;\r\n  undefined4 uStack_124;\r\n  FStringFwd local_120;\r\n  undefined4 local_108;\r\n  undefined4 local_104;\r\n  undefined4 local_100;\r\n  undefined4 local_fc;\r\n  undefined8 local_f8;\r\n  undefined4 local_f0;\r\n  undefined4 local_ec;\r\n  undefined4 local_e8;\r\n  undefined4 local_e4;\r\n  undefined1 local_d8 [128];\r\n  wchar_t *local_58;\r\n  wchar_t *local_50;\r\n  int local_48;\r\n  ulonglong local_38;\r\n  \r\n  local_38 = g_qwSecurityCookie ^ (ulonglong)auStack_228;\r\n  FUN_143129df8(&LAB_14308ff00);\r\n  FUN_1431344b0(&LAB_143078c50,0);\r\n  FUN_14313449c(FreeZlibMemoryCallback,0);\r\n  FUN_140065c98(&LAB_143078c50,0);\r\n  FUN_140065c84(FreeZlibMemoryCallback,0);\r\n  local_1e8 = *(int *)((longlong)param_1 + 0x8c);\r\n  pwVar9 = (wchar_t *)0x0;\r\n  local_1e4 = local_1e8 << 4;\r\n  local_1d0 = local_1e8 * 2;\r\n  local_158 = *(undefined4 *)(param_1 + 0x18);\r\n  iVar12 = 0;\r\n  local_160 = *(int *)((longlong)param_1 + 0xc4) + *(int *)((longlong)param_1 + 0xcc);\r\n  local_1c4 = DAT_143df2630;\r\n  local_1f8 = 0;\r\n  local_1f4 = 0x42700000;\r\n  local_164 = (uint)(0 < local_160);\r\n  local_104 = *(undefined4 *)(param_1 + 0xc);\r\n  local_f0 = *(undefined4 *)((longlong)param_1 + 100);\r\n  local_100 = *(undefined4 *)(param_1 + 0xd);\r\n  local_ec = *(undefined4 *)((longlong)param_1 + 0x6c);\r\n  local_1b0 = &local_108;\r\n  local_1f0 = 1;\r\n  local_1c8 = 0;\r\n  local_1c0 = 4;\r\n  local_1b8 = 0;\r\n  local_1a8 = 0;\r\n  uStack_1a0 = 0;\r\n  local_198 = 0x2143506;\r\n  local_194 = 0x2141000;\r\n  local_190 = 0x42700000;\r\n  local_184 = 48000;\r\n  local_180 = 1;\r\n  local_178 = 0;\r\n  local_170 = 8;\r\n  local_168 = 0x42700000;\r\n  local_15c = 2;\r\n  local_150 = 48000;\r\n  local_14c = 2;\r\n  local_1e0 = 0x80;\r\n  local_1dc = 0x80;\r\n  local_1d8 = 0x10;\r\n  local_188 = 8;\r\n  local_18c = 0x40;\r\n  local_154 = 8;\r\n  local_108 = 0;\r\n  local_fc = 2;\r\n  local_f8 = 0x10;\r\n  local_e8 = 0x100;\r\n  local_e4 = 0x2750500;\r\n  local_1d4 = local_1e8;\r\n  local_1cc = local_1d0;\r\n  if (*(char *)((longlong)param_1 + 0xd4) != '\\0') {\r\n    uStack_13a = 0x10;\r\n    if (0x10 < *(int *)(param_1 + 0x1b)) {\r\n      uStack_13a = 0x20;\r\n    }\r\n    uStack_134 = 0;\r\n    local_148._0_4_ = CONCAT22(*(short *)(param_1 + 0x1c),0xfffe);\r\n    uStack_13c = (uStack_13a >> 3) * *(short *)(param_1 + 0x1c);\r\n    local_148 = (ushort *)CONCAT44(*(int *)((longlong)param_1 + 0xdc),(undefined4)local_148);\r\n    local_130 = _DAT_143df2438;\r\n    uStack_12c = _UNK_143df243c;\r\n    uStack_128 = _UNK_143df2440;\r\n    uStack_124 = _UNK_143df2444;\r\n    local_140 = (uint)uStack_13c * *(int *)((longlong)param_1 + 0xdc);\r\n    local_138 = 0x16;\r\n    uStack_136 = *(undefined2 *)(param_1 + 0x1b);\r\n    FUN_14006a7a0(&local_148);\r\n    FUN_14006a800(1);\r\n  }\r\n  FUN_14006aab8(&local_1f8,0);\r\n  FUN_14313448c(&LAB_14308a390);\r\n  if (0 < *(int *)(param_1 + 0x14) + *(int *)((longlong)param_1 + 0xcc)) {\r\n    local_148 = (ushort *)0x800000000;\r\n    local_140 = FUN_140066348(2,48000);\r\n    local_140 = local_140 << 3;\r\n    uStack_13c = 0;\r\n    uStack_13a = 0;\r\n    local_138 = 0;\r\n    uStack_136 = 0;\r\n    uStack_134 = 4;\r\n    local_140 = FUN_140066348(*(undefined4 *)((longlong)param_1 + 0xa4),\r\n                              *(undefined4 *)(param_1 + 0x15));\r\n    local_140 = local_140 * *(int *)(param_1 + 0x14);\r\n    iVar5 = *(int *)((longlong)param_1 + 0xcc);\r\n    iVar3 = FUN_140066348(*(undefined4 *)(param_1 + 0x1a),*(undefined4 *)(param_1 + 0x18));\r\n    local_148 = (ushort *)CONCAT44(*(int *)(param_1 + 0x14) + iVar5,(undefined4)local_148);\r\n    local_140 = local_140 + iVar3 * iVar5;\r\n    iVar5 = *(int *)(param_1 + 0x22);\r\n    if (0 < iVar5) {\r\n      local_138 = (undefined2)iVar5;\r\n      uStack_136 = (undefined2)((uint)iVar5 >> 0x10);\r\n      uStack_13c = 1;\r\n      uStack_13a = 0;\r\n    }\r\n    uVar4 = FUN_14004b128(&local_148,0);\r\n    *(undefined4 *)(param_1 + 0x23) = uVar4;\r\n  }\r\n  if (0 < (int)*(uint *)((longlong)param_1 + 0x94)) {\r\n    local_140 = *(int *)(param_1 + 0x13);\r\n    uStack_13c = (ushort)*(undefined4 *)((longlong)param_1 + 0x9c);\r\n    uStack_13a = (ushort)((uint)*(undefined4 *)((longlong)param_1 + 0x9c) >> 0x10);\r\n    local_148 = (ushort *)((ulonglong)*(uint *)((longlong)param_1 + 0x94) << 0x20);\r\n    local_138 = 0;\r\n    uStack_136 = 0;\r\n    uStack_134 = 2;\r\n    local_130 = 0;\r\n    uVar6 = FUN_14004a6dc(&local_148,0);\r\n    param_1[2] = uVar6;\r\n  }\r\n  if (0 < (int)*(uint *)(param_1 + 0x14)) {\r\n    local_140 = *(int *)((longlong)param_1 + 0xa4);\r\n    uStack_13c = (ushort)*(undefined4 *)(param_1 + 0x15);\r\n    uStack_13a = (ushort)((uint)*(undefined4 *)(param_1 + 0x15) >> 0x10);\r\n    local_148 = (ushort *)((ulonglong)*(uint *)(param_1 + 0x14) << 0x20);\r\n    uStack_134 = 2;\r\n    local_130 = 0;\r\n    local_138 = 1;\r\n    uStack_136 = 0;\r\n    uVar6 = FUN_14004a6dc(&local_148,0);\r\n    param_1[3] = uVar6;\r\n  }\r\n  if (0 < (int)*(uint *)((longlong)param_1 + 0xc4)) {\r\n    local_140 = *(int *)(param_1 + 0x19);\r\n    uStack_13c = (ushort)*(undefined4 *)(param_1 + 0x18);\r\n    uStack_13a = (ushort)((uint)*(undefined4 *)(param_1 + 0x18) >> 0x10);\r\n    local_148 = (ushort *)((ulonglong)*(uint *)((longlong)param_1 + 0xc4) << 0x20);\r\n    local_138 = 0;\r\n    uStack_136 = 0;\r\n    uVar6 = FUN_14004aa6c(&local_148,0);\r\n    param_1[4] = uVar6;\r\n  }\r\n  if (0 < (int)*(uint *)((longlong)param_1 + 0xcc)) {\r\n    local_140 = *(int *)(param_1 + 0x1a);\r\n    uStack_13c = (ushort)*(undefined4 *)(param_1 + 0x18);\r\n    uStack_13a = (ushort)((uint)*(undefined4 *)(param_1 + 0x18) >> 0x10);\r\n    local_148 = (ushort *)((ulonglong)*(uint *)((longlong)param_1 + 0xcc) << 0x20);\r\n    local_138 = 1;\r\n    uStack_136 = 0;\r\n    uVar6 = FUN_14004aa6c(&local_148,0);\r\n    param_1[5] = uVar6;\r\n  }\r\n  puVar1 = param_1 + 0x16;\r\n  if ((*(int *)(param_1 + 0x17) == 0) || (*(int *)(param_1 + 0x17) + -1 < 1)) goto LAB_14308530a;\r\n  FUN_140dc9870(&local_148,puVar1);\r\n  if ((local_140 != 0) && (0 < local_140 + -1)) {\r\n    pcVar10 = \"uasset\";\r\n    puVar13 = local_148;\r\n    do {\r\n      if ((*puVar13 == 0) && (*pcVar10 == '\\0')) break;\r\n      if ((uint)*puVar13 != (int)*pcVar10) {\r\n        uVar2 = (*g_pTowlowerImport)();\r\n        iVar5 = tolower((int)*pcVar10);\r\n        if ((uint)uVar2 != (int)(char)iVar5) goto LAB_143085087;\r\n      }\r\n      puVar13 = puVar13 + 1;\r\n      pcVar10 = pcVar10 + 1;\r\n    } while( true );\r\n  }\r\nLAB_1430852d1:\r\n  uVar6 = FString_CopyWide_Simple(&local_120,puVar1);\r\n  uVar6 = FUN_143085990(uVar6);\r\n  param_1[0x24] = uVar6;\r\nLAB_1430852ec:\r\n  if (local_148 != (ushort *)0x0) {\r\n    FMemory_Free(local_148);\r\n  }\r\nLAB_14308530a:\r\n  uVar6 = FUN_140059f24(0,0,0);\r\n  param_1[6] = uVar6;\r\n  FUN_14005a1bc(uVar6,*(undefined4 *)(param_1 + 7));\r\n  pvVar8 = FMemory_Malloc(0x40);\r\n  if (pvVar8 != (void *)0x0) {\r\n    pwVar9 = (wchar_t *)FUN_143079bd0(pvVar8,param_1[6],*(undefined4 *)(param_1 + 7));\r\n  }\r\n  param_1[8] = pwVar9;\r\n  if (*(char *)(param_1 + 0x21) != '\\0') {\r\n    local_120.pData = (wchar_t *)(ulonglong)*(uint *)((longlong)param_1 + 0x10c);\r\n    local_120.nLength = 0x2130400;\r\n    FUN_1431403c0(&LAB_143078c50,FreeZlibMemoryCallback,0);\r\n    FUN_143140690(&local_120,0,0);\r\n    FUN_143140350(*(char *)((longlong)param_1 + 0x109) != '\\0');\r\n  }\r\n  return;\r\nLAB_143085087:\r\n  if ((uint)uVar2 == (int)(char)iVar5) goto LAB_1430852d1;\r\n  local_120.nLength = *(int *)(param_1 + 1);\r\n  lVar15 = (longlong)local_120.nLength;\r\n  if (local_120.nLength < 2) {\r\n    local_120.nLength = *(int *)(param_1 + 0x17);\r\n    lVar15 = (longlong)local_120.nLength;\r\n    pvVar8 = (void *)*puVar1;\r\n    local_120.pData = (wchar_t *)0x0;\r\n    pMemory = pwVar9;\r\n    if (local_120.nLength != 0) {\r\n      SetFStringCapacityForLength(&local_120,local_120.nLength,0);\r\n      pwVar11 = local_120.pData;\r\n      memcpy(local_120.pData,pvVar8,lVar15 * 2);\r\n      iVar3 = local_120.nLength;\r\n      goto LAB_1430851b1;\r\n    }\r\nLAB_1430851b9:\r\n    pwVar11 = L\"\";\r\n  }\r\n  else {\r\n    if (*(int *)(param_1 + 0x17) != 0) {\r\n      iVar12 = *(int *)(param_1 + 0x17) + -1;\r\n    }\r\n    if ((local_120.nLength != 0) || (pwVar11 = (wchar_t *)0x1, iVar12 == 0)) {\r\n      pwVar11 = pwVar9;\r\n    }\r\n    pvVar8 = (void *)*param_1;\r\n    iVar5 = (int)pwVar11 + iVar12;\r\n    local_120.pData = (wchar_t *)0x0;\r\n    if ((local_120.nLength == 0) && (iVar5 == 0)) {\r\n      local_120.nCapacity = 0;\r\n      pwVar11 = pwVar9;\r\n    }\r\n    else {\r\n      SetFStringCapacityForLength(&local_120,local_120.nLength + iVar5,0);\r\n      pwVar11 = local_120.pData;\r\n      memcpy(local_120.pData,pvVar8,lVar15 * 2);\r\n    }\r\n    iVar5 = local_120.nLength;\r\n    pvVar8 = (void *)*puVar1;\r\n    iVar3 = local_120.nLength;\r\n    if (iVar12 != 0) {\r\n      lVar15 = (longlong)local_120.nLength;\r\n      local_120.nLength = local_120.nLength + (uint)(local_120.nLength == 0) + iVar12;\r\n      if (local_120.nCapacity < local_120.nLength) {\r\n        FString_Reserve(&local_120);\r\n        pwVar11 = local_120.pData;\r\n      }\r\n      iVar3 = local_120.nLength;\r\n      memcpy(pwVar11 + (lVar15 - (ulonglong)(iVar5 != 0)),pvVar8,(longlong)iVar12 * 2);\r\n      (pwVar11 + (lVar15 - (ulonglong)(iVar5 != 0)))[iVar12] = L'\\0';\r\n    }\r\nLAB_1430851b1:\r\n    pMemory = pwVar11;\r\n    if (iVar3 == 0) goto LAB_1430851b9;\r\n  }\r\n  local_58 = (wchar_t *)0x0;\r\n  if (pwVar11 == (wchar_t *)0x0) {\r\n    local_48 = 0;\r\n    local_50 = (wchar_t *)0x0;\r\n  }\r\n  else {\r\n    lVar15 = -1;\r\n    do {\r\n      lVar15 = lVar15 + 1;\r\n    } while (pwVar11[lVar15] != L'\\0');\r\n    local_48 = FUN_1404b8860(pwVar11);\r\n    uVar14 = local_48 + 1;\r\n    pwVar7 = pwVar9;\r\n    if (0x80 < uVar14) {\r\n      if (uVar14 != 0) {\r\n        pwVar7 = (wchar_t *)FMemory_Realloc(0,(longlong)(int)uVar14,0);\r\n        local_58 = pwVar7;\r\n      }\r\n      (*g_pfnMemmove)(pwVar7,local_d8,0);\r\n      pwVar7 = local_58;\r\n    }\r\n    local_120.pData =\r\n         (wchar_t *)\r\n         ((ulonglong)(pwVar7 != (wchar_t *)0x0) - 1 & (ulonglong)local_d8 | (ulonglong)pwVar7);\r\n    local_208[0] = uVar14;\r\n    local_50 = local_120.pData;\r\n    for (iVar12 = (int)lVar15 + 1; iVar12 != 0; iVar12 = iVar12 + -1) {\r\n      FUN_14049e2e0(*pwVar11,&local_120,local_208);\r\n      pwVar11 = pwVar11 + 1;\r\n    }\r\n  }\r\n  thunk_FUN_140059d5c(0,local_50,0,0);\r\n  if (local_58 != (wchar_t *)0x0) {\r\n    FMemory_Free(local_58);\r\n  }\r\n  if (pMemory != (wchar_t *)0x0) {\r\n    FMemory_Free(pMemory);\r\n  }\r\n  goto LAB_1430852ec;\r\n}\r\n\r\n"
+        }
+      ],
+      "structuredContent": {
+        "result": "\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */\r\n\r\nvoid FUN_143084be0(undefined8 *param_1)\r\n\r\n{\r\n  undefined8 *puVar1;\r\n  ushort uVar2;\r\n  int iVar3;\r\n  undefined4 uVar4;\r\n  int iVar5;\r\n  undefined8 uVar6;\r\n  wchar_t *pwVar7;\r\n  void *pvVar8;\r\n  wchar_t *pwVar9;\r\n  char *pcVar10;\r\n  wchar_t *pwVar11;\r\n  int iVar12;\r\n  ushort *puVar13;\r\n  wchar_t *pMemory;\r\n  uint uVar14;\r\n  longlong lVar15;\r\n  undefined1 auStack_228 [32];\r\n  uint local_208 [4];\r\n  undefined4 local_1f8;\r\n  undefined4 local_1f4;\r\n  undefined8 local_1f0;\r\n  int local_1e8;\r\n  int local_1e4;\r\n  undefined4 local_1e0;\r\n  undefined4 local_1dc;\r\n  undefined4 local_1d8;\r\n  int local_1d4;\r\n  int local_1d0;\r\n  int local_1cc;\r\n  undefined4 local_1c8;\r\n  undefined4 local_1c4;\r\n  undefined8 local_1c0;\r\n  undefined8 local_1b8;\r\n  undefined4 *local_1b0;\r\n  undefined8 local_1a8;\r\n  undefined8 uStack_1a0;\r\n  undefined4 local_198;\r\n  undefined4 local_194;\r\n  undefined4 local_190;\r\n  undefined4 local_18c;\r\n  undefined4 local_188;\r\n  undefined4 local_184;\r\n  undefined4 local_180;\r\n  undefined8 local_178;\r\n  undefined8 local_170;\r\n  undefined4 local_168;\r\n  uint local_164;\r\n  int local_160;\r\n  undefined4 local_15c;\r\n  undefined4 local_158;\r\n  undefined4 local_154;\r\n  undefined4 local_150;\r\n  undefined4 local_14c;\r\n  undefined8 local_148;\r\n  int local_140;\r\n  ushort uStack_13c;\r\n  ushort uStack_13a;\r\n  undefined2 local_138;\r\n  undefined2 uStack_136;\r\n  undefined4 uStack_134;\r\n  undefined4 local_130;\r\n  undefined4 uStack_12c;\r\n  undefined4 uStack_128;\r\n  undefined4 uStack_124;\r\n  FStringFwd local_120;\r\n  undefined4 local_108;\r\n  undefined4 local_104;\r\n  undefined4 local_100;\r\n  undefined4 local_fc;\r\n  undefined8 local_f8;\r\n  undefined4 local_f0;\r\n  undefined4 local_ec;\r\n  undefined4 local_e8;\r\n  undefined4 local_e4;\r\n  undefined1 local_d8 [128];\r\n  wchar_t *local_58;\r\n  wchar_t *local_50;\r\n  int local_48;\r\n  ulonglong local_38;\r\n  \r\n  local_38 = g_qwSecurityCookie ^ (ulonglong)auStack_228;\r\n  FUN_143129df8(&LAB_14308ff00);\r\n  FUN_1431344b0(&LAB_143078c50,0);\r\n  FUN_14313449c(FreeZlibMemoryCallback,0);\r\n  FUN_140065c98(&LAB_143078c50,0);\r\n  FUN_140065c84(FreeZlibMemoryCallback,0);\r\n  local_1e8 = *(int *)((longlong)param_1 + 0x8c);\r\n  pwVar9 = (wchar_t *)0x0;\r\n  local_1e4 = local_1e8 << 4;\r\n  local_1d0 = local_1e8 * 2;\r\n  local_158 = *(undefined4 *)(param_1 + 0x18);\r\n  iVar12 = 0;\r\n  local_160 = *(int *)((longlong)param_1 + 0xc4) + *(int *)((longlong)param_1 + 0xcc);\r\n  local_1c4 = DAT_143df2630;\r\n  local_1f8 = 0;\r\n  local_1f4 = 0x42700000;\r\n  local_164 = (uint)(0 < local_160);\r\n  local_104 = *(undefined4 *)(param_1 + 0xc);\r\n  local_f0 = *(undefined4 *)((longlong)param_1 + 100);\r\n  local_100 = *(undefined4 *)(param_1 + 0xd);\r\n  local_ec = *(undefined4 *)((longlong)param_1 + 0x6c);\r\n  local_1b0 = &local_108;\r\n  local_1f0 = 1;\r\n  local_1c8 = 0;\r\n  local_1c0 = 4;\r\n  local_1b8 = 0;\r\n  local_1a8 = 0;\r\n  uStack_1a0 = 0;\r\n  local_198 = 0x2143506;\r\n  local_194 = 0x2141000;\r\n  local_190 = 0x42700000;\r\n  local_184 = 48000;\r\n  local_180 = 1;\r\n  local_178 = 0;\r\n  local_170 = 8;\r\n  local_168 = 0x42700000;\r\n  local_15c = 2;\r\n  local_150 = 48000;\r\n  local_14c = 2;\r\n  local_1e0 = 0x80;\r\n  local_1dc = 0x80;\r\n  local_1d8 = 0x10;\r\n  local_188 = 8;\r\n  local_18c = 0x40;\r\n  local_154 = 8;\r\n  local_108 = 0;\r\n  local_fc = 2;\r\n  local_f8 = 0x10;\r\n  local_e8 = 0x100;\r\n  local_e4 = 0x2750500;\r\n  local_1d4 = local_1e8;\r\n  local_1cc = local_1d0;\r\n  if (*(char *)((longlong)param_1 + 0xd4) != '\\0') {\r\n    uStack_13a = 0x10;\r\n    if (0x10 < *(int *)(param_1 + 0x1b)) {\r\n      uStack_13a = 0x20;\r\n    }\r\n    uStack_134 = 0;\r\n    local_148._0_4_ = CONCAT22(*(short *)(param_1 + 0x1c),0xfffe);\r\n    uStack_13c = (uStack_13a >> 3) * *(short *)(param_1 + 0x1c);\r\n    local_148 = (ushort *)CONCAT44(*(int *)((longlong)param_1 + 0xdc),(undefined4)local_148);\r\n    local_130 = _DAT_143df2438;\r\n    uStack_12c = _UNK_143df243c;\r\n    uStack_128 = _UNK_143df2440;\r\n    uStack_124 = _UNK_143df2444;\r\n    local_140 = (uint)uStack_13c * *(int *)((longlong)param_1 + 0xdc);\r\n    local_138 = 0x16;\r\n    uStack_136 = *(undefined2 *)(param_1 + 0x1b);\r\n    FUN_14006a7a0(&local_148);\r\n    FUN_14006a800(1);\r\n  }\r\n  FUN_14006aab8(&local_1f8,0);\r\n  FUN_14313448c(&LAB_14308a390);\r\n  if (0 < *(int *)(param_1 + 0x14) + *(int *)((longlong)param_1 + 0xcc)) {\r\n    local_148 = (ushort *)0x800000000;\r\n    local_140 = FUN_140066348(2,48000);\r\n    local_140 = local_140 << 3;\r\n    uStack_13c = 0;\r\n    uStack_13a = 0;\r\n    local_138 = 0;\r\n    uStack_136 = 0;\r\n    uStack_134 = 4;\r\n    local_140 = FUN_140066348(*(undefined4 *)((longlong)param_1 + 0xa4),\r\n                              *(undefined4 *)(param_1 + 0x15));\r\n    local_140 = local_140 * *(int *)(param_1 + 0x14);\r\n    iVar5 = *(int *)((longlong)param_1 + 0xcc);\r\n    iVar3 = FUN_140066348(*(undefined4 *)(param_1 + 0x1a),*(undefined4 *)(param_1 + 0x18));\r\n    local_148 = (ushort *)CONCAT44(*(int *)(param_1 + 0x14) + iVar5,(undefined4)local_148);\r\n    local_140 = local_140 + iVar3 * iVar5;\r\n    iVar5 = *(int *)(param_1 + 0x22);\r\n    if (0 < iVar5) {\r\n      local_138 = (undefined2)iVar5;\r\n      uStack_136 = (undefined2)((uint)iVar5 >> 0x10);\r\n      uStack_13c = 1;\r\n      uStack_13a = 0;\r\n    }\r\n    uVar4 = FUN_14004b128(&local_148,0);\r\n    *(undefined4 *)(param_1 + 0x23) = uVar4;\r\n  }\r\n  if (0 < (int)*(uint *)((longlong)param_1 + 0x94)) {\r\n    local_140 = *(int *)(param_1 + 0x13);\r\n    uStack_13c = (ushort)*(undefined4 *)((longlong)param_1 + 0x9c);\r\n    uStack_13a = (ushort)((uint)*(undefined4 *)((longlong)param_1 + 0x9c) >> 0x10);\r\n    local_148 = (ushort *)((ulonglong)*(uint *)((longlong)param_1 + 0x94) << 0x20);\r\n    local_138 = 0;\r\n    uStack_136 = 0;\r\n    uStack_134 = 2;\r\n    local_130 = 0;\r\n    uVar6 = FUN_14004a6dc(&local_148,0);\r\n    param_1[2] = uVar6;\r\n  }\r\n  if (0 < (int)*(uint *)(param_1 + 0x14)) {\r\n    local_140 = *(int *)((longlong)param_1 + 0xa4);\r\n    uStack_13c = (ushort)*(undefined4 *)(param_1 + 0x15);\r\n    uStack_13a = (ushort)((uint)*(undefined4 *)(param_1 + 0x15) >> 0x10);\r\n    local_148 = (ushort *)((ulonglong)*(uint *)(param_1 + 0x14) << 0x20);\r\n    uStack_134 = 2;\r\n    local_130 = 0;\r\n    local_138 = 1;\r\n    uStack_136 = 0;\r\n    uVar6 = FUN_14004a6dc(&local_148,0);\r\n    param_1[3] = uVar6;\r\n  }\r\n  if (0 < (int)*(uint *)((longlong)param_1 + 0xc4)) {\r\n    local_140 = *(int *)(param_1 + 0x19);\r\n    uStack_13c = (ushort)*(undefined4 *)(param_1 + 0x18);\r\n    uStack_13a = (ushort)((uint)*(undefined4 *)(param_1 + 0x18) >> 0x10);\r\n    local_148 = (ushort *)((ulonglong)*(uint *)((longlong)param_1 + 0xc4) << 0x20);\r\n    local_138 = 0;\r\n    uStack_136 = 0;\r\n    uVar6 = FUN_14004aa6c(&local_148,0);\r\n    param_1[4] = uVar6;\r\n  }\r\n  if (0 < (int)*(uint *)((longlong)param_1 + 0xcc)) {\r\n    local_140 = *(int *)(param_1 + 0x1a);\r\n    uStack_13c = (ushort)*(undefined4 *)(param_1 + 0x18);\r\n    uStack_13a = (ushort)((uint)*(undefined4 *)(param_1 + 0x18) >> 0x10);\r\n    local_148 = (ushort *)((ulonglong)*(uint *)((longlong)param_1 + 0xcc) << 0x20);\r\n    local_138 = 1;\r\n    uStack_136 = 0;\r\n    uVar6 = FUN_14004aa6c(&local_148,0);\r\n    param_1[5] = uVar6;\r\n  }\r\n  puVar1 = param_1 + 0x16;\r\n  if ((*(int *)(param_1 + 0x17) == 0) || (*(int *)(param_1 + 0x17) + -1 < 1)) goto LAB_14308530a;\r\n  FUN_140dc9870(&local_148,puVar1);\r\n  if ((local_140 != 0) && (0 < local_140 + -1)) {\r\n    pcVar10 = \"uasset\";\r\n    puVar13 = local_148;\r\n    do {\r\n      if ((*puVar13 == 0) && (*pcVar10 == '\\0')) break;\r\n      if ((uint)*puVar13 != (int)*pcVar10) {\r\n        uVar2 = (*g_pTowlowerImport)();\r\n        iVar5 = tolower((int)*pcVar10);\r\n        if ((uint)uVar2 != (int)(char)iVar5) goto LAB_143085087;\r\n      }\r\n      puVar13 = puVar13 + 1;\r\n      pcVar10 = pcVar10 + 1;\r\n    } while( true );\r\n  }\r\nLAB_1430852d1:\r\n  uVar6 = FString_CopyWide_Simple(&local_120,puVar1);\r\n  uVar6 = FUN_143085990(uVar6);\r\n  param_1[0x24] = uVar6;\r\nLAB_1430852ec:\r\n  if (local_148 != (ushort *)0x0) {\r\n    FMemory_Free(local_148);\r\n  }\r\nLAB_14308530a:\r\n  uVar6 = FUN_140059f24(0,0,0);\r\n  param_1[6] = uVar6;\r\n  FUN_14005a1bc(uVar6,*(undefined4 *)(param_1 + 7));\r\n  pvVar8 = FMemory_Malloc(0x40);\r\n  if (pvVar8 != (void *)0x0) {\r\n    pwVar9 = (wchar_t *)FUN_143079bd0(pvVar8,param_1[6],*(undefined4 *)(param_1 + 7));\r\n  }\r\n  param_1[8] = pwVar9;\r\n  if (*(char *)(param_1 + 0x21) != '\\0') {\r\n    local_120.pData = (wchar_t *)(ulonglong)*(uint *)((longlong)param_1 + 0x10c);\r\n    local_120.nLength = 0x2130400;\r\n    FUN_1431403c0(&LAB_143078c50,FreeZlibMemoryCallback,0);\r\n    FUN_143140690(&local_120,0,0);\r\n    FUN_143140350(*(char *)((longlong)param_1 + 0x109) != '\\0');\r\n  }\r\n  return;\r\nLAB_143085087:\r\n  if ((uint)uVar2 == (int)(char)iVar5) goto LAB_1430852d1;\r\n  local_120.nLength = *(int *)(param_1 + 1);\r\n  lVar15 = (longlong)local_120.nLength;\r\n  if (local_120.nLength < 2) {\r\n    local_120.nLength = *(int *)(param_1 + 0x17);\r\n    lVar15 = (longlong)local_120.nLength;\r\n    pvVar8 = (void *)*puVar1;\r\n    local_120.pData = (wchar_t *)0x0;\r\n    pMemory = pwVar9;\r\n    if (local_120.nLength != 0) {\r\n      SetFStringCapacityForLength(&local_120,local_120.nLength,0);\r\n      pwVar11 = local_120.pData;\r\n      memcpy(local_120.pData,pvVar8,lVar15 * 2);\r\n      iVar3 = local_120.nLength;\r\n      goto LAB_1430851b1;\r\n    }\r\nLAB_1430851b9:\r\n    pwVar11 = L\"\";\r\n  }\r\n  else {\r\n    if (*(int *)(param_1 + 0x17) != 0) {\r\n      iVar12 = *(int *)(param_1 + 0x17) + -1;\r\n    }\r\n    if ((local_120.nLength != 0) || (pwVar11 = (wchar_t *)0x1, iVar12 == 0)) {\r\n      pwVar11 = pwVar9;\r\n    }\r\n    pvVar8 = (void *)*param_1;\r\n    iVar5 = (int)pwVar11 + iVar12;\r\n    local_120.pData = (wchar_t *)0x0;\r\n    if ((local_120.nLength == 0) && (iVar5 == 0)) {\r\n      local_120.nCapacity = 0;\r\n      pwVar11 = pwVar9;\r\n    }\r\n    else {\r\n      SetFStringCapacityForLength(&local_120,local_120.nLength + iVar5,0);\r\n      pwVar11 = local_120.pData;\r\n      memcpy(local_120.pData,pvVar8,lVar15 * 2);\r\n    }\r\n    iVar5 = local_120.nLength;\r\n    pvVar8 = (void *)*puVar1;\r\n    iVar3 = local_120.nLength;\r\n    if (iVar12 != 0) {\r\n      lVar15 = (longlong)local_120.nLength;\r\n      local_120.nLength = local_120.nLength + (uint)(local_120.nLength == 0) + iVar12;\r\n      if (local_120.nCapacity < local_120.nLength) {\r\n        FString_Reserve(&local_120);\r\n        pwVar11 = local_120.pData;\r\n      }\r\n      iVar3 = local_120.nLength;\r\n      memcpy(pwVar11 + (lVar15 - (ulonglong)(iVar5 != 0)),pvVar8,(longlong)iVar12 * 2);\r\n      (pwVar11 + (lVar15 - (ulonglong)(iVar5 != 0)))[iVar12] = L'\\0';\r\n    }\r\nLAB_1430851b1:\r\n    pMemory = pwVar11;\r\n    if (iVar3 == 0) goto LAB_1430851b9;\r\n  }\r\n  local_58 = (wchar_t *)0x0;\r\n  if (pwVar11 == (wchar_t *)0x0) {\r\n    local_48 = 0;\r\n    local_50 = (wchar_t *)0x0;\r\n  }\r\n  else {\r\n    lVar15 = -1;\r\n    do {\r\n      lVar15 = lVar15 + 1;\r\n    } while (pwVar11[lVar15] != L'\\0');\r\n    local_48 = FUN_1404b8860(pwVar11);\r\n    uVar14 = local_48 + 1;\r\n    pwVar7 = pwVar9;\r\n    if (0x80 < uVar14) {\r\n      if (uVar14 != 0) {\r\n        pwVar7 = (wchar_t *)FMemory_Realloc(0,(longlong)(int)uVar14,0);\r\n        local_58 = pwVar7;\r\n      }\r\n      (*g_pfnMemmove)(pwVar7,local_d8,0);\r\n      pwVar7 = local_58;\r\n    }\r\n    local_120.pData =\r\n         (wchar_t *)\r\n         ((ulonglong)(pwVar7 != (wchar_t *)0x0) - 1 & (ulonglong)local_d8 | (ulonglong)pwVar7);\r\n    local_208[0] = uVar14;\r\n    local_50 = local_120.pData;\r\n    for (iVar12 = (int)lVar15 + 1; iVar12 != 0; iVar12 = iVar12 + -1) {\r\n      FUN_14049e2e0(*pwVar11,&local_120,local_208);\r\n      pwVar11 = pwVar11 + 1;\r\n    }\r\n  }\r\n  thunk_FUN_140059d5c(0,local_50,0,0);\r\n  if (local_58 != (wchar_t *)0x0) {\r\n    FMemory_Free(local_58);\r\n  }\r\n  if (pMemory != (wchar_t *)0x0) {\r\n    FMemory_Free(pMemory);\r\n  }\r\n  goto LAB_1430852ec;\r\n}\r\n\r\n"
+      },
+      "isError": false
+    },
+    "cri_player_constructor": {
+      "content": [
+        {
+          "type": "text",
+          "text": "\r\nundefined8 * FUN_1405360b0(undefined8 *param_1)\r\n\r\n{\r\n  float fVar1;\r\n  undefined8 uVar2;\r\n  \r\n  uVar2 = (*(code *)PTR_FUN_1440e5348)(0,0,0);\r\n  *param_1 = uVar2;\r\n  uVar2 = (*(code *)PTR_FUN_1440e5c08)(0,0,0);\r\n  param_1[1] = uVar2;\r\n  uVar2 = (*(code *)PTR_FUN_1440e5dc8)(0,0,0);\r\n  *(undefined4 *)(param_1 + 4) = 0x3f800000;\r\n  param_1[2] = uVar2;\r\n  *(undefined4 *)((longlong)param_1 + 0x1c) = 0;\r\n  *(undefined4 *)((longlong)param_1 + 0x24) = 0x3f800000;\r\n  param_1[5] = 0;\r\n  param_1[6] = 0;\r\n  param_1[7] = 0;\r\n  param_1[8] = 0;\r\n  param_1[0xb] = 0;\r\n  param_1[0xc] = 0;\r\n  *(undefined4 *)(param_1 + 0xd) = 0xffffffff;\r\n  *(undefined4 *)((longlong)param_1 + 0x6c) = 0;\r\n  param_1[0xf] = 0;\r\n  *(undefined4 *)(param_1 + 0x10) = 0;\r\n  InitializeCriticalSection((LPCRITICAL_SECTION)(param_1 + 0x11));\r\n  SetCriticalSectionSpinCount((LPCRITICAL_SECTION)(param_1 + 0x11),4000);\r\n  fVar1 = g_flOne;\r\n  *(undefined4 *)(param_1 + 0x16) = 0xffffffff;\r\n  *(undefined4 *)((longlong)param_1 + 0xb4) = 0;\r\n  (*(code *)PTR_FUN_1440e56e8)(*param_1,0,fVar1);\r\n  return param_1;\r\n}\r\n\r\n"
+        }
+      ],
+      "structuredContent": {
+        "result": "\r\nundefined8 * FUN_1405360b0(undefined8 *param_1)\r\n\r\n{\r\n  float fVar1;\r\n  undefined8 uVar2;\r\n  \r\n  uVar2 = (*(code *)PTR_FUN_1440e5348)(0,0,0);\r\n  *param_1 = uVar2;\r\n  uVar2 = (*(code *)PTR_FUN_1440e5c08)(0,0,0);\r\n  param_1[1] = uVar2;\r\n  uVar2 = (*(code *)PTR_FUN_1440e5dc8)(0,0,0);\r\n  *(undefined4 *)(param_1 + 4) = 0x3f800000;\r\n  param_1[2] = uVar2;\r\n  *(undefined4 *)((longlong)param_1 + 0x1c) = 0;\r\n  *(undefined4 *)((longlong)param_1 + 0x24) = 0x3f800000;\r\n  param_1[5] = 0;\r\n  param_1[6] = 0;\r\n  param_1[7] = 0;\r\n  param_1[8] = 0;\r\n  param_1[0xb] = 0;\r\n  param_1[0xc] = 0;\r\n  *(undefined4 *)(param_1 + 0xd) = 0xffffffff;\r\n  *(undefined4 *)((longlong)param_1 + 0x6c) = 0;\r\n  param_1[0xf] = 0;\r\n  *(undefined4 *)(param_1 + 0x10) = 0;\r\n  InitializeCriticalSection((LPCRITICAL_SECTION)(param_1 + 0x11));\r\n  SetCriticalSectionSpinCount((LPCRITICAL_SECTION)(param_1 + 0x11),4000);\r\n  fVar1 = g_flOne;\r\n  *(undefined4 *)(param_1 + 0x16) = 0xffffffff;\r\n  *(undefined4 *)((longlong)param_1 + 0xb4) = 0;\r\n  (*(code *)PTR_FUN_1440e56e8)(*param_1,0,fVar1);\r\n  return param_1;\r\n}\r\n\r\n"
+      },
+      "isError": false
+    },
+    "cri_other_callback_targets": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"error\":\"No function found for 0x14308ff00\"}"
+            }
+          ],
+          "structuredContent": {
+            "result": "{\"error\":\"No function found for 0x14308ff00\"}"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"error\":\"No function found for 0x143078c50\"}"
+            }
+          ],
+          "structuredContent": {
+            "result": "{\"error\":\"No function found for 0x143078c50\"}"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"error\":\"No function found for 0x14308a390\"}"
+            }
+          ],
+          "structuredContent": {
+            "result": "{\"error\":\"No function found for 0x14308a390\"}"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\n/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */\r\n\r\nvoid FUN_143129df8(longlong param_1)\r\n\r\n{\r\n  bool bVar1;\r\n  bool bVar2;\r\n  \r\n  bVar2 = false;\r\n  FUN_14312a034();\r\n  _DAT_144411c40 = \"\\nCRI Error/PCx64 Ver.1.04.01 Build:Sep  5 2017 20:54:19\\n\";\r\n  bVar1 = false;\r\n  if ((((param_1 != 0) && (bVar1 = bVar2, DAT_144411c48 != 0)) && (param_1 != DAT_144411c48)) &&\r\n     (DAT_144411c58 == 0)) {\r\n    bVar1 = true;\r\n    FUN_143129cd4(1,\r\n                  \"W2016050998:Error callback function was overwritten. This function doesn\\'t receive error information anymore.\"\r\n                  ,0,0,0);\r\n  }\r\n  DAT_144411c48 = param_1;\r\n  if (bVar1) {\r\n    FUN_143129cd4(1,\"W2016050999:Overwrites existing error callback function.\",0,0,0);\r\n  }\r\n  return;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\n/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */\r\n\r\nvoid FUN_143129df8(longlong param_1)\r\n\r\n{\r\n  bool bVar1;\r\n  bool bVar2;\r\n  \r\n  bVar2 = false;\r\n  FUN_14312a034();\r\n  _DAT_144411c40 = \"\\nCRI Error/PCx64 Ver.1.04.01 Build:Sep  5 2017 20:54:19\\n\";\r\n  bVar1 = false;\r\n  if ((((param_1 != 0) && (bVar1 = bVar2, DAT_144411c48 != 0)) && (param_1 != DAT_144411c48)) &&\r\n     (DAT_144411c58 == 0)) {\r\n    bVar1 = true;\r\n    FUN_143129cd4(1,\r\n                  \"W2016050998:Error callback function was overwritten. This function doesn\\'t receive error information anymore.\"\r\n                  ,0,0,0);\r\n  }\r\n  DAT_144411c48 = param_1;\r\n  if (bVar1) {\r\n    FUN_143129cd4(1,\"W2016050999:Overwrites existing error callback function.\",0,0,0);\r\n  }\r\n  return;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nundefined8 FUN_14313448c(void)\r\n\r\n{\r\n  FUN_143135a80();\r\n  return 0;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nundefined8 FUN_14313448c(void)\r\n\r\n{\r\n  FUN_143135a80();\r\n  return 0;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "cri_other_callback_callees": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nwchar_t * FUN_1431299b4(wchar_t *param_1,uint param_2,ulonglong param_3)\r\n\r\n{\r\n  ulonglong uVar1;\r\n  size_t sVar2;\r\n  ulonglong uVar3;\r\n  uint uVar4;\r\n  ulonglong uVar5;\r\n  ulonglong *puVar6;\r\n  undefined8 in_stack_ffffffffffffffd8;\r\n  undefined4 uVar8;\r\n  ulonglong uVar7;\r\n  int local_18 [4];\r\n  \r\n  uVar8 = (undefined4)((ulonglong)in_stack_ffffffffffffffd8 >> 0x20);\r\n  puVar6 = (ulonglong *)((ulonglong)param_2 << 0x20 | param_3 & 0xffffffff);\r\n  uVar1 = *puVar6;\r\n  uVar7 = puVar6[1];\r\n  sVar2 = strlen((char *)param_1);\r\n  uVar5 = 0;\r\n  FUN_143129ea4(local_18,0xc);\r\n  uVar3 = 0;\r\n  if (sVar2 != 0) {\r\n    do {\r\n      if (*(char *)(uVar3 + (longlong)param_1) == '%') {\r\n        if (*(char *)(uVar3 + 1 + (longlong)param_1) == 's') {\r\n          local_18[uVar5] = 1;\r\n        }\r\n        uVar4 = (int)uVar5 + 1;\r\n        uVar5 = (ulonglong)uVar4;\r\n        if (uVar4 == 3) break;\r\n      }\r\n      uVar3 = uVar3 + 1;\r\n    } while (uVar3 < sVar2);\r\n    if (2 < (uint)uVar5) {\r\n      return param_1;\r\n    }\r\n  }\r\n  if (local_18[0] == 0) {\r\n    if (local_18[1] == 0) {\r\n      uVar7 = CONCAT44(uVar8,(int)uVar7);\r\n    }\r\n    FID_conflict__sprintf_p((wchar_t *)&DAT_144411a40,0x200,param_1,uVar1 & 0xffffffff,uVar7);\r\n  }\r\n  else {\r\n    if ((local_18[0] == 1) && (local_18[1] == 0)) {\r\n      uVar7 = CONCAT44(uVar8,(int)uVar7);\r\n    }\r\n    FID_conflict__sprintf_p((wchar_t *)&DAT_144411a40,0x200,param_1,uVar1,uVar7);\r\n  }\r\n  return (wchar_t *)&DAT_144411a40;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nwchar_t * FUN_1431299b4(wchar_t *param_1,uint param_2,ulonglong param_3)\r\n\r\n{\r\n  ulonglong uVar1;\r\n  size_t sVar2;\r\n  ulonglong uVar3;\r\n  uint uVar4;\r\n  ulonglong uVar5;\r\n  ulonglong *puVar6;\r\n  undefined8 in_stack_ffffffffffffffd8;\r\n  undefined4 uVar8;\r\n  ulonglong uVar7;\r\n  int local_18 [4];\r\n  \r\n  uVar8 = (undefined4)((ulonglong)in_stack_ffffffffffffffd8 >> 0x20);\r\n  puVar6 = (ulonglong *)((ulonglong)param_2 << 0x20 | param_3 & 0xffffffff);\r\n  uVar1 = *puVar6;\r\n  uVar7 = puVar6[1];\r\n  sVar2 = strlen((char *)param_1);\r\n  uVar5 = 0;\r\n  FUN_143129ea4(local_18,0xc);\r\n  uVar3 = 0;\r\n  if (sVar2 != 0) {\r\n    do {\r\n      if (*(char *)(uVar3 + (longlong)param_1) == '%') {\r\n        if (*(char *)(uVar3 + 1 + (longlong)param_1) == 's') {\r\n          local_18[uVar5] = 1;\r\n        }\r\n        uVar4 = (int)uVar5 + 1;\r\n        uVar5 = (ulonglong)uVar4;\r\n        if (uVar4 == 3) break;\r\n      }\r\n      uVar3 = uVar3 + 1;\r\n    } while (uVar3 < sVar2);\r\n    if (2 < (uint)uVar5) {\r\n      return param_1;\r\n    }\r\n  }\r\n  if (local_18[0] == 0) {\r\n    if (local_18[1] == 0) {\r\n      uVar7 = CONCAT44(uVar8,(int)uVar7);\r\n    }\r\n    FID_conflict__sprintf_p((wchar_t *)&DAT_144411a40,0x200,param_1,uVar1 & 0xffffffff,uVar7);\r\n  }\r\n  else {\r\n    if ((local_18[0] == 1) && (local_18[1] == 0)) {\r\n      uVar7 = CONCAT44(uVar8,(int)uVar7);\r\n    }\r\n    FID_conflict__sprintf_p((wchar_t *)&DAT_144411a40,0x200,param_1,uVar1,uVar7);\r\n  }\r\n  return (wchar_t *)&DAT_144411a40;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nundefined8 FUN_143135a80(undefined8 param_1)\r\n\r\n{\r\n  DAT_1444124e0 = param_1;\r\n  return 0;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nundefined8 FUN_143135a80(undefined8 param_1)\r\n\r\n{\r\n  DAT_1444124e0 = param_1;\r\n  return 0;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\n/* UE4::GMalloc_Malloc_Dispatch\r\n   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\r\n   PURPOSE : Virtual dispatch shim for FMalloc::Malloc. Reads the GMalloc\r\n             singleton, then calls vtable slot 2 (Malloc).\r\n   \r\n   DISPATCH: (**(code**)(GMalloc->vtable + 0x10))(GMalloc, size, align)\r\n             vtable[0]=?  vtable[1]=?  vtable[2]=Malloc\r\n   \r\n   GLOBALS:\r\n     GMalloc @ 0x1441971C8  (FMalloc*)\r\n   \r\n   CALLED BY: FMemory_Malloc @ 0x1404A61C0\r\n   CONFIRMED via: decompile of FMemory_Malloc → this → vtable[2] dispatch */\r\n\r\nvoid GMalloc_Malloc_Dispatch(undefined8 param_1,undefined4 param_2)\r\n\r\n{\r\n  if (g_pGMalloc == (FMalloc_Partial *)0x0) {\r\n    FUN_140d4fb90(param_1);\r\n    return;\r\n  }\r\n                    /* WARNING: Could not recover jumptable at 0x000140d4f780. Too many branches */\r\n                    /* WARNING: Treating indirect jump as call */\r\n  (*g_pGMalloc->pVtable->pReserved10)(g_pGMalloc,param_1,param_2);\r\n  return;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\n/* UE4::GMalloc_Malloc_Dispatch\r\n   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\r\n   PURPOSE : Virtual dispatch shim for FMalloc::Malloc. Reads the GMalloc\r\n             singleton, then calls vtable slot 2 (Malloc).\r\n   \r\n   DISPATCH: (**(code**)(GMalloc->vtable + 0x10))(GMalloc, size, align)\r\n             vtable[0]=?  vtable[1]=?  vtable[2]=Malloc\r\n   \r\n   GLOBALS:\r\n     GMalloc @ 0x1441971C8  (FMalloc*)\r\n   \r\n   CALLED BY: FMemory_Malloc @ 0x1404A61C0\r\n   CONFIRMED via: decompile of FMemory_Malloc → this → vtable[2] dispatch */\r\n\r\nvoid GMalloc_Malloc_Dispatch(undefined8 param_1,undefined4 param_2)\r\n\r\n{\r\n  if (g_pGMalloc == (FMalloc_Partial *)0x0) {\r\n    FUN_140d4fb90(param_1);\r\n    return;\r\n  }\r\n                    /* WARNING: Could not recover jumptable at 0x000140d4f780. Too many branches */\r\n                    /* WARNING: Treating indirect jump as call */\r\n  (*g_pGMalloc->pVtable->pReserved10)(g_pGMalloc,param_1,param_2);\r\n  return;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "cri_free_callback_search": {
+      "content": [
+        {
+          "type": "text",
+          "text": "FreeZlibMemoryCallback @ 14108bed0"
+        }
+      ],
+      "structuredContent": {
+        "result": "FreeZlibMemoryCallback @ 14108bed0"
+      },
+      "isError": false
+    },
+    "cri_io_table": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"address\":\"1440e4f90\",\"length\":160,\"data\":[224,133,7,67,1,0,0,0,176,134,7,67,1,0,0,0,0,0,0,0,0,0,0,0,112,135,7,67,1,0,0,0,128,137,7,67,1,0,0,0,192,137,7,67,1,0,0,0,208,137,7,67,1,0,0,0,208,138,7,67,1,0,0,0,0,0,0,0,0,0,0,0,64,138,7,67,1,0,0,0,80,138,7,67,1,0,0,0,208,138,7,67,1,0,0,0,0,0,0,0,0,0,0,0,224,138,7,67,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,240,138,7,67,1,0,0,0,0,0,0,0,0,0,0,0,180,154,18,67,1,0,0,0,140,171,4,64,1,0,0,0],\"hex\":\"e085074301000000b086074301000000000000000000000070870743010000008089074301000000c089074301000000d089074301000000d08a0743010000000000000000000000408a074301000000508a074301000000d08a0743010000000000000000000000e08a07430100000000000000000000000000000000000000f08a0743010000000000000000000000b49a1243010000008cab044001000000\"}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"address\":\"1440e4f90\",\"length\":160,\"data\":[224,133,7,67,1,0,0,0,176,134,7,67,1,0,0,0,0,0,0,0,0,0,0,0,112,135,7,67,1,0,0,0,128,137,7,67,1,0,0,0,192,137,7,67,1,0,0,0,208,137,7,67,1,0,0,0,208,138,7,67,1,0,0,0,0,0,0,0,0,0,0,0,64,138,7,67,1,0,0,0,80,138,7,67,1,0,0,0,208,138,7,67,1,0,0,0,0,0,0,0,0,0,0,0,224,138,7,67,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,240,138,7,67,1,0,0,0,0,0,0,0,0,0,0,0,180,154,18,67,1,0,0,0,140,171,4,64,1,0,0,0],\"hex\":\"e085074301000000b086074301000000000000000000000070870743010000008089074301000000c089074301000000d089074301000000d08a0743010000000000000000000000408a074301000000508a074301000000d08a0743010000000000000000000000e08a07430100000000000000000000000000000000000000f08a0743010000000000000000000000b49a1243010000008cab044001000000\"}"
+      },
+      "isError": false
+    },
+    "cri_file_callbacks": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n\r\nundefined8 FUN_1430785e0(longlong param_1,uint *param_2)\r\n\r\n{\r\n  char cVar1;\r\n  longlong *plVar2;\r\n  longlong lVar3;\r\n  undefined1 auStack_168 [32];\r\n  undefined1 local_148 [256];\r\n  void *local_48;\r\n  undefined8 local_40;\r\n  undefined4 local_38;\r\n  ulonglong local_28;\r\n  \r\n  local_28 = g_qwSecurityCookie ^ (ulonglong)auStack_168;\r\n  plVar2 = (longlong *)FUN_140e028d0();\r\n  local_48 = (void *)0x0;\r\n  if (param_1 == 0) {\r\n    local_40 = 0;\r\n    local_38 = 0;\r\n  }\r\n  else {\r\n    lVar3 = -1;\r\n    do {\r\n      lVar3 = lVar3 + 1;\r\n    } while (*(char *)(param_1 + lVar3) != '\\0');\r\n    FUN_140dcb3b0(local_148,param_1,lVar3,1);\r\n  }\r\n  cVar1 = (**(code **)(*plVar2 + 0x68))(plVar2,local_40);\r\n  if (local_48 != (void *)0x0) {\r\n    FMemory_Free(local_48);\r\n  }\r\n  *param_2 = (uint)(cVar1 != '\\0');\r\n  return 0;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n\r\nundefined8 FUN_1430785e0(longlong param_1,uint *param_2)\r\n\r\n{\r\n  char cVar1;\r\n  longlong *plVar2;\r\n  longlong lVar3;\r\n  undefined1 auStack_168 [32];\r\n  undefined1 local_148 [256];\r\n  void *local_48;\r\n  undefined8 local_40;\r\n  undefined4 local_38;\r\n  ulonglong local_28;\r\n  \r\n  local_28 = g_qwSecurityCookie ^ (ulonglong)auStack_168;\r\n  plVar2 = (longlong *)FUN_140e028d0();\r\n  local_48 = (void *)0x0;\r\n  if (param_1 == 0) {\r\n    local_40 = 0;\r\n    local_38 = 0;\r\n  }\r\n  else {\r\n    lVar3 = -1;\r\n    do {\r\n      lVar3 = lVar3 + 1;\r\n    } while (*(char *)(param_1 + lVar3) != '\\0');\r\n    FUN_140dcb3b0(local_148,param_1,lVar3,1);\r\n  }\r\n  cVar1 = (**(code **)(*plVar2 + 0x68))(plVar2,local_40);\r\n  if (local_48 != (void *)0x0) {\r\n    FMemory_Free(local_48);\r\n  }\r\n  *param_2 = (uint)(cVar1 != '\\0');\r\n  return 0;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n\r\nint FUN_1430786b0(longlong param_1)\r\n\r\n{\r\n  char cVar1;\r\n  longlong *plVar2;\r\n  longlong lVar3;\r\n  undefined1 auStack_158 [32];\r\n  undefined1 local_138 [256];\r\n  void *local_38;\r\n  undefined8 local_30;\r\n  undefined4 local_28;\r\n  ulonglong local_18;\r\n  \r\n  local_18 = g_qwSecurityCookie ^ (ulonglong)auStack_158;\r\n  plVar2 = (longlong *)FUN_140e028d0();\r\n  local_38 = (void *)0x0;\r\n  if (param_1 == 0) {\r\n    local_30 = 0;\r\n    local_28 = 0;\r\n  }\r\n  else {\r\n    lVar3 = -1;\r\n    do {\r\n      lVar3 = lVar3 + 1;\r\n    } while (*(char *)(param_1 + lVar3) != '\\0');\r\n    FUN_140dcb3b0(local_138,param_1,lVar3,1);\r\n  }\r\n  cVar1 = (**(code **)(*plVar2 + 0x78))(plVar2,local_30);\r\n  if (local_38 != (void *)0x0) {\r\n    FMemory_Free(local_38);\r\n  }\r\n  return -(uint)(cVar1 != '\\0');\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n\r\nint FUN_1430786b0(longlong param_1)\r\n\r\n{\r\n  char cVar1;\r\n  longlong *plVar2;\r\n  longlong lVar3;\r\n  undefined1 auStack_158 [32];\r\n  undefined1 local_138 [256];\r\n  void *local_38;\r\n  undefined8 local_30;\r\n  undefined4 local_28;\r\n  ulonglong local_18;\r\n  \r\n  local_18 = g_qwSecurityCookie ^ (ulonglong)auStack_158;\r\n  plVar2 = (longlong *)FUN_140e028d0();\r\n  local_38 = (void *)0x0;\r\n  if (param_1 == 0) {\r\n    local_30 = 0;\r\n    local_28 = 0;\r\n  }\r\n  else {\r\n    lVar3 = -1;\r\n    do {\r\n      lVar3 = lVar3 + 1;\r\n    } while (*(char *)(param_1 + lVar3) != '\\0');\r\n    FUN_140dcb3b0(local_138,param_1,lVar3,1);\r\n  }\r\n  cVar1 = (**(code **)(*plVar2 + 0x78))(plVar2,local_30);\r\n  if (local_38 != (void *)0x0) {\r\n    FMemory_Free(local_38);\r\n  }\r\n  return -(uint)(cVar1 != '\\0');\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n\r\nundefined8 FUN_143078770(longlong param_1,int param_2,int param_3,undefined8 *param_4)\r\n\r\n{\r\n  longlong *plVar1;\r\n  longlong *plVar2;\r\n  longlong lVar3;\r\n  undefined1 auStack_188 [32];\r\n  undefined1 local_168 [256];\r\n  void *local_68;\r\n  undefined8 local_60;\r\n  undefined4 local_58;\r\n  ulonglong local_48;\r\n  \r\n  local_48 = g_qwSecurityCookie ^ (ulonglong)auStack_188;\r\n  plVar1 = (longlong *)FUN_140d47280();\r\n  local_68 = (void *)0x0;\r\n  if (param_1 == 0) {\r\n    local_58 = 0;\r\n    local_60 = 0;\r\n  }\r\n  else {\r\n    lVar3 = -1;\r\n    do {\r\n      lVar3 = lVar3 + 1;\r\n    } while (*(char *)(param_1 + lVar3) != '\\0');\r\n    FUN_140dcb3b0(local_168,param_1,lVar3,1);\r\n  }\r\n  (**(code **)(*plVar1 + 0xe8))(plVar1,local_60);\r\n  if (local_68 != (void *)0x0) {\r\n    FMemory_Free(local_68);\r\n  }\r\n  plVar1 = FMemory_Malloc(0x20);\r\n  if (plVar1 != (longlong *)0x0) {\r\n    *plVar1 = 0;\r\n    plVar1[1] = 0;\r\n    plVar1[2] = 0;\r\n    plVar1[3] = 0;\r\n    plVar2 = (longlong *)FUN_140e028d0();\r\n    local_68 = (void *)0x0;\r\n    if (param_3 == 0) {\r\n      if (param_1 == 0) {\r\n        local_60 = 0;\r\n        local_58 = 0;\r\n      }\r\n      else {\r\n        lVar3 = -1;\r\n        do {\r\n          lVar3 = lVar3 + 1;\r\n        } while (*(char *)(param_1 + lVar3) != '\\0');\r\n        FUN_140dcb3b0(local_168,param_1,lVar3,1);\r\n      }\r\n      lVar3 = (**(code **)(*plVar2 + 0xb8))(plVar2,local_60,0);\r\n    }\r\n    else {\r\n      if (param_1 == 0) {\r\n        local_60 = 0;\r\n        local_58 = 0;\r\n      }\r\n      else {\r\n        lVar3 = -1;\r\n        do {\r\n          lVar3 = lVar3 + 1;\r\n        } while (*(char *)(param_1 + lVar3) != '\\0');\r\n        FUN_140dcb3b0(local_168,param_1,lVar3,1);\r\n      }\r\n      lVar3 = (**(code **)(*plVar2 + 200))(plVar2,local_60,param_2 == 0,param_3 != 1);\r\n    }\r\n    *plVar1 = lVar3;\r\n    if (local_68 != (void *)0x0) {\r\n      FMemory_Free(local_68);\r\n    }\r\n    if ((longlong *)*plVar1 != (longlong *)0x0) {\r\n      lVar3 = (**(code **)(*(longlong *)*plVar1 + 0x38))();\r\n      plVar1[1] = lVar3;\r\n      *param_4 = plVar1;\r\n      return 0;\r\n    }\r\n    UE_FMemory_Free(plVar1);\r\n  }\r\n  return 0xffffffff;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n\r\nundefined8 FUN_143078770(longlong param_1,int param_2,int param_3,undefined8 *param_4)\r\n\r\n{\r\n  longlong *plVar1;\r\n  longlong *plVar2;\r\n  longlong lVar3;\r\n  undefined1 auStack_188 [32];\r\n  undefined1 local_168 [256];\r\n  void *local_68;\r\n  undefined8 local_60;\r\n  undefined4 local_58;\r\n  ulonglong local_48;\r\n  \r\n  local_48 = g_qwSecurityCookie ^ (ulonglong)auStack_188;\r\n  plVar1 = (longlong *)FUN_140d47280();\r\n  local_68 = (void *)0x0;\r\n  if (param_1 == 0) {\r\n    local_58 = 0;\r\n    local_60 = 0;\r\n  }\r\n  else {\r\n    lVar3 = -1;\r\n    do {\r\n      lVar3 = lVar3 + 1;\r\n    } while (*(char *)(param_1 + lVar3) != '\\0');\r\n    FUN_140dcb3b0(local_168,param_1,lVar3,1);\r\n  }\r\n  (**(code **)(*plVar1 + 0xe8))(plVar1,local_60);\r\n  if (local_68 != (void *)0x0) {\r\n    FMemory_Free(local_68);\r\n  }\r\n  plVar1 = FMemory_Malloc(0x20);\r\n  if (plVar1 != (longlong *)0x0) {\r\n    *plVar1 = 0;\r\n    plVar1[1] = 0;\r\n    plVar1[2] = 0;\r\n    plVar1[3] = 0;\r\n    plVar2 = (longlong *)FUN_140e028d0();\r\n    local_68 = (void *)0x0;\r\n    if (param_3 == 0) {\r\n      if (param_1 == 0) {\r\n        local_60 = 0;\r\n        local_58 = 0;\r\n      }\r\n      else {\r\n        lVar3 = -1;\r\n        do {\r\n          lVar3 = lVar3 + 1;\r\n        } while (*(char *)(param_1 + lVar3) != '\\0');\r\n        FUN_140dcb3b0(local_168,param_1,lVar3,1);\r\n      }\r\n      lVar3 = (**(code **)(*plVar2 + 0xb8))(plVar2,local_60,0);\r\n    }\r\n    else {\r\n      if (param_1 == 0) {\r\n        local_60 = 0;\r\n        local_58 = 0;\r\n      }\r\n      else {\r\n        lVar3 = -1;\r\n        do {\r\n          lVar3 = lVar3 + 1;\r\n        } while (*(char *)(param_1 + lVar3) != '\\0');\r\n        FUN_140dcb3b0(local_168,param_1,lVar3,1);\r\n      }\r\n      lVar3 = (**(code **)(*plVar2 + 200))(plVar2,local_60,param_2 == 0,param_3 != 1);\r\n    }\r\n    *plVar1 = lVar3;\r\n    if (local_68 != (void *)0x0) {\r\n      FMemory_Free(local_68);\r\n    }\r\n    if ((longlong *)*plVar1 != (longlong *)0x0) {\r\n      lVar3 = (**(code **)(*(longlong *)*plVar1 + 0x38))();\r\n      plVar1[1] = lVar3;\r\n      *param_4 = plVar1;\r\n      return 0;\r\n    }\r\n    UE_FMemory_Free(plVar1);\r\n  }\r\n  return 0xffffffff;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nundefined8 FUN_143078980(longlong *param_1)\r\n\r\n{\r\n  undefined8 *puVar1;\r\n  \r\n  puVar1 = (undefined8 *)*param_1;\r\n  if (puVar1 != (undefined8 *)0x0) {\r\n    (**(code **)*puVar1)(puVar1,1);\r\n    *param_1 = 0;\r\n  }\r\n  UE_FMemory_Free(param_1);\r\n  return 0;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nundefined8 FUN_143078980(longlong *param_1)\r\n\r\n{\r\n  undefined8 *puVar1;\r\n  \r\n  puVar1 = (undefined8 *)*param_1;\r\n  if (puVar1 != (undefined8 *)0x0) {\r\n    (**(code **)*puVar1)(puVar1,1);\r\n    *param_1 = 0;\r\n  }\r\n  UE_FMemory_Free(param_1);\r\n  return 0;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nundefined8\r\nFUN_1430789d0(undefined8 *param_1,undefined8 param_2,undefined8 param_3,undefined8 param_4)\r\n\r\n{\r\n  char cVar1;\r\n  \r\n  cVar1 = (**(code **)(*(longlong *)*param_1 + 0x10))();\r\n  if (cVar1 != '\\0') {\r\n    cVar1 = (**(code **)(*(longlong *)*param_1 + 0x20))((longlong *)*param_1,param_4,param_3);\r\n    if (cVar1 != '\\0') {\r\n      param_1[2] = param_3;\r\n      return 0;\r\n    }\r\n  }\r\n  return 0xffffffff;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nundefined8\r\nFUN_1430789d0(undefined8 *param_1,undefined8 param_2,undefined8 param_3,undefined8 param_4)\r\n\r\n{\r\n  char cVar1;\r\n  \r\n  cVar1 = (**(code **)(*(longlong *)*param_1 + 0x10))();\r\n  if (cVar1 != '\\0') {\r\n    cVar1 = (**(code **)(*(longlong *)*param_1 + 0x20))((longlong *)*param_1,param_4,param_3);\r\n    if (cVar1 != '\\0') {\r\n      param_1[2] = param_3;\r\n      return 0;\r\n    }\r\n  }\r\n  return 0xffffffff;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nundefined8\r\nFUN_143078a50(undefined8 *param_1,undefined8 param_2,undefined8 param_3,undefined8 param_4)\r\n\r\n{\r\n  char cVar1;\r\n  longlong lVar2;\r\n  \r\n  cVar1 = (**(code **)(*(longlong *)*param_1 + 0x10))();\r\n  if (cVar1 != '\\0') {\r\n    cVar1 = (**(code **)(*(longlong *)*param_1 + 0x28))((longlong *)*param_1,param_4,param_3);\r\n    if (cVar1 != '\\0') {\r\n      param_1[3] = param_3;\r\n      lVar2 = (**(code **)(*(longlong *)*param_1 + 8))();\r\n      if ((longlong)param_1[1] < lVar2) {\r\n        param_1[1] = lVar2;\r\n      }\r\n      return 0;\r\n    }\r\n  }\r\n  return 0xffffffff;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nundefined8\r\nFUN_143078a50(undefined8 *param_1,undefined8 param_2,undefined8 param_3,undefined8 param_4)\r\n\r\n{\r\n  char cVar1;\r\n  longlong lVar2;\r\n  \r\n  cVar1 = (**(code **)(*(longlong *)*param_1 + 0x10))();\r\n  if (cVar1 != '\\0') {\r\n    cVar1 = (**(code **)(*(longlong *)*param_1 + 0x28))((longlong *)*param_1,param_4,param_3);\r\n    if (cVar1 != '\\0') {\r\n      param_1[3] = param_3;\r\n      lVar2 = (**(code **)(*(longlong *)*param_1 + 8))();\r\n      if ((longlong)param_1[1] < lVar2) {\r\n        param_1[1] = lVar2;\r\n      }\r\n      return 0;\r\n    }\r\n  }\r\n  return 0xffffffff;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"error\":\"No function found for 0x143078ae0\"}"
+            }
+          ],
+          "structuredContent": {
+            "result": "{\"error\":\"No function found for 0x143078ae0\"}"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"error\":\"No function found for 0x143078af0\"}"
+            }
+          ],
+          "structuredContent": {
+            "result": "{\"error\":\"No function found for 0x143078af0\"}"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\n/* Frees memory allocated by the bundled zlib stream callback.\r\n   \r\n   Algorithm:\r\n   1. Ignore the zlib opaque pointer.\r\n   2. Free pMemory through FMemory_Free.\r\n   \r\n   Parameters:\r\n     pOpaque: void * - zlib opaque pointer, unused by this callback.\r\n     pMemory: void * - allocation pointer to free.\r\n   \r\n   Returns:\r\n     void: no return value.\r\n   \r\n   Special Cases:\r\n     - Used as FZlibStream_Partial.pFreeFunc in UECompression_ZlibDecompressMemory.\r\n   \r\n   Source: zlib free callback used by SC6/UE compression fallback. */\r\n\r\nvoid FreeZlibMemoryCallback(void *pOpaque,void *pMemory)\r\n\r\n{\r\n  FMemory_Free(pMemory);\r\n  return;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\n/* Frees memory allocated by the bundled zlib stream callback.\r\n   \r\n   Algorithm:\r\n   1. Ignore the zlib opaque pointer.\r\n   2. Free pMemory through FMemory_Free.\r\n   \r\n   Parameters:\r\n     pOpaque: void * - zlib opaque pointer, unused by this callback.\r\n     pMemory: void * - allocation pointer to free.\r\n   \r\n   Returns:\r\n     void: no return value.\r\n   \r\n   Special Cases:\r\n     - Used as FZlibStream_Partial.pFreeFunc in UECompression_ZlibDecompressMemory.\r\n   \r\n   Source: zlib free callback used by SC6/UE compression fallback. */\r\n\r\nvoid FreeZlibMemoryCallback(void *pOpaque,void *pMemory)\r\n\r\n{\r\n  FMemory_Free(pMemory);\r\n  return;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "cri_file_owners": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nundefined ** FUN_140e028d0(void)\r\n\r\n{\r\n  if (*(int *)(*(longlong *)((longlong)ThreadLocalStoragePointer + (ulonglong)g_dwTlsIndex * 8) +\r\n              0x18) < DAT_144298d38) {\r\n    _Init_thread_header(&DAT_144298d38);\r\n    if (DAT_144298d38 == -1) {\r\n      atexit((_func_5014 *)&LAB_1431f9430);\r\n      _Init_thread_footer(&DAT_144298d38);\r\n    }\r\n  }\r\n  return &PTR_PTR_144077808;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nundefined ** FUN_140e028d0(void)\r\n\r\n{\r\n  if (*(int *)(*(longlong *)((longlong)ThreadLocalStoragePointer + (ulonglong)g_dwTlsIndex * 8) +\r\n              0x18) < DAT_144298d38) {\r\n    _Init_thread_header(&DAT_144298d38);\r\n    if (DAT_144298d38 == -1) {\r\n      atexit((_func_5014 *)&LAB_1431f9430);\r\n      _Init_thread_footer(&DAT_144298d38);\r\n    }\r\n  }\r\n  return &PTR_PTR_144077808;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nlonglong * FUN_140d47280(void)\r\n\r\n{\r\n  longlong lVar1;\r\n  longlong *plVar2;\r\n  longlong *plVar3;\r\n  \r\n  if (*(int *)(*(longlong *)((longlong)ThreadLocalStoragePointer + (ulonglong)g_dwTlsIndex * 8) +\r\n              0x18) < DAT_144169fa0) {\r\n    _Init_thread_header(&DAT_144169fa0);\r\n    if (DAT_144169fa0 == -1) {\r\n      atexit((_func_5014 *)&LAB_1431f6970);\r\n      _Init_thread_footer(&DAT_144169fa0);\r\n    }\r\n  }\r\n  plVar3 = DAT_144169f98;\r\n  if (DAT_144169f98 == (longlong *)0x0) {\r\n    plVar3 = FMemory_Malloc(8);\r\n    if (plVar3 != (longlong *)0x0) {\r\n      *plVar3 = (longlong)&PTR_HandleLuxNoOpVirtual_1434b8110;\r\n    }\r\n    plVar2 = DAT_144169f98;\r\n    if (DAT_144169f98 != (longlong *)0x0) {\r\n      lVar1 = *DAT_144169f98;\r\n      DAT_144169f98 = plVar3;\r\n      (**(code **)(lVar1 + 0x100))(plVar2,1);\r\n      plVar3 = DAT_144169f98;\r\n    }\r\n  }\r\n  DAT_144169f98 = plVar3;\r\n  return plVar3;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nlonglong * FUN_140d47280(void)\r\n\r\n{\r\n  longlong lVar1;\r\n  longlong *plVar2;\r\n  longlong *plVar3;\r\n  \r\n  if (*(int *)(*(longlong *)((longlong)ThreadLocalStoragePointer + (ulonglong)g_dwTlsIndex * 8) +\r\n              0x18) < DAT_144169fa0) {\r\n    _Init_thread_header(&DAT_144169fa0);\r\n    if (DAT_144169fa0 == -1) {\r\n      atexit((_func_5014 *)&LAB_1431f6970);\r\n      _Init_thread_footer(&DAT_144169fa0);\r\n    }\r\n  }\r\n  plVar3 = DAT_144169f98;\r\n  if (DAT_144169f98 == (longlong *)0x0) {\r\n    plVar3 = FMemory_Malloc(8);\r\n    if (plVar3 != (longlong *)0x0) {\r\n      *plVar3 = (longlong)&PTR_HandleLuxNoOpVirtual_1434b8110;\r\n    }\r\n    plVar2 = DAT_144169f98;\r\n    if (DAT_144169f98 != (longlong *)0x0) {\r\n      lVar1 = *DAT_144169f98;\r\n      DAT_144169f98 = plVar3;\r\n      (**(code **)(lVar1 + 0x100))(plVar2,1);\r\n      plVar3 = DAT_144169f98;\r\n    }\r\n  }\r\n  DAT_144169f98 = plVar3;\r\n  return plVar3;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "cri_other_callbacks_asm": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"14308FF00\":{\"address\":\"14308FF00\",\"instruction\":\"JMP 0x1431299b4\",\"context_before\":[\"14308fefa: RET\",\"14308fef9: POP RDI\",\"14308fef5: ADD RSP,0x20\",\"14308fef0: MOV RSI,qword ptr [RSP + 0x38]\",\"14308feeb: MOV RBX,qword ptr [RSP + 0x30]\"],\"context_after\":[\"14308ff10: MOV RCX,qword ptr [RCX + 0x10]\",\"14308ff14: TEST RCX,RCX\",\"14308ff17: JZ 0x14308ff25\",\"14308ff19: MOV RAX,qword ptr [RCX]\",\"14308ff1c: MOV EDX,0x1\"],\"mnemonic\":\"JMP\",\"patterns_detected\":[\"control_flow\"]},\"143078C50\":{\"address\":\"143078C50\",\"instruction\":\"MOV ECX,EDX\",\"context_before\":[\"143078c4c: RET\",\"143078c4b: POP RDI\",\"143078c48: MOV RSP,R11\",\"143078c44: MOV RSI,qword ptr [R11 + 0x28]\",\"143078c40: MOV RBP,qword ptr [R11 + 0x20]\"],\"context_after\":[\"143078c52: XOR EDX,EDX\",\"143078c54: JMP 0x140d4f760\",\"143078c60: MOV qword ptr [RSP + 0x18],RBX\",\"143078c65: MOV qword ptr [RSP + 0x20],RSI\",\"143078c6a: PUSH RDI\"],\"mnemonic\":\"MOV\",\"patterns_detected\":[\"data_access\"]},\"14308A390\":{\"address\":\"14308A390\",\"instruction\":\"LEA RAX,[0x1440e4f90]\",\"context_before\":[\"14308a387: RET\",\"14308a386: POP RSI\",\"14308a382: ADD RSP,0x30\",\"14308a37d: MOV RBX,qword ptr [RSP + 0x48]\",\"14308a378: MOV RDI,qword ptr [RSP + 0x40]\"],\"context_after\":[\"14308a397: MOV dword ptr [RDX],0x0\",\"14308a39d: MOV qword ptr [R8],RAX\",\"14308a3a0: XOR EAX,EAX\",\"14308a3a2: RET\",\"14308a3b0: MOV qword ptr [RSP + 0x10],RBX\"],\"mnemonic\":\"LEA\",\"patterns_detected\":[\"data_access\"]},\"1430789C0\":{\"address\":\"1430789C0\",\"instruction\":\"MOV RAX,qword ptr [RCX + 0x8]\",\"context_before\":[\"1430789b6: RET\",\"1430789b5: POP RBX\",\"1430789b1: ADD RSP,0x20\",\"1430789af: XOR EAX,EAX\",\"1430789aa: CALL 0x141f90000\"],\"context_after\":[\"1430789c4: MOV qword ptr [RDX],RAX\",\"1430789c7: XOR EAX,EAX\",\"1430789c9: RET\",\"1430789d0: MOV qword ptr [RSP + 0x8],RBX\",\"1430789d5: MOV qword ptr [RSP + 0x10],RSI\"],\"mnemonic\":\"MOV\",\"patterns_detected\":[\"data_access\"]},\"143078A40\":{\"address\":\"143078A40\",\"instruction\":\"MOV RAX,qword ptr [RCX + 0x10]\",\"context_before\":[\"143078a30: RET\",\"143078a2f: POP RDI\",\"143078a2b: ADD RSP,0x20\",\"143078a26: MOV RBX,qword ptr [RSP + 0x30]\",\"143078a22: MOV qword ptr [RBX + 0x10],RDI\"],\"context_after\":[\"143078a44: MOV qword ptr [RDX],RAX\",\"143078a47: XOR EAX,EAX\",\"143078a49: RET\",\"143078a50: MOV qword ptr [RSP + 0x8],RBX\",\"143078a55: MOV qword ptr [RSP + 0x10],RSI\"],\"mnemonic\":\"MOV\",\"patterns_detected\":[\"data_access\"]},\"143078AD0\":{\"address\":\"143078AD0\",\"instruction\":\"MOV dword ptr [RDX],0x1\",\"context_before\":[\"143078ac3: RET\",\"143078ac2: POP RDI\",\"143078abe: ADD RSP,0x20\",\"143078ab9: MOV RSI,qword ptr [RSP + 0x38]\",\"143078ab7: XOR EAX,EAX\"],\"context_after\":[\"143078ad6: XOR EAX,EAX\",\"143078ad8: RET\",\"143078b00: MOV qword ptr [RSP + 0x8],RBX\",\"143078b05: PUSH RDI\",\"143078b06: SUB RSP,0x20\"],\"mnemonic\":\"MOV\",\"patterns_detected\":[\"data_access\"]},\"143078AE0\":{\"address\":\"143078AE0\",\"error\":\"No instruction at address\"},\"143078AF0\":{\"address\":\"143078AF0\",\"error\":\"No instruction at address\"}}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"14308FF00\":{\"address\":\"14308FF00\",\"instruction\":\"JMP 0x1431299b4\",\"context_before\":[\"14308fefa: RET\",\"14308fef9: POP RDI\",\"14308fef5: ADD RSP,0x20\",\"14308fef0: MOV RSI,qword ptr [RSP + 0x38]\",\"14308feeb: MOV RBX,qword ptr [RSP + 0x30]\"],\"context_after\":[\"14308ff10: MOV RCX,qword ptr [RCX + 0x10]\",\"14308ff14: TEST RCX,RCX\",\"14308ff17: JZ 0x14308ff25\",\"14308ff19: MOV RAX,qword ptr [RCX]\",\"14308ff1c: MOV EDX,0x1\"],\"mnemonic\":\"JMP\",\"patterns_detected\":[\"control_flow\"]},\"143078C50\":{\"address\":\"143078C50\",\"instruction\":\"MOV ECX,EDX\",\"context_before\":[\"143078c4c: RET\",\"143078c4b: POP RDI\",\"143078c48: MOV RSP,R11\",\"143078c44: MOV RSI,qword ptr [R11 + 0x28]\",\"143078c40: MOV RBP,qword ptr [R11 + 0x20]\"],\"context_after\":[\"143078c52: XOR EDX,EDX\",\"143078c54: JMP 0x140d4f760\",\"143078c60: MOV qword ptr [RSP + 0x18],RBX\",\"143078c65: MOV qword ptr [RSP + 0x20],RSI\",\"143078c6a: PUSH RDI\"],\"mnemonic\":\"MOV\",\"patterns_detected\":[\"data_access\"]},\"14308A390\":{\"address\":\"14308A390\",\"instruction\":\"LEA RAX,[0x1440e4f90]\",\"context_before\":[\"14308a387: RET\",\"14308a386: POP RSI\",\"14308a382: ADD RSP,0x30\",\"14308a37d: MOV RBX,qword ptr [RSP + 0x48]\",\"14308a378: MOV RDI,qword ptr [RSP + 0x40]\"],\"context_after\":[\"14308a397: MOV dword ptr [RDX],0x0\",\"14308a39d: MOV qword ptr [R8],RAX\",\"14308a3a0: XOR EAX,EAX\",\"14308a3a2: RET\",\"14308a3b0: MOV qword ptr [RSP + 0x10],RBX\"],\"mnemonic\":\"LEA\",\"patterns_detected\":[\"data_access\"]},\"1430789C0\":{\"address\":\"1430789C0\",\"instruction\":\"MOV RAX,qword ptr [RCX + 0x8]\",\"context_before\":[\"1430789b6: RET\",\"1430789b5: POP RBX\",\"1430789b1: ADD RSP,0x20\",\"1430789af: XOR EAX,EAX\",\"1430789aa: CALL 0x141f90000\"],\"context_after\":[\"1430789c4: MOV qword ptr [RDX],RAX\",\"1430789c7: XOR EAX,EAX\",\"1430789c9: RET\",\"1430789d0: MOV qword ptr [RSP + 0x8],RBX\",\"1430789d5: MOV qword ptr [RSP + 0x10],RSI\"],\"mnemonic\":\"MOV\",\"patterns_detected\":[\"data_access\"]},\"143078A40\":{\"address\":\"143078A40\",\"instruction\":\"MOV RAX,qword ptr [RCX + 0x10]\",\"context_before\":[\"143078a30: RET\",\"143078a2f: POP RDI\",\"143078a2b: ADD RSP,0x20\",\"143078a26: MOV RBX,qword ptr [RSP + 0x30]\",\"143078a22: MOV qword ptr [RBX + 0x10],RDI\"],\"context_after\":[\"143078a44: MOV qword ptr [RDX],RAX\",\"143078a47: XOR EAX,EAX\",\"143078a49: RET\",\"143078a50: MOV qword ptr [RSP + 0x8],RBX\",\"143078a55: MOV qword ptr [RSP + 0x10],RSI\"],\"mnemonic\":\"MOV\",\"patterns_detected\":[\"data_access\"]},\"143078AD0\":{\"address\":\"143078AD0\",\"instruction\":\"MOV dword ptr [RDX],0x1\",\"context_before\":[\"143078ac3: RET\",\"143078ac2: POP RDI\",\"143078abe: ADD RSP,0x20\",\"143078ab9: MOV RSI,qword ptr [RSP + 0x38]\",\"143078ab7: XOR EAX,EAX\"],\"context_after\":[\"143078ad6: XOR EAX,EAX\",\"143078ad8: RET\",\"143078b00: MOV qword ptr [RSP + 0x8],RBX\",\"143078b05: PUSH RDI\",\"143078b06: SUB RSP,0x20\"],\"mnemonic\":\"MOV\",\"patterns_detected\":[\"data_access\"]},\"143078AE0\":{\"address\":\"143078AE0\",\"error\":\"No instruction at address\"},\"143078AF0\":{\"address\":\"143078AF0\",\"error\":\"No instruction at address\"}}"
+      },
+      "isError": false
+    },
+    "cri_platform_file_vtable": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"address\":\"144077808\",\"length\":8,\"data\":[216,184,78,67,1,0,0,0],\"hex\":\"d8b84e4301000000\"}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"address\":\"144077808\",\"length\":8,\"data\":[216,184,78,67,1,0,0,0],\"hex\":\"d8b84e4301000000\"}"
+      },
+      "isError": false
+    },
+    "cri_file_notify_slot": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"address\":\"1434b81f8\",\"length\":8,\"data\":[64,65,212,64,1,0,0,0],\"hex\":\"4041d44001000000\"}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"address\":\"1434b81f8\",\"length\":8,\"data\":[64,65,212,64,1,0,0,0],\"hex\":\"4041d44001000000\"}"
+      },
+      "isError": false
+    },
+    "cri_platform_methods": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"address\":\"1434eb938\",\"length\":112,\"data\":[128,15,224,64,1,0,0,0,32,189,223,64,1,0,0,0,128,189,223,64,1,0,0,0,208,180,223,64,1,0,0,0,128,102,224,64,1,0,0,0,112,131,224,64,1,0,0,0,192,243,224,64,1,0,0,0,48,58,224,64,1,0,0,0,176,248,224,64,1,0,0,0,128,191,223,64,1,0,0,0,192,201,223,64,1,0,0,0,64,150,224,64,1,0,0,0,16,151,224,64,1,0,0,0,208,151,224,64,1,0,0,0],\"hex\":\"800fe0400100000020bddf400100000080bddf4001000000d0b4df40010000008066e040010000007083e04001000000c0f3e04001000000303ae04001000000b0f8e0400100000080bfdf4001000000c0c9df40010000004096e040010000001097e04001000000d097e04001000000\"}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"address\":\"1434eb938\",\"length\":112,\"data\":[128,15,224,64,1,0,0,0,32,189,223,64,1,0,0,0,128,189,223,64,1,0,0,0,208,180,223,64,1,0,0,0,128,102,224,64,1,0,0,0,112,131,224,64,1,0,0,0,192,243,224,64,1,0,0,0,48,58,224,64,1,0,0,0,176,248,224,64,1,0,0,0,128,191,223,64,1,0,0,0,192,201,223,64,1,0,0,0,64,150,224,64,1,0,0,0,16,151,224,64,1,0,0,0,208,151,224,64,1,0,0,0],\"hex\":\"800fe0400100000020bddf400100000080bddf4001000000d0b4df40010000008066e040010000007083e04001000000c0f3e04001000000303ae04001000000b0f8e0400100000080bfdf4001000000c0c9df40010000004096e040010000001097e04001000000d097e04001000000\"}"
+      },
+      "isError": false
+    },
+    "cri_file_notify": {
+      "content": [
+        {
+          "type": "text",
+          "text": "\r\nvoid FUN_140d44140(undefined8 param_1,undefined8 param_2)\r\n\r\n{\r\n  if (DAT_144169fc8 == (longlong *)0x0) {\r\n    DAT_144169fc8 = (longlong *)FUN_140e028d0();\r\n  }\r\n                    /* WARNING: Could not recover jumptable at 0x000140d4416f. Too many branches */\r\n                    /* WARNING: Treating indirect jump as call */\r\n  (**(code **)(*DAT_144169fc8 + 0x70))(DAT_144169fc8,param_2);\r\n  return;\r\n}\r\n\r\n"
+        }
+      ],
+      "structuredContent": {
+        "result": "\r\nvoid FUN_140d44140(undefined8 param_1,undefined8 param_2)\r\n\r\n{\r\n  if (DAT_144169fc8 == (longlong *)0x0) {\r\n    DAT_144169fc8 = (longlong *)FUN_140e028d0();\r\n  }\r\n                    /* WARNING: Could not recover jumptable at 0x000140d4416f. Too many branches */\r\n                    /* WARNING: Treating indirect jump as call */\r\n  (**(code **)(*DAT_144169fc8 + 0x70))(DAT_144169fc8,param_2);\r\n  return;\r\n}\r\n\r\n"
+      },
+      "isError": false
+    },
+    "cri_io_registration_refs": {
+      "content": [
+        {
+          "type": "text",
+          "text": "From 144a8fb00 [DATA]\nFrom 143084e49 in FUN_143084be0 [UNCONDITIONAL_CALL]"
+        }
+      ],
+      "structuredContent": {
+        "result": "From 144a8fb00 [DATA]\nFrom 143084e49 in FUN_143084be0 [UNCONDITIONAL_CALL]"
+      },
+      "isError": false
+    },
+    "cri_platform_concrete_methods": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nundefined8 FUN_140dfbd20(longlong *param_1,undefined8 param_2)\r\n\r\n{\r\n  DWORD DVar1;\r\n  undefined8 *puVar2;\r\n  wchar_t *lpFileName;\r\n  void *local_18 [2];\r\n  \r\n  puVar2 = (undefined8 *)(**(code **)(*param_1 + 0x160))(param_1,local_18,param_2);\r\n  if (*(int *)(puVar2 + 1) == 0) {\r\n    lpFileName = L\"\";\r\n  }\r\n  else {\r\n    lpFileName = (wchar_t *)*puVar2;\r\n  }\r\n  DVar1 = GetFileAttributesW(lpFileName);\r\n  if (local_18[0] != (void *)0x0) {\r\n    FMemory_Free(local_18[0]);\r\n  }\r\n  if ((DVar1 != 0xffffffff) && ((DVar1 & 0x10) == 0)) {\r\n    return 1;\r\n  }\r\n  return 0;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nundefined8 FUN_140dfbd20(longlong *param_1,undefined8 param_2)\r\n\r\n{\r\n  DWORD DVar1;\r\n  undefined8 *puVar2;\r\n  wchar_t *lpFileName;\r\n  void *local_18 [2];\r\n  \r\n  puVar2 = (undefined8 *)(**(code **)(*param_1 + 0x160))(param_1,local_18,param_2);\r\n  if (*(int *)(puVar2 + 1) == 0) {\r\n    lpFileName = L\"\";\r\n  }\r\n  else {\r\n    lpFileName = (wchar_t *)*puVar2;\r\n  }\r\n  DVar1 = GetFileAttributesW(lpFileName);\r\n  if (local_18[0] != (void *)0x0) {\r\n    FMemory_Free(local_18[0]);\r\n  }\r\n  if ((DVar1 != 0xffffffff) && ((DVar1 & 0x10) == 0)) {\r\n    return 1;\r\n  }\r\n  return 0;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n\r\nundefined8 FUN_140dfbd80(longlong *param_1,undefined8 param_2)\r\n\r\n{\r\n  BOOL BVar1;\r\n  undefined8 *puVar2;\r\n  wchar_t *lpFileName;\r\n  undefined1 auStack_68 [32];\r\n  undefined4 local_48;\r\n  undefined4 uStack_44;\r\n  byte local_38 [28];\r\n  undefined4 local_1c;\r\n  undefined4 local_18;\r\n  ulonglong local_10;\r\n  \r\n  local_10 = g_qwSecurityCookie ^ (ulonglong)auStack_68;\r\n  puVar2 = (undefined8 *)(**(code **)(*param_1 + 0x160))(param_1,&local_48,param_2);\r\n  if (*(int *)(puVar2 + 1) == 0) {\r\n    lpFileName = L\"\";\r\n  }\r\n  else {\r\n    lpFileName = (wchar_t *)*puVar2;\r\n  }\r\n  BVar1 = GetFileAttributesExW(lpFileName,GetFileExInfoStandard,local_38);\r\n  if ((void *)CONCAT44(uStack_44,local_48) != (void *)0x0) {\r\n    FMemory_Free((void *)CONCAT44(uStack_44,local_48));\r\n  }\r\n  if ((BVar1 != 0) && ((local_38[0] & 0x10) == 0)) {\r\n    return CONCAT44(local_1c,local_18);\r\n  }\r\n  return 0xffffffffffffffff;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\n/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */\r\n\r\nundefined8 FUN_140dfbd80(longlong *param_1,undefined8 param_2)\r\n\r\n{\r\n  BOOL BVar1;\r\n  undefined8 *puVar2;\r\n  wchar_t *lpFileName;\r\n  undefined1 auStack_68 [32];\r\n  undefined4 local_48;\r\n  undefined4 uStack_44;\r\n  byte local_38 [28];\r\n  undefined4 local_1c;\r\n  undefined4 local_18;\r\n  ulonglong local_10;\r\n  \r\n  local_10 = g_qwSecurityCookie ^ (ulonglong)auStack_68;\r\n  puVar2 = (undefined8 *)(**(code **)(*param_1 + 0x160))(param_1,&local_48,param_2);\r\n  if (*(int *)(puVar2 + 1) == 0) {\r\n    lpFileName = L\"\";\r\n  }\r\n  else {\r\n    lpFileName = (wchar_t *)*puVar2;\r\n  }\r\n  BVar1 = GetFileAttributesExW(lpFileName,GetFileExInfoStandard,local_38);\r\n  if ((void *)CONCAT44(uStack_44,local_48) != (void *)0x0) {\r\n    FMemory_Free((void *)CONCAT44(uStack_44,local_48));\r\n  }\r\n  if ((BVar1 != 0) && ((local_38[0] & 0x10) == 0)) {\r\n    return CONCAT44(local_1c,local_18);\r\n  }\r\n  return 0xffffffffffffffff;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nbool FUN_140dfb4d0(longlong *param_1,undefined8 param_2)\r\n\r\n{\r\n  BOOL BVar1;\r\n  wchar_t *lpFileName;\r\n  LPCWSTR local_18;\r\n  int local_10;\r\n  \r\n  (**(code **)(*param_1 + 0x160))(param_1,&local_18,param_2);\r\n  lpFileName = L\"\";\r\n  if (local_10 != 0) {\r\n    lpFileName = local_18;\r\n  }\r\n  BVar1 = DeleteFileW(lpFileName);\r\n  if (local_18 != (LPCWSTR)0x0) {\r\n    FMemory_Free(local_18);\r\n  }\r\n  return BVar1 != 0;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nbool FUN_140dfb4d0(longlong *param_1,undefined8 param_2)\r\n\r\n{\r\n  BOOL BVar1;\r\n  wchar_t *lpFileName;\r\n  LPCWSTR local_18;\r\n  int local_10;\r\n  \r\n  (**(code **)(*param_1 + 0x160))(param_1,&local_18,param_2);\r\n  lpFileName = L\"\";\r\n  if (local_10 != 0) {\r\n    lpFileName = local_18;\r\n  }\r\n  BVar1 = DeleteFileW(lpFileName);\r\n  if (local_18 != (LPCWSTR)0x0) {\r\n    FMemory_Free(local_18);\r\n  }\r\n  return BVar1 != 0;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nundefined8 FUN_140e09640(longlong *param_1,undefined8 param_2,char param_3)\r\n\r\n{\r\n  undefined8 *puVar1;\r\n  HANDLE pvVar2;\r\n  void *pvVar3;\r\n  undefined8 uVar4;\r\n  wchar_t *lpFileName;\r\n  DWORD dwShareMode;\r\n  void *local_18 [2];\r\n  \r\n  dwShareMode = 1;\r\n  if (param_3 != '\\0') {\r\n    dwShareMode = 3;\r\n  }\r\n  puVar1 = (undefined8 *)(**(code **)(*param_1 + 0x160))(param_1,local_18,param_2);\r\n  if (*(int *)(puVar1 + 1) == 0) {\r\n    lpFileName = L\"\";\r\n  }\r\n  else {\r\n    lpFileName = (wchar_t *)*puVar1;\r\n  }\r\n  uVar4 = 0;\r\n  pvVar2 = CreateFileW(lpFileName,0x80000000,dwShareMode,(LPSECURITY_ATTRIBUTES)0x0,3,0x40000080,\r\n                       (HANDLE)0x0);\r\n  if (local_18[0] != (void *)0x0) {\r\n    FMemory_Free(local_18[0]);\r\n  }\r\n  if (pvVar2 != (HANDLE)0xffffffffffffffff) {\r\n    pvVar3 = FMemory_Malloc(0x78);\r\n    if (pvVar3 != (void *)0x0) {\r\n      uVar4 = FUN_140df54d0(pvVar3,pvVar2,0x10000);\r\n    }\r\n    return uVar4;\r\n  }\r\n  return 0;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nundefined8 FUN_140e09640(longlong *param_1,undefined8 param_2,char param_3)\r\n\r\n{\r\n  undefined8 *puVar1;\r\n  HANDLE pvVar2;\r\n  void *pvVar3;\r\n  undefined8 uVar4;\r\n  wchar_t *lpFileName;\r\n  DWORD dwShareMode;\r\n  void *local_18 [2];\r\n  \r\n  dwShareMode = 1;\r\n  if (param_3 != '\\0') {\r\n    dwShareMode = 3;\r\n  }\r\n  puVar1 = (undefined8 *)(**(code **)(*param_1 + 0x160))(param_1,local_18,param_2);\r\n  if (*(int *)(puVar1 + 1) == 0) {\r\n    lpFileName = L\"\";\r\n  }\r\n  else {\r\n    lpFileName = (wchar_t *)*puVar1;\r\n  }\r\n  uVar4 = 0;\r\n  pvVar2 = CreateFileW(lpFileName,0x80000000,dwShareMode,(LPSECURITY_ATTRIBUTES)0x0,3,0x40000080,\r\n                       (HANDLE)0x0);\r\n  if (local_18[0] != (void *)0x0) {\r\n    FMemory_Free(local_18[0]);\r\n  }\r\n  if (pvVar2 != (HANDLE)0xffffffffffffffff) {\r\n    pvVar3 = FMemory_Malloc(0x78);\r\n    if (pvVar3 != (void *)0x0) {\r\n      uVar4 = FUN_140df54d0(pvVar3,pvVar2,0x10000);\r\n    }\r\n    return uVar4;\r\n  }\r\n  return 0;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nlonglong * FUN_140e097d0(longlong *param_1,undefined8 param_2,char param_3,char param_4)\r\n\r\n{\r\n  undefined8 *puVar1;\r\n  HANDLE pvVar2;\r\n  void *pvVar3;\r\n  longlong *plVar4;\r\n  wchar_t *lpFileName;\r\n  DWORD dwCreationDisposition;\r\n  void *local_18 [2];\r\n  \r\n  plVar4 = (longlong *)0x0;\r\n  dwCreationDisposition = 2;\r\n  if (param_3 != '\\0') {\r\n    dwCreationDisposition = 4;\r\n  }\r\n  puVar1 = (undefined8 *)(**(code **)(*param_1 + 0x160))(param_1,local_18,param_2);\r\n  if (*(int *)(puVar1 + 1) == 0) {\r\n    lpFileName = L\"\";\r\n  }\r\n  else {\r\n    lpFileName = (wchar_t *)*puVar1;\r\n  }\r\n  pvVar2 = CreateFileW(lpFileName,0x40000000,(uint)(param_4 != '\\0'),(LPSECURITY_ATTRIBUTES)0x0,\r\n                       dwCreationDisposition,0x80,(HANDLE)0x0);\r\n  if (local_18[0] != (void *)0x0) {\r\n    FMemory_Free(local_18[0]);\r\n  }\r\n  if (pvVar2 == (HANDLE)0xffffffffffffffff) {\r\n    plVar4 = (longlong *)0x0;\r\n  }\r\n  else {\r\n    pvVar3 = FMemory_Malloc(0x40);\r\n    if (pvVar3 != (void *)0x0) {\r\n      plVar4 = (longlong *)FUN_140df5820(pvVar3,pvVar2);\r\n    }\r\n    if (param_3 != '\\0') {\r\n      (**(code **)(*plVar4 + 0x18))(plVar4,0);\r\n    }\r\n  }\r\n  return plVar4;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nlonglong * FUN_140e097d0(longlong *param_1,undefined8 param_2,char param_3,char param_4)\r\n\r\n{\r\n  undefined8 *puVar1;\r\n  HANDLE pvVar2;\r\n  void *pvVar3;\r\n  longlong *plVar4;\r\n  wchar_t *lpFileName;\r\n  DWORD dwCreationDisposition;\r\n  void *local_18 [2];\r\n  \r\n  plVar4 = (longlong *)0x0;\r\n  dwCreationDisposition = 2;\r\n  if (param_3 != '\\0') {\r\n    dwCreationDisposition = 4;\r\n  }\r\n  puVar1 = (undefined8 *)(**(code **)(*param_1 + 0x160))(param_1,local_18,param_2);\r\n  if (*(int *)(puVar1 + 1) == 0) {\r\n    lpFileName = L\"\";\r\n  }\r\n  else {\r\n    lpFileName = (wchar_t *)*puVar1;\r\n  }\r\n  pvVar2 = CreateFileW(lpFileName,0x40000000,(uint)(param_4 != '\\0'),(LPSECURITY_ATTRIBUTES)0x0,\r\n                       dwCreationDisposition,0x80,(HANDLE)0x0);\r\n  if (local_18[0] != (void *)0x0) {\r\n    FMemory_Free(local_18[0]);\r\n  }\r\n  if (pvVar2 == (HANDLE)0xffffffffffffffff) {\r\n    plVar4 = (longlong *)0x0;\r\n  }\r\n  else {\r\n    pvVar3 = FMemory_Malloc(0x40);\r\n    if (pvVar3 != (void *)0x0) {\r\n      plVar4 = (longlong *)FUN_140df5820(pvVar3,pvVar2);\r\n    }\r\n    if (param_3 != '\\0') {\r\n      (**(code **)(*plVar4 + 0x18))(plVar4,0);\r\n    }\r\n  }\r\n  return plVar4;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "cri_file_constructors": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nundefined8 * FUN_140df54d0(undefined8 *param_1,HANDLE param_2,undefined4 param_3)\r\n\r\n{\r\n  undefined8 uVar1;\r\n  LARGE_INTEGER local_res8 [4];\r\n  \r\n  *param_1 = &PTR_FUN_1434eb858;\r\n  param_1[3] = 0;\r\n  param_1[4] = 0;\r\n  *(undefined4 *)((longlong)param_1 + 0x3c) = 0;\r\n  *(undefined4 *)(param_1 + 9) = 0;\r\n  *(undefined2 *)(param_1 + 0xe) = 0;\r\n  param_1[1] = param_2;\r\n  *(undefined4 *)(param_1 + 7) = param_3;\r\n  param_1[8] = 1;\r\n  GetFileSizeEx(param_2,local_res8);\r\n  *(LARGE_INTEGER *)(param_1 + 2) = local_res8[0];\r\n  uVar1 = GMalloc_Malloc_Dispatch((longlong)*(int *)(param_1 + 7),0);\r\n  param_1[5] = uVar1;\r\n  uVar1 = GMalloc_Malloc_Dispatch((longlong)*(int *)(param_1 + 7),0);\r\n  param_1[6] = uVar1;\r\n  param_1[10] = 0;\r\n  param_1[0xb] = 0;\r\n  param_1[0xc] = 0;\r\n  param_1[0xd] = 0;\r\n  FUN_140e10150(param_1,*(undefined4 *)((longlong)param_1 + 0x3c));\r\n  return param_1;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nundefined8 * FUN_140df54d0(undefined8 *param_1,HANDLE param_2,undefined4 param_3)\r\n\r\n{\r\n  undefined8 uVar1;\r\n  LARGE_INTEGER local_res8 [4];\r\n  \r\n  *param_1 = &PTR_FUN_1434eb858;\r\n  param_1[3] = 0;\r\n  param_1[4] = 0;\r\n  *(undefined4 *)((longlong)param_1 + 0x3c) = 0;\r\n  *(undefined4 *)(param_1 + 9) = 0;\r\n  *(undefined2 *)(param_1 + 0xe) = 0;\r\n  param_1[1] = param_2;\r\n  *(undefined4 *)(param_1 + 7) = param_3;\r\n  param_1[8] = 1;\r\n  GetFileSizeEx(param_2,local_res8);\r\n  *(LARGE_INTEGER *)(param_1 + 2) = local_res8[0];\r\n  uVar1 = GMalloc_Malloc_Dispatch((longlong)*(int *)(param_1 + 7),0);\r\n  param_1[5] = uVar1;\r\n  uVar1 = GMalloc_Malloc_Dispatch((longlong)*(int *)(param_1 + 7),0);\r\n  param_1[6] = uVar1;\r\n  param_1[10] = 0;\r\n  param_1[0xb] = 0;\r\n  param_1[0xc] = 0;\r\n  param_1[0xd] = 0;\r\n  FUN_140e10150(param_1,*(undefined4 *)((longlong)param_1 + 0x3c));\r\n  return param_1;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nundefined8 * FUN_140df5820(undefined8 *param_1,HANDLE param_2)\r\n\r\n{\r\n  LARGE_INTEGER local_res8 [4];\r\n  \r\n  param_1[1] = param_2;\r\n  *param_1 = &PTR_FUN_1434eb898;\r\n  param_1[6] = 0;\r\n  param_1[7] = 0;\r\n  if ((longlong)param_2 - 1U < 0xfffffffffffffffe) {\r\n    GetFileSizeEx(param_2,local_res8);\r\n    *(LARGE_INTEGER *)(param_1 + 7) = local_res8[0];\r\n  }\r\n  param_1[2] = 0;\r\n  param_1[3] = 0;\r\n  param_1[4] = 0;\r\n  param_1[5] = 0;\r\n  return param_1;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nundefined8 * FUN_140df5820(undefined8 *param_1,HANDLE param_2)\r\n\r\n{\r\n  LARGE_INTEGER local_res8 [4];\r\n  \r\n  param_1[1] = param_2;\r\n  *param_1 = &PTR_FUN_1434eb898;\r\n  param_1[6] = 0;\r\n  param_1[7] = 0;\r\n  if ((longlong)param_2 - 1U < 0xfffffffffffffffe) {\r\n    GetFileSizeEx(param_2,local_res8);\r\n    *(LARGE_INTEGER *)(param_1 + 7) = local_res8[0];\r\n  }\r\n  param_1[2] = 0;\r\n  param_1[3] = 0;\r\n  param_1[4] = 0;\r\n  param_1[5] = 0;\r\n  return param_1;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "cri_file_vtables": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"address\":\"1434eb858\",\"length\":128,\"data\":[176,145,223,64,1,0,0,0,160,20,25,65,1,0,0,0,48,234,224,64,1,0,0,0,16,235,224,64,1,0,0,0,96,206,224,64,1,0,0,0,64,156,45,64,1,0,0,0,192,43,45,64,1,0,0,0,176,192,47,64,1,0,0,0,48,146,223,64,1,0,0,0,128,1,166,66,1,0,0,0,240,234,224,64,1,0,0,0,32,235,224,64,1,0,0,0,96,207,224,64,1,0,0,0,192,48,225,64,1,0,0,0,192,43,45,64,1,0,0,0,240,175,8,65,1,0,0,0],\"hex\":\"b091df4001000000a01419410100000030eae0400100000010ebe0400100000060cee04001000000409c2d4001000000c02b2d4001000000b0c02f40010000003092df40010000008001a64201000000f0eae0400100000020ebe0400100000060cfe04001000000c030e14001000000c02b2d4001000000f0af084101000000\"}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"address\":\"1434eb858\",\"length\":128,\"data\":[176,145,223,64,1,0,0,0,160,20,25,65,1,0,0,0,48,234,224,64,1,0,0,0,16,235,224,64,1,0,0,0,96,206,224,64,1,0,0,0,64,156,45,64,1,0,0,0,192,43,45,64,1,0,0,0,176,192,47,64,1,0,0,0,48,146,223,64,1,0,0,0,128,1,166,66,1,0,0,0,240,234,224,64,1,0,0,0,32,235,224,64,1,0,0,0,96,207,224,64,1,0,0,0,192,48,225,64,1,0,0,0,192,43,45,64,1,0,0,0,240,175,8,65,1,0,0,0],\"hex\":\"b091df4001000000a01419410100000030eae0400100000010ebe0400100000060cee04001000000409c2d4001000000c02b2d4001000000b0c02f40010000003092df40010000008001a64201000000f0eae0400100000020ebe0400100000060cfe04001000000c030e14001000000c02b2d4001000000f0af084101000000\"}"
+      },
+      "isError": false
+    },
+    "cri_file_path": {
+      "content": [
+        {
+          "type": "text",
+          "text": "\r\nundefined8 FUN_140e08b50(undefined8 param_1,undefined8 param_2,wchar_t *param_3)\r\n\r\n{\r\n  char cVar1;\r\n  int iVar2;\r\n  int iVar3;\r\n  int iVar5;\r\n  uint uVar6;\r\n  longlong lVar7;\r\n  longlong lVar8;\r\n  wchar_t *pwVar9;\r\n  wchar_t *_Src;\r\n  wchar_t *pwVar10;\r\n  FStringFwd local_78;\r\n  FStringFwd local_60;\r\n  FStringFwd local_48 [2];\r\n  int iVar4;\r\n  \r\n  lVar8 = -1;\r\n  _Src = (wchar_t *)0x0;\r\n  local_78.nLength = 0;\r\n  local_78.nCapacity = 0;\r\n  iVar5 = 0;\r\n  local_78.pData = (wchar_t *)0x0;\r\n  if ((param_3 != (wchar_t *)0x0) && (*param_3 != L'\\0')) {\r\n    lVar7 = -1;\r\n    do {\r\n      lVar7 = lVar7 + 1;\r\n    } while (param_3[lVar7] != L'\\0');\r\n    uVar6 = (int)lVar7 + 1;\r\n    local_78.nCapacity = 0;\r\n    local_78.nLength = uVar6;\r\n    if (0 < (int)uVar6) {\r\n      FString_Reserve(&local_78);\r\n    }\r\n    FString_CtorFromWide(local_78.pData,param_3,(longlong)(int)uVar6 * 2);\r\n  }\r\n  FUN_140dcffe0(&local_78);\r\n  cVar1 = FUN_140d35090(&local_78,&DAT_1434eba48,1);\r\n  if (cVar1 != '\\0') {\r\n    if (local_78.nLength == 0) {\r\n      pwVar9 = L\"\";\r\n      iVar4 = iVar5;\r\n    }\r\n    else {\r\n      pwVar9 = local_78.pData;\r\n      iVar4 = local_78.nLength + -1;\r\n    }\r\n    iVar3 = iVar4 + -2;\r\n    iVar2 = iVar5;\r\n    if ((-1 < iVar3) && (iVar2 = iVar4, iVar3 < iVar4)) {\r\n      iVar2 = iVar3;\r\n    }\r\n    local_60.pData = (wchar_t *)0x0;\r\n    local_60.nCapacity = 0;\r\n    pwVar9 = pwVar9 + ((longlong)iVar4 - (longlong)iVar2);\r\n    iVar2 = 0;\r\n    iVar4 = 0;\r\n    if ((pwVar9 != (wchar_t *)0x0) && (iVar2 = 0, iVar4 = 0, *pwVar9 != L'\\0')) {\r\n      do {\r\n        lVar8 = lVar8 + 1;\r\n      } while (pwVar9[lVar8] != L'\\0');\r\n      iVar3 = (int)lVar8 + 1;\r\n      local_60.nLength = iVar3;\r\n      if (0 < iVar3) {\r\n        FString_Reserve(&local_60);\r\n      }\r\n      iVar2 = local_60.nCapacity;\r\n      iVar4 = local_60.nLength;\r\n      _Src = local_60.pData;\r\n      FString_CtorFromWide(local_60.pData,pwVar9,(longlong)iVar3 * 2);\r\n    }\r\n    local_48[0].pData = (wchar_t *)0x0;\r\n    local_48[0].nLength = 3;\r\n    local_48[0].nCapacity = 0;\r\n    FString_Reserve(local_48);\r\n    pwVar9 = local_48[0].pData;\r\n    FString_CtorFromWide(local_48[0].pData,L\"\\\\\\\\\",6);\r\n    if (local_48[0].nLength < 2) {\r\n      pwVar10 = _Src;\r\n      _Src = (wchar_t *)0x0;\r\n    }\r\n    else {\r\n      iVar3 = iVar4 + -1;\r\n      if (iVar4 == 0) {\r\n        iVar3 = iVar5;\r\n      }\r\n      if ((local_48[0].nLength != 0) || (iVar4 = 1, iVar3 == 0)) {\r\n        iVar4 = iVar5;\r\n      }\r\n      local_60.pData = pwVar9;\r\n      iVar5 = iVar4 + local_48[0].nLength + iVar3;\r\n      local_60.nLength = local_48[0].nLength;\r\n      local_60.nCapacity = local_48[0].nCapacity;\r\n      if (local_48[0].nCapacity < iVar5) {\r\n        FString_ReserveImpl(&local_60,iVar5);\r\n      }\r\n      iVar5 = local_60.nLength;\r\n      pwVar10 = local_60.pData;\r\n      pwVar9 = (wchar_t *)0x0;\r\n      iVar2 = local_60.nCapacity;\r\n      iVar4 = local_60.nLength;\r\n      if (iVar3 != 0) {\r\n        lVar8 = (longlong)local_60.nLength;\r\n        local_60.nLength = local_60.nLength + (uint)(local_60.nLength == 0) + iVar3;\r\n        if (local_60.nCapacity < local_60.nLength) {\r\n          FString_Reserve(&local_60);\r\n        }\r\n        iVar2 = local_60.nCapacity;\r\n        iVar4 = local_60.nLength;\r\n        pwVar10 = local_60.pData;\r\n        pwVar9 = local_60.pData + (lVar8 - (ulonglong)(iVar5 != 0));\r\n        memcpy(pwVar9,_Src,(longlong)iVar3 * 2);\r\n        pwVar9[iVar3] = L'\\0';\r\n        pwVar9 = (wchar_t *)0x0;\r\n      }\r\n    }\r\n    if (local_78.pData != (wchar_t *)0x0) {\r\n      FMemory_Free(local_78.pData);\r\n    }\r\n    local_78.nCapacity = iVar2;\r\n    local_78.nLength = iVar4;\r\n    local_78.pData = pwVar10;\r\n    if (pwVar9 != (wchar_t *)0x0) {\r\n      FMemory_Free(pwVar9);\r\n    }\r\n    if (_Src != (wchar_t *)0x0) {\r\n      FMemory_Free(_Src);\r\n    }\r\n  }\r\n  FUN_140dc30d0(param_2,&local_78);\r\n  if (local_78.pData != (wchar_t *)0x0) {\r\n    FMemory_Free(local_78.pData);\r\n  }\r\n  return param_2;\r\n}\r\n\r\n"
+        }
+      ],
+      "structuredContent": {
+        "result": "\r\nundefined8 FUN_140e08b50(undefined8 param_1,undefined8 param_2,wchar_t *param_3)\r\n\r\n{\r\n  char cVar1;\r\n  int iVar2;\r\n  int iVar3;\r\n  int iVar5;\r\n  uint uVar6;\r\n  longlong lVar7;\r\n  longlong lVar8;\r\n  wchar_t *pwVar9;\r\n  wchar_t *_Src;\r\n  wchar_t *pwVar10;\r\n  FStringFwd local_78;\r\n  FStringFwd local_60;\r\n  FStringFwd local_48 [2];\r\n  int iVar4;\r\n  \r\n  lVar8 = -1;\r\n  _Src = (wchar_t *)0x0;\r\n  local_78.nLength = 0;\r\n  local_78.nCapacity = 0;\r\n  iVar5 = 0;\r\n  local_78.pData = (wchar_t *)0x0;\r\n  if ((param_3 != (wchar_t *)0x0) && (*param_3 != L'\\0')) {\r\n    lVar7 = -1;\r\n    do {\r\n      lVar7 = lVar7 + 1;\r\n    } while (param_3[lVar7] != L'\\0');\r\n    uVar6 = (int)lVar7 + 1;\r\n    local_78.nCapacity = 0;\r\n    local_78.nLength = uVar6;\r\n    if (0 < (int)uVar6) {\r\n      FString_Reserve(&local_78);\r\n    }\r\n    FString_CtorFromWide(local_78.pData,param_3,(longlong)(int)uVar6 * 2);\r\n  }\r\n  FUN_140dcffe0(&local_78);\r\n  cVar1 = FUN_140d35090(&local_78,&DAT_1434eba48,1);\r\n  if (cVar1 != '\\0') {\r\n    if (local_78.nLength == 0) {\r\n      pwVar9 = L\"\";\r\n      iVar4 = iVar5;\r\n    }\r\n    else {\r\n      pwVar9 = local_78.pData;\r\n      iVar4 = local_78.nLength + -1;\r\n    }\r\n    iVar3 = iVar4 + -2;\r\n    iVar2 = iVar5;\r\n    if ((-1 < iVar3) && (iVar2 = iVar4, iVar3 < iVar4)) {\r\n      iVar2 = iVar3;\r\n    }\r\n    local_60.pData = (wchar_t *)0x0;\r\n    local_60.nCapacity = 0;\r\n    pwVar9 = pwVar9 + ((longlong)iVar4 - (longlong)iVar2);\r\n    iVar2 = 0;\r\n    iVar4 = 0;\r\n    if ((pwVar9 != (wchar_t *)0x0) && (iVar2 = 0, iVar4 = 0, *pwVar9 != L'\\0')) {\r\n      do {\r\n        lVar8 = lVar8 + 1;\r\n      } while (pwVar9[lVar8] != L'\\0');\r\n      iVar3 = (int)lVar8 + 1;\r\n      local_60.nLength = iVar3;\r\n      if (0 < iVar3) {\r\n        FString_Reserve(&local_60);\r\n      }\r\n      iVar2 = local_60.nCapacity;\r\n      iVar4 = local_60.nLength;\r\n      _Src = local_60.pData;\r\n      FString_CtorFromWide(local_60.pData,pwVar9,(longlong)iVar3 * 2);\r\n    }\r\n    local_48[0].pData = (wchar_t *)0x0;\r\n    local_48[0].nLength = 3;\r\n    local_48[0].nCapacity = 0;\r\n    FString_Reserve(local_48);\r\n    pwVar9 = local_48[0].pData;\r\n    FString_CtorFromWide(local_48[0].pData,L\"\\\\\\\\\",6);\r\n    if (local_48[0].nLength < 2) {\r\n      pwVar10 = _Src;\r\n      _Src = (wchar_t *)0x0;\r\n    }\r\n    else {\r\n      iVar3 = iVar4 + -1;\r\n      if (iVar4 == 0) {\r\n        iVar3 = iVar5;\r\n      }\r\n      if ((local_48[0].nLength != 0) || (iVar4 = 1, iVar3 == 0)) {\r\n        iVar4 = iVar5;\r\n      }\r\n      local_60.pData = pwVar9;\r\n      iVar5 = iVar4 + local_48[0].nLength + iVar3;\r\n      local_60.nLength = local_48[0].nLength;\r\n      local_60.nCapacity = local_48[0].nCapacity;\r\n      if (local_48[0].nCapacity < iVar5) {\r\n        FString_ReserveImpl(&local_60,iVar5);\r\n      }\r\n      iVar5 = local_60.nLength;\r\n      pwVar10 = local_60.pData;\r\n      pwVar9 = (wchar_t *)0x0;\r\n      iVar2 = local_60.nCapacity;\r\n      iVar4 = local_60.nLength;\r\n      if (iVar3 != 0) {\r\n        lVar8 = (longlong)local_60.nLength;\r\n        local_60.nLength = local_60.nLength + (uint)(local_60.nLength == 0) + iVar3;\r\n        if (local_60.nCapacity < local_60.nLength) {\r\n          FString_Reserve(&local_60);\r\n        }\r\n        iVar2 = local_60.nCapacity;\r\n        iVar4 = local_60.nLength;\r\n        pwVar10 = local_60.pData;\r\n        pwVar9 = local_60.pData + (lVar8 - (ulonglong)(iVar5 != 0));\r\n        memcpy(pwVar9,_Src,(longlong)iVar3 * 2);\r\n        pwVar9[iVar3] = L'\\0';\r\n        pwVar9 = (wchar_t *)0x0;\r\n      }\r\n    }\r\n    if (local_78.pData != (wchar_t *)0x0) {\r\n      FMemory_Free(local_78.pData);\r\n    }\r\n    local_78.nCapacity = iVar2;\r\n    local_78.nLength = iVar4;\r\n    local_78.pData = pwVar10;\r\n    if (pwVar9 != (wchar_t *)0x0) {\r\n      FMemory_Free(pwVar9);\r\n    }\r\n    if (_Src != (wchar_t *)0x0) {\r\n      FMemory_Free(_Src);\r\n    }\r\n  }\r\n  FUN_140dc30d0(param_2,&local_78);\r\n  if (local_78.pData != (wchar_t *)0x0) {\r\n    FMemory_Free(local_78.pData);\r\n  }\r\n  return param_2;\r\n}\r\n\r\n"
+      },
+      "isError": false
+    },
+    "cri_file_handle_methods": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nundefined8 * FUN_140df91b0(undefined8 *param_1,ulonglong param_2)\r\n\r\n{\r\n  *param_1 = &PTR_FUN_1434eb858;\r\n  FUN_140e13040();\r\n  if ((HANDLE)param_1[1] != (HANDLE)0x0) {\r\n    CloseHandle((HANDLE)param_1[1]);\r\n    param_1[1] = 0;\r\n  }\r\n  FMemory_Free((void *)param_1[5]);\r\n  FMemory_Free((void *)param_1[6]);\r\n  *param_1 = &PTR_FUN_1434b7f38;\r\n  if ((param_2 & 1) != 0) {\r\n    UE_FMemory_Free(param_1);\r\n  }\r\n  return param_1;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nundefined8 * FUN_140df91b0(undefined8 *param_1,ulonglong param_2)\r\n\r\n{\r\n  *param_1 = &PTR_FUN_1434eb858;\r\n  FUN_140e13040();\r\n  if ((HANDLE)param_1[1] != (HANDLE)0x0) {\r\n    CloseHandle((HANDLE)param_1[1]);\r\n    param_1[1] = 0;\r\n  }\r\n  FMemory_Free((void *)param_1[5]);\r\n  FMemory_Free((void *)param_1[6]);\r\n  *param_1 = &PTR_FUN_1434b7f38;\r\n  if ((param_2 & 1) != 0) {\r\n    UE_FMemory_Free(param_1);\r\n  }\r\n  return param_1;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nundefined8 * FUN_140df9230(undefined8 *param_1,ulonglong param_2)\r\n\r\n{\r\n  *param_1 = &PTR_FUN_1434eb898;\r\n  CloseHandle((HANDLE)param_1[1]);\r\n  param_1[1] = 0;\r\n  *param_1 = &PTR_FUN_1434b7f38;\r\n  if ((param_2 & 1) != 0) {\r\n    UE_FMemory_Free(param_1);\r\n  }\r\n  return param_1;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nundefined8 * FUN_140df9230(undefined8 *param_1,ulonglong param_2)\r\n\r\n{\r\n  *param_1 = &PTR_FUN_1434eb898;\r\n  CloseHandle((HANDLE)param_1[1]);\r\n  param_1[1] = 0;\r\n  *param_1 = &PTR_FUN_1434b7f38;\r\n  if ((param_2 & 1) != 0) {\r\n    UE_FMemory_Free(param_1);\r\n  }\r\n  return param_1;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nundefined8 FUN_140e0ce60(longlong param_1,void *param_2,size_t param_3)\r\n\r\n{\r\n  char cVar1;\r\n  size_t _Size;\r\n  \r\n  if ((longlong)param_3 < 1) {\r\n    return 0;\r\n  }\r\n  if (*(int *)(param_1 + 0x48) == *(int *)(param_1 + 0x3c)) {\r\n    cVar1 = FUN_140e13040();\r\n    if (cVar1 == '\\0') {\r\n      return 0;\r\n    }\r\n    FUN_140e10150(param_1,*(undefined4 *)(param_1 + 0x40));\r\n  }\r\n  do {\r\n    _Size = (size_t)(*(int *)(param_1 + 0x38) - *(int *)(param_1 + 0x44));\r\n    if ((longlong)param_3 <= (longlong)_Size) {\r\n      _Size = param_3;\r\n    }\r\n    if (*(longlong *)(param_1 + 0x10) < (longlong)(_Size + *(longlong *)(param_1 + 0x18))) {\r\n      return 0;\r\n    }\r\n    if ((longlong)_Size < 1) {\r\n      cVar1 = FUN_140e13040(param_1);\r\n      if (cVar1 == '\\0') {\r\n        return 0;\r\n      }\r\n      *(uint *)(param_1 + 0x40) = *(uint *)(param_1 + 0x40) ^ 1;\r\n      *(uint *)(param_1 + 0x3c) = *(uint *)(param_1 + 0x3c) ^ 1;\r\n      *(undefined4 *)(param_1 + 0x44) = 0;\r\n      FUN_140e10150(param_1,*(undefined4 *)(param_1 + 0x40));\r\n    }\r\n    else {\r\n      memcpy(param_2,(void *)((longlong)*(int *)(param_1 + 0x44) +\r\n                             *(longlong *)(param_1 + 0x28 + (longlong)*(int *)(param_1 + 0x3c) * 8))\r\n             ,_Size);\r\n      *(int *)(param_1 + 0x44) = *(int *)(param_1 + 0x44) + (int)_Size;\r\n      param_3 = param_3 - _Size;\r\n      *(longlong *)(param_1 + 0x18) = *(longlong *)(param_1 + 0x18) + _Size;\r\n      param_2 = (void *)((longlong)param_2 + _Size);\r\n    }\r\n  } while (0 < (longlong)param_3);\r\n  return 1;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nundefined8 FUN_140e0ce60(longlong param_1,void *param_2,size_t param_3)\r\n\r\n{\r\n  char cVar1;\r\n  size_t _Size;\r\n  \r\n  if ((longlong)param_3 < 1) {\r\n    return 0;\r\n  }\r\n  if (*(int *)(param_1 + 0x48) == *(int *)(param_1 + 0x3c)) {\r\n    cVar1 = FUN_140e13040();\r\n    if (cVar1 == '\\0') {\r\n      return 0;\r\n    }\r\n    FUN_140e10150(param_1,*(undefined4 *)(param_1 + 0x40));\r\n  }\r\n  do {\r\n    _Size = (size_t)(*(int *)(param_1 + 0x38) - *(int *)(param_1 + 0x44));\r\n    if ((longlong)param_3 <= (longlong)_Size) {\r\n      _Size = param_3;\r\n    }\r\n    if (*(longlong *)(param_1 + 0x10) < (longlong)(_Size + *(longlong *)(param_1 + 0x18))) {\r\n      return 0;\r\n    }\r\n    if ((longlong)_Size < 1) {\r\n      cVar1 = FUN_140e13040(param_1);\r\n      if (cVar1 == '\\0') {\r\n        return 0;\r\n      }\r\n      *(uint *)(param_1 + 0x40) = *(uint *)(param_1 + 0x40) ^ 1;\r\n      *(uint *)(param_1 + 0x3c) = *(uint *)(param_1 + 0x3c) ^ 1;\r\n      *(undefined4 *)(param_1 + 0x44) = 0;\r\n      FUN_140e10150(param_1,*(undefined4 *)(param_1 + 0x40));\r\n    }\r\n    else {\r\n      memcpy(param_2,(void *)((longlong)*(int *)(param_1 + 0x44) +\r\n                             *(longlong *)(param_1 + 0x28 + (longlong)*(int *)(param_1 + 0x3c) * 8))\r\n             ,_Size);\r\n      *(int *)(param_1 + 0x44) = *(int *)(param_1 + 0x44) + (int)_Size;\r\n      param_3 = param_3 - _Size;\r\n      *(longlong *)(param_1 + 0x18) = *(longlong *)(param_1 + 0x18) + _Size;\r\n      param_2 = (void *)((longlong)param_2 + _Size);\r\n    }\r\n  } while (0 < (longlong)param_3);\r\n  return 1;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nulonglong FUN_140e0cf60(longlong param_1,LPVOID param_2,DWORD param_3)\r\n\r\n{\r\n  undefined8 uVar1;\r\n  BOOL BVar2;\r\n  DWORD DVar3;\r\n  undefined4 extraout_var;\r\n  ulonglong uVar4;\r\n  undefined4 extraout_var_00;\r\n  DWORD local_res8 [2];\r\n  \r\n  local_res8[0] = 0;\r\n  BVar2 = ReadFile(*(HANDLE *)(param_1 + 8),param_2,param_3,local_res8,\r\n                   (LPOVERLAPPED)(param_1 + 0x10));\r\n  if (BVar2 == 0) {\r\n    DVar3 = GetLastError();\r\n    uVar4 = CONCAT44(extraout_var,DVar3);\r\n    if (DVar3 == 0x3e5) {\r\n      local_res8[0] = 0;\r\n      BVar2 = GetOverlappedResult(*(HANDLE *)(param_1 + 8),(LPOVERLAPPED)(param_1 + 0x10),local_res8\r\n                                  ,1);\r\n      uVar4 = CONCAT44(extraout_var_00,BVar2);\r\n      if (BVar2 != 0) goto LAB_140e0cfcf;\r\n    }\r\n    return uVar4 & 0xffffffffffffff00;\r\n  }\r\nLAB_140e0cfcf:\r\n  *(longlong *)(param_1 + 0x30) = *(longlong *)(param_1 + 0x30) + (ulonglong)local_res8[0];\r\n  uVar1 = *(undefined8 *)(param_1 + 0x30);\r\n  *(int *)(param_1 + 0x20) = (int)uVar1;\r\n  *(int *)(param_1 + 0x24) = (int)((ulonglong)uVar1 >> 0x20);\r\n  return CONCAT71((uint7)((ulonglong)uVar1 >> 0x28),1);\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nulonglong FUN_140e0cf60(longlong param_1,LPVOID param_2,DWORD param_3)\r\n\r\n{\r\n  undefined8 uVar1;\r\n  BOOL BVar2;\r\n  DWORD DVar3;\r\n  undefined4 extraout_var;\r\n  ulonglong uVar4;\r\n  undefined4 extraout_var_00;\r\n  DWORD local_res8 [2];\r\n  \r\n  local_res8[0] = 0;\r\n  BVar2 = ReadFile(*(HANDLE *)(param_1 + 8),param_2,param_3,local_res8,\r\n                   (LPOVERLAPPED)(param_1 + 0x10));\r\n  if (BVar2 == 0) {\r\n    DVar3 = GetLastError();\r\n    uVar4 = CONCAT44(extraout_var,DVar3);\r\n    if (DVar3 == 0x3e5) {\r\n      local_res8[0] = 0;\r\n      BVar2 = GetOverlappedResult(*(HANDLE *)(param_1 + 8),(LPOVERLAPPED)(param_1 + 0x10),local_res8\r\n                                  ,1);\r\n      uVar4 = CONCAT44(extraout_var_00,BVar2);\r\n      if (BVar2 != 0) goto LAB_140e0cfcf;\r\n    }\r\n    return uVar4 & 0xffffffffffffff00;\r\n  }\r\nLAB_140e0cfcf:\r\n  *(longlong *)(param_1 + 0x30) = *(longlong *)(param_1 + 0x30) + (ulonglong)local_res8[0];\r\n  uVar1 = *(undefined8 *)(param_1 + 0x30);\r\n  *(int *)(param_1 + 0x20) = (int)uVar1;\r\n  *(int *)(param_1 + 0x24) = (int)((ulonglong)uVar1 >> 0x20);\r\n  return CONCAT71((uint7)((ulonglong)uVar1 >> 0x28),1);\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nundefined8 FUN_140e130c0(longlong param_1,LPCVOID param_2,DWORD param_3)\r\n\r\n{\r\n  BOOL BVar1;\r\n  DWORD DVar2;\r\n  DWORD local_res8 [2];\r\n  LARGE_INTEGER local_res20;\r\n  \r\n  local_res8[0] = 0;\r\n  BVar1 = WriteFile(*(HANDLE *)(param_1 + 8),param_2,param_3,local_res8,\r\n                    (LPOVERLAPPED)(param_1 + 0x10));\r\n  if (BVar1 == 0) {\r\n    DVar2 = GetLastError();\r\n    if (DVar2 == 0x3e5) {\r\n      local_res8[0] = 0;\r\n      BVar1 = GetOverlappedResult(*(HANDLE *)(param_1 + 8),(LPOVERLAPPED)(param_1 + 0x10),local_res8\r\n                                  ,1);\r\n      if (BVar1 != 0) goto LAB_140e1312f;\r\n    }\r\n    return 0;\r\n  }\r\nLAB_140e1312f:\r\n  *(longlong *)(param_1 + 0x30) = *(longlong *)(param_1 + 0x30) + (ulonglong)local_res8[0];\r\n  *(int *)(param_1 + 0x20) = (int)*(undefined8 *)(param_1 + 0x30);\r\n  *(int *)(param_1 + 0x24) = (int)((ulonglong)*(undefined8 *)(param_1 + 0x30) >> 0x20);\r\n  GetFileSizeEx(*(HANDLE *)(param_1 + 8),&local_res20);\r\n  *(LARGE_INTEGER *)(param_1 + 0x38) = local_res20;\r\n  return 1;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nundefined8 FUN_140e130c0(longlong param_1,LPCVOID param_2,DWORD param_3)\r\n\r\n{\r\n  BOOL BVar1;\r\n  DWORD DVar2;\r\n  DWORD local_res8 [2];\r\n  LARGE_INTEGER local_res20;\r\n  \r\n  local_res8[0] = 0;\r\n  BVar1 = WriteFile(*(HANDLE *)(param_1 + 8),param_2,param_3,local_res8,\r\n                    (LPOVERLAPPED)(param_1 + 0x10));\r\n  if (BVar1 == 0) {\r\n    DVar2 = GetLastError();\r\n    if (DVar2 == 0x3e5) {\r\n      local_res8[0] = 0;\r\n      BVar1 = GetOverlappedResult(*(HANDLE *)(param_1 + 8),(LPOVERLAPPED)(param_1 + 0x10),local_res8\r\n                                  ,1);\r\n      if (BVar1 != 0) goto LAB_140e1312f;\r\n    }\r\n    return 0;\r\n  }\r\nLAB_140e1312f:\r\n  *(longlong *)(param_1 + 0x30) = *(longlong *)(param_1 + 0x30) + (ulonglong)local_res8[0];\r\n  *(int *)(param_1 + 0x20) = (int)*(undefined8 *)(param_1 + 0x30);\r\n  *(int *)(param_1 + 0x24) = (int)((ulonglong)*(undefined8 *)(param_1 + 0x30) >> 0x20);\r\n  GetFileSizeEx(*(HANDLE *)(param_1 + 8),&local_res20);\r\n  *(LARGE_INTEGER *)(param_1 + 0x38) = local_res20;\r\n  return 1;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nvoid FUN_140e10150(longlong param_1,int param_2)\r\n\r\n{\r\n  ulonglong uVar1;\r\n  BOOL BVar2;\r\n  DWORD DVar3;\r\n  DWORD local_res8 [8];\r\n  \r\n  if (*(char *)(param_1 + 0x70) == '\\0') {\r\n    *(int *)(param_1 + 0x48) = param_2;\r\n    *(undefined1 *)(param_1 + 0x71) = 1;\r\n    local_res8[0] = 0;\r\n    BVar2 = ReadFile(*(HANDLE *)(param_1 + 8),*(LPVOID *)(param_1 + 0x28 + (longlong)param_2 * 8),\r\n                     *(DWORD *)(param_1 + 0x38),local_res8,(LPOVERLAPPED)(param_1 + 0x50));\r\n    if (BVar2 == 0) {\r\n      DVar3 = GetLastError();\r\n      if (DVar3 != 0x3e5) {\r\n        *(undefined2 *)(param_1 + 0x70) = 1;\r\n        return;\r\n      }\r\n    }\r\n    else {\r\n      *(longlong *)(param_1 + 0x20) = *(longlong *)(param_1 + 0x20) + (ulonglong)local_res8[0];\r\n      uVar1 = *(ulonglong *)(param_1 + 0x20);\r\n      *(undefined1 *)(param_1 + 0x71) = 0;\r\n      *(int *)(param_1 + 0x60) = (int)uVar1;\r\n      *(int *)(param_1 + 100) = (int)(uVar1 >> 0x20);\r\n      if (*(ulonglong *)(param_1 + 0x10) <= uVar1) {\r\n        *(undefined1 *)(param_1 + 0x70) = 1;\r\n      }\r\n    }\r\n  }\r\n  return;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nvoid FUN_140e10150(longlong param_1,int param_2)\r\n\r\n{\r\n  ulonglong uVar1;\r\n  BOOL BVar2;\r\n  DWORD DVar3;\r\n  DWORD local_res8 [8];\r\n  \r\n  if (*(char *)(param_1 + 0x70) == '\\0') {\r\n    *(int *)(param_1 + 0x48) = param_2;\r\n    *(undefined1 *)(param_1 + 0x71) = 1;\r\n    local_res8[0] = 0;\r\n    BVar2 = ReadFile(*(HANDLE *)(param_1 + 8),*(LPVOID *)(param_1 + 0x28 + (longlong)param_2 * 8),\r\n                     *(DWORD *)(param_1 + 0x38),local_res8,(LPOVERLAPPED)(param_1 + 0x50));\r\n    if (BVar2 == 0) {\r\n      DVar3 = GetLastError();\r\n      if (DVar3 != 0x3e5) {\r\n        *(undefined2 *)(param_1 + 0x70) = 1;\r\n        return;\r\n      }\r\n    }\r\n    else {\r\n      *(longlong *)(param_1 + 0x20) = *(longlong *)(param_1 + 0x20) + (ulonglong)local_res8[0];\r\n      uVar1 = *(ulonglong *)(param_1 + 0x20);\r\n      *(undefined1 *)(param_1 + 0x71) = 0;\r\n      *(int *)(param_1 + 0x60) = (int)uVar1;\r\n      *(int *)(param_1 + 100) = (int)(uVar1 >> 0x20);\r\n      if (*(ulonglong *)(param_1 + 0x10) <= uVar1) {\r\n        *(undefined1 *)(param_1 + 0x70) = 1;\r\n      }\r\n    }\r\n  }\r\n  return;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nundefined1 FUN_140e0ea30(longlong param_1,longlong param_2)\r\n\r\n{\r\n  char cVar1;\r\n  ulonglong uVar2;\r\n  int iVar3;\r\n  \r\n  uVar2 = param_2 - *(longlong *)(param_1 + 0x18);\r\n  if (uVar2 != 0) {\r\n    cVar1 = FUN_140e13040();\r\n    if (cVar1 == '\\0') {\r\n      return 0;\r\n    }\r\n    *(longlong *)(param_1 + 0x18) = param_2;\r\n    if ((((longlong)uVar2 < 0) &&\r\n        (iVar3 = *(int *)(param_1 + 0x44),\r\n        -1 < (longlong)\r\n             ((longlong)iVar3 - ((uVar2 ^ (longlong)uVar2 >> 0x3f) - ((longlong)uVar2 >> 0x3f)))))\r\n       || ((0 < (longlong)uVar2 &&\r\n           (iVar3 = *(int *)(param_1 + 0x44),\r\n           (longlong)(uVar2 + (longlong)iVar3) < (longlong)*(int *)(param_1 + 0x38))))) {\r\n      *(int *)(param_1 + 0x44) = iVar3 + (int)uVar2;\r\n      return 1;\r\n    }\r\n    *(longlong *)(param_1 + 0x20) = param_2;\r\n    *(int *)(param_1 + 0x60) = (int)param_2;\r\n    *(int *)(param_1 + 100) = (int)((ulonglong)param_2 >> 0x20);\r\n    *(undefined1 *)(param_1 + 0x70) = 0;\r\n    *(undefined4 *)(param_1 + 0x48) = *(undefined4 *)(param_1 + 0x3c);\r\n    *(undefined4 *)(param_1 + 0x44) = 0;\r\n    FUN_140e10150(param_1);\r\n  }\r\n  return 1;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nundefined1 FUN_140e0ea30(longlong param_1,longlong param_2)\r\n\r\n{\r\n  char cVar1;\r\n  ulonglong uVar2;\r\n  int iVar3;\r\n  \r\n  uVar2 = param_2 - *(longlong *)(param_1 + 0x18);\r\n  if (uVar2 != 0) {\r\n    cVar1 = FUN_140e13040();\r\n    if (cVar1 == '\\0') {\r\n      return 0;\r\n    }\r\n    *(longlong *)(param_1 + 0x18) = param_2;\r\n    if ((((longlong)uVar2 < 0) &&\r\n        (iVar3 = *(int *)(param_1 + 0x44),\r\n        -1 < (longlong)\r\n             ((longlong)iVar3 - ((uVar2 ^ (longlong)uVar2 >> 0x3f) - ((longlong)uVar2 >> 0x3f)))))\r\n       || ((0 < (longlong)uVar2 &&\r\n           (iVar3 = *(int *)(param_1 + 0x44),\r\n           (longlong)(uVar2 + (longlong)iVar3) < (longlong)*(int *)(param_1 + 0x38))))) {\r\n      *(int *)(param_1 + 0x44) = iVar3 + (int)uVar2;\r\n      return 1;\r\n    }\r\n    *(longlong *)(param_1 + 0x20) = param_2;\r\n    *(int *)(param_1 + 0x60) = (int)param_2;\r\n    *(int *)(param_1 + 100) = (int)((ulonglong)param_2 >> 0x20);\r\n    *(undefined1 *)(param_1 + 0x70) = 0;\r\n    *(undefined4 *)(param_1 + 0x48) = *(undefined4 *)(param_1 + 0x3c);\r\n    *(undefined4 *)(param_1 + 0x44) = 0;\r\n    FUN_140e10150(param_1);\r\n  }\r\n  return 1;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"error\":\"No function found for 0x140e0eaf0\"}"
+            }
+          ],
+          "structuredContent": {
+            "result": "{\"error\":\"No function found for 0x140e0eaf0\"}"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "cri_file_wait": {
+      "content": [
+        {
+          "type": "text",
+          "text": "\r\nundefined8 FUN_140e13040(longlong param_1)\r\n\r\n{\r\n  ulonglong uVar1;\r\n  BOOL BVar2;\r\n  DWORD DVar3;\r\n  DWORD local_res8 [8];\r\n  \r\n  if ((*(char *)(param_1 + 0x70) == '\\0') && (*(char *)(param_1 + 0x71) != '\\0')) {\r\n    local_res8[0] = 0;\r\n    BVar2 = GetOverlappedResult(*(HANDLE *)(param_1 + 8),(LPOVERLAPPED)(param_1 + 0x50),local_res8,1\r\n                               );\r\n    if (BVar2 == 0) {\r\n      DVar3 = GetLastError();\r\n      if (DVar3 != 0x26) {\r\n        return 0;\r\n      }\r\n    }\r\n    else {\r\n      *(longlong *)(param_1 + 0x20) = *(longlong *)(param_1 + 0x20) + (ulonglong)local_res8[0];\r\n      uVar1 = *(ulonglong *)(param_1 + 0x20);\r\n      *(undefined1 *)(param_1 + 0x71) = 0;\r\n      *(int *)(param_1 + 0x60) = (int)uVar1;\r\n      *(int *)(param_1 + 100) = (int)(uVar1 >> 0x20);\r\n      if (uVar1 < *(ulonglong *)(param_1 + 0x10)) {\r\n        return 1;\r\n      }\r\n    }\r\n    *(undefined1 *)(param_1 + 0x70) = 1;\r\n  }\r\n  return 1;\r\n}\r\n\r\n"
+        }
+      ],
+      "structuredContent": {
+        "result": "\r\nundefined8 FUN_140e13040(longlong param_1)\r\n\r\n{\r\n  ulonglong uVar1;\r\n  BOOL BVar2;\r\n  DWORD DVar3;\r\n  DWORD local_res8 [8];\r\n  \r\n  if ((*(char *)(param_1 + 0x70) == '\\0') && (*(char *)(param_1 + 0x71) != '\\0')) {\r\n    local_res8[0] = 0;\r\n    BVar2 = GetOverlappedResult(*(HANDLE *)(param_1 + 8),(LPOVERLAPPED)(param_1 + 0x50),local_res8,1\r\n                               );\r\n    if (BVar2 == 0) {\r\n      DVar3 = GetLastError();\r\n      if (DVar3 != 0x26) {\r\n        return 0;\r\n      }\r\n    }\r\n    else {\r\n      *(longlong *)(param_1 + 0x20) = *(longlong *)(param_1 + 0x20) + (ulonglong)local_res8[0];\r\n      uVar1 = *(ulonglong *)(param_1 + 0x20);\r\n      *(undefined1 *)(param_1 + 0x71) = 0;\r\n      *(int *)(param_1 + 0x60) = (int)uVar1;\r\n      *(int *)(param_1 + 100) = (int)(uVar1 >> 0x20);\r\n      if (uVar1 < *(ulonglong *)(param_1 + 0x10)) {\r\n        return 1;\r\n      }\r\n    }\r\n    *(undefined1 *)(param_1 + 0x70) = 1;\r\n  }\r\n  return 1;\r\n}\r\n\r\n"
+      },
+      "isError": false
+    },
+    "cri_file_tiny_callbacks": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"address\":\"143078ae0\",\"length\":32,\"data\":[72,139,65,24,72,137,2,51,192,195,204,204,204,204,204,204,72,139,1,72,137,2,51,192,195,204,204,204,204,204,204,204],\"hex\":\"488b411848890233c0c3cccccccccccc488b0148890233c0c3cccccccccccccc\"}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"address\":\"143078ae0\",\"length\":32,\"data\":[72,139,65,24,72,137,2,51,192,195,204,204,204,204,204,204,72,139,1,72,137,2,51,192,195,204,204,204,204,204,204,204],\"hex\":\"488b411848890233c0c3cccccccccccc488b0148890233c0c3cccccccccccccc\"}"
+      },
+      "isError": false
+    },
+    "cri_file_tiny_methods": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"140E0EAF0\":{\"address\":\"140E0EAF0\",\"instruction\":\"MOV qword ptr [RCX + 0x30],RDX\",\"context_before\":[\"140e0eaef: RET\",\"140e0eaee: POP RDI\",\"140e0eaea: ADD RSP,0x20\",\"140e0eae5: MOV RSI,qword ptr [RSP + 0x38]\",\"140e0eae3: MOV AL,0x1\",\"140e0eade: MOV RBX,qword ptr [RSP + 0x30]\",\"140e0ead9: CALL 0x140e10150\",\"140e0ead2: MOV dword ptr [RBX + 0x44],0x0\"],\"context_after\":[\"140e0eaf4: MOV AL,0x1\",\"140e0eaf6: MOV dword ptr [RCX + 0x20],EDX\",\"140e0eaf9: SHR RDX,0x20\",\"140e0eafd: MOV dword ptr [RCX + 0x24],EDX\",\"140e0eb00: RET\",\"140e0eb10: MOV R8,qword ptr [RCX]\",\"140e0eb13: ADD RDX,qword ptr [RCX + 0x10]\",\"140e0eb17: JMP qword ptr [R8 + 0x10]\"],\"mnemonic\":\"MOV\",\"patterns_detected\":[\"data_access\"]},\"1411914A0\":{\"address\":\"1411914A0\",\"instruction\":\"MOV RAX,qword ptr [RCX + 0x18]\",\"context_before\":[\"141191497: RET\",\"141191493: ADD RSP,0x28\",\"141191490: CVTDQ2PS XMM0,XMM0\",\"14119148c: MOVD XMM0,EAX\",\"14119148a: CALL qword ptr [RDX]\",\"141191487: MOV RDX,qword ptr [RAX]\",\"141191484: MOV RCX,RAX\",\"14119147e: CALL qword ptr [RAX + 0x160]\"],\"context_after\":[\"1411914a4: RET\",\"1411914b0: MOV qword ptr [RSP + 0x10],RBX\",\"1411914b5: PUSH RBP\",\"1411914b6: PUSH RSI\",\"1411914b7: PUSH RDI\",\"1411914b8: SUB RSP,0x40\",\"1411914bc: MOVAPS xmmword ptr [RSP + 0x30],XMM6\",\"1411914c1: MOV RSI,RDX\"],\"mnemonic\":\"MOV\",\"patterns_detected\":[\"data_access\"]},\"142A60180\":{\"address\":\"142A60180\",\"instruction\":\"MOV RAX,qword ptr [RCX + 0x30]\",\"context_before\":[\"142a60177: RET\",\"142a60170: LEA RAX,[0x1440b8838]\",\"142a60168: RET\",\"142a60167: POP RBX\",\"142a60166: POP RBP\",\"142a60165: POP RSI\",\"142a60164: POP RDI\",\"142a60162: POP R12\"],\"context_after\":[\"142a60184: RET\",\"142a60190: MOV EAX,0x28\",\"142a60195: CALL 0x143119fd0\",\"142a6019a: SUB RSP,RAX\",\"142a6019d: LEA EDX,[RAX + -0x27]\",\"142a601a0: LEA RCX,[0x1443d5b58]\",\"142a601a7: ADD RSP,0x28\",\"142a601ab: JMP 0x142a3c480\"],\"mnemonic\":\"MOV\",\"patterns_detected\":[\"data_access\"]},\"1402D9C40\":{\"address\":\"1402D9C40\",\"instruction\":\"XOR AL,AL\",\"context_before\":[\"1402d9c35: RET\",\"1402d9c30: MOV EAX,0x1\",\"1402d9c2a: RET\",\"1402d9c29: POP RBX\",\"1402d9c25: ADD RSP,0x20\",\"1402d9c22: MOV RAX,RBX\",\"1402d9c1d: CALL 0x141f90000\",\"1402d9c18: MOV EDX,0x10\"],\"context_after\":[\"1402d9c42: RET\",\"1402d9c50: PUSH RBX\",\"1402d9c52: SUB RSP,0x20\",\"1402d9c56: LEA RAX,[0x143e853c8]\",\"1402d9c5d: MOV RBX,RCX\",\"1402d9c60: MOV qword ptr [RCX],RAX\",\"1402d9c63: TEST DL,0x1\",\"1402d9c66: JZ 0x1402d9c72\"],\"mnemonic\":\"XOR\",\"patterns_detected\":[]},\"1402FC0B0\":{\"address\":\"1402FC0B0\",\"instruction\":\"MOV RAX,qword ptr [RCX + 0x10]\",\"context_before\":[\"1402fc0af: RET\",\"1402fc0ae: POP RDI\",\"1402fc0aa: ADD RSP,0x20\",\"1402fc0a5: MOV RBX,qword ptr [RSP + 0x30]\",\"1402fc0a2: MOV RAX,RBX\",\"1402fc09e: ADD qword ptr [RDI + 0x8],RBX\",\"1402fc099: CALL 0x14311c06a\",\"1402fc096: ADD RCX,RDI\"],\"context_after\":[\"1402fc0b4: RET\",\"1402fc0c0: MOV RAX,qword ptr [RCX + 0x8]\",\"1402fc0c4: RET\",\"1402fc0d0: MOV qword ptr [RCX + 0x10],RDX\",\"1402fc0d4: RET\",\"1402fc0e0: MOV qword ptr [RCX + 0x8],RDX\",\"1402fc0e4: RET\",\"1402fc0f0: PUSH RBX\"],\"mnemonic\":\"MOV\",\"patterns_detected\":[\"data_access\"]},\"14108AFF0\":{\"address\":\"14108AFF0\",\"instruction\":\"MOV RAX,qword ptr [RCX + 0x38]\",\"context_before\":[\"14108afe6: CALL 0x14311c0a0\",\"14108afe3: MOV RCX,RDI\",\"14108afd8: MOV qword ptr [RDI + 0x100],0x0\",\"14108afd6: MOV EDX,ESI\",\"14108afd1: MOV RBX,qword ptr [RSP + 0x30]\",\"14108afcf: JNZ 0x14108afc1\",\"14108afcc: TEST RBX,RBX\",\"14108afc9: MOV RCX,RBX\"],\"context_after\":[\"14108aff4: RET\",\"14108b000: MOV RAX,qword ptr [RCX + 0x28]\",\"14108b004: RET\",\"14108b010: MOV R11,RSP\",\"14108b013: PUSH RSI\",\"14108b014: PUSH R12\",\"14108b016: SUB RSP,0x178\",\"14108b01d: MOV RAX,qword ptr [0x1440e9260]\"],\"mnemonic\":\"MOV\",\"patterns_detected\":[\"data_access\"]}}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"140E0EAF0\":{\"address\":\"140E0EAF0\",\"instruction\":\"MOV qword ptr [RCX + 0x30],RDX\",\"context_before\":[\"140e0eaef: RET\",\"140e0eaee: POP RDI\",\"140e0eaea: ADD RSP,0x20\",\"140e0eae5: MOV RSI,qword ptr [RSP + 0x38]\",\"140e0eae3: MOV AL,0x1\",\"140e0eade: MOV RBX,qword ptr [RSP + 0x30]\",\"140e0ead9: CALL 0x140e10150\",\"140e0ead2: MOV dword ptr [RBX + 0x44],0x0\"],\"context_after\":[\"140e0eaf4: MOV AL,0x1\",\"140e0eaf6: MOV dword ptr [RCX + 0x20],EDX\",\"140e0eaf9: SHR RDX,0x20\",\"140e0eafd: MOV dword ptr [RCX + 0x24],EDX\",\"140e0eb00: RET\",\"140e0eb10: MOV R8,qword ptr [RCX]\",\"140e0eb13: ADD RDX,qword ptr [RCX + 0x10]\",\"140e0eb17: JMP qword ptr [R8 + 0x10]\"],\"mnemonic\":\"MOV\",\"patterns_detected\":[\"data_access\"]},\"1411914A0\":{\"address\":\"1411914A0\",\"instruction\":\"MOV RAX,qword ptr [RCX + 0x18]\",\"context_before\":[\"141191497: RET\",\"141191493: ADD RSP,0x28\",\"141191490: CVTDQ2PS XMM0,XMM0\",\"14119148c: MOVD XMM0,EAX\",\"14119148a: CALL qword ptr [RDX]\",\"141191487: MOV RDX,qword ptr [RAX]\",\"141191484: MOV RCX,RAX\",\"14119147e: CALL qword ptr [RAX + 0x160]\"],\"context_after\":[\"1411914a4: RET\",\"1411914b0: MOV qword ptr [RSP + 0x10],RBX\",\"1411914b5: PUSH RBP\",\"1411914b6: PUSH RSI\",\"1411914b7: PUSH RDI\",\"1411914b8: SUB RSP,0x40\",\"1411914bc: MOVAPS xmmword ptr [RSP + 0x30],XMM6\",\"1411914c1: MOV RSI,RDX\"],\"mnemonic\":\"MOV\",\"patterns_detected\":[\"data_access\"]},\"142A60180\":{\"address\":\"142A60180\",\"instruction\":\"MOV RAX,qword ptr [RCX + 0x30]\",\"context_before\":[\"142a60177: RET\",\"142a60170: LEA RAX,[0x1440b8838]\",\"142a60168: RET\",\"142a60167: POP RBX\",\"142a60166: POP RBP\",\"142a60165: POP RSI\",\"142a60164: POP RDI\",\"142a60162: POP R12\"],\"context_after\":[\"142a60184: RET\",\"142a60190: MOV EAX,0x28\",\"142a60195: CALL 0x143119fd0\",\"142a6019a: SUB RSP,RAX\",\"142a6019d: LEA EDX,[RAX + -0x27]\",\"142a601a0: LEA RCX,[0x1443d5b58]\",\"142a601a7: ADD RSP,0x28\",\"142a601ab: JMP 0x142a3c480\"],\"mnemonic\":\"MOV\",\"patterns_detected\":[\"data_access\"]},\"1402D9C40\":{\"address\":\"1402D9C40\",\"instruction\":\"XOR AL,AL\",\"context_before\":[\"1402d9c35: RET\",\"1402d9c30: MOV EAX,0x1\",\"1402d9c2a: RET\",\"1402d9c29: POP RBX\",\"1402d9c25: ADD RSP,0x20\",\"1402d9c22: MOV RAX,RBX\",\"1402d9c1d: CALL 0x141f90000\",\"1402d9c18: MOV EDX,0x10\"],\"context_after\":[\"1402d9c42: RET\",\"1402d9c50: PUSH RBX\",\"1402d9c52: SUB RSP,0x20\",\"1402d9c56: LEA RAX,[0x143e853c8]\",\"1402d9c5d: MOV RBX,RCX\",\"1402d9c60: MOV qword ptr [RCX],RAX\",\"1402d9c63: TEST DL,0x1\",\"1402d9c66: JZ 0x1402d9c72\"],\"mnemonic\":\"XOR\",\"patterns_detected\":[]},\"1402FC0B0\":{\"address\":\"1402FC0B0\",\"instruction\":\"MOV RAX,qword ptr [RCX + 0x10]\",\"context_before\":[\"1402fc0af: RET\",\"1402fc0ae: POP RDI\",\"1402fc0aa: ADD RSP,0x20\",\"1402fc0a5: MOV RBX,qword ptr [RSP + 0x30]\",\"1402fc0a2: MOV RAX,RBX\",\"1402fc09e: ADD qword ptr [RDI + 0x8],RBX\",\"1402fc099: CALL 0x14311c06a\",\"1402fc096: ADD RCX,RDI\"],\"context_after\":[\"1402fc0b4: RET\",\"1402fc0c0: MOV RAX,qword ptr [RCX + 0x8]\",\"1402fc0c4: RET\",\"1402fc0d0: MOV qword ptr [RCX + 0x10],RDX\",\"1402fc0d4: RET\",\"1402fc0e0: MOV qword ptr [RCX + 0x8],RDX\",\"1402fc0e4: RET\",\"1402fc0f0: PUSH RBX\"],\"mnemonic\":\"MOV\",\"patterns_detected\":[\"data_access\"]},\"14108AFF0\":{\"address\":\"14108AFF0\",\"instruction\":\"MOV RAX,qword ptr [RCX + 0x38]\",\"context_before\":[\"14108afe6: CALL 0x14311c0a0\",\"14108afe3: MOV RCX,RDI\",\"14108afd8: MOV qword ptr [RDI + 0x100],0x0\",\"14108afd6: MOV EDX,ESI\",\"14108afd1: MOV RBX,qword ptr [RSP + 0x30]\",\"14108afcf: JNZ 0x14108afc1\",\"14108afcc: TEST RBX,RBX\",\"14108afc9: MOV RCX,RBX\"],\"context_after\":[\"14108aff4: RET\",\"14108b000: MOV RAX,qword ptr [RCX + 0x28]\",\"14108b004: RET\",\"14108b010: MOV R11,RSP\",\"14108b013: PUSH RSI\",\"14108b014: PUSH R12\",\"14108b016: SUB RSP,0x178\",\"14108b01d: MOV RAX,qword ptr [0x1440e9260]\"],\"mnemonic\":\"MOV\",\"patterns_detected\":[\"data_access\"]}}"
+      },
+      "isError": false
+    }
+  }
+}

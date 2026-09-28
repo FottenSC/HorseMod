@@ -1,0 +1,49 @@
+{
+  "first_failure": {
+    "check": "update_physics_step_callbacks",
+    "tick": 0,
+    "roots": 0,
+    "meshes": 0
+  },
+  "stage": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\fb9248b9972006870f9fd66caabcc4ce768171be1abf4e429fa52308083d07ce.json",
+    "sha256": "fb9248b9972006870f9fd66caabcc4ce768171be1abf4e429fa52308083d07ce",
+    "bytes": 19810
+  },
+  "console": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a2a443578875e6d143faa2a68ef60abd5700e71b7dda5794fcecb63d4e58fdea.log",
+    "sha256": "a2a443578875e6d143faa2a68ef60abd5700e71b7dda5794fcecb63d4e58fdea",
+    "bytes": 1316
+  },
+  "run_id": "replay-4d1c3c63ee584f0a9937ce54f976c386",
+  "scope": "No native tick advanced. Exact predicate is nonempty pre-step collection. Automatic current-run abort and deployment cleanup succeeded; no callback census yet.",
+  "cleanup": {
+    "complete": true,
+    "games_remaining": 0
+  },
+  "retained_evidence": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\9c7404f5ad1fadf6666b9b6126bb71372aecb28cecf0c5f636e1e726df783c96.json",
+    "sha256": "9c7404f5ad1fadf6666b9b6126bb71372aecb28cecf0c5f636e1e726df783c96",
+    "bytes": 30330,
+    "summary": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\a2bc9a8e9bd19ebde7077ef1ec72170c0e62b6c54f6c163b1d744904b64a6807.md",
+      "sha256": "a2bc9a8e9bd19ebde7077ef1ec72170c0e62b6c54f6c163b1d744904b64a6807",
+      "bytes": 690
+    }
+  },
+  "build_identities": {
+    "runtime": "e1864a96d8bd0f69b498e467c96d4368478472d21484e64ae58aef2b0bfe8709",
+    "observer": "9fc1cbe0beaf947293bab4f0a0dc82f87df4aedb17008236787ca5f1ab78d007",
+    "framework": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6"
+  },
+  "clean_journal": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\38eadd4276b4e6066461dfb1d4f9719a719c54d22547b527c05e7873eb61fea2.json",
+    "sha256": "38eadd4276b4e6066461dfb1d4f9719a719c54d22547b527c05e7873eb61fea2",
+    "bytes": 5154
+  },
+  "executor": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4a1149555d0dcc01e876e99449b33e431e169a66f8d77b5f981ba11f1f5dede4.json",
+    "sha256": "4a1149555d0dcc01e876e99449b33e431e169a66f8d77b5f981ba11f1f5dede4",
+    "bytes": 19533
+  }
+}

@@ -1,0 +1,139 @@
+{
+  "schema": 1,
+  "name": "changed-rolling30-startup-serial",
+  "purpose": "diagnostic",
+  "arguments": [
+    "combat-restore",
+    "--combat-case",
+    "commit",
+    "--host-seek",
+    "--combat-exact-advance",
+    "--combat-anchor-tick",
+    "210",
+    "--combat-advanced-tick",
+    "217",
+    "--host-seek-target",
+    "217",
+    "--rolling-cycles",
+    "30",
+    "--replay-budget-gib",
+    "1",
+    "--timeout",
+    "180",
+    "--diagnostic-mask",
+    "0",
+    "--diagnostic-stack-depth",
+    "0",
+    "--diagnostic-first-tick",
+    "0",
+    "--diagnostic-last-tick",
+    "36000",
+    "--diagnostic-byte-limit",
+    "1048576",
+    "--flush-startup-loading",
+    "--rolling-corrections",
+    "217:0:0:172:2:0:0;218:1:0:170:2:0:0;219:2:0:168:2:0:0",
+    "--no-async-loading-thread"
+  ],
+  "continuation_ticks": 120,
+  "setup": {
+    "skip_intros": true,
+    "include_setup": true,
+    "native_fixed_seed": true,
+    "serial_particles": true,
+    "flush_startup_loading": true,
+    "no_async_loading_thread": true
+  },
+  "comparison": "Independent native authored control for every compared revision, every regenerated traversal, and 120 final continuation ticks.",
+  "observation": {
+    "normal_renderer": true,
+    "pixel_diagnostics": false,
+    "coherence_images": false
+  },
+  "evidence_source": "build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/manifests/124bed6cff7c7c23b67d0099978a031559c1cb01eeaf66662b3a499838bbcb4e.json",
+  "scope": "Proposed mechanism diagnostic: lifecycle creation/suppression and full replacement-window ownership are unproven. Not final performance qualification; later cycles retain changed history without new arrivals. Matched native single-thread loading plus startup flush/registration budget policy, restored before active correction; all original anchors and authored arrivals preserved.",
+  "timeout_policy": "180 seconds for short tests; 900 seconds for diagnostic-cost 600-cycle campaign",
+  "diagnostics": {
+    "mask": 0,
+    "stack_depth": 0,
+    "output_byte_limit_per_dll": 1048576,
+    "reserved_bytes_both_dlls": 8192
+  },
+  "startup_setup_evidence": "build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/manifests/4493c346de121205e2a534cda0f2ee7a9b45eb84256e467bcba00188449dd718.json",
+  "proposed": true,
+  "admission": "Production cap remains 1 GiB. Complete replacement-window memory admission before launch; do not substitute 2 GiB as qualification.",
+  "authored_sample_evidence": {
+    "raw_sha256": "02dab150c9e1914c82bd1329a7d4f765798c784b40af6fde814abc8767d9e7bc",
+    "native_consumer": "1403FCD10: input_time - cache_offset - 1",
+    "delay_definition": "arrival minus first consumption plus one; retained active-combat intervals each consume one sample",
+    "rows": [
+      {
+        "sample": 172,
+        "first_consumption": 217,
+        "arrival": 217,
+        "delay": 1
+      },
+      {
+        "sample": 170,
+        "first_consumption": 215,
+        "arrival": 218,
+        "delay": 4
+      },
+      {
+        "sample": 168,
+        "first_consumption": 213,
+        "arrival": 219,
+        "delay": 7
+      }
+    ]
+  },
+  "contract": {
+    "version": 1,
+    "hypothesis": "Every requested transaction settles and independently agrees with its authored history.",
+    "decision": "Accept this mechanism diagnostic or retain its first falsifying observation.",
+    "required_event": "committed rolling cycle",
+    "phase": "rolling",
+    "window": [
+      210,
+      366
+    ],
+    "setup": {
+      "skip_intros": true,
+      "include_setup": true,
+      "native_fixed_seed": true,
+      "serial_particles": true,
+      "flush_startup_loading": true,
+      "no_async_loading_thread": true
+    },
+    "identities": [
+      "game",
+      "runtime",
+      "framework",
+      "observer",
+      "replay",
+      "state_policy",
+      "source"
+    ],
+    "success": "Complete requested coverage and independent comparisons pass.",
+    "falsification": "Unexpected rejection, missing traversal or independent mismatch.",
+    "expected_injections": [],
+    "stop_conditions": [
+      "first unexpected failure",
+      "timeout retains ownership for cleanup"
+    ],
+    "permitted_claims": [
+      "scoped mechanism diagnostic; lifecycle differences and normal-rendered coherence require separate proof"
+    ],
+    "validator": "rolling_mechanism",
+    "coverage": {
+      "continuation_ticks": 120,
+      "cycles": 30,
+      "ages": [
+        1,
+        4,
+        7
+      ]
+    }
+  },
+  "arrival_scope": "three early arrivals; later transactions reuse their revision; lifecycle difference unproven"
+}

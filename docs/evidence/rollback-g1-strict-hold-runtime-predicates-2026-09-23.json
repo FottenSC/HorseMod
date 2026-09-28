@@ -1,0 +1,298 @@
+{
+  "schema": "rollback-native-investigation-v1",
+  "program": "SoulcaliburVI.exe",
+  "date": "2026-09-23",
+  "scope": "Read-only exact runtime predicate map for first strict LuxTrace untouched task hold under -nothreading -NoAsyncLoadingThread with normal rendering.",
+  "addressNotation": "Absolute addresses assume preferred imagebase140000000; implementation uses RVA=address-140000000. Hex fieldoffsets are unprefixed in predicate strings.",
+  "predicates": [
+    "Initialized(epoch) := epoch != 0 && epoch != -1; accept negative completed CRT epoch values.",
+    "require host has completed application binding after native engine initialization; g_bGameThreadIdInitialized14419718C && GetCurrentThreadId()==uint14419716C.",
+    "Initialized(i32[144166DD8]) && u8[144166DD4]==0 // native factory disabled",
+    "Initialized(i32[14418ACB8]) && u8[14418ACB4]==1 // parallel policy disabled",
+    "Initialized(i32[14429F400]) && u8[14429F3FC]==0 && Initialized(i32[14429F250]) && u8[14429EAC0]==0 && ptr[14429EF78]==nullptr // loader existing, no loading thread",
+    "u8[144351841]==0 && u8[144351840]==0 && ptr[144167818]==nullptr && ptr[144351848]==nullptr // render request/current/wrapper/heartbeat",
+    "all u8[14434459C..1443445A0]==0 && ptr[144168028]==nullptr && u32[144168024]==0 // all RHI request/active flags+wrapper+ID",
+    "graph=ptr[144166720]; graph!=nullptr && i32[graph+698]==4 && i32[graph+69C]==3 && i32[graph+6A0]==1 && i32[graph+6A4]==1 && i32[graph+6AC]==2 && u8[graph+6A8]==0 && u8[graph+6A9]==0",
+    "for worker i in[3,4): rec=graph+8+i*18; runnable=ptr[rec];wrapper=ptr[rec+8]; u8[rec+10]==1; runnable!=nullptr;wrapper!=nullptr; ptr[runnable]==base+34B1EA8;ptr[wrapper]==base+34B94A8;ptr[wrapper+50]==runnable+8;ptr[runnable+30]==rec;i32[runnable+10]==i",
+    "Initialized(i32[144169FFC]); fake thread manager inline14406FD50, CS+50. If inventory is read, hold native CS nonblocking and inspect occupied sparse slots: data+0,slotstride18,wrapper+8,bitmapinline+10/heapPointer+20,bitcount+28. Do not call its pump to validate.",
+    "strict hold branch precedes all application prefix/tail/session-exit/retirement/loading/fake-thread service; excludes140D54CB0 and host FinishApplication. Optional terminal-before-entry guard140D54CB0 enforces accidental pump exclusion.",
+    "Require independent selected-scene idle physics/synchronousdispatcher witnesses and CRI dynamic callback admission/in-flight sentinel; these thread predicates alone are not all-domain closure."
+  ],
+  "fields": {
+    "record": {
+      "base": "graph+8+i*0x18",
+      "runnable": 0,
+      "wrapper": 8,
+      "created": 16
+    },
+    "fakeWrapper": {
+      "vtable": "1434B94A8",
+      "size": 88,
+      "syntheticId": 68,
+      "paused": 72,
+      "singleThreadInterface": 80
+    },
+    "taskWorker": {
+      "vtable": "1434B1EA8",
+      "singleThreadInterface": "runnable+8",
+      "index": 16,
+      "recordBackPointer": 48
+    }
+  },
+  "nativeProof": [
+    "140D180F0 computes exact4/3/1/1/2 graphconfiguration when SupportsNativeMultithreadingfalse; workerrecord is neverthelessallocated.",
+    "140D40DD0 constructs fake0x58wrapper only whennativefalse and runnablevirtual20 returns interface. Worker1434B1EA8 virtual20=1420ACE10 returnsrunnable+8.140D419E0 caches thatinterface atwrapper+50 and calls runnableInit.",
+    "Fakepump wrappervirtual30=140D54C90 invokes interfacevirtual8 only if+50nonnull andpaused+48zero. It is caller-driven, not backgroundOSexecution.",
+    "140D54CB0 locks manager+50 and pumps occupied wrappers only when nativefalse. Sole direct gamecaller140396B31; host source explicitly has an additional FinishApplication invocation so strict branch must exclude it.",
+    "GetAsyncLoadingObject140E515C0 initializes inlineobject14429EF70 withguard14429F250. Falseenabledwithoutinitializedobject does not prove nullthread.",
+    "Render/RHI request andactiveflags are ordinaryglobals updated in engineInit1415EF320/relatedcode, not CRTguardedcachedfunctions; no invented render initialization epoch."
+  ],
+  "limitations": [
+    "Normal rendering still occurs on GT. Predicates must not enableNoRender, skip required callbacks, treatGPU submissionascompletion, or suppressfakeworkerlogicalworkafterresume.",
+    "No OS-threadinventory or universal no-foreign-writes claim. CRI bypassworker and boundedresourcecallbacks handledseparately.",
+    "Read-only admission should not initialize statics bycallinghelpers. Require initializedepochs and currentregisteredownerGT; rejectuninitialized.",
+    "Fakewrapper+48paused==0 is normal enabledstate, notworkeractivity. Do not mutatepausebytes to simulateclosure.",
+    "Exact4/3configuration is deliberatefirstfamilyrestriction, not generalallconfigurationproof."
+  ],
+  "priorEvidence": "rollback-g1-singlethread-native-2026-09-23.json",
+  "raw": {
+    "runtime_fake_thread": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nlonglong *\r\nFUN_140d40dd0(longlong *param_1,undefined8 param_2,undefined4 param_3,undefined4 param_4,\r\n             undefined8 param_5)\r\n\r\n{\r\n  bool bVar1;\r\n  char cVar2;\r\n  longlong *plVar3;\r\n  longlong lVar4;\r\n  void *pvVar5;\r\n  \r\n  bVar1 = SupportsNativeMultithreading();\r\n  if (bVar1) {\r\n    plVar3 = (longlong *)FUN_140e16560();\r\n    if (plVar3 == (longlong *)0x0) {\r\n      return (longlong *)0x0;\r\n    }\r\n    cVar2 = (**(code **)(*plVar3 + 0x28))(plVar3,param_1,param_2,param_3,param_4,param_5);\r\n    if (cVar2 != '\\0') {\r\n      return plVar3;\r\n    }\r\n    (**(code **)(*plVar3 + 0x20))(plVar3,1);\r\n  }\r\n  else {\r\n    lVar4 = (**(code **)(*param_1 + 0x20))(param_1);\r\n    if (lVar4 != 0) {\r\n      pvVar5 = FMemory_Malloc(0x58);\r\n      if (pvVar5 == (void *)0x0) {\r\n        plVar3 = (longlong *)0x0;\r\n      }\r\n      else {\r\n        plVar3 = (longlong *)FUN_140d3a070(pvVar5);\r\n      }\r\n      cVar2 = (**(code **)(*plVar3 + 0x28))(plVar3,param_1,param_2,param_3,param_4,0);\r\n      if (cVar2 != '\\0') {\r\n        return plVar3;\r\n      }\r\n      (**(code **)(*plVar3 + 0x20))(plVar3,1);\r\n    }\r\n  }\r\n  return (longlong *)0x0;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nlonglong *\r\nFUN_140d40dd0(longlong *param_1,undefined8 param_2,undefined4 param_3,undefined4 param_4,\r\n             undefined8 param_5)\r\n\r\n{\r\n  bool bVar1;\r\n  char cVar2;\r\n  longlong *plVar3;\r\n  longlong lVar4;\r\n  void *pvVar5;\r\n  \r\n  bVar1 = SupportsNativeMultithreading();\r\n  if (bVar1) {\r\n    plVar3 = (longlong *)FUN_140e16560();\r\n    if (plVar3 == (longlong *)0x0) {\r\n      return (longlong *)0x0;\r\n    }\r\n    cVar2 = (**(code **)(*plVar3 + 0x28))(plVar3,param_1,param_2,param_3,param_4,param_5);\r\n    if (cVar2 != '\\0') {\r\n      return plVar3;\r\n    }\r\n    (**(code **)(*plVar3 + 0x20))(plVar3,1);\r\n  }\r\n  else {\r\n    lVar4 = (**(code **)(*param_1 + 0x20))(param_1);\r\n    if (lVar4 != 0) {\r\n      pvVar5 = FMemory_Malloc(0x58);\r\n      if (pvVar5 == (void *)0x0) {\r\n        plVar3 = (longlong *)0x0;\r\n      }\r\n      else {\r\n        plVar3 = (longlong *)FUN_140d3a070(pvVar5);\r\n      }\r\n      cVar2 = (**(code **)(*plVar3 + 0x28))(plVar3,param_1,param_2,param_3,param_4,0);\r\n      if (cVar2 != '\\0') {\r\n        return plVar3;\r\n      }\r\n      (**(code **)(*plVar3 + 0x20))(plVar3,1);\r\n    }\r\n  }\r\n  return (longlong *)0x0;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"error\":\"No function found for 0x140d54c90\"}"
+            }
+          ],
+          "structuredContent": {
+            "result": "{\"error\":\"No function found for 0x140d54c90\"}"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nvoid FUN_140d54cb0(longlong *param_1)\r\n\r\n{\r\n  longlong *plVar1;\r\n  bool bVar2;\r\n  int iVar3;\r\n  uint uVar4;\r\n  undefined7 extraout_var;\r\n  uint uVar5;\r\n  int iVar6;\r\n  uint uVar7;\r\n  uint *puVar8;\r\n  ulonglong uVar9;\r\n  int iVar10;\r\n  int iVar11;\r\n  int local_98;\r\n  uint uStack_94;\r\n  int iStack_90;\r\n  uint uStack_8c;\r\n  undefined8 local_88;\r\n  uint uStack_80;\r\n  uint uStack_7c;\r\n  int local_78;\r\n  undefined4 uStack_74;\r\n  undefined4 uStack_70;\r\n  undefined4 uStack_6c;\r\n  longlong *local_68;\r\n  undefined2 local_60;\r\n  longlong *local_58;\r\n  int iStack_50;\r\n  uint uStack_4c;\r\n  longlong *plStack_48;\r\n  undefined8 uStack_40;\r\n  undefined8 uStack_38;\r\n  undefined8 local_30;\r\n  \r\n  bVar2 = SupportsNativeMultithreading();\r\n  if (!bVar2) {\r\n    bVar2 = (*g_pfnTryEnterCriticalSection)(param_1 + 10);\r\n    if ((int)CONCAT71(extraout_var,bVar2) == 0) {\r\n      (*g_pfnEnterCriticalSection)(param_1 + 10);\r\n    }\r\n    uVar5 = *(uint *)(param_1 + 5);\r\n    plVar1 = param_1 + 2;\r\n    iVar11 = 1;\r\n    local_98 = 0;\r\n    uStack_94 = 1;\r\n    local_88._4_4_ = 0;\r\n    uStack_80 = 0;\r\n    iVar10 = 0x20;\r\n    if (uVar5 != 0) {\r\n      puVar8 = (uint *)((ulonglong)(param_1[4] != 0) - 1 & (ulonglong)plVar1 | param_1[4]);\r\n      uVar4 = *puVar8;\r\n      local_98 = 0;\r\n      uStack_80 = 0;\r\n      while (uVar4 == 0) {\r\n        local_98 = local_98 + 1;\r\n        uStack_80 = uStack_80 + 0x20;\r\n        local_88._4_4_ = uVar5;\r\n        if ((int)((uVar5 - 1) + ((int)(uVar5 - 1) >> 0x1f & 0x1fU)) >> 5 < local_98)\r\n        goto LAB_140d54dd1;\r\n        uVar4 = puVar8[local_98];\r\n      }\r\n      uStack_94 = ~(uVar4 - 1) & uVar4;\r\n      iVar6 = 0x1f;\r\n      if (uStack_94 != 0) {\r\n        for (; uStack_94 >> iVar6 == 0; iVar6 = iVar6 + -1) {\r\n        }\r\n      }\r\n      iVar3 = iVar10;\r\n      if (uStack_94 != 0) {\r\n        iVar3 = 0x1f - iVar6;\r\n      }\r\n      local_88._4_4_ = (uStack_80 - iVar3) + 0x1f;\r\n      if ((int)uVar5 < (int)local_88._4_4_) {\r\n        local_88._4_4_ = uVar5;\r\n      }\r\n    }\r\nLAB_140d54dd1:\r\n    uVar5 = *(uint *)(param_1 + 5);\r\n    uStack_40 = CONCAT44(local_88._4_4_,0xffffffff);\r\n    uStack_38 = CONCAT44(uStack_7c,uStack_80);\r\n    uVar4 = *(uint *)(param_1 + 5);\r\n    iStack_50 = local_98;\r\n    uStack_4c = uStack_94;\r\n    iVar6 = (int)uVar5 >> 5;\r\n    uVar7 = uVar5 & 0xffffffe0;\r\n    local_60 = 0;\r\n    local_30._0_4_ = SUB84(param_1,0);\r\n    local_30._4_4_ = (undefined4)((ulonglong)param_1 >> 0x20);\r\n    local_78 = uStack_80;\r\n    uStack_74 = uStack_7c;\r\n    uStack_70 = (undefined4)local_30;\r\n    uStack_6c = local_30._4_4_;\r\n    iStack_90 = local_98;\r\n    uStack_8c = uStack_94;\r\n    uStack_80 = 0xffffffff;\r\n    uStack_7c = local_88._4_4_;\r\n    local_68 = param_1;\r\n    local_58 = param_1;\r\n    plStack_48 = plVar1;\r\n    local_30 = param_1;\r\n    local_88 = plVar1;\r\n    if (uVar5 != uVar4) {\r\n      uVar9 = (ulonglong)(param_1[4] != 0) - 1 & (ulonglong)plVar1 | param_1[4];\r\n      uVar5 = *(uint *)(uVar9 + (longlong)iVar6 * 4) & -1 << ((byte)uVar5 & 0x1f);\r\n      while (uVar5 == 0) {\r\n        iVar6 = iVar6 + 1;\r\n        uVar7 = uVar7 + 0x20;\r\n        uVar5 = uVar4;\r\n        if ((int)((uVar4 - 1) + ((int)(uVar4 - 1) >> 0x1f & 0x1fU)) >> 5 < iVar6)\r\n        goto LAB_140d54eb0;\r\n        uVar5 = *(uint *)(uVar9 + (longlong)iVar6 * 4);\r\n      }\r\n      uVar5 = ~(uVar5 - 1) & uVar5;\r\n      iVar6 = 0x1f;\r\n      if (uVar5 != 0) {\r\n        for (; uVar5 >> iVar6 == 0; iVar6 = iVar6 + -1) {\r\n        }\r\n      }\r\n      iVar3 = iVar10;\r\n      if (uVar5 != 0) {\r\n        iVar3 = 0x1f - iVar6;\r\n      }\r\n      uVar5 = (uVar7 - iVar3) + 0x1f;\r\n      if ((int)uVar4 < (int)uVar5) {\r\n        uVar5 = uVar4;\r\n      }\r\n    }\r\nLAB_140d54eb0:\r\n    while ((uStack_7c != uVar5 || (local_88 != plVar1))) {\r\n      (**(code **)(**(longlong **)(*param_1 + 8 + (longlong)(int)uStack_7c * 0x18) + 0x30))();\r\n      uStack_80 = uStack_80 & ~uStack_8c;\r\n      TBitArray_AdvanceIterator(&iStack_90);\r\n    }\r\n    if (((char)local_60 != '\\0') && (local_60._1_1_ != '\\0')) {\r\n      uVar5 = (int)local_68[1] - *(int *)((longlong)local_68 + 0x34);\r\n      if (3 < uVar5) {\r\n        uVar4 = (uVar5 >> 1) + 8;\r\n        iVar11 = 0x1f;\r\n        if (uVar4 != 0) {\r\n          for (; uVar4 >> iVar11 == 0; iVar11 = iVar11 + -1) {\r\n          }\r\n        }\r\n        iVar6 = iVar10;\r\n        if (uVar4 != 0) {\r\n          iVar6 = 0x1f - iVar11;\r\n        }\r\n        uVar4 = (uVar5 >> 1) + 7;\r\n        iVar11 = 0x1f;\r\n        if (uVar4 != 0) {\r\n          for (; uVar4 >> iVar11 == 0; iVar11 = iVar11 + -1) {\r\n          }\r\n        }\r\n        if (uVar4 != 0) {\r\n          iVar10 = 0x1f - iVar11;\r\n        }\r\n        iVar11 = 1 << (~(byte)((iVar6 << 0x1a) >> 0x1f) & 0x20U - (char)iVar10 & 0x1f);\r\n      }\r\n      if ((0 < (int)uVar5) &&\r\n         (((iVar10 = (int)local_68[9], iVar10 == 0 || (iVar10 < iVar11)) || (iVar11 < iVar10)))) {\r\n        *(int *)(local_68 + 9) = iVar11;\r\n        FUN_140d51820(local_68);\r\n      }\r\n    }\r\n    (*g_pfnLeaveCriticalSection)(param_1 + 10);\r\n  }\r\n  return;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nvoid FUN_140d54cb0(longlong *param_1)\r\n\r\n{\r\n  longlong *plVar1;\r\n  bool bVar2;\r\n  int iVar3;\r\n  uint uVar4;\r\n  undefined7 extraout_var;\r\n  uint uVar5;\r\n  int iVar6;\r\n  uint uVar7;\r\n  uint *puVar8;\r\n  ulonglong uVar9;\r\n  int iVar10;\r\n  int iVar11;\r\n  int local_98;\r\n  uint uStack_94;\r\n  int iStack_90;\r\n  uint uStack_8c;\r\n  undefined8 local_88;\r\n  uint uStack_80;\r\n  uint uStack_7c;\r\n  int local_78;\r\n  undefined4 uStack_74;\r\n  undefined4 uStack_70;\r\n  undefined4 uStack_6c;\r\n  longlong *local_68;\r\n  undefined2 local_60;\r\n  longlong *local_58;\r\n  int iStack_50;\r\n  uint uStack_4c;\r\n  longlong *plStack_48;\r\n  undefined8 uStack_40;\r\n  undefined8 uStack_38;\r\n  undefined8 local_30;\r\n  \r\n  bVar2 = SupportsNativeMultithreading();\r\n  if (!bVar2) {\r\n    bVar2 = (*g_pfnTryEnterCriticalSection)(param_1 + 10);\r\n    if ((int)CONCAT71(extraout_var,bVar2) == 0) {\r\n      (*g_pfnEnterCriticalSection)(param_1 + 10);\r\n    }\r\n    uVar5 = *(uint *)(param_1 + 5);\r\n    plVar1 = param_1 + 2;\r\n    iVar11 = 1;\r\n    local_98 = 0;\r\n    uStack_94 = 1;\r\n    local_88._4_4_ = 0;\r\n    uStack_80 = 0;\r\n    iVar10 = 0x20;\r\n    if (uVar5 != 0) {\r\n      puVar8 = (uint *)((ulonglong)(param_1[4] != 0) - 1 & (ulonglong)plVar1 | param_1[4]);\r\n      uVar4 = *puVar8;\r\n      local_98 = 0;\r\n      uStack_80 = 0;\r\n      while (uVar4 == 0) {\r\n        local_98 = local_98 + 1;\r\n        uStack_80 = uStack_80 + 0x20;\r\n        local_88._4_4_ = uVar5;\r\n        if ((int)((uVar5 - 1) + ((int)(uVar5 - 1) >> 0x1f & 0x1fU)) >> 5 < local_98)\r\n        goto LAB_140d54dd1;\r\n        uVar4 = puVar8[local_98];\r\n      }\r\n      uStack_94 = ~(uVar4 - 1) & uVar4;\r\n      iVar6 = 0x1f;\r\n      if (uStack_94 != 0) {\r\n        for (; uStack_94 >> iVar6 == 0; iVar6 = iVar6 + -1) {\r\n        }\r\n      }\r\n      iVar3 = iVar10;\r\n      if (uStack_94 != 0) {\r\n        iVar3 = 0x1f - iVar6;\r\n      }\r\n      local_88._4_4_ = (uStack_80 - iVar3) + 0x1f;\r\n      if ((int)uVar5 < (int)local_88._4_4_) {\r\n        local_88._4_4_ = uVar5;\r\n      }\r\n    }\r\nLAB_140d54dd1:\r\n    uVar5 = *(uint *)(param_1 + 5);\r\n    uStack_40 = CONCAT44(local_88._4_4_,0xffffffff);\r\n    uStack_38 = CONCAT44(uStack_7c,uStack_80);\r\n    uVar4 = *(uint *)(param_1 + 5);\r\n    iStack_50 = local_98;\r\n    uStack_4c = uStack_94;\r\n    iVar6 = (int)uVar5 >> 5;\r\n    uVar7 = uVar5 & 0xffffffe0;\r\n    local_60 = 0;\r\n    local_30._0_4_ = SUB84(param_1,0);\r\n    local_30._4_4_ = (undefined4)((ulonglong)param_1 >> 0x20);\r\n    local_78 = uStack_80;\r\n    uStack_74 = uStack_7c;\r\n    uStack_70 = (undefined4)local_30;\r\n    uStack_6c = local_30._4_4_;\r\n    iStack_90 = local_98;\r\n    uStack_8c = uStack_94;\r\n    uStack_80 = 0xffffffff;\r\n    uStack_7c = local_88._4_4_;\r\n    local_68 = param_1;\r\n    local_58 = param_1;\r\n    plStack_48 = plVar1;\r\n    local_30 = param_1;\r\n    local_88 = plVar1;\r\n    if (uVar5 != uVar4) {\r\n      uVar9 = (ulonglong)(param_1[4] != 0) - 1 & (ulonglong)plVar1 | param_1[4];\r\n      uVar5 = *(uint *)(uVar9 + (longlong)iVar6 * 4) & -1 << ((byte)uVar5 & 0x1f);\r\n      while (uVar5 == 0) {\r\n        iVar6 = iVar6 + 1;\r\n        uVar7 = uVar7 + 0x20;\r\n        uVar5 = uVar4;\r\n        if ((int)((uVar4 - 1) + ((int)(uVar4 - 1) >> 0x1f & 0x1fU)) >> 5 < iVar6)\r\n        goto LAB_140d54eb0;\r\n        uVar5 = *(uint *)(uVar9 + (longlong)iVar6 * 4);\r\n      }\r\n      uVar5 = ~(uVar5 - 1) & uVar5;\r\n      iVar6 = 0x1f;\r\n      if (uVar5 != 0) {\r\n        for (; uVar5 >> iVar6 == 0; iVar6 = iVar6 + -1) {\r\n        }\r\n      }\r\n      iVar3 = iVar10;\r\n      if (uVar5 != 0) {\r\n        iVar3 = 0x1f - iVar6;\r\n      }\r\n      uVar5 = (uVar7 - iVar3) + 0x1f;\r\n      if ((int)uVar4 < (int)uVar5) {\r\n        uVar5 = uVar4;\r\n      }\r\n    }\r\nLAB_140d54eb0:\r\n    while ((uStack_7c != uVar5 || (local_88 != plVar1))) {\r\n      (**(code **)(**(longlong **)(*param_1 + 8 + (longlong)(int)uStack_7c * 0x18) + 0x30))();\r\n      uStack_80 = uStack_80 & ~uStack_8c;\r\n      TBitArray_AdvanceIterator(&iStack_90);\r\n    }\r\n    if (((char)local_60 != '\\0') && (local_60._1_1_ != '\\0')) {\r\n      uVar5 = (int)local_68[1] - *(int *)((longlong)local_68 + 0x34);\r\n      if (3 < uVar5) {\r\n        uVar4 = (uVar5 >> 1) + 8;\r\n        iVar11 = 0x1f;\r\n        if (uVar4 != 0) {\r\n          for (; uVar4 >> iVar11 == 0; iVar11 = iVar11 + -1) {\r\n          }\r\n        }\r\n        iVar6 = iVar10;\r\n        if (uVar4 != 0) {\r\n          iVar6 = 0x1f - iVar11;\r\n        }\r\n        uVar4 = (uVar5 >> 1) + 7;\r\n        iVar11 = 0x1f;\r\n        if (uVar4 != 0) {\r\n          for (; uVar4 >> iVar11 == 0; iVar11 = iVar11 + -1) {\r\n          }\r\n        }\r\n        if (uVar4 != 0) {\r\n          iVar10 = 0x1f - iVar11;\r\n        }\r\n        iVar11 = 1 << (~(byte)((iVar6 << 0x1a) >> 0x1f) & 0x20U - (char)iVar10 & 0x1f);\r\n      }\r\n      if ((0 < (int)uVar5) &&\r\n         (((iVar10 = (int)local_68[9], iVar10 == 0 || (iVar10 < iVar11)) || (iVar11 < iVar10)))) {\r\n        *(int *)(local_68 + 9) = iVar11;\r\n        FUN_140d51820(local_68);\r\n      }\r\n    }\r\n    (*g_pfnLeaveCriticalSection)(param_1 + 10);\r\n  }\r\n  return;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\n/* Return whether native multithreading is permitted by the cached command line.\r\n   \r\n   Algorithm:\r\n   1. Initialize the static boolean once using the CRT thread-safe initialization epoch at\r\n   0x144166DD8.\r\n   2. Cache the inverse of FParse_Param(commandLine, L\"nothreading\") at 0x144166DD4.\r\n   3. Return the cached boolean.\r\n   \r\n   Returns:\r\n     bool: false when -nothreading was present at first initialization; true otherwise.\r\n   \r\n   Special Cases:\r\n     This is not an IsGame predicate. It selects real versus fake runnable threads in 0x140D40DD0\r\n   and controls the fake-thread pump at 0x140D54CB0. -onethread is a separate higher-level\r\n   parallelism predicate at 0x140DB7B80 and does not by itself prohibit native thread creation. This\r\n   predicate is not a process-wide inventory of all OS threads. */\r\n\r\nbool SupportsNativeMultithreading(void)\r\n\r\n{\r\n  char cVar1;\r\n  undefined8 uVar2;\r\n  \r\n  if (*(int *)(*(longlong *)((longlong)ThreadLocalStoragePointer + (ulonglong)g_dwTlsIndex * 8) +\r\n              0x18) < DAT_144166dd8) {\r\n    _Init_thread_header(&DAT_144166dd8);\r\n    if (DAT_144166dd8 == -1) {\r\n      uVar2 = FUN_140da6170();\r\n      cVar1 = FParse_Param(uVar2,L\"nothreading\");\r\n      DAT_144166dd4 = cVar1 == '\\0';\r\n      _Init_thread_footer(&DAT_144166dd8);\r\n    }\r\n  }\r\n  return (bool)DAT_144166dd4;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\n/* Return whether native multithreading is permitted by the cached command line.\r\n   \r\n   Algorithm:\r\n   1. Initialize the static boolean once using the CRT thread-safe initialization epoch at\r\n   0x144166DD8.\r\n   2. Cache the inverse of FParse_Param(commandLine, L\"nothreading\") at 0x144166DD4.\r\n   3. Return the cached boolean.\r\n   \r\n   Returns:\r\n     bool: false when -nothreading was present at first initialization; true otherwise.\r\n   \r\n   Special Cases:\r\n     This is not an IsGame predicate. It selects real versus fake runnable threads in 0x140D40DD0\r\n   and controls the fake-thread pump at 0x140D54CB0. -onethread is a separate higher-level\r\n   parallelism predicate at 0x140DB7B80 and does not by itself prohibit native thread creation. This\r\n   predicate is not a process-wide inventory of all OS threads. */\r\n\r\nbool SupportsNativeMultithreading(void)\r\n\r\n{\r\n  char cVar1;\r\n  undefined8 uVar2;\r\n  \r\n  if (*(int *)(*(longlong *)((longlong)ThreadLocalStoragePointer + (ulonglong)g_dwTlsIndex * 8) +\r\n              0x18) < DAT_144166dd8) {\r\n    _Init_thread_header(&DAT_144166dd8);\r\n    if (DAT_144166dd8 == -1) {\r\n      uVar2 = FUN_140da6170();\r\n      cVar1 = FParse_Param(uVar2,L\"nothreading\");\r\n      DAT_144166dd4 = cVar1 == '\\0';\r\n      _Init_thread_footer(&DAT_144166dd8);\r\n    }\r\n  }\r\n  return (bool)DAT_144166dd4;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "runtime_graph_worker_ctor": {
+      "content": [
+        {
+          "type": "text",
+          "text": "\r\nundefined8 * FUN_140d18440(undefined8 *param_1,undefined4 param_2)\r\n\r\n{\r\n  undefined8 uVar1;\r\n  \r\n  *(undefined4 *)(param_1 + 2) = 0xff;\r\n  *(undefined4 *)((longlong)param_1 + 0x14) = 0xffffffff;\r\n  *param_1 = &PTR_FUN_1434b1db8;\r\n  param_1[1] = &PTR_LAB_1434b1e20;\r\n  *(undefined4 *)(param_1 + 3) = 0;\r\n  param_1[4] = 0;\r\n  param_1[5] = 0;\r\n  param_1[6] = 0;\r\n  *(undefined4 *)(param_1 + 5) = 0;\r\n  if (*(int *)((longlong)param_1 + 0x2c) < 0x80) {\r\n    FUN_141764ac0(param_1 + 4,0x80);\r\n  }\r\n  *param_1 = &PTR_FUN_1434b1ea8;\r\n  param_1[1] = &PTR_LAB_1434b1f10;\r\n  uVar1 = FUN_140d24280();\r\n  uVar1 = FUN_140d24e70(uVar1);\r\n  param_1[7] = uVar1;\r\n  *(undefined4 *)(param_1 + 8) = 0;\r\n  *(undefined2 *)((longlong)param_1 + 0x44) = 0;\r\n  InitializeCriticalSection((LPCRITICAL_SECTION)(param_1 + 9));\r\n  SetCriticalSectionSpinCount((LPCRITICAL_SECTION)(param_1 + 9),4000);\r\n  *(undefined4 *)(param_1 + 0xe) = param_2;\r\n  return param_1;\r\n}\r\n\r\n"
+        }
+      ],
+      "structuredContent": {
+        "result": "\r\nundefined8 * FUN_140d18440(undefined8 *param_1,undefined4 param_2)\r\n\r\n{\r\n  undefined8 uVar1;\r\n  \r\n  *(undefined4 *)(param_1 + 2) = 0xff;\r\n  *(undefined4 *)((longlong)param_1 + 0x14) = 0xffffffff;\r\n  *param_1 = &PTR_FUN_1434b1db8;\r\n  param_1[1] = &PTR_LAB_1434b1e20;\r\n  *(undefined4 *)(param_1 + 3) = 0;\r\n  param_1[4] = 0;\r\n  param_1[5] = 0;\r\n  param_1[6] = 0;\r\n  *(undefined4 *)(param_1 + 5) = 0;\r\n  if (*(int *)((longlong)param_1 + 0x2c) < 0x80) {\r\n    FUN_141764ac0(param_1 + 4,0x80);\r\n  }\r\n  *param_1 = &PTR_FUN_1434b1ea8;\r\n  param_1[1] = &PTR_LAB_1434b1f10;\r\n  uVar1 = FUN_140d24280();\r\n  uVar1 = FUN_140d24e70(uVar1);\r\n  param_1[7] = uVar1;\r\n  *(undefined4 *)(param_1 + 8) = 0;\r\n  *(undefined2 *)((longlong)param_1 + 0x44) = 0;\r\n  InitializeCriticalSection((LPCRITICAL_SECTION)(param_1 + 9));\r\n  SetCriticalSectionSpinCount((LPCRITICAL_SECTION)(param_1 + 9),4000);\r\n  *(undefined4 *)(param_1 + 0xe) = param_2;\r\n  return param_1;\r\n}\r\n\r\n"
+      },
+      "isError": false
+    },
+    "runtime_fake_tick_asm": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"140D54C90\":{\"address\":\"140D54C90\",\"instruction\":\"MOV RAX,RCX\",\"context_before\":[\"140d54c7f: JMP 0x142b0f540\",\"140d54c7e: POP RDI\",\"140d54c7a: ADD RSP,0x20\",\"140d54c75: MOV RBX,qword ptr [RSP + 0x30]\",\"140d54c73: JNZ 0x140d54c40\",\"140d54c6f: SUB R9,0x1\",\"140d54c68: MOV dword ptr [RDX + RCX*0x4],0xffffffff\",\"140d54c64: OR RDX,qword ptr [R8 + 0x8]\",\"140d54c61: INC RBX\"],\"context_after\":[\"140d54c93: MOV RCX,qword ptr [RCX + 0x50]\",\"140d54c97: TEST RCX,RCX\",\"140d54c9a: JZ 0x140d54ca9\",\"140d54c9c: CMP byte ptr [RAX + 0x48],0x0\",\"140d54ca0: JNZ 0x140d54ca9\",\"140d54ca2: MOV RAX,qword ptr [RCX]\",\"140d54ca5: JMP qword ptr [RAX + 0x8]\",\"140d54ca9: RET\",\"140d54cb0: PUSH RBP\"],\"mnemonic\":\"MOV\",\"patterns_detected\":[\"data_access\"]}}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"140D54C90\":{\"address\":\"140D54C90\",\"instruction\":\"MOV RAX,RCX\",\"context_before\":[\"140d54c7f: JMP 0x142b0f540\",\"140d54c7e: POP RDI\",\"140d54c7a: ADD RSP,0x20\",\"140d54c75: MOV RBX,qword ptr [RSP + 0x30]\",\"140d54c73: JNZ 0x140d54c40\",\"140d54c6f: SUB R9,0x1\",\"140d54c68: MOV dword ptr [RDX + RCX*0x4],0xffffffff\",\"140d54c64: OR RDX,qword ptr [R8 + 0x8]\",\"140d54c61: INC RBX\"],\"context_after\":[\"140d54c93: MOV RCX,qword ptr [RCX + 0x50]\",\"140d54c97: TEST RCX,RCX\",\"140d54c9a: JZ 0x140d54ca9\",\"140d54c9c: CMP byte ptr [RAX + 0x48],0x0\",\"140d54ca0: JNZ 0x140d54ca9\",\"140d54ca2: MOV RAX,qword ptr [RCX]\",\"140d54ca5: JMP qword ptr [RAX + 0x8]\",\"140d54ca9: RET\",\"140d54cb0: PUSH RBP\"],\"mnemonic\":\"MOV\",\"patterns_detected\":[\"data_access\"]}}"
+      },
+      "isError": false
+    },
+    "runtime_worker_interface_slot": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"address\":\"1434b1ec8\",\"length\":8,\"data\":[16,206,10,66,1,0,0,0],\"hex\":\"10ce0a4201000000\"}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"address\":\"1434b1ec8\",\"length\":8,\"data\":[16,206,10,66,1,0,0,0],\"hex\":\"10ce0a4201000000\"}"
+      },
+      "isError": false
+    },
+    "runtime_async_singleton": {
+      "content": [
+        {
+          "type": "text",
+          "text": "\r\n/* WARNING: Unknown calling convention -- yet parameter storage is locked */\r\n/* Returns the process async-loading object at14429EF70, constructing it once through140E3BC60 under\r\n   thread-safe static-init epoch14429F250. The native thread pointer is object+8 (14429EF78),\r\n   separate from event-driven-loader setting14419716A. Read-only qualification must require\r\n   initialized object epoch before interpreting a null thread pointer. Full object layout remains\r\n   opaque. */\r\n\r\nvoid * GetAsyncLoadingObject(void)\r\n\r\n{\r\n  if (*(int *)(*(longlong *)((longlong)ThreadLocalStoragePointer + (ulonglong)g_dwTlsIndex * 8) +\r\n              0x18) < DAT_14429f250) {\r\n    _Init_thread_header(&DAT_14429f250);\r\n    if (DAT_14429f250 == -1) {\r\n      FUN_140e3bc60(&DAT_14429ef70);\r\n      atexit((_func_5014 *)&LAB_1431fa070);\r\n      _Init_thread_footer(&DAT_14429f250);\r\n      return &DAT_14429ef70;\r\n    }\r\n  }\r\n  return &DAT_14429ef70;\r\n}\r\n\r\n"
+        }
+      ],
+      "structuredContent": {
+        "result": "\r\n/* WARNING: Unknown calling convention -- yet parameter storage is locked */\r\n/* Returns the process async-loading object at14429EF70, constructing it once through140E3BC60 under\r\n   thread-safe static-init epoch14429F250. The native thread pointer is object+8 (14429EF78),\r\n   separate from event-driven-loader setting14419716A. Read-only qualification must require\r\n   initialized object epoch before interpreting a null thread pointer. Full object layout remains\r\n   opaque. */\r\n\r\nvoid * GetAsyncLoadingObject(void)\r\n\r\n{\r\n  if (*(int *)(*(longlong *)((longlong)ThreadLocalStoragePointer + (ulonglong)g_dwTlsIndex * 8) +\r\n              0x18) < DAT_14429f250) {\r\n    _Init_thread_header(&DAT_14429f250);\r\n    if (DAT_14429f250 == -1) {\r\n      FUN_140e3bc60(&DAT_14429ef70);\r\n      atexit((_func_5014 *)&LAB_1431fa070);\r\n      _Init_thread_footer(&DAT_14429f250);\r\n      return &DAT_14429ef70;\r\n    }\r\n  }\r\n  return &DAT_14429ef70;\r\n}\r\n\r\n"
+      },
+      "isError": false
+    },
+    "runtime_worker_interface": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"1420ACE10\":{\"address\":\"1420ACE10\",\"instruction\":\"XOR EDX,EDX\",\"context_before\":[\"1420ace05: RET\",\"1420ace01: ADD RSP,0x38\",\"1420acdfc: MOVAPS XMM8,xmmword ptr [RSP]\",\"1420acdf7: MOVAPS xmmword ptr [RDX + 0x30],XMM8\"],\"context_after\":[\"1420ace12: LEA RAX,[RCX + 0x8]\",\"1420ace16: TEST RCX,RCX\",\"1420ace19: CMOVZ RAX,RDX\",\"1420ace1d: RET\"],\"mnemonic\":\"XOR\",\"patterns_detected\":[]}}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"1420ACE10\":{\"address\":\"1420ACE10\",\"instruction\":\"XOR EDX,EDX\",\"context_before\":[\"1420ace05: RET\",\"1420ace01: ADD RSP,0x38\",\"1420acdfc: MOVAPS XMM8,xmmword ptr [RSP]\",\"1420acdf7: MOVAPS xmmword ptr [RDX + 0x30],XMM8\"],\"context_after\":[\"1420ace12: LEA RAX,[RCX + 0x8]\",\"1420ace16: TEST RCX,RCX\",\"1420ace19: CMOVZ RAX,RDX\",\"1420ace1d: RET\"],\"mnemonic\":\"XOR\",\"patterns_detected\":[]}}"
+      },
+      "isError": false
+    },
+    "runtime_render_flag_refs": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "From 140396490 in FEngineLoop_Tick [READ]\nFrom 14039f45f in FEngineLoop_Init [READ]\nFrom 14039f46c in FEngineLoop_Init [WRITE]\nFrom 14039fe0e in FEngineLoop_Init [READ]\nFrom 141afc9df in FUN_141afc9d0 [READ]\nFrom 141afd0d6 in FUN_141afd0c0 [READ]\nFrom 141afdb19 in FUN_141afdb10 [READ]\nFrom 1415e7df7 in FUN_1415e7dc0 [READ]\nFrom 1415e7e13 in FUN_1415e7dc0 [WRITE]\nFrom 1415e849a in FUN_1415e8470 [WRITE]"
+            }
+          ],
+          "structuredContent": {
+            "result": "From 140396490 in FEngineLoop_Tick [READ]\nFrom 14039f45f in FEngineLoop_Init [READ]\nFrom 14039f46c in FEngineLoop_Init [WRITE]\nFrom 14039fe0e in FEngineLoop_Init [READ]\nFrom 141afc9df in FUN_141afc9d0 [READ]\nFrom 141afd0d6 in FUN_141afd0c0 [READ]\nFrom 141afdb19 in FUN_141afdb10 [READ]\nFrom 1415e7df7 in FUN_1415e7dc0 [READ]\nFrom 1415e7e13 in FUN_1415e7dc0 [WRITE]\nFrom 1415e849a in FUN_1415e8470 [WRITE]"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "From 14039fe20 in FEngineLoop_Init [WRITE]\nFrom 14039fe3f in FEngineLoop_Init [WRITE]\nFrom 14039fe5c in FEngineLoop_Init [READ]\nFrom 14039fe68 in FEngineLoop_Init [WRITE]\nFrom 1415ef335 in FUN_1415ef320 [READ]\nFrom 1415eeefa in SetRHIThreadMode [READ]\nFrom 1415eef3b in SetRHIThreadMode [WRITE]\nFrom 1415eef47 in SetRHIThreadMode [WRITE]"
+            }
+          ],
+          "structuredContent": {
+            "result": "From 14039fe20 in FEngineLoop_Init [WRITE]\nFrom 14039fe3f in FEngineLoop_Init [WRITE]\nFrom 14039fe5c in FEngineLoop_Init [READ]\nFrom 14039fe68 in FEngineLoop_Init [WRITE]\nFrom 1415ef335 in FUN_1415ef320 [READ]\nFrom 1415eeefa in SetRHIThreadMode [READ]\nFrom 1415eef3b in SetRHIThreadMode [WRITE]\nFrom 1415eef47 in SetRHIThreadMode [WRITE]"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "runtime_render_init": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"14039F45F\":{\"address\":\"14039F45F\",\"instruction\":\"MOVZX ECX,byte ptr [0x144351841]\",\"context_before\":[\"14039f45a: CALL 0x140db7b80\",\"14039f455: CALL 0x141e10710\",\"14039f453: XOR ECX,ECX\",\"14039f44e: CALL 0x14207eca0\",\"14039f447: LEA RCX,[0x144197508]\",\"14039f442: CALL 0x141e5d3f0\",\"14039f440: JNZ 0x14039f447\",\"14039f439: CMP byte ptr [0x14418b12f],SIL\",\"14039f434: CALL 0x140d9d0a0\",\"14039f431: XOR R9D,R9D\",\"14039f429: CMOVNZ RDX,qword ptr [0x144197448]\",\"14039f423: MOV R8D,0x3000000\"],\"context_after\":[\"14039f466: TEST AL,AL\",\"14039f468: CMOVNZ ECX,R12D\",\"14039f46c: MOV byte ptr [0x144351841],CL\",\"14039f472: CALL 0x140dacbd0\",\"14039f477: CALL 0x140e09a60\",\"14039f47c: CALL 0x140e06000\",\"14039f481: MOV RCX,qword ptr [0x14418b110]\",\"14039f488: TEST RCX,RCX\",\"14039f48b: JZ 0x14039f4a3\",\"14039f48d: CMP dword ptr [0x144197500],ESI\",\"14039f493: MOV RDX,RDI\",\"14039f496: CMOVNZ RDX,qword ptr [0x1441974f8]\"],\"mnemonic\":\"MOVZX\",\"patterns_detected\":[]},\"14039FE0E\":{\"address\":\"14039FE0E\",\"instruction\":\"CMP byte ptr [0x144351841],SIL\",\"context_before\":[\"14039fe09: CALL 0x1415e2df0\",\"14039fe04: CALL 0x140de6070\",\"14039fe01: MOVAPS XMM1,XMM6\",\"14039fdfa: LEA RCX,[RBP + 0x600]\",\"14039fdf7: MOV R8,RAX\",\"14039fdf2: CALL 0x140d61fa0\",\"14039fdeb: LEA RCX,[RBP + 0x540]\",\"14039fde6: MOV RBX,qword ptr [RSP + 0x68]\",\"14039fde2: CALL qword ptr [R8 + 0x8]\",\"14039fddf: MOV R8,qword ptr [RAX]\",\"14039fddc: MOV RCX,RAX\",\"14039fdd9: MOV RDX,RBX\"],\"context_after\":[\"14039fe15: JZ 0x14039fe73\",\"14039fe17: CMP byte ptr [0x1443445fe],SIL\",\"14039fe1e: JZ 0x14039fe6e\",\"14039fe20: MOV byte ptr [0x14434459c],0x1\",\"14039fe27: CALL 0x140da6170\",\"14039fe2c: MOV RCX,RAX\",\"14039fe2f: LEA RDX,[0x143258660]\",\"14039fe36: CALL 0x140dd02f0\",\"14039fe3b: TEST AL,AL\",\"14039fe3d: JZ 0x14039fe48\",\"14039fe3f: MOV byte ptr [0x14434459c],0x1\",\"14039fe46: JMP 0x14039fe6e\"],\"mnemonic\":\"CMP\",\"patterns_detected\":[\"comparison\"]},\"14039FE5C\":{\"address\":\"14039FE5C\",\"instruction\":\"MOVZX ECX,byte ptr [0x14434459c]\",\"context_before\":[\"14039fe57: CALL 0x140dd02f0\",\"14039fe50: LEA RDX,[0x143258678]\",\"14039fe4d: MOV RCX,RAX\",\"14039fe48: CALL 0x140da6170\",\"14039fe46: JMP 0x14039fe6e\",\"14039fe3f: MOV byte ptr [0x14434459c],0x1\",\"14039fe3d: JZ 0x14039fe48\",\"14039fe3b: TEST AL,AL\",\"14039fe36: CALL 0x140dd02f0\",\"14039fe2f: LEA RDX,[0x143258660]\",\"14039fe2c: MOV RCX,RAX\",\"14039fe27: CALL 0x140da6170\"],\"context_after\":[\"14039fe63: TEST AL,AL\",\"14039fe65: CMOVNZ ECX,ESI\",\"14039fe68: MOV byte ptr [0x14434459c],CL\",\"14039fe6e: CALL 0x1415ef320\",\"14039fe73: CMP byte ptr [0x14418b12f],SIL\",\"14039fe7a: JNZ 0x14039fe9c\",\"14039fe7c: CALL 0x141afdb10\",\"14039fe81: MOV RCX,RAX\",\"14039fe84: MOV RDX,qword ptr [RAX]\",\"14039fe87: CALL qword ptr [RDX + 0x60]\",\"14039fe8a: TEST AL,AL\",\"14039fe8c: JNZ 0x14039fe9c\"],\"mnemonic\":\"MOVZX\",\"patterns_detected\":[]}}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"14039F45F\":{\"address\":\"14039F45F\",\"instruction\":\"MOVZX ECX,byte ptr [0x144351841]\",\"context_before\":[\"14039f45a: CALL 0x140db7b80\",\"14039f455: CALL 0x141e10710\",\"14039f453: XOR ECX,ECX\",\"14039f44e: CALL 0x14207eca0\",\"14039f447: LEA RCX,[0x144197508]\",\"14039f442: CALL 0x141e5d3f0\",\"14039f440: JNZ 0x14039f447\",\"14039f439: CMP byte ptr [0x14418b12f],SIL\",\"14039f434: CALL 0x140d9d0a0\",\"14039f431: XOR R9D,R9D\",\"14039f429: CMOVNZ RDX,qword ptr [0x144197448]\",\"14039f423: MOV R8D,0x3000000\"],\"context_after\":[\"14039f466: TEST AL,AL\",\"14039f468: CMOVNZ ECX,R12D\",\"14039f46c: MOV byte ptr [0x144351841],CL\",\"14039f472: CALL 0x140dacbd0\",\"14039f477: CALL 0x140e09a60\",\"14039f47c: CALL 0x140e06000\",\"14039f481: MOV RCX,qword ptr [0x14418b110]\",\"14039f488: TEST RCX,RCX\",\"14039f48b: JZ 0x14039f4a3\",\"14039f48d: CMP dword ptr [0x144197500],ESI\",\"14039f493: MOV RDX,RDI\",\"14039f496: CMOVNZ RDX,qword ptr [0x1441974f8]\"],\"mnemonic\":\"MOVZX\",\"patterns_detected\":[]},\"14039FE0E\":{\"address\":\"14039FE0E\",\"instruction\":\"CMP byte ptr [0x144351841],SIL\",\"context_before\":[\"14039fe09: CALL 0x1415e2df0\",\"14039fe04: CALL 0x140de6070\",\"14039fe01: MOVAPS XMM1,XMM6\",\"14039fdfa: LEA RCX,[RBP + 0x600]\",\"14039fdf7: MOV R8,RAX\",\"14039fdf2: CALL 0x140d61fa0\",\"14039fdeb: LEA RCX,[RBP + 0x540]\",\"14039fde6: MOV RBX,qword ptr [RSP + 0x68]\",\"14039fde2: CALL qword ptr [R8 + 0x8]\",\"14039fddf: MOV R8,qword ptr [RAX]\",\"14039fddc: MOV RCX,RAX\",\"14039fdd9: MOV RDX,RBX\"],\"context_after\":[\"14039fe15: JZ 0x14039fe73\",\"14039fe17: CMP byte ptr [0x1443445fe],SIL\",\"14039fe1e: JZ 0x14039fe6e\",\"14039fe20: MOV byte ptr [0x14434459c],0x1\",\"14039fe27: CALL 0x140da6170\",\"14039fe2c: MOV RCX,RAX\",\"14039fe2f: LEA RDX,[0x143258660]\",\"14039fe36: CALL 0x140dd02f0\",\"14039fe3b: TEST AL,AL\",\"14039fe3d: JZ 0x14039fe48\",\"14039fe3f: MOV byte ptr [0x14434459c],0x1\",\"14039fe46: JMP 0x14039fe6e\"],\"mnemonic\":\"CMP\",\"patterns_detected\":[\"comparison\"]},\"14039FE5C\":{\"address\":\"14039FE5C\",\"instruction\":\"MOVZX ECX,byte ptr [0x14434459c]\",\"context_before\":[\"14039fe57: CALL 0x140dd02f0\",\"14039fe50: LEA RDX,[0x143258678]\",\"14039fe4d: MOV RCX,RAX\",\"14039fe48: CALL 0x140da6170\",\"14039fe46: JMP 0x14039fe6e\",\"14039fe3f: MOV byte ptr [0x14434459c],0x1\",\"14039fe3d: JZ 0x14039fe48\",\"14039fe3b: TEST AL,AL\",\"14039fe36: CALL 0x140dd02f0\",\"14039fe2f: LEA RDX,[0x143258660]\",\"14039fe2c: MOV RCX,RAX\",\"14039fe27: CALL 0x140da6170\"],\"context_after\":[\"14039fe63: TEST AL,AL\",\"14039fe65: CMOVNZ ECX,ESI\",\"14039fe68: MOV byte ptr [0x14434459c],CL\",\"14039fe6e: CALL 0x1415ef320\",\"14039fe73: CMP byte ptr [0x14418b12f],SIL\",\"14039fe7a: JNZ 0x14039fe9c\",\"14039fe7c: CALL 0x141afdb10\",\"14039fe81: MOV RCX,RAX\",\"14039fe84: MOV RDX,qword ptr [RAX]\",\"14039fe87: CALL qword ptr [RDX + 0x60]\",\"14039fe8a: TEST AL,AL\",\"14039fe8c: JNZ 0x14039fe9c\"],\"mnemonic\":\"MOVZX\",\"patterns_detected\":[]}}"
+      },
+      "isError": false
+    },
+    "runtime_fake_pump_refs": {
+      "content": [
+        {
+          "type": "text",
+          "text": "From 1449010d0 [DATA]\nFrom 143eede94 [DATA]\nFrom 143eedee4 [DATA]\nFrom 140396b31 in FEngineLoop_Tick [UNCONDITIONAL_CALL]"
+        }
+      ],
+      "structuredContent": {
+        "result": "From 1449010d0 [DATA]\nFrom 143eede94 [DATA]\nFrom 143eedee4 [DATA]\nFrom 140396b31 in FEngineLoop_Tick [UNCONDITIONAL_CALL]"
+      },
+      "isError": false
+    },
+    "runtime_fake_wrapper_table": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"address\":\"1434b94a8\",\"length\":64,\"data\":[192,43,45,64,1,0,0,0,176,74,213,64,1,0,0,0,0,244,212,64,1,0,0,0,112,88,213,64,1,0,0,0,32,206,211,64,1,0,0,0,224,25,212,64,1,0,0,0,144,76,213,64,1,0,0,0,240,114,45,64,1,0,0,0],\"hex\":\"c02b2d4001000000b04ad5400100000000f4d440010000007058d5400100000020ced34001000000e019d44001000000904cd54001000000f0722d4001000000\"}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"address\":\"1434b94a8\",\"length\":64,\"data\":[192,43,45,64,1,0,0,0,176,74,213,64,1,0,0,0,0,244,212,64,1,0,0,0,112,88,213,64,1,0,0,0,32,206,211,64,1,0,0,0,224,25,212,64,1,0,0,0,144,76,213,64,1,0,0,0,240,114,45,64,1,0,0,0],\"hex\":\"c02b2d4001000000b04ad5400100000000f4d440010000007058d5400100000020ced34001000000e019d44001000000904cd54001000000f0722d4001000000\"}"
+      },
+      "isError": false
+    },
+    "runtime_render_policy": {
+      "content": [
+        {
+          "type": "text",
+          "text": "\r\nbool FUN_140db7b80(void)\r\n\r\n{\r\n  char cVar1;\r\n  bool bVar2;\r\n  int iVar3;\r\n  undefined8 uVar4;\r\n  \r\n  if (DAT_14418acb8 <=\r\n      *(int *)(*(longlong *)((longlong)ThreadLocalStoragePointer + (ulonglong)g_dwTlsIndex * 8) +\r\n              0x18)) goto LAB_140db7ba7;\r\n  _Init_thread_header(&DAT_14418acb8);\r\n  if (DAT_14418acb8 != -1) goto LAB_140db7ba7;\r\n  uVar4 = FUN_140da6170();\r\n  cVar1 = FParse_Param(uVar4,L\"ONETHREAD\");\r\n  if (cVar1 == '\\0') {\r\n    bVar2 = SupportsNativeMultithreading();\r\n    if (!bVar2) goto LAB_140db7bfe;\r\n    iVar3 = FUN_140e08e20();\r\n    DAT_14418acb4 = '\\0';\r\n    if (iVar3 < 2) goto LAB_140db7bfe;\r\n  }\r\n  else {\r\nLAB_140db7bfe:\r\n    DAT_14418acb4 = '\\x01';\r\n  }\r\n  _Init_thread_footer(&DAT_14418acb8);\r\nLAB_140db7ba7:\r\n  return DAT_14418acb4 == '\\0';\r\n}\r\n\r\n"
+        }
+      ],
+      "structuredContent": {
+        "result": "\r\nbool FUN_140db7b80(void)\r\n\r\n{\r\n  char cVar1;\r\n  bool bVar2;\r\n  int iVar3;\r\n  undefined8 uVar4;\r\n  \r\n  if (DAT_14418acb8 <=\r\n      *(int *)(*(longlong *)((longlong)ThreadLocalStoragePointer + (ulonglong)g_dwTlsIndex * 8) +\r\n              0x18)) goto LAB_140db7ba7;\r\n  _Init_thread_header(&DAT_14418acb8);\r\n  if (DAT_14418acb8 != -1) goto LAB_140db7ba7;\r\n  uVar4 = FUN_140da6170();\r\n  cVar1 = FParse_Param(uVar4,L\"ONETHREAD\");\r\n  if (cVar1 == '\\0') {\r\n    bVar2 = SupportsNativeMultithreading();\r\n    if (!bVar2) goto LAB_140db7bfe;\r\n    iVar3 = FUN_140e08e20();\r\n    DAT_14418acb4 = '\\0';\r\n    if (iVar3 < 2) goto LAB_140db7bfe;\r\n  }\r\n  else {\r\nLAB_140db7bfe:\r\n    DAT_14418acb4 = '\\x01';\r\n  }\r\n  _Init_thread_footer(&DAT_14418acb8);\r\nLAB_140db7ba7:\r\n  return DAT_14418acb4 == '\\0';\r\n}\r\n\r\n"
+      },
+      "isError": false
+    },
+    "runtime_fake_pump_signature": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"address\":\"140d54cb0\",\"length\":32,\"data\":[64,85,65,85,72,141,108,36,177,72,129,236,168,0,0,0,76,139,233,232,40,6,254,255,132,192,15,133,205,2,0,0],\"hex\":\"40554155488d6c24b14881eca80000004c8be9e82806feff84c00f85cd020000\"}"
+        }
+      ],
+      "structuredContent": {
+        "result": "{\"address\":\"140d54cb0\",\"length\":32,\"data\":[64,85,65,85,72,141,108,36,177,72,129,236,168,0,0,0,76,139,233,232,40,6,254,255,132,192,15,133,205,2,0,0],\"hex\":\"40554155488d6c24b14881eca80000004c8be9e82806feff84c00f85cd020000\"}"
+      },
+      "isError": false
+    },
+    "runtime_graph_ctor_reverified": {
+      "content": [
+        {
+          "type": "text",
+          "text": "\r\nundefined8 * FUN_140d180f0(undefined8 *param_1)\r\n\r\n{\r\n  bool bVar1;\r\n  int iVar2;\r\n  int iVar3;\r\n  DWORD DVar4;\r\n  ulonglong *puVar5;\r\n  void *pvVar6;\r\n  ulonglong uVar7;\r\n  longlong lVar8;\r\n  int iVar9;\r\n  wchar_t *pwVar10;\r\n  undefined8 *puVar11;\r\n  ulonglong *puVar12;\r\n  wchar_t *pMemory;\r\n  int iVar13;\r\n  int iVar14;\r\n  undefined8 uVar15;\r\n  ulonglong uVar16;\r\n  wchar_t *local_68;\r\n  undefined8 local_60;\r\n  wchar_t *local_50;\r\n  undefined8 local_48;\r\n  wchar_t *local_38;\r\n  undefined8 local_30;\r\n  \r\n  *param_1 = &PTR_FUN_1434b1f20;\r\n  lVar8 = 0x46;\r\n  uVar16 = 0;\r\n  puVar12 = param_1 + 1;\r\n  puVar5 = puVar12;\r\n  do {\r\n    *puVar5 = 0;\r\n    puVar5[1] = 0;\r\n    *(undefined1 *)(puVar5 + 2) = 0;\r\n    puVar5 = puVar5 + 3;\r\n    lVar8 = lVar8 + -1;\r\n  } while (lVar8 != 0);\r\n  *(undefined4 *)(param_1 + 0xd6) = 0;\r\n  lVar8 = 3;\r\n  param_1[0xd7] = 0;\r\n  puVar11 = param_1 + 0xd9;\r\n  param_1[0xd8] = 0;\r\n  do {\r\n    FUN_140d16d50(puVar11);\r\n    puVar11 = puVar11 + 0x75;\r\n    lVar8 = lVar8 + -1;\r\n  } while (lVar8 != 0);\r\n  *(bool *)(param_1 + 0xd5) = DAT_14406f784 != 0;\r\n  *(bool *)((longlong)param_1 + 0x6a9) = DAT_14406f780 != 0;\r\n  iVar2 = FUN_140e08e20();\r\n  iVar13 = DAT_14406fcc0;\r\n  if (iVar2 + -1 <= DAT_14406fcc0) {\r\n    iVar13 = iVar2 + -1;\r\n  }\r\n  iVar2 = 1;\r\n  if (0 < iVar13) {\r\n    iVar2 = iVar13;\r\n  }\r\n  bVar1 = SupportsNativeMultithreading();\r\n  if (bVar1) {\r\n    *(undefined4 *)((longlong)param_1 + 0x6ac) = 3;\r\n  }\r\n  else {\r\n    *(undefined4 *)((longlong)param_1 + 0x6ac) = 2;\r\n    iVar2 = 1;\r\n    *(undefined2 *)(param_1 + 0xd5) = 0;\r\n    DAT_14406f780 = 0;\r\n    DAT_14406f784 = 0;\r\n  }\r\n  iVar14 = (uint)*(byte *)((longlong)param_1 + 0x6a9) + *(byte *)(param_1 + 0xd5) + 1;\r\n  iVar9 = *(int *)((longlong)param_1 + 0x6ac) + 1;\r\n  *(int *)(param_1 + 0xd4) = iVar14;\r\n  *(int *)((longlong)param_1 + 0x69c) = iVar9;\r\n  iVar13 = *(int *)((longlong)param_1 + 0x6ac) + 2;\r\n  iVar3 = iVar14 * iVar2 + iVar9;\r\n  iVar2 = 0x46;\r\n  if (iVar3 < 0x47) {\r\n    iVar2 = iVar3;\r\n  }\r\n  if (iVar13 <= iVar2) {\r\n    iVar13 = iVar2;\r\n  }\r\n  if (iVar13 <= iVar3) {\r\n    iVar3 = iVar13;\r\n  }\r\n  *(int *)(param_1 + 0xd3) = iVar3;\r\n  *(int *)((longlong)param_1 + 0x6a4) = (iVar3 - iVar9) / iVar14;\r\n  LOCK();\r\n  *(int *)(param_1 + 0xd6) = *(int *)(param_1 + 0xd6) + 1;\r\n  UNLOCK();\r\n  DVar4 = TlsAlloc();\r\n  *(DWORD *)((longlong)param_1 + 0x6b4) = DVar4;\r\n  uVar7 = uVar16;\r\n  if (0 < *(int *)(param_1 + 0xd3)) {\r\n    do {\r\n      iVar13 = (int)uVar7;\r\n      uVar7 = uVar16;\r\n      if (iVar13 < *(int *)((longlong)param_1 + 0x69c)) {\r\n        pvVar6 = FMemory_Malloc(0x7a8);\r\n        if (pvVar6 != (void *)0x0) {\r\n          uVar7 = FUN_140d17c30(pvVar6);\r\n        }\r\n      }\r\n      else {\r\n        pvVar6 = FMemory_Malloc(0x78);\r\n        if (pvVar6 != (void *)0x0) {\r\n          uVar7 = FUN_140d18440(pvVar6,(longlong)(iVar13 - *(int *)((longlong)param_1 + 0x69c)) /\r\n                                       (longlong)*(int *)((longlong)param_1 + 0x6a4) & 0xffffffff);\r\n        }\r\n      }\r\n      *puVar12 = uVar7;\r\n      uVar7 = *puVar12;\r\n      puVar12 = puVar12 + 3;\r\n      *(undefined4 *)(uVar7 + 0x14) = *(undefined4 *)((longlong)param_1 + 0x6b4);\r\n      *(int *)(uVar7 + 0x10) = iVar13;\r\n      *(undefined8 **)(uVar7 + 0x30) = param_1 + (longlong)iVar13 * 3 + 1;\r\n      uVar7 = (ulonglong)(iVar13 + 1U);\r\n    } while ((int)(iVar13 + 1U) < *(int *)(param_1 + 0xd3));\r\n  }\r\n  iVar13 = *(int *)((longlong)param_1 + 0x6ac) + 1;\r\n  DAT_144166720 = param_1;\r\n  if (iVar13 < *(int *)(param_1 + 0xd3)) {\r\n    puVar11 = param_1 + (longlong)iVar13 * 3 + 2;\r\n    do {\r\n      iVar2 = (iVar13 - *(int *)((longlong)param_1 + 0x69c)) / *(int *)((longlong)param_1 + 0x6a4);\r\n      iVar3 = (iVar13 - *(int *)((longlong)param_1 + 0x6ac)) + -1;\r\n      if (iVar2 == 1) {\r\n        FString_Printf(&local_68,L\"TaskGraphThreadHP %d\",iVar3);\r\n        pMemory = local_68;\r\n        iVar2 = (int)local_60;\r\n        uVar15 = 5;\r\n        local_60 = 0;\r\n        local_68 = (wchar_t *)0x0;\r\n      }\r\n      else if (iVar2 == 2) {\r\n        FString_Printf(&local_50,L\"TaskGraphThreadBP %d\",iVar3);\r\n        pMemory = local_50;\r\n        iVar2 = (int)local_48;\r\n        uVar15 = 4;\r\n        local_48 = 0;\r\n        local_50 = (wchar_t *)0x0;\r\n      }\r\n      else {\r\n        FString_Printf(&local_38,L\"TaskGraphThreadNP %d\",iVar3);\r\n        pMemory = local_38;\r\n        iVar2 = (int)local_30;\r\n        uVar15 = 2;\r\n        local_30 = 0;\r\n        local_38 = (wchar_t *)0x0;\r\n      }\r\n      pwVar10 = L\"\";\r\n      if (iVar2 != 0) {\r\n        pwVar10 = pMemory;\r\n      }\r\n      uVar15 = FUN_140d40dd0(puVar11[-1],pwVar10,0x60000,uVar15,0xffffffffffffffff);\r\n      *puVar11 = uVar15;\r\n      *(undefined1 *)(puVar11 + 1) = 1;\r\n      if (pMemory != (wchar_t *)0x0) {\r\n        FMemory_Free(pMemory);\r\n      }\r\n      iVar13 = iVar13 + 1;\r\n      puVar11 = puVar11 + 3;\r\n    } while (iVar13 < *(int *)(param_1 + 0xd3));\r\n  }\r\n  return param_1;\r\n}\r\n\r\n"
+        }
+      ],
+      "structuredContent": {
+        "result": "\r\nundefined8 * FUN_140d180f0(undefined8 *param_1)\r\n\r\n{\r\n  bool bVar1;\r\n  int iVar2;\r\n  int iVar3;\r\n  DWORD DVar4;\r\n  ulonglong *puVar5;\r\n  void *pvVar6;\r\n  ulonglong uVar7;\r\n  longlong lVar8;\r\n  int iVar9;\r\n  wchar_t *pwVar10;\r\n  undefined8 *puVar11;\r\n  ulonglong *puVar12;\r\n  wchar_t *pMemory;\r\n  int iVar13;\r\n  int iVar14;\r\n  undefined8 uVar15;\r\n  ulonglong uVar16;\r\n  wchar_t *local_68;\r\n  undefined8 local_60;\r\n  wchar_t *local_50;\r\n  undefined8 local_48;\r\n  wchar_t *local_38;\r\n  undefined8 local_30;\r\n  \r\n  *param_1 = &PTR_FUN_1434b1f20;\r\n  lVar8 = 0x46;\r\n  uVar16 = 0;\r\n  puVar12 = param_1 + 1;\r\n  puVar5 = puVar12;\r\n  do {\r\n    *puVar5 = 0;\r\n    puVar5[1] = 0;\r\n    *(undefined1 *)(puVar5 + 2) = 0;\r\n    puVar5 = puVar5 + 3;\r\n    lVar8 = lVar8 + -1;\r\n  } while (lVar8 != 0);\r\n  *(undefined4 *)(param_1 + 0xd6) = 0;\r\n  lVar8 = 3;\r\n  param_1[0xd7] = 0;\r\n  puVar11 = param_1 + 0xd9;\r\n  param_1[0xd8] = 0;\r\n  do {\r\n    FUN_140d16d50(puVar11);\r\n    puVar11 = puVar11 + 0x75;\r\n    lVar8 = lVar8 + -1;\r\n  } while (lVar8 != 0);\r\n  *(bool *)(param_1 + 0xd5) = DAT_14406f784 != 0;\r\n  *(bool *)((longlong)param_1 + 0x6a9) = DAT_14406f780 != 0;\r\n  iVar2 = FUN_140e08e20();\r\n  iVar13 = DAT_14406fcc0;\r\n  if (iVar2 + -1 <= DAT_14406fcc0) {\r\n    iVar13 = iVar2 + -1;\r\n  }\r\n  iVar2 = 1;\r\n  if (0 < iVar13) {\r\n    iVar2 = iVar13;\r\n  }\r\n  bVar1 = SupportsNativeMultithreading();\r\n  if (bVar1) {\r\n    *(undefined4 *)((longlong)param_1 + 0x6ac) = 3;\r\n  }\r\n  else {\r\n    *(undefined4 *)((longlong)param_1 + 0x6ac) = 2;\r\n    iVar2 = 1;\r\n    *(undefined2 *)(param_1 + 0xd5) = 0;\r\n    DAT_14406f780 = 0;\r\n    DAT_14406f784 = 0;\r\n  }\r\n  iVar14 = (uint)*(byte *)((longlong)param_1 + 0x6a9) + *(byte *)(param_1 + 0xd5) + 1;\r\n  iVar9 = *(int *)((longlong)param_1 + 0x6ac) + 1;\r\n  *(int *)(param_1 + 0xd4) = iVar14;\r\n  *(int *)((longlong)param_1 + 0x69c) = iVar9;\r\n  iVar13 = *(int *)((longlong)param_1 + 0x6ac) + 2;\r\n  iVar3 = iVar14 * iVar2 + iVar9;\r\n  iVar2 = 0x46;\r\n  if (iVar3 < 0x47) {\r\n    iVar2 = iVar3;\r\n  }\r\n  if (iVar13 <= iVar2) {\r\n    iVar13 = iVar2;\r\n  }\r\n  if (iVar13 <= iVar3) {\r\n    iVar3 = iVar13;\r\n  }\r\n  *(int *)(param_1 + 0xd3) = iVar3;\r\n  *(int *)((longlong)param_1 + 0x6a4) = (iVar3 - iVar9) / iVar14;\r\n  LOCK();\r\n  *(int *)(param_1 + 0xd6) = *(int *)(param_1 + 0xd6) + 1;\r\n  UNLOCK();\r\n  DVar4 = TlsAlloc();\r\n  *(DWORD *)((longlong)param_1 + 0x6b4) = DVar4;\r\n  uVar7 = uVar16;\r\n  if (0 < *(int *)(param_1 + 0xd3)) {\r\n    do {\r\n      iVar13 = (int)uVar7;\r\n      uVar7 = uVar16;\r\n      if (iVar13 < *(int *)((longlong)param_1 + 0x69c)) {\r\n        pvVar6 = FMemory_Malloc(0x7a8);\r\n        if (pvVar6 != (void *)0x0) {\r\n          uVar7 = FUN_140d17c30(pvVar6);\r\n        }\r\n      }\r\n      else {\r\n        pvVar6 = FMemory_Malloc(0x78);\r\n        if (pvVar6 != (void *)0x0) {\r\n          uVar7 = FUN_140d18440(pvVar6,(longlong)(iVar13 - *(int *)((longlong)param_1 + 0x69c)) /\r\n                                       (longlong)*(int *)((longlong)param_1 + 0x6a4) & 0xffffffff);\r\n        }\r\n      }\r\n      *puVar12 = uVar7;\r\n      uVar7 = *puVar12;\r\n      puVar12 = puVar12 + 3;\r\n      *(undefined4 *)(uVar7 + 0x14) = *(undefined4 *)((longlong)param_1 + 0x6b4);\r\n      *(int *)(uVar7 + 0x10) = iVar13;\r\n      *(undefined8 **)(uVar7 + 0x30) = param_1 + (longlong)iVar13 * 3 + 1;\r\n      uVar7 = (ulonglong)(iVar13 + 1U);\r\n    } while ((int)(iVar13 + 1U) < *(int *)(param_1 + 0xd3));\r\n  }\r\n  iVar13 = *(int *)((longlong)param_1 + 0x6ac) + 1;\r\n  DAT_144166720 = param_1;\r\n  if (iVar13 < *(int *)(param_1 + 0xd3)) {\r\n    puVar11 = param_1 + (longlong)iVar13 * 3 + 2;\r\n    do {\r\n      iVar2 = (iVar13 - *(int *)((longlong)param_1 + 0x69c)) / *(int *)((longlong)param_1 + 0x6a4);\r\n      iVar3 = (iVar13 - *(int *)((longlong)param_1 + 0x6ac)) + -1;\r\n      if (iVar2 == 1) {\r\n        FString_Printf(&local_68,L\"TaskGraphThreadHP %d\",iVar3);\r\n        pMemory = local_68;\r\n        iVar2 = (int)local_60;\r\n        uVar15 = 5;\r\n        local_60 = 0;\r\n        local_68 = (wchar_t *)0x0;\r\n      }\r\n      else if (iVar2 == 2) {\r\n        FString_Printf(&local_50,L\"TaskGraphThreadBP %d\",iVar3);\r\n        pMemory = local_50;\r\n        iVar2 = (int)local_48;\r\n        uVar15 = 4;\r\n        local_48 = 0;\r\n        local_50 = (wchar_t *)0x0;\r\n      }\r\n      else {\r\n        FString_Printf(&local_38,L\"TaskGraphThreadNP %d\",iVar3);\r\n        pMemory = local_38;\r\n        iVar2 = (int)local_30;\r\n        uVar15 = 2;\r\n        local_30 = 0;\r\n        local_38 = (wchar_t *)0x0;\r\n      }\r\n      pwVar10 = L\"\";\r\n      if (iVar2 != 0) {\r\n        pwVar10 = pMemory;\r\n      }\r\n      uVar15 = FUN_140d40dd0(puVar11[-1],pwVar10,0x60000,uVar15,0xffffffffffffffff);\r\n      *puVar11 = uVar15;\r\n      *(undefined1 *)(puVar11 + 1) = 1;\r\n      if (pMemory != (wchar_t *)0x0) {\r\n        FMemory_Free(pMemory);\r\n      }\r\n      iVar13 = iVar13 + 1;\r\n      puVar11 = puVar11 + 3;\r\n    } while (iVar13 < *(int *)(param_1 + 0xd3));\r\n  }\r\n  return param_1;\r\n}\r\n\r\n"
+      },
+      "isError": false
+    },
+    "runtime_fake_init": {
+      "content": [
+        {
+          "type": "text",
+          "text": "\r\nbool FUN_140d419e0(longlong param_1,longlong *param_2)\r\n\r\n{\r\n  longlong lVar1;\r\n  \r\n  lVar1 = (**(code **)(*param_2 + 0x20))(param_2);\r\n  *(longlong *)(param_1 + 0x50) = lVar1;\r\n  if (lVar1 != 0) {\r\n    (**(code **)*param_2)(param_2);\r\n  }\r\n  return *(longlong *)(param_1 + 0x50) != 0;\r\n}\r\n\r\n"
+        }
+      ],
+      "structuredContent": {
+        "result": "\r\nbool FUN_140d419e0(longlong param_1,longlong *param_2)\r\n\r\n{\r\n  longlong lVar1;\r\n  \r\n  lVar1 = (**(code **)(*param_2 + 0x20))(param_2);\r\n  *(longlong *)(param_1 + 0x50) = lVar1;\r\n  if (lVar1 != 0) {\r\n    (**(code **)*param_2)(param_2);\r\n  }\r\n  return *(longlong *)(param_1 + 0x50) != 0;\r\n}\r\n\r\n"
+      },
+      "isError": false
+    }
+  }
+}

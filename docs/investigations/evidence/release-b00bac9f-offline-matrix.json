@@ -1,0 +1,267 @@
+{
+  "certifying": true,
+  "evaluator_sha256": "598f8bcfe4cf7252bb76af2d22e31a73275ab22d3bc6f19c8fd8797b6ddeeae8",
+  "expected_rows": 39,
+  "failed_rows": 0,
+  "kind": "offline_matrix_evaluation",
+  "passed_rows": 39,
+  "report_schema": 2,
+  "result": "pass",
+  "rows": [
+    {
+      "display_map_name": "Silver Wolves' Haven",
+      "failures": [],
+      "result": "pass",
+      "row_id": "astaroth-raphael-silver-wolves-haven__baseline"
+    },
+    {
+      "display_map_name": "Silver Wolves' Haven",
+      "failures": [],
+      "result": "pass",
+      "row_id": "astaroth-raphael-silver-wolves-haven__near_round_start__depth_11"
+    },
+    {
+      "display_map_name": "Silver Wolves' Haven",
+      "failures": [],
+      "result": "pass",
+      "row_id": "astaroth-raphael-silver-wolves-haven__near_round_start__depth_1"
+    },
+    {
+      "display_map_name": "Silver Wolves' Haven",
+      "failures": [],
+      "result": "pass",
+      "row_id": "astaroth-raphael-silver-wolves-haven__near_round_start__depth_6"
+    },
+    {
+      "display_map_name": "Silver Wolves' Haven",
+      "failures": [],
+      "result": "pass",
+      "row_id": "astaroth-raphael-silver-wolves-haven__active_combat__depth_11"
+    },
+    {
+      "display_map_name": "Silver Wolves' Haven",
+      "failures": [],
+      "result": "pass",
+      "row_id": "astaroth-raphael-silver-wolves-haven__active_combat__depth_1"
+    },
+    {
+      "display_map_name": "Silver Wolves' Haven",
+      "failures": [],
+      "result": "pass",
+      "row_id": "astaroth-raphael-silver-wolves-haven__active_combat__depth_6"
+    },
+    {
+      "display_map_name": "Silver Wolves' Haven",
+      "failures": [],
+      "result": "pass",
+      "row_id": "astaroth-raphael-silver-wolves-haven__confirmed_hit__depth_11"
+    },
+    {
+      "display_map_name": "Silver Wolves' Haven",
+      "failures": [],
+      "result": "pass",
+      "row_id": "astaroth-raphael-silver-wolves-haven__confirmed_hit__depth_1"
+    },
+    {
+      "display_map_name": "Silver Wolves' Haven",
+      "failures": [],
+      "result": "pass",
+      "row_id": "astaroth-raphael-silver-wolves-haven__confirmed_hit__depth_6"
+    },
+    {
+      "display_map_name": "Silver Wolves' Haven",
+      "failures": [],
+      "result": "pass",
+      "row_id": "astaroth-raphael-silver-wolves-haven__round_end__depth_11"
+    },
+    {
+      "display_map_name": "Silver Wolves' Haven",
+      "failures": [],
+      "result": "pass",
+      "row_id": "astaroth-raphael-silver-wolves-haven__round_end__depth_1"
+    },
+    {
+      "display_map_name": "Silver Wolves' Haven",
+      "failures": [],
+      "result": "pass",
+      "row_id": "astaroth-raphael-silver-wolves-haven__round_end__depth_6"
+    },
+    {
+      "display_map_name": "Snow-Capped Showdown",
+      "failures": [],
+      "result": "pass",
+      "row_id": "raphael-maxi-snow-capped-showdown__baseline"
+    },
+    {
+      "display_map_name": "Snow-Capped Showdown",
+      "failures": [],
+      "result": "pass",
+      "row_id": "raphael-maxi-snow-capped-showdown__near_round_start__depth_11"
+    },
+    {
+      "display_map_name": "Snow-Capped Showdown",
+      "failures": [],
+      "result": "pass",
+      "row_id": "raphael-maxi-snow-capped-showdown__near_round_start__depth_1"
+    },
+    {
+      "display_map_name": "Snow-Capped Showdown",
+      "failures": [],
+      "result": "pass",
+      "row_id": "raphael-maxi-snow-capped-showdown__near_round_start__depth_6"
+    },
+    {
+      "display_map_name": "Snow-Capped Showdown",
+      "failures": [],
+      "result": "pass",
+      "row_id": "raphael-maxi-snow-capped-showdown__active_combat__depth_11"
+    },
+    {
+      "display_map_name": "Snow-Capped Showdown",
+      "failures": [],
+      "result": "pass",
+      "row_id": "raphael-maxi-snow-capped-showdown__active_combat__depth_1"
+    },
+    {
+      "display_map_name": "Snow-Capped Showdown",
+      "failures": [],
+      "result": "pass",
+      "row_id": "raphael-maxi-snow-capped-showdown__active_combat__depth_6"
+    },
+    {
+      "display_map_name": "Snow-Capped Showdown",
+      "failures": [],
+      "result": "pass",
+      "row_id": "raphael-maxi-snow-capped-showdown__confirmed_hit__depth_11"
+    },
+    {
+      "display_map_name": "Snow-Capped Showdown",
+      "failures": [],
+      "result": "pass",
+      "row_id": "raphael-maxi-snow-capped-showdown__confirmed_hit__depth_1"
+    },
+    {
+      "display_map_name": "Snow-Capped Showdown",
+      "failures": [],
+      "result": "pass",
+      "row_id": "raphael-maxi-snow-capped-showdown__confirmed_hit__depth_6"
+    },
+    {
+      "display_map_name": "Snow-Capped Showdown",
+      "failures": [],
+      "result": "pass",
+      "row_id": "raphael-maxi-snow-capped-showdown__round_end__depth_11"
+    },
+    {
+      "display_map_name": "Snow-Capped Showdown",
+      "failures": [],
+      "result": "pass",
+      "row_id": "raphael-maxi-snow-capped-showdown__round_end__depth_1"
+    },
+    {
+      "display_map_name": "Snow-Capped Showdown",
+      "failures": [],
+      "result": "pass",
+      "row_id": "raphael-maxi-snow-capped-showdown__round_end__depth_6"
+    },
+    {
+      "display_map_name": "Murakumo Shrine Grounds",
+      "failures": [],
+      "result": "pass",
+      "row_id": "siegfried-cervantes-murakumo-shrine-grounds__baseline"
+    },
+    {
+      "display_map_name": "Murakumo Shrine Grounds",
+      "failures": [],
+      "result": "pass",
+      "row_id": "siegfried-cervantes-murakumo-shrine-grounds__near_round_start__depth_11"
+    },
+    {
+      "display_map_name": "Murakumo Shrine Grounds",
+      "failures": [],
+      "result": "pass",
+      "row_id": "siegfried-cervantes-murakumo-shrine-grounds__near_round_start__depth_1"
+    },
+    {
+      "display_map_name": "Murakumo Shrine Grounds",
+      "failures": [],
+      "result": "pass",
+      "row_id": "siegfried-cervantes-murakumo-shrine-grounds__near_round_start__depth_6"
+    },
+    {
+      "display_map_name": "Murakumo Shrine Grounds",
+      "failures": [],
+      "result": "pass",
+      "row_id": "siegfried-cervantes-murakumo-shrine-grounds__active_combat__depth_11"
+    },
+    {
+      "display_map_name": "Murakumo Shrine Grounds",
+      "failures": [],
+      "result": "pass",
+      "row_id": "siegfried-cervantes-murakumo-shrine-grounds__active_combat__depth_1"
+    },
+    {
+      "display_map_name": "Murakumo Shrine Grounds",
+      "failures": [],
+      "result": "pass",
+      "row_id": "siegfried-cervantes-murakumo-shrine-grounds__active_combat__depth_6"
+    },
+    {
+      "display_map_name": "Murakumo Shrine Grounds",
+      "failures": [],
+      "result": "pass",
+      "row_id": "siegfried-cervantes-murakumo-shrine-grounds__confirmed_hit__depth_11"
+    },
+    {
+      "display_map_name": "Murakumo Shrine Grounds",
+      "failures": [],
+      "result": "pass",
+      "row_id": "siegfried-cervantes-murakumo-shrine-grounds__confirmed_hit__depth_1"
+    },
+    {
+      "display_map_name": "Murakumo Shrine Grounds",
+      "failures": [],
+      "result": "pass",
+      "row_id": "siegfried-cervantes-murakumo-shrine-grounds__confirmed_hit__depth_6"
+    },
+    {
+      "display_map_name": "Murakumo Shrine Grounds",
+      "failures": [],
+      "result": "pass",
+      "row_id": "siegfried-cervantes-murakumo-shrine-grounds__round_end__depth_11"
+    },
+    {
+      "display_map_name": "Murakumo Shrine Grounds",
+      "failures": [],
+      "result": "pass",
+      "row_id": "siegfried-cervantes-murakumo-shrine-grounds__round_end__depth_1"
+    },
+    {
+      "display_map_name": "Murakumo Shrine Grounds",
+      "failures": [],
+      "result": "pass",
+      "row_id": "siegfried-cervantes-murakumo-shrine-grounds__round_end__depth_6"
+    }
+  ],
+  "strict_replay_gates": [
+    {
+      "case_id": "astaroth-raphael-silver-wolves-haven",
+      "display_map_name": "Silver Wolves' Haven",
+      "report": "E:\\myMods\\docs\\investigations\\evidence\\release-b00bac9f-offline-matrix\\astaroth-raphael-silver-wolves-haven__strict-seeks.json",
+      "result": "pass"
+    },
+    {
+      "case_id": "raphael-maxi-snow-capped-showdown",
+      "display_map_name": "Snow-Capped Showdown",
+      "report": "E:\\myMods\\docs\\investigations\\evidence\\release-b00bac9f-offline-matrix\\raphael-maxi-snow-capped-showdown__strict-seeks.json",
+      "result": "pass"
+    },
+    {
+      "case_id": "siegfried-cervantes-murakumo-shrine-grounds",
+      "display_map_name": "Murakumo Shrine Grounds",
+      "report": "E:\\myMods\\docs\\investigations\\evidence\\release-b00bac9f-offline-matrix\\siegfried-cervantes-murakumo-shrine-grounds__strict-seeks.json",
+      "result": "pass"
+    }
+  ],
+  "strict_replay_gates_complete": true
+}

@@ -1,0 +1,33 @@
+{
+  "case_id": "tira-detector-reaudit-35-immutable-9d05adda",
+  "certifying": false,
+  "cleanup": {
+    "diagnostic_flags_restored_false": {
+      "correction_probe": true,
+      "forced_depth7_qualification": true,
+      "trace": true
+    },
+    "process_absent": true
+  },
+  "created_utc": "2026-09-01T16:21:25.168966+00:00",
+  "display_map_name": "Snow-Capped Showdown",
+  "failure": {
+    "bounded_log": "E:\\myMods\\docs\\investigations\\evidence\\immutable-9d05adda-tira-35-writer-canary.failure.log",
+    "bounded_log_lines": 0,
+    "field_or_mask": null,
+    "fields": {},
+    "first_failing_frame": null,
+    "first_failure_line": "",
+    "graph_provenance": null,
+    "lifecycle_phase": null,
+    "owner_pointer": null,
+    "owner_selector": null,
+    "return_rva": null
+  },
+  "kind": "replay_entry_failure",
+  "reason": "HorseMod source identity and hook-arm evidence did not appear",
+  "report_schema": 2,
+  "result": "fail",
+  "row_id": "writer-canary-4000",
+  "stage_package_root": "/Game/Stage/STG009"
+}

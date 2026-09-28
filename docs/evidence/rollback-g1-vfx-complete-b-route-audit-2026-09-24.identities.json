@@ -1,0 +1,146 @@
+{
+  "created_utc": "2026-09-24T17:12:10.997352+00:00",
+  "scope": "read-only audit; no production/test edit, build or live run",
+  "game_sha256": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553",
+  "files": [
+    {
+      "path": "HorseMod\\horselib\\deterministic\\Sc6ReplayVfxState.cpp",
+      "bytes": 227507,
+      "sha256": "8860a828f35de72d8ea921a6337c4e3862030ca3fe1d980ca5b238414d21821f"
+    },
+    {
+      "path": "HorseMod\\horselib\\deterministic\\Sc6ReplayVfxState.hpp",
+      "bytes": 35160,
+      "sha256": "39e547e97a3d18b1931e5d60fe33942fb513aac587a65de68e4ae3506159eb22"
+    },
+    {
+      "path": "HorseMod\\horselib\\deterministic\\Sc6ReplayTraceState.hpp",
+      "bytes": 54630,
+      "sha256": "969b7d27542fc36fb71a5f789924fc3ac522826a593992979bb58290cfedc0c4"
+    },
+    {
+      "path": "HorseMod\\horselib\\deterministic\\Sc6ReplayTraceStorage.inl",
+      "bytes": 41769,
+      "sha256": "e026a827399709755c8e5ce261a028cc543fc575bafd2d401c6c7f26882fae0e"
+    },
+    {
+      "path": "HorseMod\\horselib\\deterministic\\Sc6ReplayVfxHandlerState.hpp",
+      "bytes": 14029,
+      "sha256": "166468f48233579e0d286183800dfdf9f99343beb9ddeb74198dd318dd2ac553"
+    },
+    {
+      "path": "HorseMod\\horselib\\deterministic\\NativeReplayPrerequisiteGuard.hpp",
+      "bytes": 22820,
+      "sha256": "421612a7a88506bf9f9a850709fdb40ab1fe6f8a46c7c877f20c8b8f88931833"
+    },
+    {
+      "path": "HorseMod\\horselib\\deterministic\\NativeReplayTraceTaskGuard.hpp",
+      "bytes": 31389,
+      "sha256": "7eddc20c4e525b743dd9c877bcd4a47ee252e6a742ea9b4d943c898c51277590"
+    },
+    {
+      "path": "HorseMod\\horselib\\deterministic\\NativeReplayTraceTaskGuard.Signatures.inl",
+      "bytes": 7593,
+      "sha256": "356a404fadee6fc0f5871acb789f8e673eac09d43060e66c34bfac334b9c707d"
+    },
+    {
+      "path": "HorseMod\\horselib\\deterministic\\Sc6ReplayTaskGroup.hpp",
+      "bytes": 6575,
+      "sha256": "eb89c436c22effae0836503f677edc2491dce4c04d9d79b9bdc708856c428b2d"
+    },
+    {
+      "path": "HorseMod\\horselib\\deterministic\\Sc6ReplayTaskGroup.cpp",
+      "bytes": 33704,
+      "sha256": "5d0f8a05f26f9fb79dab306c310e93831019cc161cb9b467cade1c137977f983"
+    },
+    {
+      "path": "HorseMod\\horselib\\deterministic\\Sc6ReplayHost.cpp",
+      "bytes": 30343,
+      "sha256": "d3e2be0b07eb48f1a0753ef3702b4827b5afe2df6009c49cb35ff51e11958995"
+    },
+    {
+      "path": "HorseMod\\horselib\\deterministic\\Sc6ReplayHost.Consumer.inl",
+      "bytes": 12508,
+      "sha256": "eb5843edbb18576351fb09ff563658ce628b5afa6270875cfec5764452b09039"
+    },
+    {
+      "path": "HorseMod\\horselib\\deterministic\\Sc6ReplayHost.Restore.inl",
+      "bytes": 171732,
+      "sha256": "0a20648f0e98ad4b9595623348de1c05287b2825d12dd19d48bcaee9ee62c1e1"
+    },
+    {
+      "path": "HorseMod\\horselib\\deterministic\\Sc6ReplayExecutor.cpp",
+      "bytes": 22509,
+      "sha256": "b8263509243f71cd2fb5ee0d30565d87443fb380df8093cd1acabafe399160b1"
+    },
+    {
+      "path": "build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\922d13299212011383cf8cb619cc040906c47103fa5131236033d4b1c92d1198.json",
+      "bytes": 165295,
+      "sha256": "922d13299212011383cf8cb619cc040906c47103fa5131236033d4b1c92d1198"
+    },
+    {
+      "path": "docs\\evidence\\rollback-g1-vfx-complete-b-route-audit-2026-09-24.native.json",
+      "bytes": 375615,
+      "sha256": "c66fb1d1b2227c891db01c65eebaedf5f64a2479ed97c07209256cebca70ae4d"
+    },
+    {
+      "path": "docs\\evidence\\rollback-g1-vfx-complete-b-route-audit-2026-09-24.sources.json",
+      "bytes": 443,
+      "sha256": "a4409f55b7eeb983748a5d0365673df4240316a7d8c869d0388b55d0cbd2a760"
+    },
+    {
+      "path": "tools\\replay_vfx_finish_dispatch_selftest.cpp",
+      "bytes": 6892,
+      "sha256": "b350b304e1cfed82cc941dc29452f1ba9c07ae83e06318d2ba3d7d63727b82a8"
+    },
+    {
+      "path": "tools\\deterministic_qualification\\tests\\test_consumer_host.py",
+      "bytes": 62304,
+      "sha256": "2eeff07df493d250a274297ad9ec3c5f53dfa0ea3d1239758b028cc3d40d431c"
+    }
+  ],
+  "selected_phase": {
+    "run_id": "replay-9754d834564d4676b9317f6f193a91cf",
+    "phase": {
+      "scope": "startup_to_trajectory_completion",
+      "boundary": "CompleteTrajectory.vfx_status",
+      "state": "closed",
+      "complete": true,
+      "whole_process_coverage": false,
+      "native_quiescence_proven": false,
+      "end_tick": 483,
+      "close_thread": 71200,
+      "close_ms": 2586165109,
+      "pending_at_close": 0
+    },
+    "events": 154,
+    "entries": 77,
+    "dropped": 0,
+    "pending_pairs": 0,
+    "unstable": 0,
+    "truncated": 0,
+    "caller_rva_basis": "each recorded manager vtable minus verified 0x3356f68",
+    "routes": [
+      {
+        "route": "dispatch",
+        "caller_rva": "0x89f91d",
+        "pairs": 39
+      },
+      {
+        "route": "dispatch",
+        "caller_rva": "0x8a1cb7",
+        "pairs": 6
+      },
+      {
+        "route": "native_registration",
+        "caller_rva": "0x8cdc8c",
+        "pairs": 16
+      },
+      {
+        "route": "shared_prune",
+        "caller_rva": "0x8c9232",
+        "pairs": 16
+      }
+    ]
+  }
+}

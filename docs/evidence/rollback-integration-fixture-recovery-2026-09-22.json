@@ -1,0 +1,105 @@
+{
+  "scope": "Full local integration first-failure recovery; no production guard weakening",
+  "failures": [
+    {
+      "first_failure": "Manager reconstruction scaffold missing event-binding field",
+      "passed_before_stop": 458,
+      "log": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a81c48eec7c254d2cc388d8ce6ed04fc2aa009b5b0aa882574d77a79b652d867.log",
+        "sha256": "a81c48eec7c254d2cc388d8ce6ed04fc2aa009b5b0aa882574d77a79b652d867",
+        "bytes": 3328
+      },
+      "source_retention": {
+        "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-917814a35656a6607a393f825d5f81a9bf1fdfaf420495aa5fbbf416f221a851.zip",
+        "archive_sha256": "087e818114529ff49a66d11fb1d98ad629af82839cc67e32bc7bea4231f5b0cf",
+        "files": 16569,
+        "manifest_sha256": "917814a35656a6607a393f825d5f81a9bf1fdfaf420495aa5fbbf416f221a851",
+        "reconstructible": true,
+        "uncompressed_bytes": 92297929
+      },
+      "source_index": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f8d4472ddcc5844e6850c05abd3d67dfce1dfdab793fe8125783b5a0b4e7275f.json",
+        "sha256": "f8d4472ddcc5844e6850c05abd3d67dfce1dfdab793fe8125783b5a0b4e7275f",
+        "bytes": 437
+      }
+    },
+    {
+      "first_failure": "Trace preparation scaffold missing prior ground-construction domain",
+      "passed_before_stop": 481,
+      "log": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\eb6a8a475bdeb3a21deb32f6109267b8ef28ccf3d82c2fabae5d7fe8ab5efdf9.log",
+        "sha256": "eb6a8a475bdeb3a21deb32f6109267b8ef28ccf3d82c2fabae5d7fe8ab5efdf9",
+        "bytes": 9065
+      },
+      "source_retention": {
+        "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-17713fe4d8c73cb2b2f70d78ccfafb4b61d320829a42542fa469b088775bf7d3.zip",
+        "archive_sha256": "4d256a190a11f8610e98fabbabab71bfe51717c88cfeb12fba6eee18c82ece86",
+        "files": 16569,
+        "manifest_sha256": "17713fe4d8c73cb2b2f70d78ccfafb4b61d320829a42542fa469b088775bf7d3",
+        "reconstructible": true,
+        "uncompressed_bytes": 92298519
+      },
+      "source_index": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\2b65116e334e46d2f45088d71b660773d047dcbf0ab87849ec56ab5a01990285.json",
+        "sha256": "2b65116e334e46d2f45088d71b660773d047dcbf0ab87849ec56ab5a01990285",
+        "bytes": 437
+      }
+    },
+    {
+      "first_failure": "Trace cleanup scaffold missing prior ground-retirement domain",
+      "passed_before_stop": 485,
+      "log": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\338146340cbdd63e2a4e6627a89f9601719925c80ae4f3690928510303a3ce51.log",
+        "sha256": "338146340cbdd63e2a4e6627a89f9601719925c80ae4f3690928510303a3ce51",
+        "bytes": 6187
+      },
+      "source_retention": {
+        "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-14aead2a8e4fbe3e9a1b265ce7667095fb148b5e2e74771682b2d814e5feef25.zip",
+        "archive_sha256": "c4e0535e5f72a6d650ab33b3b23db7f01bb3b0307268e4228a5149a2e0d56426",
+        "files": 16569,
+        "manifest_sha256": "14aead2a8e4fbe3e9a1b265ce7667095fb148b5e2e74771682b2d814e5feef25",
+        "reconstructible": true,
+        "uncompressed_bytes": 92299890
+      },
+      "source_index": {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\ce94ae9dd43f1d2cb7df5ceceb4b2f195ee992b323c37696b6eac983337d2cf9.json",
+        "sha256": "ce94ae9dd43f1d2cb7df5ceceb4b2f195ee992b323c37696b6eac983337d2cf9",
+        "bytes": 437
+      }
+    }
+  ],
+  "targeted_green": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\fb0feafeb4a9d588858a7a0884953edbc8c1d7437c50bd110001c7417d727c62.log",
+    "sha256": "fb0feafeb4a9d588858a7a0884953edbc8c1d7437c50bd110001c7417d727c62",
+    "bytes": 117
+  },
+  "changes": [
+    "Manager scaffold carries event identity; actual unchanged-owner publication rejects changed world/owner/manager bindings",
+    "Trace-only scaffolds now express empty ground domains; any accidental ground constructor/retirement call fails; original trace/GPU ordering assertions unchanged",
+    "Complete-B fixture now includes the prior ground participant and asserts incremental ground bytes stay charged"
+  ],
+  "current": "Full integration passes: 613 tests in 293.25 seconds; runtime sources unchanged by four fixture corrections.",
+  "additional_failure_receipt": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4f7230dc5633c78fcb81582c4002e1f4eab9be08ec36befd538c32e3c959d62c.json",
+    "sha256": "4f7230dc5633c78fcb81582c4002e1f4eab9be08ec36befd538c32e3c959d62c"
+  },
+  "remaining_focused_green": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\62f74fa9174a998199764d882c78acb1fa60a41126807c7dc22873815e27aeb3.log",
+    "sha256": "62f74fa9174a998199764d882c78acb1fa60a41126807c7dc22873815e27aeb3",
+    "bytes": 226
+  },
+  "full_integration_green": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\43c697edfdc14a11eecfaac9f71e8c65aa38d2f1640680bd7efb152904e89090.json",
+    "sha256": "43c697edfdc14a11eecfaac9f71e8c65aa38d2f1640680bd7efb152904e89090"
+  },
+  "required_build_native_refresh": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8bccfaf934364994cd401f725d71508b0c7506ba6370e49cd9d82f39a05c6cb9.json",
+    "sha256": "8bccfaf934364994cd401f725d71508b0c7506ba6370e49cd9d82f39a05c6cb9",
+    "bytes": 6239
+  },
+  "preflight_30": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\961682af3a17c6a5329cc861e0f155347107d18936f7b65ce80bd4285c6ee683.log",
+    "sha256": "961682af3a17c6a5329cc861e0f155347107d18936f7b65ce80bd4285c6ee683",
+    "bytes": 313
+  }
+}

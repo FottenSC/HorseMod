@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "stages": {
+    "stock-sync-combat-boundary": {
+      "dependencies": {
+        "build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\HorseMod.dll": "9156ef390dd9b4eb8c97b3566a8b4f94df79b65538de8736c4222b729fa245fb",
+        "build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\ReplayQualificationMod.dll": "f4dc5b3e623399ae7b60d55bc1605db0a9fa3f9a3c5cd3f4c7f2c86cab58d4c9",
+        "build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\generated\\deterministic_contract.json": "41c81bf2cc0f046355261ee540d3139fe74876c5b227fb7ccf9e61c0e1726383",
+        "docs\\investigations\\deterministic-production-candidate-manifest.json": "c0cba1c615ae02e4e754421565f83bf35be655f1eb37e2904f82a878e8a948fe"
+      },
+      "experiment": {
+        "competing_explanations": [
+          "Early manual TrySendCharacter consumed native CharacterSet before stock subscribed",
+          "stock remote-placeholder initialization or local verification missing"
+        ],
+        "first_divergent_boundary": "CharacterSyncObservation failed fast at UE4SS GetMulticastDelegate virtual unsupported on UE4.17; dump/PDB maps CharacterSyncObservation+0x1C7 and SelectLocalCharacter+0x11E.",
+        "new_evidence": "Replace UE4.23-only diagnostic virtual with checked UE4.17 inline multicast storage read. Keep stock send ordering, predecessor/flags/subscription measurements and ten-second stop. No gameplay changes since previous probe.",
+        "stop_condition": "First unmet initialization/confirmation/sync/ownership/canonical boundary, automatic cleanup. Otherwise exact two-cycle round-two correction scenario 7/12/1. No rerun without fix or new measurement."
+      },
+      "failure": "Command '['C:\\\\Program Files\\\\Python311\\\\python.exe', 'E:\\\\myMods\\\\tools\\\\deterministic_qualification.py', 'paired-online', '--case-manifest', 'E:\\\\myMods\\\\docs\\\\investigations\\\\deterministic-production-candidate-manifest.json', '--case', 'astaroth-raphael-silver-wolves-haven', '--dll', 'E:\\\\myMods\\\\build_cmake_LessEqual421__Shipping__Win64\\\\HorseMod\\\\HorseMod.dll', '--replay-mod', 'E:\\\\myMods\\\\build_cmake_LessEqual421__Shipping__Win64\\\\HorseMod\\\\ReplayQualificationMod.dll', '--schema', 'E:\\\\myMods\\\\build_cmake_LessEqual421__Shipping__Win64\\\\HorseMod\\\\generated\\\\deterministic_contract.json', '--output-dir', 'E:\\\\myMods\\\\docs\\\\investigations\\\\evidence\\\\rollback-reassessment\\\\combat-boundary-inline-delegate', '--report', 'E:\\\\myMods\\\\docs\\\\investigations\\\\evidence\\\\rollback-reassessment\\\\combat-boundary-inline-delegate\\\\report.json', '--scenario', 'online-round2-reentry', '--development-multiround-correction-smoke', '--match-cycles', '2', '--launch-timeout', '300', '--match-timeout', '300', '--phase-timeout', '10']' returned non-zero exit status 2.",
+      "report": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\combat-boundary-inline-delegate\\report.json",
+      "resource_journal": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\combat-boundary-inline-delegate\\resources.json",
+      "specification": {
+        "command": [
+          "C:\\Program Files\\Python311\\python.exe",
+          "E:\\myMods\\tools\\deterministic_qualification.py",
+          "paired-online",
+          "--case-manifest",
+          "E:\\myMods\\docs\\investigations\\deterministic-production-candidate-manifest.json",
+          "--case",
+          "astaroth-raphael-silver-wolves-haven",
+          "--dll",
+          "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\HorseMod.dll",
+          "--replay-mod",
+          "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\ReplayQualificationMod.dll",
+          "--schema",
+          "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\generated\\deterministic_contract.json",
+          "--output-dir",
+          "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\combat-boundary-inline-delegate",
+          "--report",
+          "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\combat-boundary-inline-delegate\\report.json",
+          "--scenario",
+          "online-round2-reentry",
+          "--development-multiround-correction-smoke",
+          "--match-cycles",
+          "2",
+          "--launch-timeout",
+          "300",
+          "--match-timeout",
+          "300",
+          "--phase-timeout",
+          "10"
+        ]
+      },
+      "state": "failed"
+    }
+  }
+}

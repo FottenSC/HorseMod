@@ -17,6 +17,8 @@ struct Config
     std::uint32_t rollback_window{12};
     std::uint32_t input_delay{1};
     bool trace{};
+    // Local replay sessions only. Networking and legacy correction remain off.
+    bool replay_seeking{};
     // Baseline-preserving depth 1/6/11 owned-resimulation probe. Diagnostic
     // only; it never substitutes or mutates captured input.
     bool correction_probe{};

@@ -1,0 +1,127 @@
+{
+  "scope": "Retained unchanged600 capture CPU wall segments; includes ordinary checkpoints and complete B. Not full-update latency or current-binary performance. Prior timing-log emission excluded by producer.",
+  "source_sha256": "02dab150c9e1914c82bd1329a7d4f765798c784b40af6fde814abc8767d9e7bc",
+  "ticks": [
+    210,
+    816
+  ],
+  "statistics": {
+    "rendering": {
+      "count": 1207,
+      "median_us": 0,
+      "p95_lower_order_statistic_us": 0,
+      "maximum_us": 0
+    },
+    "source": {
+      "count": 1207,
+      "median_us": 3,
+      "p95_lower_order_statistic_us": 4,
+      "maximum_us": 39
+    },
+    "input_revision": {
+      "count": 1207,
+      "median_us": 11,
+      "p95_lower_order_statistic_us": 16,
+      "maximum_us": 115
+    },
+    "ucrt": {
+      "count": 1207,
+      "median_us": 0,
+      "p95_lower_order_statistic_us": 0,
+      "maximum_us": 0
+    },
+    "source_registration": {
+      "count": 1207,
+      "median_us": 26,
+      "p95_lower_order_statistic_us": 36,
+      "maximum_us": 84
+    },
+    "world": {
+      "count": 1207,
+      "median_us": 6093,
+      "p95_lower_order_statistic_us": 7283,
+      "maximum_us": 10269
+    },
+    "hud": {
+      "count": 1207,
+      "median_us": 16188,
+      "p95_lower_order_statistic_us": 19780,
+      "maximum_us": 34698
+    },
+    "traces": {
+      "count": 1207,
+      "median_us": 11356,
+      "p95_lower_order_statistic_us": 13379,
+      "maximum_us": 21529
+    },
+    "vfx_handler": {
+      "count": 1207,
+      "median_us": 6864,
+      "p95_lower_order_statistic_us": 8471,
+      "maximum_us": 12976
+    },
+    "scheduler": {
+      "count": 1207,
+      "median_us": 222,
+      "p95_lower_order_statistic_us": 284,
+      "maximum_us": 434
+    },
+    "physics_binding": {
+      "count": 1207,
+      "median_us": 227,
+      "p95_lower_order_statistic_us": 272,
+      "maximum_us": 402
+    },
+    "vfx_requests": {
+      "count": 1207,
+      "median_us": 7133,
+      "p95_lower_order_statistic_us": 8763,
+      "maximum_us": 14271
+    },
+    "particle_completion_owners": {
+      "count": 1207,
+      "median_us": 6,
+      "p95_lower_order_statistic_us": 8,
+      "maximum_us": 27
+    },
+    "particle_configuration": {
+      "count": 607,
+      "median_us": 1401,
+      "p95_lower_order_statistic_us": 1998,
+      "maximum_us": 5828
+    },
+    "gameplay": {
+      "count": 1207,
+      "median_us": 262,
+      "p95_lower_order_statistic_us": 348,
+      "maximum_us": 779
+    },
+    "encoded_ucrt": {
+      "count": 1207,
+      "median_us": 85,
+      "p95_lower_order_statistic_us": 93,
+      "maximum_us": 170
+    },
+    "lease": {
+      "count": 1207,
+      "median_us": 183,
+      "p95_lower_order_statistic_us": 226,
+      "maximum_us": 405
+    }
+  },
+  "changed_window_admission": {
+    "run_id": "replay-2dc0d455b5c44746912f63b37d3fcdeb",
+    "manifest": "aeb3537d232c350c80e82a9585718f470964af39ad1103b664b3efd6185aadf2",
+    "raw_sha256": "45d64a03138a644851b0ac9d619f829788ec28ccb17adc4ffbfc83b2022682a0",
+    "tick": 217,
+    "minimum_new_gpu_bytes": 469762048,
+    "remaining_bytes": 346053033,
+    "minimum_shortfall_bytes": 123709015,
+    "A_published": false,
+    "revision": 0,
+    "checkpoint_generation": 1,
+    "committed_cycles": 0,
+    "qualification": "failed",
+    "full_memory_audit_complete": false
+  }
+}

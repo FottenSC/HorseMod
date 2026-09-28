@@ -1,0 +1,35 @@
+{
+  "certifying": false,
+  "cleanup": {
+    "process_absent": true,
+    "temporary_mod_removed": true
+  },
+  "created_utc": "2026-09-04T09:58:54.671400+00:00",
+  "cycles": [
+    {
+      "active_battle_tick_rate": 60.418,
+      "cycle": 1,
+      "map": 4,
+      "normal_render_frames": 120,
+      "normal_render_tick_rate": 60.421,
+      "run_id": "1fe527b8ccb740eebd9ee65c9b52b743",
+      "stage": 4
+    },
+    {
+      "active_battle_tick_rate": 60.413,
+      "cycle": 2,
+      "map": 4,
+      "normal_render_frames": 120,
+      "normal_render_tick_rate": 60.415,
+      "run_id": "d153823ef20542d4ba38a8e8150e629f",
+      "stage": 4
+    }
+  ],
+  "display_map_name": "Astral Chaos: Tide of the Damned",
+  "kind": "persistent_replay_development_campaign",
+  "reason": "same-process normal-render authored replay re-entry smoke",
+  "reentry_count": 2,
+  "report_schema": 2,
+  "result": "pass",
+  "stage_package_root": "/Game/Stage/STG004"
+}

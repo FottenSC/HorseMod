@@ -1,0 +1,70 @@
+{
+  "run_id": "replay-e3bc649709554bfeac2cf0622e3325a6",
+  "first_failure": "combat_pause_arm_rejected",
+  "scope": "23 startup sentinels installed; combat reached; no consumer activation or hold",
+  "cleanup": {
+    "complete": true,
+    "games_remaining": 0
+  },
+  "restored": [
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll",
+      "sha256": "b583b65388616e4fc6bbac841a1de6bc7d87467e67132a0983c69eb5d0c40c2b"
+    },
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\disable_gameimgui.txt",
+      "sha256": "8bd4882859b1ab3b0bb892c3889f4a77937af73e8ecc4224fe0209a5edb1ef96"
+    },
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\UE4SS.dll",
+      "sha256": "df9e6e9a2280972b1c28ce590700feacc752b447204f8baadeb95f5776957055"
+    },
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\rollback.ini",
+      "sha256": "22cd9c733db68cab2a98f1faec7a82f568d104fd0294a7fc8d7a5172632eb514"
+    },
+    {
+      "path": "C:\\Users\\prest\\AppData\\Local\\HorseMod\\Qualification\\replay_diagnostics.ini",
+      "sha256": null
+    },
+    {
+      "path": "C:\\Users\\prest\\AppData\\Local\\HorseMod\\Qualification\\consumer_startup_failure.json",
+      "sha256": null
+    },
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\dlls\\main.dll",
+      "sha256": null
+    },
+    {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\ReplayQualificationMod\\enabled.txt",
+      "sha256": null
+    }
+  ],
+  "files": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c088d8ca894cf85fda68dcf1f52fbcbf310fae1624e3ff465119b2c4c69ec69c.json",
+      "sha256": "c088d8ca894cf85fda68dcf1f52fbcbf310fae1624e3ff465119b2c4c69ec69c",
+      "bytes": 9435
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\26cd804ac2cd2a6aec58a8e21dd13e135f99451d49e126e60eea0fc31114c23c.json",
+      "sha256": "26cd804ac2cd2a6aec58a8e21dd13e135f99451d49e126e60eea0fc31114c23c",
+      "bytes": 11291
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e23a0ea4e958752ad417e7b55fa8db236660be92bdb759b483edb552436a1727.log",
+      "sha256": "e23a0ea4e958752ad417e7b55fa8db236660be92bdb759b483edb552436a1727",
+      "bytes": 1412411
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7950346ab072444a69641c752c5608a3958f66b0cf3221598199e838aaa12d9c.json",
+      "sha256": "7950346ab072444a69641c752c5608a3958f66b0cf3221598199e838aaa12d9c",
+      "bytes": 5490
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\79ca06b66b889d8bfb881cb3d9ff5784f562715a911a9d18969464cd905e37e2.inl",
+      "sha256": "79ca06b66b889d8bfb881cb3d9ff5784f562715a911a9d18969464cd905e37e2",
+      "bytes": 40340
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "scope": "Read-only supporting source audit: rolling epoch transition, input failure recovery and retirement receipts",
+  "created_utc": "2026-09-22T09:59:31.466877+00:00",
+  "validation": "Source inspection only; no tests, build, deployment or game launch",
+  "gate_changes": [],
+  "sources": {
+    "HorseMod\\horselib\\deterministic\\Sc6ReplayHost.Rolling.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c5009e7d3d631a909c723ed33dcb4ec3ff628c0a39d64009ed1e15c0d88cde5d.inl",
+      "sha256": "c5009e7d3d631a909c723ed33dcb4ec3ff628c0a39d64009ed1e15c0d88cde5d",
+      "bytes": 25192
+    },
+    "HorseMod\\horselib\\deterministic\\Sc6ReplayHost.Seek.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6551e229200235589e5d442702b4c1f8ec212725b5a3d9efdab07f7ea967fd78.inl",
+      "sha256": "6551e229200235589e5d442702b4c1f8ec212725b5a3d9efdab07f7ea967fd78",
+      "bytes": 40101
+    },
+    "HorseMod\\horselib\\deterministic\\Sc6ReplayHost.Index.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\ccb3e3cf883b6967d181906e7930eba6209dd09ecc8effc3381fa56a9fd97dea.inl",
+      "sha256": "ccb3e3cf883b6967d181906e7930eba6209dd09ecc8effc3381fa56a9fd97dea",
+      "bytes": 24529
+    },
+    "HorseMod\\horselib\\deterministic\\Sc6ReplayHost.SessionExit.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\3b7a61235e59cb842b0c16019e0daa8d09a4be2a1b9540d25285248f4ca8c1cf.inl",
+      "sha256": "3b7a61235e59cb842b0c16019e0daa8d09a4be2a1b9540d25285248f4ca8c1cf",
+      "bytes": 17794
+    },
+    "HorseMod\\horselib\\deterministic\\Sc6ReplayHost.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\bd9060891eb3431fce0e6205e129559862b3ced7024cb4c8a27d6cfaba9527ea.cpp",
+      "sha256": "bd9060891eb3431fce0e6205e129559862b3ced7024cb4c8a27d6cfaba9527ea",
+      "bytes": 29291
+    },
+    "HorseMod\\horselib\\deterministic\\Sc6ReplayHost.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\2f13499f5922ccd4bcc7c17c1786686800e6fea9a16eb702c6a745cf2472c27a.hpp",
+      "sha256": "2f13499f5922ccd4bcc7c17c1786686800e6fea9a16eb702c6a745cf2472c27a",
+      "bytes": 37070
+    },
+    "HorseMod\\horselib\\deterministic\\Sc6ReplayExecutor.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\29e647e27bb234175cef39b5fe846b246db44912149cdba085d45fa191836542.cpp",
+      "sha256": "29e647e27bb234175cef39b5fe846b246db44912149cdba085d45fa191836542",
+      "bytes": 22246
+    },
+    "HorseMod\\horselib\\deterministic\\ReplaySourceState.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1818860d11b5358f3b370c4156f6a92fc898d7fecf7b441a5be5e713d4858632.hpp",
+      "sha256": "1818860d11b5358f3b370c4156f6a92fc898d7fecf7b441a5be5e713d4858632",
+      "bytes": 1280
+    },
+    "tools\\replay_qualification_mod\\ReplayRolling.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\32d3b1d24ed312cd98f86ebe83a9e9152b206a9633eb84a7ed066b48b0d994e0.inl",
+      "sha256": "32d3b1d24ed312cd98f86ebe83a9e9152b206a9633eb84a7ed066b48b0d994e0",
+      "bytes": 5490
+    },
+    "tools\\replay_qualification_mod\\ReplayQualificationMod.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\bc152e0bb3c91a83bf7a0706b949677a5346f7fe86866c8855daf8f6c46d4039.cpp",
+      "sha256": "bc152e0bb3c91a83bf7a0706b949677a5346f7fe86866c8855daf8f6c46d4039",
+      "bytes": 515234
+    },
+    "tools\\replay_rolling_window_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\097d9401636bf65262b3aaa9925fb9b07fd51030253ac63bfb88d355bdcda1bb.cpp",
+      "sha256": "097d9401636bf65262b3aaa9925fb9b07fd51030253ac63bfb88d355bdcda1bb",
+      "bytes": 7649
+    },
+    "tools\\replay_rolling_transition_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b9fc3ac864d766da26b7737a81e9b8aa06610763e636434d7204bb0c5dde2db7.cpp",
+      "sha256": "b9fc3ac864d766da26b7737a81e9b8aa06610763e636434d7204bb0c5dde2db7",
+      "bytes": 3008
+    },
+    "tools\\deterministic_qualification\\tests\\test_replay_run.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\267e6c9cb56a3835826dcbe1ac9cc963c196873fc6d71353d203169ee6688250.py",
+      "sha256": "267e6c9cb56a3835826dcbe1ac9cc963c196873fc6d71353d203169ee6688250",
+      "bytes": 485210
+    },
+    "docs\\investigations\\rollback-support-epoch-recovery-2026-09-22.md": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\2f5bb1fb88896e1887a864100f528246e8ac8d2d647634c5be32a4b7f7a68df6.md",
+      "sha256": "2f5bb1fb88896e1887a864100f528246e8ac8d2d647634c5be32a4b7f7a68df6",
+      "bytes": 6664
+    }
+  }
+}

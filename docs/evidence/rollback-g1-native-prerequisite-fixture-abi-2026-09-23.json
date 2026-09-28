@@ -1,0 +1,320 @@
+{
+  "program": "SoulcaliburVI.exe",
+  "scope": "Mapped-image fixture design evidence only: real native prerequisite removal, graph linking/completion and allocation boundary. No UObject lifetime, live hold, or complete-B recovery proof.",
+  "date": "2026-09-23",
+  "abis": [
+    {
+      "entry": "141D58ED0",
+      "prototype": "void RemoveTickPrerequisiteComponent(void* component_RCX, void* prerequisiteComponent_RDX)",
+      "notes": "Null prerequisite returns. Otherwise tailcall142164920(component+110,prerequisiteComponent,prerequisiteComponent+110)."
+    },
+    {
+      "entry": "142164920",
+      "prototype": "void RemoveTickPrerequisite(void* tick_RCX, void* prerequisiteOwner_RDX, void* prerequisiteTick_R8)",
+      "notes": "Constructs native8-byte weak identity and calls142164960(tick+20,&16byteKey)."
+    },
+    {
+      "entry": "142164960",
+      "prototype": "int RemoveMatchingPrerequisites(void* arrayHeader_RCX,const void* key16_RDX)",
+      "notes": "Actual weak comparator1421B2C70, exact tick pointer, swap-last, count decrement and142185090 shrink. Removes every matching duplicate; fixture should assert unique pre-edge."
+    },
+    {
+      "entry": "140F7BAD0",
+      "prototype": "void ConstructWeak(void* weak8_RCX,void* object_RDX)",
+      "notes": "Reads object+C index; native140F7CFD0(array1442A1140,indexEDX) reads existing item serial."
+    },
+    {
+      "entry": "1421679C0",
+      "prototype": "void LinkTickTask(void* task_RCX,void* prerequisiteEventArray_RDX,uint32_t currentThread_R8D,bool releaseConstructionGate_R9B)",
+      "notes": "Sets constructed38 and desired8 frompayload24; links every event via1403A1380; subtracts already-complete event count plus bool gate; queues through graphvirtual0 only if resultantcounter0."
+    },
+    {
+      "entry": "140D51430",
+      "prototype": "void* FMemoryRealloc(void* allocation_RCX,size_t bytes_RDX,uint32_t alignment_R8D)",
+      "notes": "Native GMallocvirtual18 ABI void*(void* allocator_RCX,void* allocation_RDX,size_t bytes_R8,uint32_t alignment_R9D). Decompiler incorrectly infers void return; shrink caller consumes RAX."
+    },
+    {
+      "entry": "140D50DC0",
+      "prototype": "size_t FMemoryQuantize(size_t bytes_RCX,uint32_t alignment_EDX)",
+      "notes": "Native GMallocvirtual28 ABI size_t(void* allocator_RCX,size_t bytes_RDX,uint32_t alignment_R8D)."
+    },
+    {
+      "entry": "graph virtual+0",
+      "prototype": "void Enqueue(void* graph_RCX,void* task_RDX,uint32_t desiredThread_R8D,uint32_t currentThread_R9D)",
+      "notes": "External fixture may capture these arguments only; must not synthesize completion or decrement dependency counters."
+    }
+  ],
+  "services": {
+    "weak": {
+      "global": "1442A1140",
+      "items_pointer": "1442A1150",
+      "count": "1442A115C",
+      "item_stride": 24,
+      "item_object_offset": 0,
+      "item_flags_offset": 8,
+      "item_serial_offset": 16,
+      "object_index_offset": 12,
+      "notes": "Use valid nonnegative index<count and positive preseeded serial to avoid native serial creation/error path. Exact pair equality bypasses validity fallback; negative mismatched-pair tests need valid array entries/flags."
+    },
+    "allocator": {
+      "global_pointer": "1441971C8",
+      "virtual_realloc_offset": 24,
+      "virtual_quantize_offset": 40,
+      "notes": "Use actual owned heap edge array. Realloc(size0) explicitly frees and returnsnull; preserve bytes on nonzero realloc. Oneedge removal invokes actual shrink then Realloc(ptr,0,0). Twoedge test exercises swaplast; sufficiently large capacity can exercise nonzero quantize/shrink."
+    },
+    "task_tls": {
+      "slot_global": "14415D660",
+      "tls_get_value_import": "14322C800",
+      "storage_bytes": 24,
+      "notes": "Reuse existing mapped component fixture6524+. Two-batch task pool: firsthead+0,secondhead+8,count+10. Existing wrapper code performs actual recycle."
+    },
+    "dependency_link_tls": {
+      "slot_global": "14415D8D0",
+      "chunk_pointer_table": "14415DAE8",
+      "node_stride": 24,
+      "tls_storage": "int32[3] {oldBatchHead,freeHead,count}",
+      "seed": "{0,1,1}; point chunk[0] to zeroed >=48-byte storage; usable nodeindex1 at+24 with nextfree low32 atnode+8=0.",
+      "node_live": "node+8 task payload; node+10 low32 subsequent link index. Native allocation consumes TLSfreehead, native completion recycles node.",
+      "notes": "Own second real Win32TLSslot and bind viaTlsSetValue. Do not patch link/close helpers. Save/restore globals."
+    },
+    "scratch": {
+      "layout": "namedThread+20 TArray header:ptr+0,count+8,capacity+C",
+      "seed": "owned void*[1] backing,count0,capacity1",
+      "notes": "Avoid unrelated native TArray allocation. Actual140D20A70 drains dependent tasks and resets count."
+    }
+  },
+  "sequence": [
+    "Native142156650 mesh constructor(prereqCount1) yields task+C2; initialize real payload/world/GT2 and event.",
+    "Build native inline prereq event array: eventpointer+0,fallbackpointer+20null,count+28=1,capacity+2C>=1. Call1421679C0 with releaseConstructionGate=true => realeventCASlink and mesh+C1, noqueue.",
+    "Invoke public141D58ED0 against exact live16byte edge; verify arrayremoved/freed but traceeventhead and meshdependencycounter unchanged.",
+    "Execute original trace14215ED20 wrapper, not test completion. It calls native140D20A70/140D2C710/140D2C880: callback beforeeventdone, donebit26 set, linkretired, mesh+C1->0, onecapturedgraphenqueue.",
+    "Execute captured mesh originalwrapper once; check callback,eventrefdrop,eventdone andtaskTLSpoolreturn exactlyonce.",
+    "Restore allmapped globals/import protection/TLSvalues/slots; neverleavefixturestackstoragepublished."
+  ],
+  "references": [
+    "docs/evidence/rollback-g1-prerequisite-pre-mutation-freeze-2026-09-23.json",
+    "tools/native_candidate_regions_selftest.cpp:test_mapped_component_task_payload"
+  ],
+  "annotation_warning": "Existing names/comments LuxAudioTask_DispatchTickAsync1403A1380 and UE4_ObjPool_AllocAndInsert1403A1260 are misleading: inspected code is generic graph subsequent-list CAS insertion, not an audio-specific callback suppression boundary. No DB edits performed.",
+  "raw": {
+    "fixture_remove_inner": "\r\nint FUN_142164960(longlong *param_1,longlong param_2)\r\n\r\n{\r\n  longlong lVar1;\r\n  longlong lVar2;\r\n  char cVar3;\r\n  int iVar4;\r\n  int iVar5;\r\n  longlong lVar6;\r\n  \r\n  lVar2 = param_1[1];\r\n  iVar5 = 0;\r\n  if (0 < (int)lVar2) {\r\n    lVar6 = 0;\r\n    do {\r\n      lVar1 = *param_1;\r\n      cVar3 = FUN_1421b2c70(lVar1 + lVar6,param_2);\r\n      if ((cVar3 != '\\0') && (*(longlong *)(lVar1 + lVar6 + 8) == *(longlong *)(param_2 + 8))) {\r\n        iVar4 = ((int)param_1[1] - iVar5) + -1;\r\n        if (0 < iVar4) {\r\n          iVar4 = 1;\r\n        }\r\n        if (iVar4 != 0) {\r\n          memcpy((void *)((longlong)iVar5 * 0x10 + *param_1),\r\n                 (void *)((longlong)((int)param_1[1] - iVar4) * 0x10 + *param_1),\r\n                 (longlong)iVar4 << 4);\r\n        }\r\n        *(int *)(param_1 + 1) = (int)param_1[1] + -1;\r\n        FUN_142185090(param_1);\r\n        iVar5 = iVar5 + -1;\r\n        lVar6 = lVar6 + -0x10;\r\n      }\r\n      iVar5 = iVar5 + 1;\r\n      lVar6 = lVar6 + 0x10;\r\n    } while (iVar5 < (int)param_1[1]);\r\n  }\r\n  return (int)lVar2 - (int)param_1[1];\r\n}\r\n\r\n",
+    "fixture_1421B2C70": "\r\nundefined8 FUN_1421b2c70(int *param_1,int *param_2)\r\n\r\n{\r\n  char cVar1;\r\n  \r\n  if ((*param_1 == *param_2) && (param_1[1] == param_2[1])) {\r\n    return 1;\r\n  }\r\n  cVar1 = FUN_140f86b80();\r\n  if ((cVar1 == '\\0') && (cVar1 = FUN_140f86b80(param_2), cVar1 == '\\0')) {\r\n    return 1;\r\n  }\r\n  return 0;\r\n}\r\n\r\n",
+    "fixture_142185090": "\r\nvoid FUN_142185090(longlong *param_1)\r\n\r\n{\r\n  int iVar1;\r\n  size_t sVar2;\r\n  longlong lVar3;\r\n  int iVar4;\r\n  \r\n  iVar4 = *(int *)((longlong)param_1 + 0xc);\r\n  iVar1 = (int)param_1[1];\r\n  if ((((0x3fff < (ulonglong)((longlong)(iVar4 - iVar1) << 4)) || (iVar1 * 3 < iVar4 * 2)) &&\r\n      ((0x40 < (uint)(iVar4 - iVar1) || (iVar1 == 0)))) && (iVar4 = iVar1, 0 < iVar1)) {\r\n    sVar2 = FMemory_QuantizeSize((longlong)iVar1 << 4,0);\r\n    iVar4 = (int)(sVar2 >> 4);\r\n  }\r\n  if (iVar4 != *(int *)((longlong)param_1 + 0xc)) {\r\n    *(int *)((longlong)param_1 + 0xc) = iVar4;\r\n    if ((*param_1 != 0) || (iVar4 != 0)) {\r\n      lVar3 = FMemory_Realloc(*param_1,(longlong)iVar4 << 4,0);\r\n      *param_1 = lVar3;\r\n    }\r\n  }\r\n  return;\r\n}\r\n\r\n",
+    "fixture_140F7BAD0": "\r\n/* Constructs an FWeakObjectPtr from a UObject pointer.\r\n   \r\n   Source: SoulcaliburVI.exe 0x140F7BAD0; used by UFunction wrappers such as\r\n   ULuxUIBattleLauncher.Start to build weak-object parameters.\r\n   \r\n   Algorithm:\r\n   1. If pObject is non-null, copy UObject_Partial.nInternalIndex at +0x0C into\r\n   FWeakObjectPtr.nObjectIndex.\r\n   2. Allocate or fetch the UObject serial number from g_pGUObjectArray and write\r\n   FWeakObjectPtr.nSerialNumber.\r\n   3. If pObject is null, write the canonical null weak pointer { nObjectIndex = -1, nSerialNumber =\r\n   0 }.\r\n   \r\n   Parameters:\r\n     pWeakObject: FWeakObjectPtr_Partial * - destination 8-byte weak pointer block.\r\n     pObject: UObject_Partial * - source UObject pointer; only nInternalIndex is modeled here.\r\n   \r\n   Returns:\r\n     void: destination block is initialized in-place.\r\n   \r\n   Special Cases:\r\n     - Null weak pointer encoding is object index -1 and serial 0.\r\n     - ULuxUIBattleLauncher.Start's 16-byte FUIBattleLauncherStartParam embeds this 8-byte weak\r\n   pointer followed by an 8-byte outer/context field.\r\n     - iVar1 is a decompiler-projected register temporary for the allocated serial number.\r\n   \r\n   Structure Layout:\r\n     Offset | Size | Field | Type | Description\r\n     +0x00 | 4 | nObjectIndex | int | UObject array index, -1 for null\r\n     +0x04 | 4 | nSerialNumber | int | UObject serial number, 0 for null\r\n     UObject+0x0C | 4 | nInternalIndex | int | copied into nObjectIndex\r\n   \r\n   Magic Numbers:\r\n     0x20: stack frame size.\r\n     0x0C: UObject internal index field.\r\n     0x1442A1140: g_pGUObjectArray used to allocate serial numbers.\r\n     -1/0xFFFFFFFF: null weak-object index sentinel. */\r\n\r\nvoid FWeakObjectPtr_FromUObject(FWeakObjectPtr_Partial *pWeakObject,UObject_Partial *pObject)\r\n\r\n{\r\n  int iVar1;\r\n  \r\n                    /* Branch on null source UObject. */\r\n  if (pObject != (UObject_Partial *)0x0) {\r\n                    /* Copy UObject internal index. */\r\n    pWeakObject->nObjectIndex = pObject->nInternalIndex;\r\n                    /* Allocate UObject serial number. */\r\n    iVar1 = FUObjectArray_AllocateSerialNumber(&g_pGUObjectArray);\r\n    pWeakObject->nSerialNumber = iVar1;\r\n    return;\r\n  }\r\n                    /* Write canonical null weak pointer. */\r\n  pWeakObject->nObjectIndex = -1;\r\n  pWeakObject->nSerialNumber = 0;\r\n  return;\r\n}\r\n\r\n",
+    "fixture_140F7CFD0": "\r\nint FUObjectArray_AllocateSerialNumber(longlong param_1,int param_2)\r\n\r\n{\r\n  int *piVar1;\r\n  int iVar2;\r\n  int iVar3;\r\n  longlong lVar4;\r\n  bool bVar5;\r\n  \r\n  if (param_2 < *(int *)(param_1 + 0x1c)) {\r\n    lVar4 = *(longlong *)(param_1 + 0x10) + (longlong)param_2 * 0x18;\r\n  }\r\n  else {\r\n    lVar4 = 0;\r\n  }\r\n  iVar3 = *(int *)(lVar4 + 0x10);\r\n  if (*(int *)(lVar4 + 0x10) == 0) {\r\n    LOCK();\r\n    piVar1 = (int *)(param_1 + 0x198);\r\n    iVar3 = *piVar1;\r\n    *piVar1 = *piVar1 + 1;\r\n    UNLOCK();\r\n    iVar3 = iVar3 + 1;\r\n    if (iVar3 < 0x3e9) {\r\n      FMsg_Logf(\"D:\\\\dev\\\\sc6\\\\UE4_Steam\\\\Engine\\\\Source\\\\Runtime\\\\CoreUObject\\\\Private\\\\UObject\\\\UObjectArray.cpp\"\r\n                ,0x13b,L\"UObject serial numbers overflowed (trying to allocate serial number %d).\",\r\n                iVar3);\r\n      FError_Throwf(&DAT_143558c36,\r\n                    \"D:\\\\dev\\\\sc6\\\\UE4_Steam\\\\Engine\\\\Source\\\\Runtime\\\\CoreUObject\\\\Private\\\\UObject\\\\UObjectArray.cpp\"\r\n                    ,0x13b,\r\n                    L\"UObject serial numbers overflowed (trying to allocate serial number %d).\",\r\n                    iVar3);\r\n    }\r\n    LOCK();\r\n    iVar2 = *(int *)(lVar4 + 0x10);\r\n    bVar5 = iVar2 == 0;\r\n    if (bVar5) {\r\n      *(int *)(lVar4 + 0x10) = iVar3;\r\n      iVar2 = 0;\r\n    }\r\n    UNLOCK();\r\n    if (!bVar5) {\r\n      iVar3 = iVar2;\r\n    }\r\n  }\r\n  return iVar3;\r\n}\r\n\r\n",
+    "fixture_140D51430": "\r\nvoid FMemory_Realloc(undefined8 param_1,undefined8 param_2,undefined4 param_3)\r\n\r\n{\r\n  if (g_pGMalloc == (FMalloc_Partial *)0x0) {\r\n    FUN_140d51680(param_1);\r\n    return;\r\n  }\r\n                    /* WARNING: Could not recover jumptable at 0x000140d51453. Too many branches */\r\n                    /* WARNING: Treating indirect jump as call */\r\n  (*g_pGMalloc->pVtable->pReserved18)(g_pGMalloc,param_1,param_2,param_3);\r\n  return;\r\n}\r\n\r\n",
+    "fixture_140D50DC0": "\r\n/* FMemory::QuantizeSize (thin wrapper over FMalloc::QuantizeSize at vtable+0x28).\r\n   \r\n   Reports the actual allocated size a given requested (Count, Alignment)\r\n   will take.  Called by TArray::SetNumUninitialized on the slack-growth\r\n   path to decide how much memory to ask for on the next realloc.\r\n   \r\n   Parameters\r\n   ----------\r\n     param_1 : size_t Count\r\n     param_2 : uint32 Alignment\r\n   \r\n   Returns\r\n   -------\r\n     size_t Actual allocated size; same as Count if GMalloc is not yet\r\n     initialised. */\r\n\r\nsize_t FMemory_QuantizeSize(size_t Count,uint Alignment)\r\n\r\n{\r\n  size_t sVar1;\r\n  \r\n  if (g_pGMalloc == (FMalloc_Partial *)0x0) {\r\n    return Count;\r\n  }\r\n                    /* WARNING: Could not recover jumptable at 0x000140d50ddc. Too many branches */\r\n                    /* WARNING: Treating indirect jump as call */\r\n  sVar1 = (*g_pGMalloc->pVtable->pReserved28)(g_pGMalloc,Count,Alignment);\r\n  return sVar1;\r\n}\r\n\r\n",
+    "fixture_1403A1380": "\r\n/* LuxAudioTask_DispatchTickAsync - alloc + queue audio tick onto UE4 task pool\r\n   \r\n   Allocates an audio task slot from a UE4 object pool, populates two vtable\r\n   slots (LAB_140399b60 and LAB_140399bc0 — the audio tick entry points) and\r\n   inserts the slot into the pool.\r\n   \r\n   Returns 1 on success (task queued), 0 if pool allocation failed (in which\r\n   case the work is dropped and FUN_140d23620 cleans up).\r\n   \r\n   CALLER COUNT\r\n     70 callers — this is a HOT entry point. Every CRI Atom voice trigger\r\n     goes through here.\r\n   \r\n   PARAMETERS\r\n     param_1  - tick context\r\n     param_2  - tick payload\r\n   \r\n   RETURNS\r\n     uint64 (cast bool) — 1 = queued, 0 = pool exhausted\r\n   \r\n   REPLAY/SCRUB NOTE\r\n     The 70-caller xref count means almost every audio playback path traverses\r\n     this entry. HorseMod scrub mitigation could replace this function's body\r\n     with a NOP-when-scrubbing pattern to silence ALL audio dispatch during\r\n     fast-forward — far simpler than gating each individual playback site.\r\n    */\r\n\r\nundefined8 LuxAudioTask_DispatchTickAsync(void *pTickCtx,ulonglong qwTickPayload)\r\n\r\n{\r\n  bool fAllocOk;\r\n  byte bResetGuard;\r\n  int nRefcountBuf;\r\n  void *pEntryLab;\r\n  void ***pppvStack_40;\r\n  void *pExitLab;\r\n  byte *pbStack_30;\r\n  void **ppExitTrampoline;\r\n  ulonglong qwPayload;\r\n  int *pnRefcountTarget;\r\n  \r\n  bResetGuard = 0;\r\n  pbStack_30 = &bResetGuard;\r\n  nRefcountBuf = 0;\r\n  ppExitTrampoline = &pExitLab;\r\n  pnRefcountTarget = &nRefcountBuf;\r\n  pppvStack_40 = &ppExitTrampoline;\r\n  pExitLab = &LAB_140399b60;\r\n  pEntryLab = &LAB_140399bc0;\r\n  qwPayload = qwTickPayload;\r\n  fAllocOk = (bool)UE4_ObjPool_AllocAndInsert(0x40399bc0,&pEntryLab);\r\n  if (fAllocOk == false) {\r\n    if (nRefcountBuf != 0) {\r\n      FUN_140d23620();\r\n    }\r\n    return 0;\r\n  }\r\n  return 1;\r\n}\r\n\r\n",
+    "fixture_1403A1260": "\r\nulonglong UE4_ObjPool_AllocAndInsert(longlong param_1,undefined8 *param_2)\r\n\r\n{\r\n  int iVar1;\r\n  ulonglong uVar2;\r\n  ulonglong uVar3;\r\n  ulonglong uVar4;\r\n  longlong lVar5;\r\n  ulonglong uVar6;\r\n  bool bVar7;\r\n  ulonglong local_res8 [2];\r\n  \r\n  LOCK();\r\n  uVar4 = *(ulonglong *)(param_1 + 8);\r\n  if (uVar4 == 0) {\r\n    *(ulonglong *)(param_1 + 8) = 0;\r\n    uVar4 = 0;\r\n  }\r\n  UNLOCK();\r\n  uVar6 = uVar4 >> 0x1a;\r\n  local_res8[0] = (ulonglong)((uint)uVar6 & 1);\r\n  uVar2 = (*(code *)*param_2)(param_2[1],local_res8);\r\n  iVar1 = (int)uVar2;\r\n  while( true ) {\r\n    if (iVar1 == 0) {\r\n      return uVar2 & 0xffffffffffffff00;\r\n    }\r\n    uVar3 = (uVar4 & 0xfffffffffc000000) + 0x8000000;\r\n    if (uVar3 >> 0x1a < uVar6) {\r\n      FUN_140d29b40();\r\n    }\r\n    lVar5 = 0;\r\n    if ((uint)uVar2 != 0) {\r\n      lVar5 = (&DAT_14415dae8)[(uVar2 & 0xffffffff) >> 0xe] +\r\n              (ulonglong)((uint)uVar2 & 0x3fff) * 0x18;\r\n    }\r\n    *(uint *)(lVar5 + 0x10) = (uint)uVar4 & 0x3ffffff;\r\n    LOCK();\r\n    uVar6 = *(ulonglong *)(param_1 + 8);\r\n    bVar7 = uVar4 == uVar6;\r\n    if (bVar7) {\r\n      *(ulonglong *)(param_1 + 8) = uVar3 | uVar2 & 0xffffffff;\r\n      uVar6 = uVar4;\r\n    }\r\n    UNLOCK();\r\n    if (bVar7) break;\r\n    LOCK();\r\n    uVar4 = *(ulonglong *)(param_1 + 8);\r\n    if (uVar4 == 0) {\r\n      *(ulonglong *)(param_1 + 8) = 0;\r\n      uVar4 = 0;\r\n    }\r\n    UNLOCK();\r\n    uVar6 = uVar4 >> 0x1a;\r\n    local_res8[0] = (ulonglong)((uint)uVar6 & 1);\r\n    uVar2 = (*(code *)*param_2)(param_2[1],local_res8);\r\n    iVar1 = (int)uVar2;\r\n  }\r\n  return CONCAT71((int7)(uVar6 >> 8),1);\r\n}\r\n\r\n",
+    "fixture_140D2C710": "\r\nvoid FUN_140d2c710(undefined8 param_1,longlong *param_2,undefined4 *param_3)\r\n\r\n{\r\n  int iVar1;\r\n  ulonglong uVar2;\r\n  uint uVar3;\r\n  ulonglong *puVar4;\r\n  ulonglong *puVar5;\r\n  ulonglong uVar6;\r\n  ulonglong uVar7;\r\n  ulonglong *puVar8;\r\n  undefined4 local_28;\r\n  undefined4 uStack_24;\r\n  undefined4 uStack_20;\r\n  undefined4 uStack_1c;\r\n  \r\n  local_28 = *param_3;\r\n  uStack_24 = param_3[1];\r\n  uStack_20 = param_3[2];\r\n  uStack_1c = param_3[3];\r\n  uVar3 = FUN_140d2c880(local_28,&local_28);\r\n  uVar6 = (ulonglong)uVar3;\r\n  if (uVar3 != 0) {\r\n    puVar8 = (ulonglong *)0x0;\r\n    uVar7 = uVar6;\r\n    puVar4 = puVar8;\r\n    if (uVar3 != 0) goto LAB_140d2c764;\r\n    while( true ) {\r\n      iVar1 = (int)param_2[1];\r\n      uVar6 = puVar4[1];\r\n      *(int *)(param_2 + 1) = iVar1 + 1;\r\n      if (*(int *)((longlong)param_2 + 0xc) < iVar1 + 1) {\r\n        TArray_ReserveGrow(param_2,iVar1);\r\n      }\r\n      puVar5 = (ulonglong *)(*param_2 + (longlong)iVar1 * 8);\r\n      if (puVar5 != (ulonglong *)0x0) {\r\n        *puVar5 = uVar6;\r\n      }\r\n      uVar2 = puVar4[2];\r\n      uVar6 = (ulonglong)(uint)uVar2;\r\n      puVar4 = TlsGetValue(DAT_14415d8d0);\r\n      if (puVar4 == (ulonglong *)0x0) {\r\n        puVar5 = FMemory_Malloc(0xc);\r\n        puVar4 = puVar8;\r\n        if (puVar5 != (ulonglong *)0x0) {\r\n          *puVar5 = 0;\r\n          *(undefined4 *)(puVar5 + 1) = 0;\r\n          puVar4 = puVar5;\r\n        }\r\n        TlsSetValue(DAT_14415d8d0,puVar4);\r\n      }\r\n      if (0x3f < (int)puVar4[1]) {\r\n        if ((int)*puVar4 != 0) {\r\n          UE4_WeakObjPool_PushSlot(&DAT_14415d8d8);\r\n        }\r\n        *(undefined4 *)puVar4 = *(undefined4 *)((longlong)puVar4 + 4);\r\n        *(undefined8 *)((longlong)puVar4 + 4) = 0;\r\n      }\r\n      uVar3 = (uint)uVar7;\r\n      puVar5 = puVar8;\r\n      if (uVar3 != 0) {\r\n        puVar5 = (ulonglong *)((&DAT_14415dae8)[uVar7 >> 0xe] + (ulonglong)(uVar3 & 0x3fff) * 0x18);\r\n      }\r\n      *puVar5 = *puVar5 & 0xfffffffffc000000;\r\n      *(undefined4 *)(puVar5 + 2) = 0;\r\n      puVar5[1] = (ulonglong)*(uint *)((longlong)puVar4 + 4);\r\n      *(int *)(puVar4 + 1) = (int)puVar4[1] + 1;\r\n      *(uint *)((longlong)puVar4 + 4) = uVar3;\r\n      if ((uint)uVar2 == 0) break;\r\nLAB_140d2c764:\r\n      uVar7 = uVar6;\r\n      puVar4 = (ulonglong *)\r\n               ((&DAT_14415dae8)[uVar6 >> 0xe] + (ulonglong)((uint)uVar6 & 0x3fff) * 0x18);\r\n    }\r\n  }\r\n  return;\r\n}\r\n\r\n",
+    "fixture_140F86B80": "\r\nulonglong FUN_140f86b80(int *param_1)\r\n\r\n{\r\n  FUObjectItemFlags_Partial *pFVar1;\r\n  int iVar2;\r\n  FUObjectItemFlags_Partial *in_RAX;\r\n  \r\n  if (param_1[1] != 0) {\r\n    iVar2 = *param_1;\r\n    in_RAX = (FUObjectItemFlags_Partial *)(longlong)iVar2;\r\n    if ((-1 < iVar2) && (iVar2 < g_nGUObjectArrayItemCount)) {\r\n      pFVar1 = g_pGUObjectArrayItems + (longlong)in_RAX;\r\n      in_RAX = g_pGUObjectArrayItems;\r\n      if ((pFVar1 != (FUObjectItemFlags_Partial *)0x0) &&\r\n         (*(int *)(pFVar1->pRemainingMetadata + 4) == param_1[1])) {\r\n        return CONCAT71((int7)((ulonglong)g_pGUObjectArrayItems >> 8),\r\n                        (pFVar1->dwFlags & 0x30000000) == 0);\r\n      }\r\n    }\r\n  }\r\n  return (ulonglong)in_RAX & 0xffffffffffffff00;\r\n}\r\n\r\n",
+    "fixture_link_alloc": "\r\n/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */\r\n\r\nundefined4 FWeakObjectPtr_GetRef(longlong *param_1,undefined8 param_2)\r\n\r\n{\r\n  uint uVar1;\r\n  char cVar2;\r\n  undefined4 uVar3;\r\n  undefined8 local_res8 [4];\r\n  \r\n  local_res8[0] = param_2;\r\n  cVar2 = (**(code **)*param_1)(((undefined8 *)*param_1)[1],local_res8);\r\n  if (cVar2 == '\\0') {\r\n    return 0;\r\n  }\r\n  if (*(int *)param_1[2] == 0) {\r\n    uVar3 = FUN_140d1cd50();\r\n    *(undefined4 *)param_1[2] = uVar3;\r\n    uVar1 = *(uint *)param_1[2];\r\n    if (uVar1 == 0) {\r\n      _DAT_00000008 = param_1[1];\r\n      return *(undefined4 *)param_1[2];\r\n    }\r\n    *(longlong *)((&DAT_14415dae8)[uVar1 >> 0xe] + (ulonglong)(uVar1 & 0x3fff) * 0x18 + 8) =\r\n         param_1[1];\r\n  }\r\n  return *(undefined4 *)param_1[2];\r\n}\r\n\r\n",
+    "fixture_node_alloc": "\r\nvoid FUN_140d1cd50(void)\r\n\r\n{\r\n  FUN_140d2bdf0(&DAT_14415d8d0);\r\n  return;\r\n}\r\n\r\n",
+    "fixture_node_tls": "\r\nuint FUN_140d2bdf0(DWORD *param_1)\r\n\r\n{\r\n  uint uVar1;\r\n  undefined8 *puVar2;\r\n  uint uVar3;\r\n  int iVar4;\r\n  uint uVar5;\r\n  int *lpTlsValue;\r\n  int *piVar6;\r\n  void *pMemory;\r\n  int *piVar7;\r\n  longlong lVar8;\r\n  uint uVar9;\r\n  bool bVar10;\r\n  \r\n  lpTlsValue = TlsGetValue(*param_1);\r\n  piVar7 = (int *)0x0;\r\n  if (lpTlsValue == (int *)0x0) {\r\n    piVar6 = FMemory_Malloc(0xc);\r\n    lpTlsValue = piVar7;\r\n    if (piVar6 != (int *)0x0) {\r\n      piVar6[0] = 0;\r\n      piVar6[1] = 0;\r\n      piVar6[2] = 0;\r\n      lpTlsValue = piVar6;\r\n    }\r\n    TlsSetValue(*param_1,lpTlsValue);\r\n  }\r\n  if (lpTlsValue[1] == 0) {\r\n    if (*lpTlsValue == 0) {\r\n      iVar4 = UE4_WeakObjPool_AllocSlot(param_1 + 2);\r\n      lpTlsValue[1] = iVar4;\r\n      uVar9 = DAT_14415da60;\r\n      if (iVar4 == 0) {\r\n        LOCK();\r\n        uVar5 = DAT_14415da60 + 0x40;\r\n        UNLOCK();\r\n        uVar1 = DAT_14415da60 + 0x40;\r\n        uVar3 = uVar9;\r\n        DAT_14415da60 = uVar5;\r\n        if (0x4000000 < uVar1) {\r\n          FMsg_Logf(\"D:\\\\dev\\\\sc6\\\\UE4_Steam\\\\Engine\\\\Source\\\\Runtime\\\\Core\\\\Private\\\\Containers\\\\LockFreeList.cpp\"\r\n                    ,0x30,L\"Consumed %d lock free links; there are no more.\",0x4000000);\r\n          FError_Throwf((longlong)\r\n                        L\"FGenericPlatformProcess::LaunchFileInDefaultExternalApplication not implemented on this platform\"\r\n                        + 0xc3,\r\n                        \"D:\\\\dev\\\\sc6\\\\UE4_Steam\\\\Engine\\\\Source\\\\Runtime\\\\Core\\\\Private\\\\Containers\\\\LockFreeList.cpp\"\r\n                        ,0x30,L\"Consumed %d lock free links; there are no more.\",0x4000000);\r\n        }\r\n        for (; uVar3 < uVar1; uVar3 = uVar3 + 1) {\r\n          uVar5 = uVar3 >> 0xe;\r\n          if ((&DAT_14415dae8)[uVar5] == 0) {\r\n            pMemory = (void *)GMalloc_Malloc_Dispatch(0x60000,0);\r\n            LOCK();\r\n            bVar10 = (&DAT_14415dae8)[uVar5] == 0;\r\n            if (bVar10) {\r\n              (&DAT_14415dae8)[uVar5] = pMemory;\r\n            }\r\n            UNLOCK();\r\n            if (!bVar10) {\r\n              FMemory_Free(pMemory);\r\n            }\r\n          }\r\n          puVar2 = (undefined8 *)((&DAT_14415dae8)[uVar5] + (ulonglong)(uVar3 & 0x3fff) * 0x18);\r\n          if (puVar2 != (undefined8 *)0x0) {\r\n            *puVar2 = 0;\r\n            puVar2[1] = 0;\r\n            puVar2[2] = 0;\r\n          }\r\n        }\r\n        lVar8 = 0x40;\r\n        do {\r\n          piVar6 = piVar7;\r\n          if (uVar9 != 0) {\r\n            piVar6 = (int *)((&DAT_14415dae8)[uVar9 >> 0xe] + (ulonglong)(uVar9 & 0x3fff) * 0x18);\r\n          }\r\n          piVar6[0] = 0;\r\n          piVar6[1] = 0;\r\n          piVar6[4] = 0;\r\n          *(ulonglong *)(piVar6 + 2) = (ulonglong)(uint)lpTlsValue[1];\r\n          lpTlsValue[1] = uVar9;\r\n          uVar9 = uVar9 + 1;\r\n          lVar8 = lVar8 + -1;\r\n        } while (lVar8 != 0);\r\n      }\r\n    }\r\n    else {\r\n      lpTlsValue[1] = *lpTlsValue;\r\n      *lpTlsValue = 0;\r\n    }\r\n    lpTlsValue[2] = 0x40;\r\n  }\r\n  uVar9 = lpTlsValue[1];\r\n  if (uVar9 != 0) {\r\n    piVar7 = (int *)((&DAT_14415dae8)[uVar9 >> 0xe] + (ulonglong)(uVar9 & 0x3fff) * 0x18);\r\n  }\r\n  iVar4 = piVar7[2];\r\n  lpTlsValue[2] = lpTlsValue[2] + -1;\r\n  lpTlsValue[1] = iVar4;\r\n  piVar7[2] = 0;\r\n  piVar7[3] = 0;\r\n  return uVar9;\r\n}\r\n\r\n",
+    "fixture_close_CAS": "\r\nuint FUN_140d2c880(longlong param_1,undefined8 *param_2)\r\n\r\n{\r\n  float fVar1;\r\n  ulonglong uVar2;\r\n  ulonglong uVar3;\r\n  longlong lVar4;\r\n  bool bVar5;\r\n  ulonglong local_res8 [2];\r\n  \r\n  fVar1 = g_flLuxMoveVMUnitsPerInt0p001;\r\n  do {\r\n    LOCK();\r\n    uVar2 = *(ulonglong *)(param_1 + 8);\r\n    if (uVar2 == 0) {\r\n      *(ulonglong *)(param_1 + 8) = 0;\r\n      uVar2 = 0;\r\n    }\r\n    UNLOCK();\r\n    uVar3 = (uVar2 & 0xfffffffffc000000) + 0x8000000;\r\n    if (uVar3 >> 0x1a < uVar2 >> 0x1a) {\r\n      FUN_140e1fa80(fVar1);\r\n    }\r\n    local_res8[0] = (ulonglong)((uint)(uVar2 >> 0x1a) & 1);\r\n    lVar4 = (*(code *)*param_2)(param_2[1],local_res8);\r\n    LOCK();\r\n    bVar5 = uVar2 == *(ulonglong *)(param_1 + 8);\r\n    if (bVar5) {\r\n      *(ulonglong *)(param_1 + 8) = lVar4 << 0x1a | uVar3 & 0xfffffffff8000000;\r\n    }\r\n    UNLOCK();\r\n  } while (!bVar5);\r\n  return (uint)uVar2 & 0x3ffffff;\r\n}\r\n\r\n",
+    "fixture_gmalloc_asm": "{\"dry_run\":true,\"success\":true,\"start_address\":\"140d51430\",\"end_address\":\"140d51457\",\"bytes_disassembled\":40,\"message\":\"Successfully disassembled 40 byte(s)\",\"instructions\":[{\"address\":\"140d51430\",\"mnemonic\":\"MOV\",\"operands\":\"R10, RCX\",\"length\":3,\"bytes\":\"4c8bd1\"},{\"address\":\"140d51433\",\"mnemonic\":\"MOV\",\"operands\":\"RCX, qword ptr [0x1441971c8]\",\"length\":7,\"bytes\":\"488b0d8e5d4403\"},{\"address\":\"140d5143a\",\"mnemonic\":\"TEST\",\"operands\":\"RCX, RCX\",\"length\":3,\"bytes\":\"4885c9\"},{\"address\":\"140d5143d\",\"mnemonic\":\"JNZ\",\"operands\":\"0x140d51447\",\"length\":2,\"bytes\":\"7508\"},{\"address\":\"140d5143f\",\"mnemonic\":\"MOV\",\"operands\":\"RCX, R10\",\"length\":3,\"bytes\":\"498bca\"},{\"address\":\"140d51442\",\"mnemonic\":\"JMP\",\"operands\":\"0x140d51680\",\"length\":5,\"bytes\":\"e939020000\"},{\"address\":\"140d51447\",\"mnemonic\":\"MOV\",\"operands\":\"RAX, qword ptr [RCX]\",\"length\":3,\"bytes\":\"488b01\"},{\"address\":\"140d5144a\",\"mnemonic\":\"MOV\",\"operands\":\"R9D, R8D\",\"length\":3,\"bytes\":\"458bc8\"},{\"address\":\"140d5144d\",\"mnemonic\":\"MOV\",\"operands\":\"R8, RDX\",\"length\":3,\"bytes\":\"4c8bc2\"},{\"address\":\"140d51450\",\"mnemonic\":\"MOV\",\"operands\":\"RDX, R10\",\"length\":3,\"bytes\":\"498bd2\"},{\"address\":\"140d51453\",\"mnemonic\":\"JMP\",\"operands\":\"qword ptr [RAX + 0x18]\",\"length\":4,\"bytes\":\"48ff6018\"},{\"address\":\"140d51457\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"}],\"instructions_total\":12,\"truncated\":false}",
+    "fixture_weak_abi": "{\"dry_run\":true,\"success\":true,\"start_address\":\"140f7bad0\",\"end_address\":\"140f7bb0b\",\"bytes_disassembled\":60,\"message\":\"Successfully disassembled 60 byte(s)\",\"instructions\":[{\"address\":\"140f7bad0\",\"mnemonic\":\"PUSH\",\"operands\":\"RBX\",\"length\":2,\"bytes\":\"4053\"},{\"address\":\"140f7bad2\",\"mnemonic\":\"SUB\",\"operands\":\"RSP, 0x20\",\"length\":4,\"bytes\":\"4883ec20\"},{\"address\":\"140f7bad6\",\"mnemonic\":\"MOV\",\"operands\":\"RBX, RCX\",\"length\":3,\"bytes\":\"488bd9\"},{\"address\":\"140f7bad9\",\"mnemonic\":\"TEST\",\"operands\":\"RDX, RDX\",\"length\":3,\"bytes\":\"4885d2\"},{\"address\":\"140f7badc\",\"mnemonic\":\"JZ\",\"operands\":\"0x140f7baf8\",\"length\":2,\"bytes\":\"741a\"},{\"address\":\"140f7bade\",\"mnemonic\":\"MOV\",\"operands\":\"EDX, dword ptr [RDX + 0xc]\",\"length\":3,\"bytes\":\"8b520c\"},{\"address\":\"140f7bae1\",\"mnemonic\":\"MOV\",\"operands\":\"dword ptr [RCX], EDX\",\"length\":2,\"bytes\":\"8911\"},{\"address\":\"140f7bae3\",\"mnemonic\":\"LEA\",\"operands\":\"RCX, [0x1442a1140]\",\"length\":7,\"bytes\":\"488d0d56563203\"},{\"address\":\"140f7baea\",\"mnemonic\":\"CALL\",\"operands\":\"0x140f7cfd0\",\"length\":5,\"bytes\":\"e8e1140000\"},{\"address\":\"140f7baef\",\"mnemonic\":\"MOV\",\"operands\":\"dword ptr [RBX + 0x4], EAX\",\"length\":3,\"bytes\":\"894304\"},{\"address\":\"140f7baf2\",\"mnemonic\":\"ADD\",\"operands\":\"RSP, 0x20\",\"length\":4,\"bytes\":\"4883c420\"},{\"address\":\"140f7baf6\",\"mnemonic\":\"POP\",\"operands\":\"RBX\",\"length\":1,\"bytes\":\"5b\"},{\"address\":\"140f7baf7\",\"mnemonic\":\"RET\",\"operands\":\"\",\"length\":1,\"bytes\":\"c3\"},{\"address\":\"140f7baf8\",\"mnemonic\":\"MOV\",\"operands\":\"dword ptr [RCX], 0xffffffff\",\"length\":6,\"bytes\":\"c701ffffffff\"},{\"address\":\"140f7bafe\",\"mnemonic\":\"MOV\",\"operands\":\"dword ptr [RCX + 0x4], 0x0\",\"length\":7,\"bytes\":\"c7410400000000\"},{\"address\":\"140f7bb05\",\"mnemonic\":\"ADD\",\"operands\":\"RSP, 0x20\",\"length\":4,\"bytes\":\"4883c420\"},{\"address\":\"140f7bb09\",\"mnemonic\":\"POP\",\"operands\":\"RBX\",\"length\":1,\"bytes\":\"5b\"},{\"address\":\"140f7bb0a\",\"mnemonic\":\"RET\",\"operands\":\"\",\"length\":1,\"bytes\":\"c3\"},{\"address\":\"140f7bb0b\",\"mnemonic\":\"INT3\",\"operands\":\"\",\"length\":1,\"bytes\":\"cc\"}],\"instructions_total\":19,\"truncated\":false}",
+    "fixture_quantize_abi": "{\"dry_run\":true,\"success\":true,\"start_address\":\"140d50dc0\",\"end_address\":\"140d50de2\",\"bytes_disassembled\":35,\"message\":\"Successfully disassembled 35 byte(s)\",\"instructions\":[{\"address\":\"140d50dc0\",\"mnemonic\":\"MOV\",\"operands\":\"R9, qword ptr [0x1441971c8]\",\"length\":7,\"bytes\":\"4c8b0d01644403\"},{\"address\":\"140d50dc7\",\"mnemonic\":\"TEST\",\"operands\":\"R9, R9\",\"length\":3,\"bytes\":\"4d85c9\"},{\"address\":\"140d50dca\",\"mnemonic\":\"JNZ\",\"operands\":\"0x140d50dd0\",\"length\":2,\"bytes\":\"7504\"},{\"address\":\"140d50dcc\",\"mnemonic\":\"MOV\",\"operands\":\"RAX, RCX\",\"length\":3,\"bytes\":\"488bc1\"},{\"address\":\"140d50dcf\",\"mnemonic\":\"RET\",\"operands\":\"\",\"length\":1,\"bytes\":\"c3\"},{\"address\":\"140d50dd0\",\"mnemonic\":\"MOV\",\"operands\":\"RAX, qword ptr [R9]\",\"length\":3,\"bytes\":\"498b01\"},{\"address\":\"140d50dd3\",\"mnemonic\":\"MOV\",\"operands\":\"R8D, EDX\",\"length\":3,\"bytes\":\"448bc2\"},{\"address\":\"140d50dd6\",\"mnemonic\":\"MOV\",\"operands\":\"RDX, RCX\",\"length\":3,\"bytes\":\"488bd1\"},{\"address\":\"140d50dd9\",\"mnemonic\":\"MOV\",\"operands\":\"RCX, R9\",\"length\":3,\"bytes\":\"498bc9\"},{\"address\":\"140d50ddc\",\"mnemonic\":\"JMP\",\"operands\":\"qword ptr [RAX + 0x28]\",\"length\":4,\"bytes\":\"48ff6028\"},{\"address\":\"140d50de0\",\"mnemonic\":\"MOV\",\"operands\":\"qword ptr [RSP + 0x20], RSI\",\"length\":5,\"bytes\":\"4889742420\"}],\"instructions_total\":11,\"truncated\":false}",
+    "edgefreeze_1421679C0": "\r\nvoid FUN_1421679c0(ulonglong param_1,ulonglong param_2,undefined4 param_3,char param_4)\r\n\r\n{\r\n  int *piVar1;\r\n  int iVar2;\r\n  char cVar3;\r\n  undefined8 *puVar4;\r\n  uint uVar5;\r\n  ulonglong uVar7;\r\n  ulonglong uVar8;\r\n  int iVar9;\r\n  ulonglong uVar6;\r\n  \r\n  uVar6 = 0;\r\n  *(undefined1 *)(param_1 + 0x38) = 1;\r\n  *(undefined4 *)(param_1 + 8) = *(undefined4 *)(param_1 + 0x24);\r\n  iVar9 = 0;\r\n  if ((param_2 != 0) && (uVar7 = uVar6, uVar8 = uVar6, iVar9 = 0, 0 < *(int *)(param_2 + 0x28))) {\r\n    do {\r\n      cVar3 = LuxAudioTask_DispatchTickAsync\r\n                        (*(void **)(((ulonglong)(*(longlong *)(param_2 + 0x20) != 0) - 1 & param_2 |\r\n                                    *(ulonglong *)(param_2 + 0x20)) + uVar8),param_1);\r\n      if (cVar3 == '\\0') {\r\n        uVar7 = (ulonglong)((int)uVar7 + 1);\r\n      }\r\n      iVar9 = (int)uVar7;\r\n      uVar5 = (int)uVar6 + 1;\r\n      uVar6 = (ulonglong)uVar5;\r\n      uVar8 = uVar8 + 8;\r\n    } while ((int)uVar5 < *(int *)(param_2 + 0x28));\r\n  }\r\n  iVar9 = (uint)(param_4 != '\\0') + iVar9;\r\n  LOCK();\r\n  piVar1 = (int *)(param_1 + 0xc);\r\n  iVar2 = *piVar1;\r\n  *piVar1 = *piVar1 - iVar9;\r\n  UNLOCK();\r\n  if (iVar2 == iVar9) {\r\n    puVar4 = (undefined8 *)FUN_140d24400();\r\n    (**(code **)*puVar4)(puVar4,param_1,*(undefined4 *)(param_1 + 8),param_3);\r\n  }\r\n  return;\r\n}\r\n\r\n",
+    "prefixes": [
+      {
+        "address": "141D58ED0",
+        "raw": {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"address\":\"141d58ed0\",\"length\":32,\"data\":[72,133,210,116,19,76,141,130,16,1,0,0,72,129,193,16,1,0,0,233,56,186,64,0,195,204,204,204,204,204,204,204],\"hex\":\"4885d274134c8d82100100004881c110010000e938ba4000c3cccccccccccccc\"}"
+              }
+            ],
+            "structuredContent": {
+              "result": "{\"address\":\"141d58ed0\",\"length\":32,\"data\":[72,133,210,116,19,76,141,130,16,1,0,0,72,129,193,16,1,0,0,233,56,186,64,0,195,204,204,204,204,204,204,204],\"hex\":\"4885d274134c8d82100100004881c110010000e938ba4000c3cccccccccccccc\"}"
+            },
+            "isError": false
+          }
+        }
+      },
+      {
+        "address": "142164920",
+        "raw": {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"address\":\"142164920\",\"length\":32,\"data\":[72,137,92,36,8,87,72,131,236,48,72,139,217,73,139,248,72,141,76,36,32,232,150,113,225,254,72,141,75,32,72,137],\"hex\":\"48895c2408574883ec30488bd9498bf8488d4c2420e89671e1fe488d4b204889\"}"
+              }
+            ],
+            "structuredContent": {
+              "result": "{\"address\":\"142164920\",\"length\":32,\"data\":[72,137,92,36,8,87,72,131,236,48,72,139,217,73,139,248,72,141,76,36,32,232,150,113,225,254,72,141,75,32,72,137],\"hex\":\"48895c2408574883ec30488bd9498bf8488d4c2420e89671e1fe488d4b204889\"}"
+            },
+            "isError": false
+          }
+        }
+      },
+      {
+        "address": "142164960",
+        "raw": {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"address\":\"142164960\",\"length\":32,\"data\":[72,137,92,36,32,87,65,86,65,87,72,131,236,32,68,139,121,8,51,219,76,139,242,72,139,249,69,133,255,15,142,157],\"hex\":\"48895c242057415641574883ec20448b790833db4c8bf2488bf94585ff0f8e9d\"}"
+              }
+            ],
+            "structuredContent": {
+              "result": "{\"address\":\"142164960\",\"length\":32,\"data\":[72,137,92,36,32,87,65,86,65,87,72,131,236,32,68,139,121,8,51,219,76,139,242,72,139,249,69,133,255,15,142,157],\"hex\":\"48895c242057415641574883ec20448b790833db4c8bf2488bf94585ff0f8e9d\"}"
+            },
+            "isError": false
+          }
+        }
+      },
+      {
+        "address": "142185090",
+        "raw": {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"address\":\"142185090\",\"length\":32,\"data\":[64,83,72,131,236,32,139,81,12,72,139,217,76,99,65,8,68,139,202,69,43,200,73,99,193,72,193,224,4,72,61,0],\"hex\":\"40534883ec208b510c488bd94c634108448bca452bc84963c148c1e004483d00\"}"
+              }
+            ],
+            "structuredContent": {
+              "result": "{\"address\":\"142185090\",\"length\":32,\"data\":[64,83,72,131,236,32,139,81,12,72,139,217,76,99,65,8,68,139,202,69,43,200,73,99,193,72,193,224,4,72,61,0],\"hex\":\"40534883ec208b510c488bd94c634108448bca452bc84963c148c1e004483d00\"}"
+            },
+            "isError": false
+          }
+        }
+      },
+      {
+        "address": "140F7BAD0",
+        "raw": {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"address\":\"140f7bad0\",\"length\":32,\"data\":[64,83,72,131,236,32,72,139,217,72,133,210,116,26,139,82,12,137,17,72,141,13,86,86,50,3,232,225,20,0,0,137],\"hex\":\"40534883ec20488bd94885d2741a8b520c8911488d0d56563203e8e114000089\"}"
+              }
+            ],
+            "structuredContent": {
+              "result": "{\"address\":\"140f7bad0\",\"length\":32,\"data\":[64,83,72,131,236,32,72,139,217,72,133,210,116,26,139,82,12,137,17,72,141,13,86,86,50,3,232,225,20,0,0,137],\"hex\":\"40534883ec20488bd94885d2741a8b520c8911488d0d56563203e8e114000089\"}"
+            },
+            "isError": false
+          }
+        }
+      },
+      {
+        "address": "140F7CFD0",
+        "raw": {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"address\":\"140f7cfd0\",\"length\":32,\"data\":[64,87,72,131,236,48,59,81,28,125,17,72,99,194,72,141,20,64,72,139,65,16,72,141,60,208,235,2,51,255,139,71],\"hex\":\"40574883ec303b511c7d114863c2488d1440488b4110488d3cd0eb0233ff8b47\"}"
+              }
+            ],
+            "structuredContent": {
+              "result": "{\"address\":\"140f7cfd0\",\"length\":32,\"data\":[64,87,72,131,236,48,59,81,28,125,17,72,99,194,72,141,20,64,72,139,65,16,72,141,60,208,235,2,51,255,139,71],\"hex\":\"40574883ec303b511c7d114863c2488d1440488b4110488d3cd0eb0233ff8b47\"}"
+            },
+            "isError": false
+          }
+        }
+      },
+      {
+        "address": "1421679C0",
+        "raw": {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"address\":\"1421679c0\",\"length\":32,\"data\":[65,84,65,86,72,131,236,56,72,137,108,36,88,69,139,224,72,137,116,36,96,76,139,241,76,137,108,36,40,72,139,242],\"hex\":\"415441564883ec3848896c2458458be048897424604c8bf14c896c2428488bf2\"}"
+              }
+            ],
+            "structuredContent": {
+              "result": "{\"address\":\"1421679c0\",\"length\":32,\"data\":[65,84,65,86,72,131,236,56,72,137,108,36,88,69,139,224,72,137,116,36,96,76,139,241,76,137,108,36,40,72,139,242],\"hex\":\"415441564883ec3848896c2458458be048897424604c8bf14c896c2428488bf2\"}"
+            },
+            "isError": false
+          }
+        }
+      },
+      {
+        "address": "140D51430",
+        "raw": {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"address\":\"140d51430\",\"length\":32,\"data\":[76,139,209,72,139,13,142,93,68,3,72,133,201,117,8,73,139,202,233,57,2,0,0,72,139,1,69,139,200,76,139,194],\"hex\":\"4c8bd1488b0d8e5d44034885c97508498bcae939020000488b01458bc84c8bc2\"}"
+              }
+            ],
+            "structuredContent": {
+              "result": "{\"address\":\"140d51430\",\"length\":32,\"data\":[76,139,209,72,139,13,142,93,68,3,72,133,201,117,8,73,139,202,233,57,2,0,0,72,139,1,69,139,200,76,139,194],\"hex\":\"4c8bd1488b0d8e5d44034885c97508498bcae939020000488b01458bc84c8bc2\"}"
+            },
+            "isError": false
+          }
+        }
+      },
+      {
+        "address": "140D50DC0",
+        "raw": {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"address\":\"140d50dc0\",\"length\":32,\"data\":[76,139,13,1,100,68,3,77,133,201,117,4,72,139,193,195,73,139,1,68,139,194,72,139,209,73,139,201,72,255,96,40],\"hex\":\"4c8b0d016444034d85c97504488bc1c3498b01448bc2488bd1498bc948ff6028\"}"
+              }
+            ],
+            "structuredContent": {
+              "result": "{\"address\":\"140d50dc0\",\"length\":32,\"data\":[76,139,13,1,100,68,3,77,133,201,117,4,72,139,193,195,73,139,1,68,139,194,72,139,209,73,139,201,72,255,96,40],\"hex\":\"4c8b0d016444034d85c97504488bc1c3498b01448bc2488bd1498bc948ff6028\"}"
+            },
+            "isError": false
+          }
+        }
+      },
+      {
+        "address": "1403A1380",
+        "raw": {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"address\":\"1403a1380\",\"length\":32,\"data\":[76,139,220,72,131,236,104,51,192,73,137,83,224,136,68,36,112,73,141,83,184,73,141,67,8,199,68,36,120,0,0,0],\"hex\":\"4c8bdc4883ec6833c0498953e088442470498d53b8498d4308c7442478000000\"}"
+              }
+            ],
+            "structuredContent": {
+              "result": "{\"address\":\"1403a1380\",\"length\":32,\"data\":[76,139,220,72,131,236,104,51,192,73,137,83,224,136,68,36,112,73,141,83,184,73,141,67,8,199,68,36,120,0,0,0],\"hex\":\"4c8bdc4883ec6833c0498953e088442470498d53b8498d4308c7442478000000\"}"
+            },
+            "isError": false
+          }
+        }
+      },
+      {
+        "address": "140D2BDF0",
+        "raw": {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"address\":\"140d2bdf0\",\"length\":32,\"data\":[64,83,65,84,65,85,72,131,236,64,72,137,124,36,112,72,139,249,139,9,255,21,246,9,80,2,69,51,228,72,139,216],\"hex\":\"4053415441554883ec4048897c2470488bf98b09ff15f60950024533e4488bd8\"}"
+              }
+            ],
+            "structuredContent": {
+              "result": "{\"address\":\"140d2bdf0\",\"length\":32,\"data\":[64,83,65,84,65,85,72,131,236,64,72,137,124,36,112,72,139,249,139,9,255,21,246,9,80,2,69,51,228,72,139,216],\"hex\":\"4053415441554883ec4048897c2470488bf98b09ff15f60950024533e4488bd8\"}"
+            },
+            "isError": false
+          }
+        }
+      }
+    ]
+  }
+}

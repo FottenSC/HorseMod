@@ -1,0 +1,36 @@
+{
+  "failure_manifest": "26d3b90cc29804a90f410a934d439fdad1e04a33863bb6c64effd65b792c6440",
+  "run_id": "replay-9f5ebd7c242646a385476bdf8dd248b1",
+  "earliest_failure": "tick617 configuration_owned_arrays: rows5/5, auxiliary pointers0/0, both parent arrays1/2",
+  "cleanup": {
+    "complete": true,
+    "games_remaining": 0
+  },
+  "native_consumers": [
+    "140863B30 deep-copies configuration+50/+60 via1408635E0",
+    "1408A2B60 uses those lists as material overrides and constructs an auxiliary mesh only if both+38/+40 nonnull"
+  ],
+  "change": "Own both optional material-parent lists independently of auxiliary mesh presence; lease nonnull parents, preserve null entries, charge vector capacity. Auxiliary runtime construction remains unsupported.",
+  "validation": {
+    "ground-capture-witness-build.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\df3f69ee828fc88864434bc61e921c4e507c0b55c353e1350e82119437ddc913.log",
+      "sha256": "df3f69ee828fc88864434bc61e921c4e507c0b55c353e1350e82119437ddc913",
+      "bytes": 3979
+    },
+    "ground-auxiliary-parents-red.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\12e1be7d2a427c23163f09ac530a95340762c4564714d25ba402e2a7cdad0c6e.log",
+      "sha256": "12e1be7d2a427c23163f09ac530a95340762c4564714d25ba402e2a7cdad0c6e",
+      "bytes": 2061
+    },
+    "ground-auxiliary-parents-green.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\afd2463a2cc8b463fd66f228d460ffe45b50db7a9c6ce370954724cb6baddda9.log",
+      "sha256": "afd2463a2cc8b463fd66f228d460ffe45b50db7a9c6ce370954724cb6baddda9",
+      "bytes": 116
+    },
+    "ground-auxiliary-parents-build.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b6b097df04fc6c73cd82273eb6a2a2015c679ca2688b6b3b019a583a635f8364.log",
+      "sha256": "b6b097df04fc6c73cd82273eb6a2a2015c679ca2688b6b3b019a583a635f8364",
+      "bytes": 3979
+    }
+  }
+}

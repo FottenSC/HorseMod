@@ -1,0 +1,55 @@
+
+void FUN_14215ec10(longlong *param_1,undefined8 param_2,undefined4 param_3)
+
+{
+  int *piVar1;
+  int iVar2;
+  DWORD *pDVar3;
+  longlong *plVar4;
+  longlong *lpTlsValue;
+  
+  FUN_1415e3830((longlong)(int)param_1[3] * 0x30 + param_1[2],0);
+  *(undefined1 *)(param_1 + 4) = 0;
+  HandleLuxNoOpVirtual();
+  FUN_140d20a70(param_1[5],param_2,param_3);
+  *param_1 = (longlong)&PTR_FUN_1439cd9e0;
+  if (param_1[5] != 0) {
+    LOCK();
+    piVar1 = (int *)(param_1[5] + 0x48);
+    iVar2 = *piVar1;
+    *piVar1 = *piVar1 + -1;
+    UNLOCK();
+    if (iVar2 == 1) {
+      FUN_140d2ebe0();
+    }
+  }
+  *param_1 = (longlong)&PTR_FUN_143714118;
+  pDVar3 = (DWORD *)FUN_140d25ee0();
+  plVar4 = TlsGetValue(*pDVar3);
+  lpTlsValue = (longlong *)0x0;
+  if (plVar4 == (longlong *)0x0) {
+    plVar4 = FMemory_Malloc(0x18);
+    if (plVar4 != (longlong *)0x0) {
+      *plVar4 = 0;
+      plVar4[1] = 0;
+      *(undefined4 *)(plVar4 + 2) = 0;
+      lpTlsValue = plVar4;
+    }
+    TlsSetValue(*pDVar3,lpTlsValue);
+    plVar4 = lpTlsValue;
+  }
+  if (0x1f < (int)plVar4[2]) {
+    if (*plVar4 != 0) {
+      UE4_WeakObjPool_ReturnSlot(pDVar3 + 2);
+    }
+    *plVar4 = plVar4[1];
+    plVar4[1] = 0;
+    *(undefined4 *)(plVar4 + 2) = 0;
+  }
+  *param_1 = plVar4[1];
+  *(int *)(plVar4 + 2) = (int)plVar4[2] + 1;
+  plVar4[1] = (longlong)param_1;
+  return;
+}
+
+

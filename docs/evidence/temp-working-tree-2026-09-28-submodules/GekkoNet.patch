@@ -1,0 +1,99 @@
+diff --git a/GekkoLib/include/gekkonet.h b/GekkoLib/include/gekkonet.h
+index a551404165b114fb08361bbd6716b547477157a4..5716c53e9e9d92094a9558840a3664f6994330a6 100644
+--- a/GekkoLib/include/gekkonet.h
++++ b/GekkoLib/include/gekkonet.h
+@@ -219,6 +219,13 @@ GEKKONET_API GekkoGameEvent** gekko_update_session(GekkoSession* session, int* c
+ 
+ GEKKONET_API GekkoGameEvent** gekko_flush_corrections(GekkoSession* session, int* count);
+ 
++// Embeddings with a native simulation stack must flush corrections at a safe
++// boundary before selecting input. This operation never polls, loads, rewinds,
++// runs ahead, or reconstructs a confirmed save. It returns no events if a
++// baseline/correction is pending or diagnostic rewind modes are configured.
++// Returned forward Save events must be completed before the next game call.
++GEKKONET_API GekkoGameEvent** gekko_advance_forward_only(GekkoSession* session, int* count);
++
+ GEKKONET_API GekkoSessionEvent** gekko_session_events(GekkoSession* session, int* count);
+ 
+ GEKKONET_API float gekko_frames_ahead(GekkoSession* session);
+diff --git a/GekkoLib/include/private/session.h b/GekkoLib/include/private/session.h
+index 5756a748b431a42dd19bbb1c13cc17252600b377..31bccecc5bef1f263071f3b6a325ce49641e08ed 100644
+--- a/GekkoLib/include/private/session.h
++++ b/GekkoLib/include/private/session.h
+@@ -23,6 +23,7 @@ struct GekkoSession {
+     virtual bool DelayPrefixReady(u8 count) { return false; }
+     virtual GekkoGameEvent** UpdateSession(i32* count) = 0;
+     virtual GekkoGameEvent** FlushCorrections(i32* count) { *count = 0; return nullptr; }
++    virtual GekkoGameEvent** AdvanceForwardOnly(i32* count) { *count = 0; return nullptr; }
+     virtual GekkoSessionEvent** Events(i32* count) = 0;
+     virtual f32 FramesAhead() = 0;
+     virtual Frame ConfirmedFrame() { return -1; }
+@@ -58,6 +59,8 @@ namespace Gekko {
+ 
+         GekkoGameEvent** FlushCorrections(i32* count) override;
+ 
++        GekkoGameEvent** AdvanceForwardOnly(i32* count) override;
++
+         GekkoSessionEvent** Events(i32* count) override;
+ 
+         f32 FramesAhead() override;
+diff --git a/GekkoLib/src/game_session.cpp b/GekkoLib/src/game_session.cpp
+index 0b46c25f7531e0d31435fa365c2424f27b4c1e2e..45c440ab6acb2cdb2c436b8ca864389b46f216d5 100644
+--- a/GekkoLib/src/game_session.cpp
++++ b/GekkoLib/src/game_session.cpp
+@@ -166,6 +166,39 @@ GekkoGameEvent** Gekko::GameSession::FlushCorrections(i32* count)
+     return UpdateSessionInternal(count, false);
+ }
+ 
++GekkoGameEvent** Gekko::GameSession::AdvanceForwardOnly(i32* count)
++{
++    *count = 0;
++    _msg.session_events.Reset();
++    // Do not route this through UpdateSessionInternal: its Poll and confirmed
++    // anchor maintenance can request a Load while the host native worker is
++    // already on the stack. Baseline creation is also a safe-boundary job.
++    if (!_started || _last_saved_frame == GameInput::NULL_FRAME - 1
++        || RollbackPending() || _runahead_frames != 0
++        || _runahead_start_frame != GameInput::NULL_FRAME
++        || _forced_rollback_depth != 0) {
++        return nullptr;
++    }
++    // Submission is allowed here; receipt is deferred to the next safe flush.
++    // Keep outgoing input latency and qualification packet tagging identical
++    // to an ordinary update without calling the receive adapter.
++    if (_host) {
++        SendLocalInputs();
++        _msg.SendPendingOutput(_host);
++    }
++    _game_events.Clear();
++    _game_events.Reset();
++    if (_game_events.AddAdvanceEvent(_sync, false)) {
++        if (!_config.limited_saving) {
++            _game_events.AddSaveEvent(
++                _sync, _storage, GekkoSaveConfirmed, &_last_saved_frame);
++        }
++        _sync.IncrementFrame();
++    }
++    *count = _game_events.Count();
++    return _game_events.Data();
++}
++
+ GekkoGameEvent** Gekko::GameSession::UpdateSessionInternal(i32* count, bool advance)
+ {
+     // reset session events
+diff --git a/GekkoLib/src/gekkonet.cpp b/GekkoLib/src/gekkonet.cpp
+index b99f2abbdca4d898b1d602ed959284fd643a9efa..db6cf2f7f598f84c31d0278b4cedb1a87b6e819d 100644
+--- a/GekkoLib/src/gekkonet.cpp
++++ b/GekkoLib/src/gekkonet.cpp
+@@ -91,6 +91,11 @@ GekkoGameEvent** gekko_flush_corrections(GekkoSession* session, int* count)
+     return session->FlushCorrections(count);
+ }
+ 
++GekkoGameEvent** gekko_advance_forward_only(GekkoSession* session, int* count)
++{
++    return session->AdvanceForwardOnly(count);
++}
++
+ GekkoSessionEvent** gekko_session_events(GekkoSession* session, int* count)
+ {
+     return session->Events(count);

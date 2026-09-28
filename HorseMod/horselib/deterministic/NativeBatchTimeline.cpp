@@ -49,6 +49,23 @@ ResimulationBaseAction PlanResimulationBase(
 
 namespace
 {
+bool ValidateIntervalActors(const NativeBatchEnvelope& envelope) noexcept
+{
+    if (envelope.consumers_before_count > envelope.consumers_before.size()
+        || envelope.producers_before_count > envelope.producers_before.size()) return false;
+    std::uint8_t preceding_consumers{};
+    for (std::size_t index = 0; index < envelope.producers_before_count; ++index)
+    {
+        const auto& producer = envelope.producers_before[index];
+        if (!producer.valid || producer.preceding_consumers < preceding_consumers
+            || producer.preceding_consumers > envelope.consumers_before_count
+            || producer.native_frame_before != envelope.native_frame_before
+            || producer.native_frame_after != producer.native_frame_before) return false;
+        preceding_consumers = producer.preceding_consumers;
+    }
+    return true;
+}
+
 bool ValidateBattleAudioSourceSpans(
     const NativeBatchEnvelope& envelope) noexcept
 {
@@ -115,18 +132,8 @@ NativeBatchTimeline::NativeBatchTimeline(
     : maximum_batches_(maximum_batches),
       maximum_coordinates_(maximum_coordinates)
 {
-    try
-    {
-        batches_.reserve(maximum_batches_);
-        coordinates_.reserve(maximum_coordinates_);
-    }
-    catch (...)
-    {
-        maximum_batches_ = 0;
-        maximum_coordinates_ = 0;
-        batches_.clear();
-        coordinates_.clear();
-    }
+    // Allocate on demand: constructing an inactive legacy coordinator must
+    // not consume its 224 MiB retention ceiling beside the resumable core.
 }
 
 Status NativeBatchTimeline::Append(
@@ -145,6 +152,15 @@ Status NativeBatchTimeline::Append(
     const std::size_t coordinate_size = coordinates_.size();
     try
     {
+        const auto reserve = [](auto& storage, std::size_t needed, std::size_t maximum) {
+            if (needed <= storage.capacity()) return;
+            const auto capacity = storage.capacity();
+            const auto grown = capacity ? capacity + (std::min)(capacity, maximum - capacity)
+                                       : (std::min)(std::size_t{64}, maximum);
+            storage.reserve((std::max)(needed, grown));
+        };
+        reserve(batches_, batch_index + 1, maximum_batches_);
+        reserve(coordinates_, coordinate_size + coordinates.size(), maximum_coordinates_);
         for (std::size_t offset = 0; offset < coordinates.size(); ++offset)
         {
             coordinates_.push_back(
@@ -211,6 +227,7 @@ Status NativeBatchTimeline::ReplaceBatch(
         return Status::failure(FailureCode::IdentityMismatch);
     const bool immutable_match =
         replacement.batch_id == expected.batch_id
+        && replacement.preceding_outer_batch_id == expected.preceding_outer_batch_id
         && replacement.entry_coordinate == expected.entry_coordinate
         && replacement.exit_coordinate == expected.exit_coordinate
         && replacement.delta_seconds == expected.delta_seconds
@@ -248,7 +265,8 @@ Status NativeBatchTimeline::ReplaceBatch(
         + replacement.audio_terminal_calls
         + replacement.stage_wall_calls + replacement.stage_barrier_calls
         + replacement.stage_dispatch_calls + replacement.particle_spawn_calls;
-    if (!immutable_match || replacement.stage_signature_failures != 0
+    if (!immutable_match || !ValidateIntervalActors(replacement)
+        || replacement.stage_signature_failures != 0
         || replacement.particle_signature_failures != 0
         || replacement.camera_signature_failures != 0
         || replacement.presentation_order_failures != 0
@@ -290,6 +308,108 @@ Status NativeBatchTimeline::ReplaceBatch(
     }
     current = replacement;
     return Status::success();
+}
+
+Status NativeBatchTimeline::ValidateSuffixReplacement(
+    std::span<const NativeBatchEnvelope> expected,
+    std::span<const NativeBatchEnvelope> replacements,
+    std::span<const FrameCoordinate> coordinates) const noexcept
+{
+    if (expected.empty() || expected.size() != replacements.size())
+        return Status::failure(FailureCode::InvalidConfiguration);
+    const auto first = std::lower_bound(batches_.begin(), batches_.end(),
+        expected.front().batch_id,
+        [](const NativeBatchEnvelope& batch, std::uint64_t id) {
+            return batch.batch_id < id;
+        });
+    if (first == batches_.end() || first->batch_id != expected.front().batch_id)
+        return Status::failure(FailureCode::MissingSnapshot);
+    if (expected.size() != static_cast<std::size_t>(batches_.end() - first))
+        return Status::failure(FailureCode::InvalidConfiguration);
+    const auto first_index = static_cast<std::size_t>(first - batches_.begin());
+    const auto prefix_end = std::lower_bound(coordinates_.begin(), coordinates_.end(),
+        first_index, [](const NativeBatchCoordinate& value, std::size_t index) {
+            return value.batch_index < index;
+        });
+    const auto prefix_count = static_cast<std::size_t>(prefix_end - coordinates_.begin());
+    if (coordinates.size() > maximum_coordinates_ - prefix_count)
+        return Status::failure(FailureCode::CapacityExceeded);
+    const auto generation = expected.front().entry_coordinate.generation;
+    if (generation == 0
+        || replacements.front().entry_coordinate != expected.front().entry_coordinate)
+        return Status::failure(FailureCode::IdentityMismatch);
+    const NativeBatchEnvelope* previous = first_index == 0 ? nullptr : &batches_[first_index - 1];
+    std::optional<FrameCoordinate> previous_coordinate = prefix_count == 0
+        ? std::nullopt : std::optional{coordinates_[prefix_count - 1].coordinate};
+    std::size_t offset{};
+    for (std::size_t index = 0; index < replacements.size(); ++index)
+    {
+        const auto& old = expected[index];
+        const auto& replacement = replacements[index];
+        // A correction cannot cross an allocation/generation barrier. Native
+        // geometry inside that ownership epoch is reconstructed, not copied.
+        if (std::memcmp(&batches_[first_index + index], &old, sizeof(old)) != 0
+            || !old.completed_identity_valid || !replacement.completed_identity_valid
+            || replacement.batch_id != old.batch_id
+            || replacement.preceding_outer_batch_id != old.preceding_outer_batch_id
+            || replacement.delta_seconds != old.delta_seconds
+            || old.input_generation_changed || replacement.input_generation_changed
+            || old.entry_coordinate.generation != generation
+            || old.exit_coordinate.generation != generation
+            || replacement.entry_coordinate.generation != generation
+            || replacement.exit_coordinate.generation != generation
+            || replacement.camera_source_frame.session_generation
+                != old.camera_source_frame.session_generation
+            || replacement.camera_source_frame.round_generation
+                != old.camera_source_frame.round_generation
+            || replacement.stage_signature_failures != 0
+            || replacement.particle_signature_failures != 0
+            || replacement.camera_signature_failures != 0)
+            return Status::failure(FailureCode::IdentityMismatch);
+        const auto count = static_cast<std::size_t>(replacement.coordinate_count);
+        if (count > coordinates.size() - offset
+            || replacement.exit_coordinate.frame < replacement.entry_coordinate.frame
+            || replacement.exit_coordinate.frame - replacement.entry_coordinate.frame != count
+            || !ValidateAfter(replacement, coordinates.subspan(offset, count),
+                previous, previous_coordinate))
+            return Status::failure(FailureCode::IdentityMismatch);
+        for (std::size_t native = 0; native < count; ++native)
+        {
+            // The subtraction above proves this addition cannot overflow.
+            if (coordinates[offset + native] != FrameCoordinate{
+                    generation, replacement.entry_coordinate.frame + native + 1})
+                return Status::failure(FailureCode::IdentityMismatch);
+        }
+        if (count != 0) previous_coordinate = coordinates[offset + count - 1];
+        offset += count;
+        previous = &replacement;
+    }
+    return offset == coordinates.size() ? Status::success()
+        : Status::failure(FailureCode::InvalidConfiguration);
+}
+
+void NativeBatchTimeline::CommitValidatedSuffixReplacement(
+    std::span<const NativeBatchEnvelope> replacements,
+    std::span<const FrameCoordinate> coordinates) noexcept
+{
+    const auto first = std::lower_bound(batches_.begin(), batches_.end(),
+        replacements.front().batch_id,
+        [](const NativeBatchEnvelope& batch, std::uint64_t id) {
+            return batch.batch_id < id;
+        });
+    const auto first_index = static_cast<std::size_t>(first - batches_.begin());
+    const auto prefix_end = std::lower_bound(coordinates_.begin(), coordinates_.end(),
+        first_index, [](const NativeBatchCoordinate& value, std::size_t index) {
+            return value.batch_index < index;
+        });
+    coordinates_.resize(static_cast<std::size_t>(prefix_end - coordinates_.begin()));
+    std::size_t offset{};
+    for (std::size_t index = 0; index < replacements.size(); ++index)
+    {
+        batches_[first_index + index] = replacements[index];
+        for (std::uint32_t native = 0; native < replacements[index].coordinate_count; ++native)
+            coordinates_.push_back({coordinates[offset++], first_index + index, native});
+    }
 }
 
 bool NativeBatchTimeline::CanAppendBatch(
@@ -341,6 +461,18 @@ bool NativeBatchTimeline::Validate(
     const NativeBatchEnvelope& envelope,
     std::span<const FrameCoordinate> coordinates) const noexcept
 {
+    return ValidateAfter(envelope, coordinates,
+        batches_.empty() ? nullptr : &batches_.back(),
+        coordinates_.empty() ? std::nullopt
+            : std::optional{coordinates_.back().coordinate});
+}
+
+bool NativeBatchTimeline::ValidateAfter(
+    const NativeBatchEnvelope& envelope,
+    std::span<const FrameCoordinate> coordinates,
+    const NativeBatchEnvelope* previous,
+    std::optional<FrameCoordinate> previous_coordinate) noexcept
+{
     const auto expected_presentation_order =
         static_cast<std::size_t>(envelope.battle_audio_dispatches)
         + envelope.battle_audio_source_calls
@@ -351,6 +483,7 @@ bool NativeBatchTimeline::Validate(
         + envelope.stage_wall_calls + envelope.stage_barrier_calls
         + envelope.stage_dispatch_calls + envelope.particle_spawn_calls;
     if (envelope.batch_id == 0
+        || !ValidateIntervalActors(envelope)
         || envelope.coordinate_count != coordinates.size()
         || envelope.battle_audio_journal_count
             != envelope.battle_audio_dispatches
@@ -437,11 +570,11 @@ bool NativeBatchTimeline::Validate(
     for (std::size_t index = 0; index < envelope.stage_barrier_journal_count;
          ++index)
         if (!valid_stage(envelope.stage_barrier_journal[index], 4)) return false;
-    if (!batches_.empty()
-        && (envelope.batch_id <= batches_.back().batch_id
-            || (envelope.entry_coordinate != batches_.back().exit_coordinate
+    if (previous != nullptr
+        && (envelope.batch_id <= previous->batch_id
+            || (envelope.entry_coordinate != previous->exit_coordinate
                 && envelope.entry_coordinate.generation
-                    <= batches_.back().exit_coordinate.generation)))
+                    <= previous->exit_coordinate.generation)))
     {
         return false;
     }
@@ -457,7 +590,7 @@ bool NativeBatchTimeline::Validate(
         if (coordinates[index] <= coordinates[index - 1])
             return false;
     }
-    return coordinates_.empty()
-        || coordinates.front() > coordinates_.back().coordinate;
+    return !previous_coordinate.has_value()
+        || coordinates.front() > *previous_coordinate;
 }
 }

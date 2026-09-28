@@ -1,0 +1,100 @@
+{
+  "result": "PASS 3 focused production-boundary tests",
+  "scope": "Rejection-only pre-entry native queue snapshot. No dequeue, task dereference, queue admission relaxation, completion substitution, or live/B recovery claim.",
+  "commands": [
+    "python -m pytest -q -x tools/deterministic_qualification/tests/test_consumer_host.py::test_prerequisite_guard_reads_and_pre_native_witness tools/deterministic_qualification/tests/test_consumer_host.py::test_consumer_retirement_entries_stop_before_native_effects tools/deterministic_qualification/tests/test_replay_run.py::test_component_dispatch_revalidates_admitted_consumer"
+  ],
+  "log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4ef2aa11e9c4fd72cc52bc10f2945fb89cc70b08d02ad0b5bee954a90d626919.json",
+    "sha256": "4ef2aa11e9c4fd72cc52bc10f2945fb89cc70b08d02ad0b5bee954a90d626919",
+    "bytes": 101
+  },
+  "source_retention": {
+    "manifest_sha256": "d6b6070cf78905e34c4ccefc203b6f6c38a7ff58f423d911d36502b19497ad0f",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-d6b6070cf78905e34c4ccefc203b6f6c38a7ff58f423d911d36502b19497ad0f.zip",
+    "archive_sha256": "61f34344244a70c17bb78a45f3732b58c1efa4633eeca7403876ade7c64cb5c4",
+    "files": 16601,
+    "uncompressed_bytes": 92780087,
+    "reconstructible": true
+  },
+  "native_reads": {
+    "rollback-g1-native-queue-140d2b9f0-2026-09-24.txt": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\053cd032e67e94aa090485cb4abcdd654a00fb627dd81b4028a6238ad9c28dad.json",
+      "sha256": "053cd032e67e94aa090485cb4abcdd654a00fb627dd81b4028a6238ad9c28dad",
+      "bytes": 2617
+    },
+    "rollback-g1-native-queue-140d2ced0-2026-09-24.txt": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f5249ba7d64c6c9fd6fa2affde1e52d51a1ef0cb015205ad77e638c9e095131a.json",
+      "sha256": "f5249ba7d64c6c9fd6fa2affde1e52d51a1ef0cb015205ad77e638c9e095131a",
+      "bytes": 1825
+    },
+    "rollback-g1-native-queue-140d2d160-2026-09-24.txt": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c08fdd2899e566d43f370450199ed76a6006c5c6b6cf26d55435f9c2faf63ae2.json",
+      "sha256": "c08fdd2899e566d43f370450199ed76a6006c5c6b6cf26d55435f9c2faf63ae2",
+      "bytes": 1286
+    },
+    "rollback-g1-native-queue-1415e3830-2026-09-24.txt": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\441fbb91d09fec678cecbde55cc44bae249a44eb374c7fe2f0bc71303b2b5cd9.json",
+      "sha256": "441fbb91d09fec678cecbde55cc44bae249a44eb374c7fe2f0bc71303b2b5cd9",
+      "bytes": 710
+    },
+    "rollback-g1-native-queue-142167c50-2026-09-24.txt": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\5d780c7ddea8132c6132884217d613ca5b3fcdf1680e92250a23b3fb6252594c.json",
+      "sha256": "5d780c7ddea8132c6132884217d613ca5b3fcdf1680e92250a23b3fb6252594c",
+      "bytes": 1304
+    },
+    "rollback-g1-native-queue-142167d10-2026-09-24.txt": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\63635f3ed89791f030603fc0341b08b688dbcd4c4ce449cb5cc9600ba7e8bdf7.json",
+      "sha256": "63635f3ed89791f030603fc0341b08b688dbcd4c4ce449cb5cc9600ba7e8bdf7",
+      "bytes": 2462
+    }
+  },
+  "prior_live": "docs/evidence/rollback-g1-tick211-native-queue-pop-2026-09-24.json",
+  "record": {
+    "site": 9,
+    "native_site": 24,
+    "native_started": 0,
+    "owner": "queue address",
+    "function": "named thread address",
+    "task": "one successor payload address, never dereferenced",
+    "reason": {
+      "0": "bounded reads completed",
+      "1": "foreign thread; no queue reads",
+      "2": "SEH read fault; partial values only",
+      "3": "head node unavailable",
+      "4": "cleanup array layout rejected"
+    },
+    "operands": [
+      "head token",
+      "tail token",
+      "head next token",
+      "head token reread",
+      "tail token reread",
+      "head next reread",
+      "head pool node address",
+      "consistency mask: bit0 head, bit1 tail, bit2 next, bit3 next index zero",
+      "native pump depth",
+      "sequencer pointer",
+      "cleanup event count",
+      "cleanup event capacity",
+      "sampled event complete mask",
+      "sampled event nonnull mask",
+      "sampled event count <=8",
+      "manual pop scope flag"
+    ]
+  },
+  "native_constraints": [
+    "142167D10 graph-waits before1415E3830 releases sequencer+980 retained event refs.",
+    "Native return-task ordering remains required even for already completed small event arrays.",
+    "Snapshot is observational; consistency rereads do not establish ownership or authorize dequeue.",
+    "Only queue pool node words are read; queued task/UObject memory is never read. Cleanup event reads rely on native retained array refs and occur on original GT only."
+  ],
+  "validation": [
+    "linked and empty queue snapshots persist after actual fastfail",
+    "unreadable node page produces partial read-fault record",
+    "all queue/node/event bytes remain unchanged",
+    "invalid0xdeadbeef candidate payload copied without dereference",
+    "existing native callbacks under SRW lock and concurrent terminal writer remain green"
+  ],
+  "next": "Parent runs python tools/replay_test.py build and its required native/CTest gates before the identical shortest live diagnostic; stop at first failure."
+}

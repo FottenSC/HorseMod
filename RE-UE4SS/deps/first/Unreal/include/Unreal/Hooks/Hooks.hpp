@@ -105,6 +105,20 @@ namespace RC::Unreal
         using InitGameStateSignature = std::function<void(AGameModeBase* Context)>;
         using LoadMapSignature = std::function<bool(UEngine*, FWorldContext& WorldContext, FURL URL, UPendingNetGame* PendingGame, FString& Error)>;
         using EngineTickSignature = std::function<void(UEngine* Context, float DeltaSeconds, bool bIdleMode)>;
+        // One owner may replace the engine body between the existing pre/post
+        // callbacks. Returning false delegates to the native body. The callback
+        // must finish or retain its continuation as data before returning.
+        using EngineTickOverride = bool(*)(void* Owner, UEngine*, float, bool) noexcept;
+        // Null callback releases this owner's registration and waits for any
+        // other thread executing it. Registration/release from inside the
+        // replacement body is rejected. Another owner's registration is never
+        // overwritten. This does not alter normal callback ordering.
+        extern "C" auto RC_UE_API UE4SS_SetEngineTickOverride(void* Owner, EngineTickOverride Callback) -> bool;
+        // An override may retain the engine post-callback phase when its body
+        // suspends. Completion is exactly once, on the suspending thread, after
+        // the owner finishes the body. Releasing an owner with pending posts fails.
+        extern "C" auto RC_UE_API UE4SS_DeferEngineTickPost(void* Owner) -> bool;
+        extern "C" auto RC_UE_API UE4SS_CompleteEngineTickPost(void* Owner) -> bool;
         using BeginPlaySignature = std::function<void(AActor* Context)>;
         using EndPlaySignature = std::function<void(AActor* Context, EEndPlayReason EndPlayReason)>;
         using AActorTickSignature = std::function<void(AActor* Context, float DeltaSeconds)>;

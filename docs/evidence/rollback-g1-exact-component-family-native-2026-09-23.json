@@ -1,0 +1,355 @@
+{
+  "program": "SoulcaliburVI.exe",
+  "date": "2026-09-23",
+  "scope": "Exact base ActorComponent native family map and bounded retained-evidence census audit; no production/test/Ghidra edits.",
+  "map": {
+    "constructor": "141D31450: UObject* (UObject*, FObjectInitializer*)",
+    "primary_vtable": "143865FB0",
+    "embedded_tick": "component+110; tick vtable143865F98",
+    "deleting_destructor": "141D34350: void* (void* component, uint64 flags), primary vtable slot0; calls1403AF1B0 before flags&1 free",
+    "secondary_adjustor": "141D33BBC subtracts28 from RCX then jumps141D34350",
+    "nondeleting_destructor": "1403AF1B0: void(void* component); earliest base physical-body entry, before allocation frees; earlier derived teardown excluded only with concrete type proof",
+    "tick_component": "141D652A0: void(UObject*,float,uint32,TickFunction*), primary+300; dispatches ReceiveTick and latent actions",
+    "class": "1443B5A88 singleton; registration1421F8750/140B785F0, sizeof1D0, flags10000001 includes CLASS_Abstract",
+    "prerequisites": "142159B90 add may grow array;142164920 remove->142164960 may shrink;142163BA0 queue prunes invalid entries;142156C20 constructor initializes header;142157BC0 destructor frees",
+    "world": "1421B4E60 physical destructor, deleting wrapper1421B5AE0",
+    "replacement": "140F8CB30 invokes exact primary virtual slot0 before memset/reconstruct; GC lease not replacement exclusion"
+  },
+  "conclusions": [
+    "Exact UActorComponent is abstract; do not nominate it as expected active combat task owner. Primary native vtable and inherited TickComponent equality alone do not establish exact runtime UClass identity.",
+    "For an exact base-native family,141D34350 and1403AF1B0 cover verified normal physical destructor flow including replacement through virtual slot0. This is not exhaustive arbitrary placement construction or memory-free coverage.",
+    "Current A210/B217 retained traces do not include generic task owner/UClass rows; existing scheduler observer aggregates tick kinds only."
+  ],
+  "census": {
+    "retained_manifest": "build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/manifests/4f826004843edd37c079dcd96f21acd2e9c7e9963ac500e9915b50152b9b9b8f.json",
+    "raw_logs": [
+      "b0232dd4fa354e49725ba8d63c38c8a6f661e3a724ec3c54ca9d92c352999556.log",
+      "04a614d368127b505d9d7f5a25536b810c3561569fc3d56c749252f425ee9345.log"
+    ],
+    "extension": "ObserveSchedulerInventory observe_tick lambda, ReplayQualificationMod.cpp2421: bounded rows for3865F98, owner=tick+50, validate owner+C index using IndexToObject pointer equality and IsValid(false), read serial/UClass/vtable/destructor/tick virtual, tick group and flags. Reuse existing indexed particle observer pattern; no IsReal or weak-serial allocating constructor. At completed EngineTick via baseline stock runner gives owner-family census before holds, not before-dispatch proof. Actual task-entry witness requires existing runtime DispatchTask callback before Virtual, recording task/tick/world/event and indexed owner."
+  },
+  "limitation": "No active combat exact base-class owner demonstrated, no holds or recovery launched, no exhaustive prerequisite writer closure. Source line numbers describe inspected checkout and may change.",
+  "raw": [
+    {
+      "key": "exact_component_base",
+      "results": [
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "\r\nUObject_Partial * FUN_141d31450(UObject_Partial *param_1,FObjectInitializer *param_2)\r\n\r\n{\r\n  uint uVar1;\r\n  void *pvVar2;\r\n  \r\n  ConstructUObjectWithObjectInitializer(param_1,param_2);\r\n  param_1->pVirtualTable = &PTR_FUN_143865fb0;\r\n  param_1[1].pVirtualTable = &PTR_LAB_143866358;\r\n  param_1[2].pOuterPrivate = (UObject_Partial *)0x0;\r\n  param_1[3].dwObjectFlags = 0;\r\n  param_1[3].nInternalIndex = 0;\r\n  param_1[3].namePrivate.dwComparisonIndex = 2;\r\n  param_1[3].namePrivate.dwNumber = 0;\r\n  param_1[5].namePrivate.dwComparisonIndex = 0;\r\n  param_1[5].namePrivate.dwNumber = 0;\r\n  param_1[6].pVirtualTable = (void *)0x0;\r\n  param_1[6].pClassPrivate = (UClass_Partial *)0x2;\r\n  ConstructTickFunction((FTickFunction_Partial *)&param_1[6].pOuterPrivate);\r\n  param_1[6].pOuterPrivate = (UObject_Partial *)&PTR_FUN_143865f98;\r\n  param_1[9].pVirtualTable = (void *)0x0;\r\n  param_1[9].dwObjectFlags = 0;\r\n  param_1[9].nInternalIndex = 0;\r\n  param_1[9].pClassPrivate = (UClass_Partial *)0x0;\r\n  param_1[9].namePrivate.dwComparisonIndex = 0;\r\n  param_1[9].namePrivate.dwNumber = 0;\r\n  param_1[10].dwObjectFlags = 0;\r\n  param_1[10].nInternalIndex = 0;\r\n  param_1[10].pClassPrivate = (UClass_Partial *)0x0;\r\n  param_1[10].namePrivate.dwComparisonIndex = 0;\r\n  param_1[10].namePrivate.dwNumber = 0;\r\n  param_1[10].pOuterPrivate = (UObject_Partial *)0x0;\r\n  param_1[0xb].pVirtualTable = (void *)0x0;\r\n  param_1[0xb].dwObjectFlags = 0;\r\n  param_1[0xb].nInternalIndex = 0;\r\n  AActor_StaticClass();\r\n  pvVar2 = (void *)FUN_140f850b0(param_1);\r\n  param_1[10].pVirtualTable = pvVar2;\r\n  *(undefined1 *)&param_1[7].pVirtualTable = 2;\r\n  *(byte *)((longlong)&param_1[7].pVirtualTable + 4) =\r\n       *(byte *)((longlong)&param_1[7].pVirtualTable + 4) & 0xfd | 4;\r\n  SetTickFunctionEnabled((FTickFunction_Partial *)&param_1[6].pOuterPrivate,0);\r\n  uVar1 = *(uint *)&param_1[9].pOuterPrivate;\r\n  *(undefined1 *)((longlong)&param_1[9].pOuterPrivate + 5) = 0;\r\n  *(uint *)&param_1[9].pOuterPrivate = uVar1 & 0xffcfffef | 0x80600;\r\n  return param_1;\r\n}\r\n\r\n"
+              }
+            ],
+            "structuredContent": {
+              "result": "\r\nUObject_Partial * FUN_141d31450(UObject_Partial *param_1,FObjectInitializer *param_2)\r\n\r\n{\r\n  uint uVar1;\r\n  void *pvVar2;\r\n  \r\n  ConstructUObjectWithObjectInitializer(param_1,param_2);\r\n  param_1->pVirtualTable = &PTR_FUN_143865fb0;\r\n  param_1[1].pVirtualTable = &PTR_LAB_143866358;\r\n  param_1[2].pOuterPrivate = (UObject_Partial *)0x0;\r\n  param_1[3].dwObjectFlags = 0;\r\n  param_1[3].nInternalIndex = 0;\r\n  param_1[3].namePrivate.dwComparisonIndex = 2;\r\n  param_1[3].namePrivate.dwNumber = 0;\r\n  param_1[5].namePrivate.dwComparisonIndex = 0;\r\n  param_1[5].namePrivate.dwNumber = 0;\r\n  param_1[6].pVirtualTable = (void *)0x0;\r\n  param_1[6].pClassPrivate = (UClass_Partial *)0x2;\r\n  ConstructTickFunction((FTickFunction_Partial *)&param_1[6].pOuterPrivate);\r\n  param_1[6].pOuterPrivate = (UObject_Partial *)&PTR_FUN_143865f98;\r\n  param_1[9].pVirtualTable = (void *)0x0;\r\n  param_1[9].dwObjectFlags = 0;\r\n  param_1[9].nInternalIndex = 0;\r\n  param_1[9].pClassPrivate = (UClass_Partial *)0x0;\r\n  param_1[9].namePrivate.dwComparisonIndex = 0;\r\n  param_1[9].namePrivate.dwNumber = 0;\r\n  param_1[10].dwObjectFlags = 0;\r\n  param_1[10].nInternalIndex = 0;\r\n  param_1[10].pClassPrivate = (UClass_Partial *)0x0;\r\n  param_1[10].namePrivate.dwComparisonIndex = 0;\r\n  param_1[10].namePrivate.dwNumber = 0;\r\n  param_1[10].pOuterPrivate = (UObject_Partial *)0x0;\r\n  param_1[0xb].pVirtualTable = (void *)0x0;\r\n  param_1[0xb].dwObjectFlags = 0;\r\n  param_1[0xb].nInternalIndex = 0;\r\n  AActor_StaticClass();\r\n  pvVar2 = (void *)FUN_140f850b0(param_1);\r\n  param_1[10].pVirtualTable = pvVar2;\r\n  *(undefined1 *)&param_1[7].pVirtualTable = 2;\r\n  *(byte *)((longlong)&param_1[7].pVirtualTable + 4) =\r\n       *(byte *)((longlong)&param_1[7].pVirtualTable + 4) & 0xfd | 4;\r\n  SetTickFunctionEnabled((FTickFunction_Partial *)&param_1[6].pOuterPrivate,0);\r\n  uVar1 = *(uint *)&param_1[9].pOuterPrivate;\r\n  *(undefined1 *)((longlong)&param_1[9].pOuterPrivate + 5) = 0;\r\n  *(uint *)&param_1[9].pOuterPrivate = uVar1 & 0xffcfffef | 0x80600;\r\n  return param_1;\r\n}\r\n\r\n"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "\r\n/* Runs the inherited actor-component tick path.\r\n   \r\n   Algorithm:\r\n   1. Dispatch the Blueprint ReceiveTick event with the supplied delta.\r\n   2. If t.TickComponentLatentActionsWithTheComponent is enabled, resolve the owning UWorld from\r\n   component +0x1C8 or the standard outer/world fallback.\r\n   3. Select the active FLatentActionManager from world context +0x140 -> +0xE0, or the\r\n   UWorld-embedded manager at world +0x438.\r\n   4. Process this component's latent actions with the world's current delta at +0x940.\r\n   \r\n   Parameters:\r\n     pComponent: actor component instance.\r\n     flDeltaTime: forwarded to ReceiveTick.\r\n     dwTickType: inherited ABI value; this implementation does not read it directly.\r\n     pThisTickFunction: inherited ABI pointer; this implementation does not read it directly.\r\n   \r\n   Returns:\r\n     void.\r\n   \r\n   Rollback relevance:\r\n   The inherited tail of ProcessLuxTraceComponentFixedStepTick is not a no-op. It synchronously\r\n   resolves and dispatches ReceiveTick through ProcessEvent, then may mutate the world/level\r\n   FLatentActionManager and invoke arbitrary latent-action updates and queued UObject callbacks for\r\n   the component. Manual trace resimulation must preserve this exact order, prove the\r\n   process-specific callback/action topology, and suppress the later ordinary outer tick for the\r\n   same logical frame.\r\n   \r\n   Source:\r\n   SoulcaliburVI.exe 0x141D652A0. ReceiveTick dispatch is 0x1421F9CC0; latent-action processing is\r\n   0x141ED7750; the CVar registration at 0x140251D60 names the policy; the fixed-step caller is\r\n   0x1408D8BF0. */\r\n\r\nvoid UActorComponent_TickComponent\r\n               (UObject_Partial *pComponent,float flDeltaTime,uint dwTickType,\r\n               FActorTickFunction_Partial *pThisTickFunction)\r\n\r\n{\r\n  UWorld_Partial *pWorld;\r\n  FLatentActionManager_Partial *pLatentActionManager;\r\n  \r\n  UActorComponent_DispatchReceiveTick(pComponent,flDeltaTime);\r\n  if (g_nTickComponentLatentActionsWithComponent == 0) {\r\n    return;\r\n  }\r\n  pWorld = (UWorld_Partial *)pComponent[0xb].pClassPrivate;\r\n  if ((pWorld == (UWorld_Partial *)0x0) &&\r\n     (pWorld = ResolveActorComponentWorld((UActorComponent_Partial *)pComponent),\r\n     pWorld == (UWorld_Partial *)0x0)) {\r\n    return;\r\n  }\r\n  if (*(longlong *)&pWorld->field_0x140 == 0) {\r\n    pLatentActionManager = &pWorld->latentActionManager;\r\n  }\r\n  else {\r\n    pLatentActionManager =\r\n         *(FLatentActionManager_Partial **)(*(longlong *)&pWorld->field_0x140 + 0xe0);\r\n  }\r\n  ProcessLatentActions(pLatentActionManager,pComponent,(float)pWorld[1].nStreamingLevelsCapacity);\r\n  return;\r\n}\r\n\r\n"
+              }
+            ],
+            "structuredContent": {
+              "result": "\r\n/* Runs the inherited actor-component tick path.\r\n   \r\n   Algorithm:\r\n   1. Dispatch the Blueprint ReceiveTick event with the supplied delta.\r\n   2. If t.TickComponentLatentActionsWithTheComponent is enabled, resolve the owning UWorld from\r\n   component +0x1C8 or the standard outer/world fallback.\r\n   3. Select the active FLatentActionManager from world context +0x140 -> +0xE0, or the\r\n   UWorld-embedded manager at world +0x438.\r\n   4. Process this component's latent actions with the world's current delta at +0x940.\r\n   \r\n   Parameters:\r\n     pComponent: actor component instance.\r\n     flDeltaTime: forwarded to ReceiveTick.\r\n     dwTickType: inherited ABI value; this implementation does not read it directly.\r\n     pThisTickFunction: inherited ABI pointer; this implementation does not read it directly.\r\n   \r\n   Returns:\r\n     void.\r\n   \r\n   Rollback relevance:\r\n   The inherited tail of ProcessLuxTraceComponentFixedStepTick is not a no-op. It synchronously\r\n   resolves and dispatches ReceiveTick through ProcessEvent, then may mutate the world/level\r\n   FLatentActionManager and invoke arbitrary latent-action updates and queued UObject callbacks for\r\n   the component. Manual trace resimulation must preserve this exact order, prove the\r\n   process-specific callback/action topology, and suppress the later ordinary outer tick for the\r\n   same logical frame.\r\n   \r\n   Source:\r\n   SoulcaliburVI.exe 0x141D652A0. ReceiveTick dispatch is 0x1421F9CC0; latent-action processing is\r\n   0x141ED7750; the CVar registration at 0x140251D60 names the policy; the fixed-step caller is\r\n   0x1408D8BF0. */\r\n\r\nvoid UActorComponent_TickComponent\r\n               (UObject_Partial *pComponent,float flDeltaTime,uint dwTickType,\r\n               FActorTickFunction_Partial *pThisTickFunction)\r\n\r\n{\r\n  UWorld_Partial *pWorld;\r\n  FLatentActionManager_Partial *pLatentActionManager;\r\n  \r\n  UActorComponent_DispatchReceiveTick(pComponent,flDeltaTime);\r\n  if (g_nTickComponentLatentActionsWithComponent == 0) {\r\n    return;\r\n  }\r\n  pWorld = (UWorld_Partial *)pComponent[0xb].pClassPrivate;\r\n  if ((pWorld == (UWorld_Partial *)0x0) &&\r\n     (pWorld = ResolveActorComponentWorld((UActorComponent_Partial *)pComponent),\r\n     pWorld == (UWorld_Partial *)0x0)) {\r\n    return;\r\n  }\r\n  if (*(longlong *)&pWorld->field_0x140 == 0) {\r\n    pLatentActionManager = &pWorld->latentActionManager;\r\n  }\r\n  else {\r\n    pLatentActionManager =\r\n         *(FLatentActionManager_Partial **)(*(longlong *)&pWorld->field_0x140 + 0xe0);\r\n  }\r\n  ProcessLatentActions(pLatentActionManager,pComponent,(float)pWorld[1].nStreamingLevelsCapacity);\r\n  return;\r\n}\r\n\r\n"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "From 1448ae864 [DATA]\nFrom 1419aa964 in FUN_1419aa930 [UNCONDITIONAL_CALL]\nFrom 1419d0843 in FUN_1419d07f0 [UNCONDITIONAL_CALL]\nFrom 1419fbc53 in FUN_1419fbc30 [UNCONDITIONAL_CALL]\nFrom 1419fc324 in FUN_1419fc2f0 [UNCONDITIONAL_CALL]\nFrom 141ace4af in FUN_141ace4a0 [UNCONDITIONAL_CALL]\nFrom 141c0ba9f in FUN_141c0ba90 [UNCONDITIONAL_CALL]\nFrom 141c36101 in FUN_141c360d0 [UNCONDITIONAL_CALL]\nFrom 141c3614d in FUN_141c36130 [UNCONDITIONAL_CALL]\nFrom 141d3435f in FUN_141d34350 [UNCONDITIONAL_CALL]\nFrom 141d3455f in FUN_141d34550 [UNCONDITIONAL_CALL]\nFrom 141d6eb4f in FUN_141d6eb40 [UNCONDITIONAL_CALL]\nFrom 141d6ebcf in FUN_141d6ebc0 [UNCONDITIONAL_CALL]\nFrom 141d6ec0f in FUN_141d6ec00 [UNCONDITIONAL_CALL]\nFrom 141d6ec74 in FUN_141d6ec40 [UNCONDITIONAL_CALL]\nFrom 141d8fc54 in FUN_141d8fc20 [UNCONDITIONAL_CALL]\nFrom 141d8fd1f in FUN_141d8fd10 [UNCONDITIONAL_CALL]\nFrom 141e277bf in FUN_141e277b0 [UNCONDITIONAL_CALL]\nFrom 14200f654 in FUN_14200f620 [UNCONDITIONAL_CALL]\nFrom 14200f81f in FUN_14200f810 [UNCONDITIONAL_CALL]\nFrom 14215916e in FUN_142159150 [UNCONDITIONAL_CALL]\nFrom 143050d76 in FUN_143050d30 [UNCONDITIONAL_CALL]\nFrom 1430ac7c7 in FUN_1430ac780 [UNCONDITIONAL_CALL]\nFrom 1430e2032 in FUN_1430e1ff0 [UNCONDITIONAL_CALL]\nFrom 1403af57a in FUN_1403af4b0 [UNCONDITIONAL_CALL]\nFrom 1415522f9 in FUN_141552260 [UNCONDITIONAL_CALL]\nFrom 141996535 in FUN_1419964b0 [UNCONDITIONAL_CALL]\nFrom 1419a9fa4 in FUN_1419a9e70 [UNCONDITIONAL_CALL]\nFrom 1419aa065 in FUN_1419a9fb0 [UNCONDITIONAL_CALL]\nFrom 1419fb62a in FUN_1419fb570 [UNCONDITIONAL_CALL]\nFrom 1419fba05 in FUN_1419fb900 [UNCONDITIONAL_CALL]\nFrom 141c35519 in FUN_141c35480 [UNCONDITIONAL_CALL]\nFrom 141d32b26 in FUN_141d32ac0 [UNCONDITIONAL_CALL]\nFrom 141d32c50 in FUN_141d32be0 [UNCONDITIONAL_CALL]\nFrom 141d6d417 in FUN_141d6d370 [UNCONDITIONAL_CALL]\nFrom 141d6d497 in FUN_141d6d420 [UNCONDITIONAL_CALL]\nFrom 1430e1ef1 in FUN_1430e1eb0 [UNCONDITIONAL_CALL]"
+              }
+            ],
+            "structuredContent": {
+              "result": "From 1448ae864 [DATA]\nFrom 1419aa964 in FUN_1419aa930 [UNCONDITIONAL_CALL]\nFrom 1419d0843 in FUN_1419d07f0 [UNCONDITIONAL_CALL]\nFrom 1419fbc53 in FUN_1419fbc30 [UNCONDITIONAL_CALL]\nFrom 1419fc324 in FUN_1419fc2f0 [UNCONDITIONAL_CALL]\nFrom 141ace4af in FUN_141ace4a0 [UNCONDITIONAL_CALL]\nFrom 141c0ba9f in FUN_141c0ba90 [UNCONDITIONAL_CALL]\nFrom 141c36101 in FUN_141c360d0 [UNCONDITIONAL_CALL]\nFrom 141c3614d in FUN_141c36130 [UNCONDITIONAL_CALL]\nFrom 141d3435f in FUN_141d34350 [UNCONDITIONAL_CALL]\nFrom 141d3455f in FUN_141d34550 [UNCONDITIONAL_CALL]\nFrom 141d6eb4f in FUN_141d6eb40 [UNCONDITIONAL_CALL]\nFrom 141d6ebcf in FUN_141d6ebc0 [UNCONDITIONAL_CALL]\nFrom 141d6ec0f in FUN_141d6ec00 [UNCONDITIONAL_CALL]\nFrom 141d6ec74 in FUN_141d6ec40 [UNCONDITIONAL_CALL]\nFrom 141d8fc54 in FUN_141d8fc20 [UNCONDITIONAL_CALL]\nFrom 141d8fd1f in FUN_141d8fd10 [UNCONDITIONAL_CALL]\nFrom 141e277bf in FUN_141e277b0 [UNCONDITIONAL_CALL]\nFrom 14200f654 in FUN_14200f620 [UNCONDITIONAL_CALL]\nFrom 14200f81f in FUN_14200f810 [UNCONDITIONAL_CALL]\nFrom 14215916e in FUN_142159150 [UNCONDITIONAL_CALL]\nFrom 143050d76 in FUN_143050d30 [UNCONDITIONAL_CALL]\nFrom 1430ac7c7 in FUN_1430ac780 [UNCONDITIONAL_CALL]\nFrom 1430e2032 in FUN_1430e1ff0 [UNCONDITIONAL_CALL]\nFrom 1403af57a in FUN_1403af4b0 [UNCONDITIONAL_CALL]\nFrom 1415522f9 in FUN_141552260 [UNCONDITIONAL_CALL]\nFrom 141996535 in FUN_1419964b0 [UNCONDITIONAL_CALL]\nFrom 1419a9fa4 in FUN_1419a9e70 [UNCONDITIONAL_CALL]\nFrom 1419aa065 in FUN_1419a9fb0 [UNCONDITIONAL_CALL]\nFrom 1419fb62a in FUN_1419fb570 [UNCONDITIONAL_CALL]\nFrom 1419fba05 in FUN_1419fb900 [UNCONDITIONAL_CALL]\nFrom 141c35519 in FUN_141c35480 [UNCONDITIONAL_CALL]\nFrom 141d32b26 in FUN_141d32ac0 [UNCONDITIONAL_CALL]\nFrom 141d32c50 in FUN_141d32be0 [UNCONDITIONAL_CALL]\nFrom 141d6d417 in FUN_141d6d370 [UNCONDITIONAL_CALL]\nFrom 141d6d497 in FUN_141d6d420 [UNCONDITIONAL_CALL]\nFrom 1430e1ef1 in FUN_1430e1eb0 [UNCONDITIONAL_CALL]"
+            },
+            "isError": false
+          }
+        }
+      ]
+    },
+    {
+      "key": "exact_component_slots",
+      "results": [
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"address\":\"143865fb0\",\"length\":16,\"data\":[80,67,211,65,1,0,0,0,192,43,45,64,1,0,0,0],\"hex\":\"5043d34101000000c02b2d4001000000\"}"
+              }
+            ],
+            "structuredContent": {
+              "result": "{\"address\":\"143865fb0\",\"length\":16,\"data\":[80,67,211,65,1,0,0,0,192,43,45,64,1,0,0,0],\"hex\":\"5043d34101000000c02b2d4001000000\"}"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"address\":\"1438662b0\",\"length\":16,\"data\":[160,82,214,65,1,0,0,0,224,219,213,65,1,0,0,0],\"hex\":\"a052d64101000000e0dbd54101000000\"}"
+              }
+            ],
+            "structuredContent": {
+              "result": "{\"address\":\"1438662b0\",\"length\":16,\"data\":[160,82,214,65,1,0,0,0,224,219,213,65,1,0,0,0],\"hex\":\"a052d64101000000e0dbd54101000000\"}"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "From 1449b8910 [DATA]\nFrom 143865fb0 [DATA]\nFrom 141d33bc0 [UNCONDITIONAL_CALL]"
+              }
+            ],
+            "structuredContent": {
+              "result": "From 1449b8910 [DATA]\nFrom 143865fb0 [DATA]\nFrom 141d33bc0 [UNCONDITIONAL_CALL]"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "From 1449b8538 [DATA]\nFrom 1403aded4 in FUN_1403adec0 [UNCONDITIONAL_CALL]\nFrom 141d8e669 in FUN_141d8e660 [UNCONDITIONAL_CALL]\nFrom 141551dd9 in FUN_141551dd0 [UNCONDITIONAL_CALL]\nFrom 1415f1419 in FUN_1415f1410 [UNCONDITIONAL_CALL]\nFrom 1419963e9 in FUN_1419963e0 [UNCONDITIONAL_CALL]\nFrom 1419cd389 in FUN_1419cd380 [UNCONDITIONAL_CALL]\nFrom 1419a9359 in FUN_1419a9350 [UNCONDITIONAL_CALL]\nFrom 1419a9b02 in FUN_1419a9af0 [UNCONDITIONAL_CALL]\nFrom 1419f9e8d in FUN_1419f9e80 [UNCONDITIONAL_CALL]\nFrom 1419f9f89 in FUN_1419f9f80 [UNCONDITIONAL_CALL]\nFrom 1419fb16d in FUN_1419fb160 [UNCONDITIONAL_CALL]\nFrom 1419fb349 in FUN_1419fb340 [UNCONDITIONAL_CALL]\nFrom 141ace275 in FUN_141ace260 [UNCONDITIONAL_CALL]\nFrom 141c0aab9 in FUN_141c0aab0 [UNCONDITIONAL_CALL]\nFrom 141c342dd in FUN_141c342d0 [UNCONDITIONAL_CALL]\nFrom 141c344c9 in FUN_141c344c0 [UNCONDITIONAL_CALL]\nFrom 141c34579 in FUN_141c34570 [UNCONDITIONAL_CALL]\nFrom 141d31589 in FUN_141d31580 [UNCONDITIONAL_CALL]\nFrom 141d6c919 in FUN_141d6c910 [UNCONDITIONAL_CALL]\nFrom 141d6c2a9 in FUN_141d6c2a0 [UNCONDITIONAL_CALL]\nFrom 141d6caa9 in FUN_141d6caa0 [UNCONDITIONAL_CALL]\nFrom 141d6caf9 in FUN_141d6caf0 [UNCONDITIONAL_CALL]\nFrom 14200cf99 in FUN_14200cf90 [UNCONDITIONAL_CALL]\nFrom 14200d249 in FUN_14200d240 [UNCONDITIONAL_CALL]\nFrom 142157529 in FUN_142157520 [UNCONDITIONAL_CALL]\nFrom 14307aa32 in FUN_14307aa20 [UNCONDITIONAL_CALL]\nFrom 1430c0619 in FUN_1430c0610 [UNCONDITIONAL_CALL]\nFrom 1421f43be [UNCONDITIONAL_CALL]"
+              }
+            ],
+            "structuredContent": {
+              "result": "From 1449b8538 [DATA]\nFrom 1403aded4 in FUN_1403adec0 [UNCONDITIONAL_CALL]\nFrom 141d8e669 in FUN_141d8e660 [UNCONDITIONAL_CALL]\nFrom 141551dd9 in FUN_141551dd0 [UNCONDITIONAL_CALL]\nFrom 1415f1419 in FUN_1415f1410 [UNCONDITIONAL_CALL]\nFrom 1419963e9 in FUN_1419963e0 [UNCONDITIONAL_CALL]\nFrom 1419cd389 in FUN_1419cd380 [UNCONDITIONAL_CALL]\nFrom 1419a9359 in FUN_1419a9350 [UNCONDITIONAL_CALL]\nFrom 1419a9b02 in FUN_1419a9af0 [UNCONDITIONAL_CALL]\nFrom 1419f9e8d in FUN_1419f9e80 [UNCONDITIONAL_CALL]\nFrom 1419f9f89 in FUN_1419f9f80 [UNCONDITIONAL_CALL]\nFrom 1419fb16d in FUN_1419fb160 [UNCONDITIONAL_CALL]\nFrom 1419fb349 in FUN_1419fb340 [UNCONDITIONAL_CALL]\nFrom 141ace275 in FUN_141ace260 [UNCONDITIONAL_CALL]\nFrom 141c0aab9 in FUN_141c0aab0 [UNCONDITIONAL_CALL]\nFrom 141c342dd in FUN_141c342d0 [UNCONDITIONAL_CALL]\nFrom 141c344c9 in FUN_141c344c0 [UNCONDITIONAL_CALL]\nFrom 141c34579 in FUN_141c34570 [UNCONDITIONAL_CALL]\nFrom 141d31589 in FUN_141d31580 [UNCONDITIONAL_CALL]\nFrom 141d6c919 in FUN_141d6c910 [UNCONDITIONAL_CALL]\nFrom 141d6c2a9 in FUN_141d6c2a0 [UNCONDITIONAL_CALL]\nFrom 141d6caa9 in FUN_141d6caa0 [UNCONDITIONAL_CALL]\nFrom 141d6caf9 in FUN_141d6caf0 [UNCONDITIONAL_CALL]\nFrom 14200cf99 in FUN_14200cf90 [UNCONDITIONAL_CALL]\nFrom 14200d249 in FUN_14200d240 [UNCONDITIONAL_CALL]\nFrom 142157529 in FUN_142157520 [UNCONDITIONAL_CALL]\nFrom 14307aa32 in FUN_14307aa20 [UNCONDITIONAL_CALL]\nFrom 1430c0619 in FUN_1430c0610 [UNCONDITIONAL_CALL]\nFrom 1421f43be [UNCONDITIONAL_CALL]"
+            },
+            "isError": false
+          }
+        }
+      ]
+    },
+    {
+      "key": "exact_component_class",
+      "results": [
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "\r\n/* UActorComponent::StaticClass() — lazy-init thunk.\r\n   Returns cached UClass* for UActorComponent (/Script/Engine).\r\n   ClassPtr global: UActorComponent_ClassPtr @ 0x1443b5a88\r\n   sizeof(UActorComponent) = 0x1D0; parent = UObject_StaticClass. */\r\n\r\nlonglong UActorComponent_StaticClass(void)\r\n\r\n{\r\n  wchar_t *pwVar1;\r\n  void *pvVar2;\r\n  undefined8 uVar3;\r\n  \r\n  if (UActorComponent_ClassPtr == 0) {\r\n    pwVar1 = GetEngineModuleName();\r\n    pvVar2 = GetNullPointerStub();\r\n    uVar3 = FUN_1425c9460();\r\n    UE4_RegisterClassEx(uVar3,L\"ActorComponent\",&UActorComponent_ClassPtr,FUN_1421fa810,0x1d0,\r\n                        0x10000001,pvVar2,pwVar1,&LAB_1421f43b0,GetNullPointerStub,\r\n                        HandleLuxNoOpVirtual,UObject_StaticClass,UObject_StaticClass,0);\r\n  }\r\n  return UActorComponent_ClassPtr;\r\n}\r\n\r\n"
+              }
+            ],
+            "structuredContent": {
+              "result": "\r\n/* UActorComponent::StaticClass() — lazy-init thunk.\r\n   Returns cached UClass* for UActorComponent (/Script/Engine).\r\n   ClassPtr global: UActorComponent_ClassPtr @ 0x1443b5a88\r\n   sizeof(UActorComponent) = 0x1D0; parent = UObject_StaticClass. */\r\n\r\nlonglong UActorComponent_StaticClass(void)\r\n\r\n{\r\n  wchar_t *pwVar1;\r\n  void *pvVar2;\r\n  undefined8 uVar3;\r\n  \r\n  if (UActorComponent_ClassPtr == 0) {\r\n    pwVar1 = GetEngineModuleName();\r\n    pvVar2 = GetNullPointerStub();\r\n    uVar3 = FUN_1425c9460();\r\n    UE4_RegisterClassEx(uVar3,L\"ActorComponent\",&UActorComponent_ClassPtr,FUN_1421fa810,0x1d0,\r\n                        0x10000001,pvVar2,pwVar1,&LAB_1421f43b0,GetNullPointerStub,\r\n                        HandleLuxNoOpVirtual,UObject_StaticClass,UObject_StaticClass,0);\r\n  }\r\n  return UActorComponent_ClassPtr;\r\n}\r\n\r\n"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "\r\n/* UActorComponent::StaticClass() — lazy-init singleton [game-code copy]\r\n   UE4 class: \"ActorComponent\" (/Script/Engine)\r\n   sizeof(UActorComponent) = 0x1D0\r\n   ClassPtr global   = UActorComponent_ClassPtr @ 0x1443b5a88\r\n   Inheritance       = UActorComponent → UObject\r\n   classFlags        = 0x10000001\r\n   Parent StaticClass = UObject_StaticClass\r\n   Duplicate of UActorComponent_StaticClass @ 0x1421f8750 (engine-range copy, has full plate\r\n   comment). */\r\n\r\nlonglong UActorComponent_StaticClass(void)\r\n\r\n{\r\n  wchar_t *pwVar1;\r\n  void *pvVar2;\r\n  undefined8 uVar3;\r\n  \r\n  if (UActorComponent_ClassPtr == 0) {\r\n    pwVar1 = GetEngineModuleName();\r\n    pvVar2 = GetNullPointerStub();\r\n    uVar3 = FUN_1425c9460();\r\n    UE4_RegisterClassEx(uVar3,L\"ActorComponent\",&UActorComponent_ClassPtr,FUN_1421fa810,0x1d0,\r\n                        0x10000001,pvVar2,pwVar1,&LAB_1421f43b0,GetNullPointerStub,\r\n                        HandleLuxNoOpVirtual,UObject_StaticClass,UObject_StaticClass,0);\r\n  }\r\n  return UActorComponent_ClassPtr;\r\n}\r\n\r\n"
+              }
+            ],
+            "structuredContent": {
+              "result": "\r\n/* UActorComponent::StaticClass() — lazy-init singleton [game-code copy]\r\n   UE4 class: \"ActorComponent\" (/Script/Engine)\r\n   sizeof(UActorComponent) = 0x1D0\r\n   ClassPtr global   = UActorComponent_ClassPtr @ 0x1443b5a88\r\n   Inheritance       = UActorComponent → UObject\r\n   classFlags        = 0x10000001\r\n   Parent StaticClass = UObject_StaticClass\r\n   Duplicate of UActorComponent_StaticClass @ 0x1421f8750 (engine-range copy, has full plate\r\n   comment). */\r\n\r\nlonglong UActorComponent_StaticClass(void)\r\n\r\n{\r\n  wchar_t *pwVar1;\r\n  void *pvVar2;\r\n  undefined8 uVar3;\r\n  \r\n  if (UActorComponent_ClassPtr == 0) {\r\n    pwVar1 = GetEngineModuleName();\r\n    pvVar2 = GetNullPointerStub();\r\n    uVar3 = FUN_1425c9460();\r\n    UE4_RegisterClassEx(uVar3,L\"ActorComponent\",&UActorComponent_ClassPtr,FUN_1421fa810,0x1d0,\r\n                        0x10000001,pvVar2,pwVar1,&LAB_1421f43b0,GetNullPointerStub,\r\n                        HandleLuxNoOpVirtual,UObject_StaticClass,UObject_StaticClass,0);\r\n  }\r\n  return UActorComponent_ClassPtr;\r\n}\r\n\r\n"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "\r\nvoid * FUN_141d34350(void *param_1,ulonglong param_2)\r\n\r\n{\r\n  FUN_1403af1b0();\r\n  if ((param_2 & 1) != 0) {\r\n    UE_FMemory_Free(param_1);\r\n  }\r\n  return param_1;\r\n}\r\n\r\n"
+              }
+            ],
+            "structuredContent": {
+              "result": "\r\nvoid * FUN_141d34350(void *param_1,ulonglong param_2)\r\n\r\n{\r\n  FUN_1403af1b0();\r\n  if ((param_2 & 1) != 0) {\r\n    UE_FMemory_Free(param_1);\r\n  }\r\n  return param_1;\r\n}\r\n\r\n"
+            },
+            "isError": false
+          }
+        }
+      ]
+    },
+    {
+      "key": "exact_component_table_refs",
+      "results": [
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "From 141d31469 in FUN_141d31450 [DATA]\nFrom 141d31470 in FUN_141d31450 [DATA]"
+              }
+            ],
+            "structuredContent": {
+              "result": "From 141d31469 in FUN_141d31450 [DATA]\nFrom 141d31470 in FUN_141d31450 [DATA]"
+            },
+            "isError": false
+          }
+        },
+        {
+          "status": "fulfilled",
+          "value": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"141D33BC0\":{\"address\":\"141D33BC0\",\"instruction\":\"JMP 0x141d34350\",\"context_before\":[\"141d33bbc: SUB RCX,0x28\",\"141d33bb4: JMP 0x141d34210\",\"141d33bb0: SUB RCX,0x8\",\"141d33ba8: JMP 0x141d341d0\",\"141d33ba4: SUB RCX,0x8\"],\"context_after\":[\"141d33bc8: SUB RCX,0x28\",\"141d33bcc: JMP 0x141d34390\",\"141d33bd4: SUB RCX,0x3e0\",\"141d33bdb: JMP 0x141d6eb80\",\"141d33be0: SUB RCX,0x28\"],\"mnemonic\":\"JMP\",\"patterns_detected\":[\"control_flow\"]}}"
+              }
+            ],
+            "structuredContent": {
+              "result": "{\"141D33BC0\":{\"address\":\"141D33BC0\",\"instruction\":\"JMP 0x141d34350\",\"context_before\":[\"141d33bbc: SUB RCX,0x28\",\"141d33bb4: JMP 0x141d34210\",\"141d33bb0: SUB RCX,0x8\",\"141d33ba8: JMP 0x141d341d0\",\"141d33ba4: SUB RCX,0x8\"],\"context_after\":[\"141d33bc8: SUB RCX,0x28\",\"141d33bcc: JMP 0x141d34390\",\"141d33bd4: SUB RCX,0x3e0\",\"141d33bdb: JMP 0x141d6eb80\",\"141d33be0: SUB RCX,0x28\"],\"mnemonic\":\"JMP\",\"patterns_detected\":[\"control_flow\"]}}"
+            },
+            "isError": false
+          }
+        }
+      ]
+    },
+    {
+      "key": "exact_component_signatures",
+      "results": {
+        "addresses": [
+          "141D31450",
+          "141D34350",
+          "1403AF1B0",
+          "142159B90",
+          "142164920",
+          "1421B4E60",
+          "140F8CB30"
+        ],
+        "results": [
+          {
+            "status": "fulfilled",
+            "value": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "{\"address\":\"141d31450\",\"length\":24,\"data\":[72,137,92,36,8,72,137,116,36,16,87,72,131,236,32,72,139,249,232,233,156,36,255,51],\"hex\":\"48895c24084889742410574883ec20488bf9e8e99c24ff33\"}"
+                }
+              ],
+              "structuredContent": {
+                "result": "{\"address\":\"141d31450\",\"length\":24,\"data\":[72,137,92,36,8,72,137,116,36,16,87,72,131,236,32,72,139,249,232,233,156,36,255,51],\"hex\":\"48895c24084889742410574883ec20488bf9e8e99c24ff33\"}"
+              },
+              "isError": false
+            }
+          },
+          {
+            "status": "fulfilled",
+            "value": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "{\"address\":\"141d34350\",\"length\":24,\"data\":[72,137,92,36,8,87,72,131,236,32,139,218,72,139,249,232,76,174,103,254,246,195,1,116],\"hex\":\"48895c2408574883ec208bda488bf9e84cae67fef6c30174\"}"
+                }
+              ],
+              "structuredContent": {
+                "result": "{\"address\":\"141d34350\",\"length\":24,\"data\":[72,137,92,36,8,87,72,131,236,32,139,218,72,139,249,232,76,174,103,254,246,195,1,116],\"hex\":\"48895c2408574883ec208bda488bf9e84cae67fef6c30174\"}"
+              },
+              "isError": false
+            }
+          },
+          {
+            "status": "fulfilled",
+            "value": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "{\"address\":\"1403af1b0\",\"length\":24,\"data\":[64,83,72,131,236,32,72,139,217,72,139,137,184,1,0,0,72,133,201,116,5,232,54,120],\"hex\":\"40534883ec20488bd9488b89b80100004885c97405e83678\"}"
+                }
+              ],
+              "structuredContent": {
+                "result": "{\"address\":\"1403af1b0\",\"length\":24,\"data\":[64,83,72,131,236,32,72,139,217,72,139,137,184,1,0,0,72,133,201,116,5,232,54,120],\"hex\":\"40534883ec20488bd9488b89b80100004885c97405e83678\"}"
+              },
+              "isError": false
+            }
+          },
+          {
+            "status": "fulfilled",
+            "value": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "{\"address\":\"142159b90\",\"length\":24,\"data\":[72,137,92,36,24,86,72,131,236,48,65,15,182,64,12,73,139,216,36,66,72,139,241,246],\"hex\":\"48895c2418564883ec30410fb6400c498bd82442488bf1f6\"}"
+                }
+              ],
+              "structuredContent": {
+                "result": "{\"address\":\"142159b90\",\"length\":24,\"data\":[72,137,92,36,24,86,72,131,236,48,65,15,182,64,12,73,139,216,36,66,72,139,241,246],\"hex\":\"48895c2418564883ec30410fb6400c498bd82442488bf1f6\"}"
+              },
+              "isError": false
+            }
+          },
+          {
+            "status": "fulfilled",
+            "value": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "{\"address\":\"142164920\",\"length\":24,\"data\":[72,137,92,36,8,87,72,131,236,48,72,139,217,73,139,248,72,141,76,36,32,232,150,113],\"hex\":\"48895c2408574883ec30488bd9498bf8488d4c2420e89671\"}"
+                }
+              ],
+              "structuredContent": {
+                "result": "{\"address\":\"142164920\",\"length\":24,\"data\":[72,137,92,36,8,87,72,131,236,48,72,139,217,73,139,248,72,141,76,36,32,232,150,113],\"hex\":\"48895c2408574883ec30488bd9498bf8488d4c2420e89671\"}"
+              },
+              "isError": false
+            }
+          },
+          {
+            "status": "fulfilled",
+            "value": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "{\"address\":\"1421b4e60\",\"length\":24,\"data\":[72,137,92,36,8,72,137,116,36,16,87,72,131,236,32,72,141,5,74,172,131,1,72,139],\"hex\":\"48895c24084889742410574883ec20488d054aac8301488b\"}"
+                }
+              ],
+              "structuredContent": {
+                "result": "{\"address\":\"1421b4e60\",\"length\":24,\"data\":[72,137,92,36,8,72,137,116,36,16,87,72,131,236,32,72,141,5,74,172,131,1,72,139],\"hex\":\"48895c24084889742410574883ec20488d054aac8301488b\"}"
+              },
+              "isError": false
+            }
+          },
+          {
+            "status": "fulfilled",
+            "value": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "{\"address\":\"140f8cb30\",\"length\":24,\"data\":[76,137,68,36,24,72,137,84,36,16,85,83,86,87,65,84,65,85,65,86,65,87,72,141],\"hex\":\"4c894424184889542410555356574154415541564157488d\"}"
+                }
+              ],
+              "structuredContent": {
+                "result": "{\"address\":\"140f8cb30\",\"length\":24,\"data\":[76,137,68,36,24,72,137,84,36,16,85,83,86,87,65,84,65,85,65,86,65,87,72,141],\"hex\":\"4c894424184889542410555356574154415541564157488d\"}"
+              },
+              "isError": false
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

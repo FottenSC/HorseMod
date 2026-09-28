@@ -1,0 +1,33 @@
+{
+  "case_id": "astaroth-raphael-silver-wolves-haven",
+  "certifying": false,
+  "cleanup": {
+    "diagnostic_flags_restored_false": {
+      "correction_probe": true,
+      "forced_depth7_qualification": true,
+      "trace": true
+    },
+    "process_absent": true
+  },
+  "created_utc": "2026-09-03T06:22:17.538204+00:00",
+  "display_map_name": "Silver Wolves\u2019 Haven",
+  "failure": {
+    "bounded_log": "E:\\myMods\\docs\\investigations\\evidence\\diagnostic-outcome-progress-04aad101-silver-wolves.failure.log",
+    "bounded_log_lines": 256,
+    "field_or_mask": null,
+    "fields": {},
+    "first_failing_frame": null,
+    "first_failure_line": "",
+    "graph_provenance": null,
+    "lifecycle_phase": null,
+    "owner_pointer": null,
+    "owner_selector": null,
+    "return_rva": null
+  },
+  "kind": "replay_entry_failure",
+  "reason": "native replay qualification request did not reach a terminal result before the timeout",
+  "report_schema": 2,
+  "result": "fail",
+  "row_id": "diagnostic-outcome-progress-04aad101",
+  "stage_package_root": "/Game/DLC/07/Stage/STG011_R"
+}

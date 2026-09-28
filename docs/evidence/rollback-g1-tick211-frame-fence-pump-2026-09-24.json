@@ -1,0 +1,52 @@
+{
+  "scope": "A210/B217 consumer-mutation retry after all sequential context worlds use the owned world executor",
+  "run_id": "replay-9ccec63121b14415b3aa6be688718f7d",
+  "evidence": {
+    "build_manifest": {
+      "path": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/manifests/f39868186a58990dc9dfb1119fdf8b3a1b8c005ea1bef970b07123fd2fd900b1.json",
+      "sha256": "f39868186a58990dc9dfb1119fdf8b3a1b8c005ea1bef970b07123fd2fd900b1",
+      "bytes": 6433
+    },
+    "run_manifest": {
+      "path": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/manifests/fa4d6ff8c570c628d11e856a473dd2727167f4d0e9d81bc27ec3e8aaccacf692.json",
+      "sha256": "fa4d6ff8c570c628d11e856a473dd2727167f4d0e9d81bc27ec3e8aaccacf692",
+      "bytes": 19520
+    },
+    "failure_sidecar": {
+      "path": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/b9d3b71f1f842673d9adf268a64b7a9b3c55e8e6d568cf8bf0dae5f82966a67e.json",
+      "sha256": "b9d3b71f1f842673d9adf268a64b7a9b3c55e8e6d568cf8bf0dae5f82966a67e",
+      "bytes": 513
+    },
+    "matching_dump": {
+      "path": "E:/myMods/build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/c4720f9e3b2b9d4fc7a3d4d2f6e560cd09b8e711c8f9bf544cf49314bdfc1c32.dmp",
+      "sha256": "c4720f9e3b2b9d4fc7a3d4d2f6e560cd09b8e711c8f9bf544cf49314bdfc1c32",
+      "bytes": 80268290
+    },
+    "context_world_red": "docs/evidence/rollback-g1-context-world-red-2026-09-24.json",
+    "context_world_green": "docs/evidence/rollback-g1-context-world-green-2026-09-24.json"
+  },
+  "checks": "Five focused context-world GREEN tests, required build/native and two CTests passed; preflight ready.",
+  "first_failure": {
+    "process": "owned PID18080 terminated 0xc0000409 before original native queue pop",
+    "site": "NativeQueueSnapshot native_site24",
+    "tick": 211,
+    "epoch": 2352,
+    "transaction_phase": 2,
+    "protocol_phase": 4,
+    "first_gt_queue": "head=tail and next low26 index zero, consistent rereads",
+    "retained_cleanup_event_count": 0,
+    "mutation_marker": "consumer prerequisite mutation injected count=1 native_api=141D58ED0 production_entry_returned=true repair=false"
+  },
+  "matching_dump_read_only_stack": [
+    "main.dll+0x4E9E fastfail",
+    "SoulcaliburVI.exe+0x15E977F inside FRenderCommandFence_BeginFence",
+    "SoulcaliburVI.exe+0xD2D0C2 inside PumpNamedTaskQueueUntilIdle",
+    "SoulcaliburVI.exe+0x2187727 inside FFrameEndSync_AdvanceTwoSlot",
+    "main.dll+0x1634DA resolves through matching PDB to Sc6ReplayHost::FinishApplication at Sc6ReplayHost.Application.inl:337",
+    "main.dll+0x19E68D resolves to Sc6ReplayHost::TickApplication at Sc6ReplayHost.Application.inl:572"
+  ],
+  "interpretation": "The unbound-world native UWorld route is absent from this crash stack, and corrected execution reached the application-tail frame fence. Native frame-end synchronization can itself enter an ambient named-thread idle pump, which the existing guard rejects. The empty first queue snapshot does not authorize dequeue or prove GPU completion.",
+  "cleanup": "Deployment journal clean, all eight prior file states independently match SHA256 or absence; zero game/replay runner processes; Steam untouched.",
+  "gates": "Observer validity, simulation, coherence, recovery and performance not measured after termination. Complete-B recovery and 120 independent continuation ticks remain unproven. G1/G2 open; debris exact/Unresolved; no408 or600 retry.",
+  "next_resolving_test": "Astra high code owner investigates the exact frame-fence native wait and its event/task ownership, adds a bounded owned continuation or diagnostic with production-boundary RED/GREEN, then required build/native checks before one shortest live retry."
+}

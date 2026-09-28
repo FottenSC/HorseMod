@@ -132,10 +132,14 @@ bool MoveDispatchState::capture_unchecked(MoveDispatchImage& output) noexcept
     output.sub_frame_index = 0;
     output.saved_input_and_gates = 0;
     output.completion_delay = 0;
+    output.stable_provider_state = 0;
+    output.stable_provider_ticks = 0;
     if (!read_value(memory_, object_ + 0x478, output.frame_slot_index)
         || !read_value(memory_, object_ + 0x47C, output.sub_frame_index)
         || !read_value(memory_, object_ + 0x490, output.saved_input_and_gates)
-        || !read_value(memory_, object_ + 0x494, output.completion_delay))
+        || !read_value(memory_, object_ + 0x494, output.completion_delay)
+        || !read_value(memory_, object_ + 0x4B8, output.stable_provider_state)
+        || !read_value(memory_, object_ + 0x4BC, output.stable_provider_ticks))
     {
         return false;
     }
@@ -280,7 +284,9 @@ bool MoveDispatchState::write_image(
         }
     }
     if (!write_value(memory_, object_ + 0x490, image.saved_input_and_gates)
-        || !write_value(memory_, object_ + 0x494, image.completion_delay))
+        || !write_value(memory_, object_ + 0x494, image.completion_delay)
+        || !write_value(memory_, object_ + 0x4B8, image.stable_provider_state)
+        || !write_value(memory_, object_ + 0x4BC, image.stable_provider_ticks))
     {
         return false;
     }
@@ -390,6 +396,8 @@ void MoveDispatchState::CanonicalBytes(
     append(output, &image.saved_input_and_gates,
         sizeof(image.saved_input_and_gates));
     append(output, &image.completion_delay, sizeof(image.completion_delay));
+    append(output, &image.stable_provider_state, sizeof(image.stable_provider_state));
+    append(output, &image.stable_provider_ticks, sizeof(image.stable_provider_ticks));
     const auto element_count =
         static_cast<std::uint32_t>(image.sub_elements.size());
     append(output, &element_count, sizeof(element_count));
@@ -408,6 +416,8 @@ Status MoveDispatchState::DecodeCanonicalBytes(
     output.sub_frame_index = 0;
     output.saved_input_and_gates = 0;
     output.completion_delay = 0;
+    output.stable_provider_state = 0;
+    output.stable_provider_ticks = 0;
     std::size_t cursor{};
     const auto take = [&](void* destination, std::size_t size) noexcept {
         if (cursor > bytes.size() || size > bytes.size() - cursor) return false;
@@ -470,6 +480,8 @@ Status MoveDispatchState::DecodeCanonicalBytes(
         if (!take(&output.saved_input_and_gates,
                 sizeof(output.saved_input_and_gates))
             || !take(&output.completion_delay, sizeof(output.completion_delay))
+            || !take(&output.stable_provider_state, sizeof(output.stable_provider_state))
+            || !take(&output.stable_provider_ticks, sizeof(output.stable_provider_ticks))
             || !take(&element_count, sizeof(element_count))
             || element_count > maximum_sub_elements)
         {
@@ -499,4 +511,62 @@ Status MoveDispatchState::DecodeCanonicalBytes(
     return cursor == bytes.size()
         ? Status::success() : Status::failure(FailureCode::CaptureFailed);
 }
+Status MoveDispatchState::ReplayIdleConsumer(
+    const TutorialConsumerObservation& expected, QueryProvider query, void* user,
+    bool verify_recorded, TutorialConsumerObservation& observed) noexcept
+{
+    observed = expected;
+    observed.valid = false;
+    if (!bound_ || query == nullptr || !identity_matches(identity_)
+        || !expected.valid || !expected.parent.inert
+        || expected.before.owner != object_ || expected.after.owner != object_
+        || expected.before.mode != 0 || expected.after.mode != 0
+        || expected.before.mode_zero_callback != 0 || expected.after.mode_zero_callback != 0)
+        return Status::failure(FailureCode::RestorePreflightFailed);
+    const auto read = [this](std::uintptr_t address, auto& value) noexcept {
+        return read_value(memory_, address, value);
+    };
+    if (!CaptureTutorialConsumerState(read, object_, observed.before)
+        || observed.before.mode != 0 || observed.before.mode_zero_callback != 0
+        || observed.before.vtable != expected.before.vtable
+        || observed.before.mask_owner != expected.before.mask_owner
+        || observed.before.mask_count != expected.before.mask_count)
+        return Status::failure(FailureCode::IdentityMismatch);
+    if (verify_recorded && observed.before != expected.before)
+        return Status::failure(FailureCode::StateHashMismatch);
+
+    // Native140437F90 clears its event accumulator before querying the
+    // provider. Mode0 has no authored callback and140428AC0 returns immediately.
+    // Recompute the provider predicates; never publish a recorded result.
+    const auto undo = [&]() noexcept {
+        bool ok = memory_.Write(observed.before.mask_owner,
+            std::as_bytes(std::span{observed.before.masks}));
+        ok = write_value(memory_, object_ + 0x4B8, observed.before.values[5]) && ok;
+        ok = write_value(memory_, object_ + 0x4BC, observed.before.values[6]) && ok;
+        TutorialConsumerState restored{};
+        return ok && CaptureTutorialConsumerState(read, object_, restored)
+            && restored == observed.before;
+    };
+    constexpr std::array<std::uint64_t, 2> cleared{};
+    Status status = memory_.Write(observed.before.mask_owner,
+        std::as_bytes(std::span{cleared})) ? Status::success()
+        : Status::failure(FailureCode::RestoreWriteFailed);
+    std::uint32_t selected{};
+    if (status.ok()) status = query(user, object_, selected);
+    if (status.ok() && selected > 2)
+        status = Status::failure(FailureCode::AdvanceFailed);
+    const auto ticks = selected != 0 && selected == observed.before.values[5]
+        ? observed.before.values[6] + std::uint32_t{1} : 0;
+    if (status.ok() && (!write_value(memory_, object_ + 0x4B8, selected)
+        || !write_value(memory_, object_ + 0x4BC, ticks)))
+        status = Status::failure(FailureCode::RestoreWriteFailed);
+    if (status.ok() && !CaptureTutorialConsumerState(read, object_, observed.after))
+        status = Status::failure(FailureCode::CaptureFailed);
+    if (status.ok() && verify_recorded && observed.after != expected.after)
+        status = Status::failure(FailureCode::StateHashMismatch);
+    if (!status.ok()) return undo() ? status : Status::failure(FailureCode::UndoFailed);
+    observed.valid = true;
+    return Status::success();
+}
+
 }

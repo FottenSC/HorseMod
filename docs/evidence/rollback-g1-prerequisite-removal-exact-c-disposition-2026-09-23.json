@@ -1,0 +1,120 @@
+{
+  "schema": 1,
+  "date": "2026-09-23",
+  "program": "SoulcaliburVI.exe",
+  "scope": "Bounded native prerequisite removal and unchanged required mesh-body effects; no live run, production edit, or Ghidra DB edit.",
+  "conclusion": "No additional uncaptured mesh effect caused by removal was identified. This is a differential result: the already linked task retains its source dependency and ordinary callback ordering. It is not a fresh proof of every transitive skeletal-mesh callback or of completed-B recovery.",
+  "linked_evidence": [
+    {
+      "path": "docs/evidence/rollback-g1-trace-mesh-native-prerequisite-mutation-2026-09-23.json",
+      "sha256": "490F669CD9D8CF7917A0D255F7D8E9D6141106919E58676FCF122CEBC6AA2E3D"
+    },
+    {
+      "path": "docs/evidence/rollback-g1-prerequisite-pre-mutation-freeze-2026-09-23.json",
+      "sha256": "E02ECB276962698A63FCE09DD8BA791E96C4BE5619FB46F8720035F07D9FB785"
+    },
+    {
+      "path": "docs/evidence/rollback-g1-native-prerequisite-fixture-abi-2026-09-23.json",
+      "sha256": "5A99BBD9178785FE9F924476689642C7FC73ACD7A419184721FB2F646F80CA71"
+    },
+    {
+      "path": "docs/evidence/rollback-g1-native-prerequisite-lifecycle-green-2026-09-23.json",
+      "sha256": "06FA8DAD230696CAD48A120D6B9A85ED849008CC719D823EC45928CFBFD05E65"
+    }
+  ],
+  "native": {
+    "removal": "141D58ED0(component RCX, prerequisite component RDX) ->142164920(tick RCX, prerequisite owner RDX, prerequisite tick R8) ->142164960(array RCX,key RDX). Weak-key construction, weak/tick equality, swap-remove all equal entries, shrink/reallocation. Existing positive serial excludes serial allocation in140F7CFD0. Require exactly one captured live edge. No component/game callback found in removal body. Allocator service is required native behavior, not suppressed.",
+    "graph": "142163BA0 links event dependencies through1421679C0 before tick+18 publication and queued epoch+14. Removal does not unlink event nodes or decrement task dependencies. At injection source executes with dependencies0/event incomplete; selected mesh dependencies1 with sole source edge. Source wrapper must complete its event normally; mesh then becomes GT-queue eligible.",
+    "mesh": "141DAFC60 invokes141DA9110 end-physics registration,141DB0560 cloth registration, optional cloth virtual50,141DDA690 animation/pose path, clears morph-work count+CD8, modifies flags+BA0, tick end group/priority and optional141D973B0 transform path. The inspected code does not branch on primary tick prerequisite TArray. These remain ordinary required callback effects.",
+    "registration": "141DA9110 may register/unregister secondary end-physics tick+E08, assign target+E58 and add world end-physics prerequisite.141DB0560 may register/unregister cloth tick+C58, assign target+CA8 and add primary/end-physics prerequisites. Neither helper reads the removed primary prerequisite TArray. These ordinary policies must remain admitted under the existing branch; do not skip them to force recovery."
+  },
+  "ownership": [
+    "Require effective translated target scheduler and trace image, retained indexed live identities, exact mesh owner vtable1438829C0 and consumer141DAFC60.",
+    "Require Sc6ReplaySchedulerState::BeginExecution successful before native removal. It validates published/private backing and fingerprints B, then relinquishes A allocation.data. Native removal may Realloc(old prerequisite backing,0,0); retain copied Edge values, never old array backing.",
+    "Preserve private complete-B image and existing retirement/GPU/lifetime guarantees. SettleExecution(RecoverOriginal) validates observed C and private B fingerprint before rebuilding ownership; this investigation does not waive those checks.",
+    "Production sentinel must record before/after mutation and original native source task ownership. Mesh dispatch must independently revalidate delta, frozen graph witness, reciprocal task identity and exclusive original GT execution.",
+    "Forward required source and mesh native wrappers exactly once. Mark selected task completed only after original wrapper returns, using saved numeric identity because event/task may already be recycled.",
+    "Stop at current fully completed application; then existing recovery path settles C and restores B. Never enter another application with the missing edge, never repair edge in test driver."
+  ],
+  "source_review": {
+    "files": [
+      {
+        "path": "HorseMod/horselib/deterministic/ReplayPrerequisiteConsumer.hpp",
+        "sha256": "24623044C48D30F00825ADF04F569374B4694D3B5B62001F08B21F906BE59834"
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6ReplaySchedulerState.Storage.cpp",
+        "sha256": "ADD5495D0F19E5F0CB9272466D675AF3A2E4C1CCE74A8DCED73E6FF4DAA5A7A7"
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6ReplayTraceState.hpp",
+        "sha256": "969B7D27542FC36FB71A5F789924FC3AC522826A593992979BB58290CFEDC0C4"
+      }
+    ],
+    "protocol": "ReplayPrerequisiteConsumer is a value-state protocol and explicitly does not acquire native ownership. BeforeRemove/AfterRemove preserve full task snapshots; BeforeDispatch permits only saved mesh dependency transition1->0 and exact one-edge removal; Completed cannot itself establish native completion. Native integration must supply those claims.",
+    "capture": "Sc6ReplayTraceState retains trace child/mesh/animation/attachment owners, exact mesh asset/animation bindings, scene transform and animation node/proxy row arrays. Dormant secondary tick prefix is a binding; registered ticks are scheduler-owned. This review did not re-prove transitive ordinary mesh tick coverage.",
+    "specific_new_uncaptured_blocker": "None identified from the one-edge removal. The only additional owned-state mutation found is the scheduler prerequisite array/count/capacity/backing, already represented in scheduler capture/settlement. Live completed-application recovery and unchanged ordinary execution remain separate acceptance evidence."
+  },
+  "raw_native": [
+    {
+      "address": "141DAFC60",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "\r\nvoid FUN_141dafc60(longlong *param_1,undefined4 param_2,undefined4 param_3,longlong param_4)\r\n\r\n{\r\n  uint uVar1;\r\n  char cVar2;\r\n  undefined1 *puVar3;\r\n  longlong lVar4;\r\n  undefined8 uVar5;\r\n  byte bVar6;\r\n  undefined1 *puVar7;\r\n  \r\n  puVar7 = (undefined1 *)0x0;\r\n  if ((*(byte *)((longlong)param_1 + 0x11c) & 0x40) == 0) {\r\nLAB_141dafcb2:\r\n    uVar5 = 0;\r\n  }\r\n  else {\r\n    cVar2 = (**(code **)(*param_1 + 0x3b0))(param_1,0);\r\n    if (cVar2 == '\\0') {\r\n      cVar2 = FUN_142027ad0(param_1);\r\n      if (cVar2 == '\\0') goto LAB_141dafcb2;\r\n    }\r\n    uVar5 = 1;\r\n  }\r\n  UpdateSkeletalMeshEndPhysicsTickRegistration(param_1,uVar5);\r\n  UpdateSkeletalMeshClothTickRegistration(param_1);\r\n  if (((char)param_1[0x179] == '\\0') || ((longlong *)param_1[0x1a6] == (longlong *)0x0))\r\n  goto LAB_141dafd3c;\r\n  cVar2 = (**(code **)(*(longlong *)param_1[0x1a6] + 0x30))();\r\n  if (cVar2 == '\\0') goto LAB_141dafd3c;\r\n  puVar3 = ResolveLiveWeakObject((FWeakObjectPtr_Partial *)(param_1 + 0x123));\r\n  if (puVar3 == (undefined1 *)0x0) {\r\nLAB_141dafd1f:\r\n    puVar3 = puVar7;\r\n  }\r\n  else {\r\n    lVar4 = Z_Construct_UClass_USkeletalMeshComponent_singleton();\r\n    if ((*(int *)(*(longlong *)(puVar3 + 0x10) + 0x90) < *(int *)(lVar4 + 0x90)) ||\r\n       (*(longlong *)\r\n         (*(longlong *)(*(longlong *)(puVar3 + 0x10) + 0x88) + (longlong)*(int *)(lVar4 + 0x90) * 8)\r\n        != lVar4 + 0x88)) goto LAB_141dafd1f;\r\n  }\r\n  (**(code **)(*(longlong *)param_1[0x1a6] + 0x50))\r\n            ((longlong *)param_1[0x1a6],param_1 + 0x1aa,param_1,puVar3);\r\nLAB_141dafd3c:\r\n  FUN_141dda690(param_1,param_2,param_3,param_4);\r\n  *(undefined4 *)(param_1 + 0x19b) = 0;\r\n  if ((*(int *)((longlong)param_1 + 0xcdc) < 0) && (*(int *)((longlong)param_1 + 0xcdc) != 0)) {\r\n    FUN_1430942d0(param_1 + 0x19a,0);\r\n  }\r\n  uVar1 = *(uint *)(param_1 + 0x174);\r\n  bVar6 = *(byte *)((longlong)param_1 + 0xe14) >> 6 & 1;\r\n  *(uint *)(param_1 + 0x174) = (uVar1 * 2 ^ uVar1) & 8 ^ uVar1;\r\n  if ((0 < *DAT_144392da8) && (bVar6 == 0)) {\r\n    puVar7 = &g_dwLuxorRouteWriterGenericFailureResult;\r\n  }\r\n  if (param_4 != 0) {\r\n    *(char *)(param_4 + 9) = (char)puVar7;\r\n    if ((bool)(*(byte *)(param_4 + 0xc) >> 4 & 1) != 0 < *DAT_144392dc0) {\r\n      FUN_142167460(param_4);\r\n    }\r\n  }\r\n  if ((param_1[0x1d9] == 0) && (bVar6 == 0)) {\r\n    FUN_141d973b0(param_1);\r\n  }\r\n  return;\r\n}\r\n\r\n"
+          }
+        ],
+        "structuredContent": {
+          "result": "\r\nvoid FUN_141dafc60(longlong *param_1,undefined4 param_2,undefined4 param_3,longlong param_4)\r\n\r\n{\r\n  uint uVar1;\r\n  char cVar2;\r\n  undefined1 *puVar3;\r\n  longlong lVar4;\r\n  undefined8 uVar5;\r\n  byte bVar6;\r\n  undefined1 *puVar7;\r\n  \r\n  puVar7 = (undefined1 *)0x0;\r\n  if ((*(byte *)((longlong)param_1 + 0x11c) & 0x40) == 0) {\r\nLAB_141dafcb2:\r\n    uVar5 = 0;\r\n  }\r\n  else {\r\n    cVar2 = (**(code **)(*param_1 + 0x3b0))(param_1,0);\r\n    if (cVar2 == '\\0') {\r\n      cVar2 = FUN_142027ad0(param_1);\r\n      if (cVar2 == '\\0') goto LAB_141dafcb2;\r\n    }\r\n    uVar5 = 1;\r\n  }\r\n  UpdateSkeletalMeshEndPhysicsTickRegistration(param_1,uVar5);\r\n  UpdateSkeletalMeshClothTickRegistration(param_1);\r\n  if (((char)param_1[0x179] == '\\0') || ((longlong *)param_1[0x1a6] == (longlong *)0x0))\r\n  goto LAB_141dafd3c;\r\n  cVar2 = (**(code **)(*(longlong *)param_1[0x1a6] + 0x30))();\r\n  if (cVar2 == '\\0') goto LAB_141dafd3c;\r\n  puVar3 = ResolveLiveWeakObject((FWeakObjectPtr_Partial *)(param_1 + 0x123));\r\n  if (puVar3 == (undefined1 *)0x0) {\r\nLAB_141dafd1f:\r\n    puVar3 = puVar7;\r\n  }\r\n  else {\r\n    lVar4 = Z_Construct_UClass_USkeletalMeshComponent_singleton();\r\n    if ((*(int *)(*(longlong *)(puVar3 + 0x10) + 0x90) < *(int *)(lVar4 + 0x90)) ||\r\n       (*(longlong *)\r\n         (*(longlong *)(*(longlong *)(puVar3 + 0x10) + 0x88) + (longlong)*(int *)(lVar4 + 0x90) * 8)\r\n        != lVar4 + 0x88)) goto LAB_141dafd1f;\r\n  }\r\n  (**(code **)(*(longlong *)param_1[0x1a6] + 0x50))\r\n            ((longlong *)param_1[0x1a6],param_1 + 0x1aa,param_1,puVar3);\r\nLAB_141dafd3c:\r\n  FUN_141dda690(param_1,param_2,param_3,param_4);\r\n  *(undefined4 *)(param_1 + 0x19b) = 0;\r\n  if ((*(int *)((longlong)param_1 + 0xcdc) < 0) && (*(int *)((longlong)param_1 + 0xcdc) != 0)) {\r\n    FUN_1430942d0(param_1 + 0x19a,0);\r\n  }\r\n  uVar1 = *(uint *)(param_1 + 0x174);\r\n  bVar6 = *(byte *)((longlong)param_1 + 0xe14) >> 6 & 1;\r\n  *(uint *)(param_1 + 0x174) = (uVar1 * 2 ^ uVar1) & 8 ^ uVar1;\r\n  if ((0 < *DAT_144392da8) && (bVar6 == 0)) {\r\n    puVar7 = &g_dwLuxorRouteWriterGenericFailureResult;\r\n  }\r\n  if (param_4 != 0) {\r\n    *(char *)(param_4 + 9) = (char)puVar7;\r\n    if ((bool)(*(byte *)(param_4 + 0xc) >> 4 & 1) != 0 < *DAT_144392dc0) {\r\n      FUN_142167460(param_4);\r\n    }\r\n  }\r\n  if ((param_1[0x1d9] == 0) && (bVar6 == 0)) {\r\n    FUN_141d973b0(param_1);\r\n  }\r\n  return;\r\n}\r\n\r\n"
+        },
+        "isError": false
+      }
+    },
+    {
+      "address": "141DA9110",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "\r\n/* Updates component+E08 end-physics tick registration when requested state differs from+E14 bit40.\r\n   On admission through141D5FB60 assigns Target at component+E58 to the component and adds the world\r\n   end-physics prerequisite. Otherwise unregisters through142168580. Caller141DA90B0 derives the\r\n   request from primary registration and native physics/blending policy.\r\n   \r\n   Rollback: this conditional registration leaves a valid null Target for a dormant tick. Keep exact\r\n   vtable143882990, matching prefix, unregistered flag and no pending work. Do not synthesize Target\r\n   or enable a lifecycle path. */\r\n\r\nvoid UpdateSkeletalMeshEndPhysicsTickRegistration(UActorComponent_Partial *param_1,byte param_2)\r\n\r\n{\r\n  char cVar1;\r\n  UWorld_Partial *pPrerequisiteOwner;\r\n  \r\n  if (param_2 != ((byte)param_1[8].field_0x154 >> 6 & 1)) {\r\n    if (param_2 == 0) {\r\n      FUN_142168580(&param_1[8].field_0x148);\r\n      return;\r\n    }\r\n    cVar1 = FUN_141d5fb60(param_1,&param_1[8].field_0x148);\r\n    if (cVar1 != '\\0') {\r\n      pPrerequisiteOwner = *(UWorld_Partial **)&param_1[1].field_0x30;\r\n      param_1[9].objectBase.pVirtualTable = param_1;\r\n      if ((pPrerequisiteOwner != (UWorld_Partial *)0x0) ||\r\n         (pPrerequisiteOwner = ResolveActorComponentWorld(param_1),\r\n         pPrerequisiteOwner != (UWorld_Partial *)0x0)) {\r\n        AddTickFunctionPrerequisite\r\n                  (&param_1[8].field_0x148,&pPrerequisiteOwner->objectBase,\r\n                   &pPrerequisiteOwner->field_0x7e0);\r\n      }\r\n    }\r\n  }\r\n  return;\r\n}\r\n\r\n"
+          }
+        ],
+        "structuredContent": {
+          "result": "\r\n/* Updates component+E08 end-physics tick registration when requested state differs from+E14 bit40.\r\n   On admission through141D5FB60 assigns Target at component+E58 to the component and adds the world\r\n   end-physics prerequisite. Otherwise unregisters through142168580. Caller141DA90B0 derives the\r\n   request from primary registration and native physics/blending policy.\r\n   \r\n   Rollback: this conditional registration leaves a valid null Target for a dormant tick. Keep exact\r\n   vtable143882990, matching prefix, unregistered flag and no pending work. Do not synthesize Target\r\n   or enable a lifecycle path. */\r\n\r\nvoid UpdateSkeletalMeshEndPhysicsTickRegistration(UActorComponent_Partial *param_1,byte param_2)\r\n\r\n{\r\n  char cVar1;\r\n  UWorld_Partial *pPrerequisiteOwner;\r\n  \r\n  if (param_2 != ((byte)param_1[8].field_0x154 >> 6 & 1)) {\r\n    if (param_2 == 0) {\r\n      FUN_142168580(&param_1[8].field_0x148);\r\n      return;\r\n    }\r\n    cVar1 = FUN_141d5fb60(param_1,&param_1[8].field_0x148);\r\n    if (cVar1 != '\\0') {\r\n      pPrerequisiteOwner = *(UWorld_Partial **)&param_1[1].field_0x30;\r\n      param_1[9].objectBase.pVirtualTable = param_1;\r\n      if ((pPrerequisiteOwner != (UWorld_Partial *)0x0) ||\r\n         (pPrerequisiteOwner = ResolveActorComponentWorld(param_1),\r\n         pPrerequisiteOwner != (UWorld_Partial *)0x0)) {\r\n        AddTickFunctionPrerequisite\r\n                  (&param_1[8].field_0x148,&pPrerequisiteOwner->objectBase,\r\n                   &pPrerequisiteOwner->field_0x7e0);\r\n      }\r\n    }\r\n  }\r\n  return;\r\n}\r\n\r\n"
+        },
+        "isError": false
+      }
+    },
+    {
+      "address": "141DB0560",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "\r\n/* Updates component+C58 cloth-tick registration. Requires registered primary tick (+11C bit40) and\r\n   the mesh virtual+948 cloth policy. If desired registration differs from+C64 bit40, registers\r\n   through141D5FB60 or unregisters through142168580. Only successful registration assigns\r\n   component+CA8 (tick+50 Target) and adds primary+110 and end-physics+E08 prerequisites.\r\n   \r\n   Rollback: an unregistered cloth tick can retain a null Target even with CanEverTick set. Keep its\r\n   exact prefix, no pending task and no registration; do not invent a Target or schedule cloth work.\r\n   Native vtable1438829A8 identifies this tick; executor142100130 delegates null handling\r\n   to1420C0080. */\r\n\r\nvoid UpdateSkeletalMeshClothTickRegistration(UObject_Partial *param_1)\r\n\r\n{\r\n  char cVar1;\r\n  byte bVar2;\r\n  \r\n  if ((((ulonglong)param_1[7].pVirtualTable & 0x4000000000) == 0) ||\r\n     (cVar1 = (**(code **)((longlong)param_1->pVirtualTable + 0x948))(), cVar1 == '\\0')) {\r\n    bVar2 = 0;\r\n  }\r\n  else {\r\n    bVar2 = 1;\r\n  }\r\n  if (bVar2 != ((byte)param_1[0x4f].nInternalIndex >> 6 & 1)) {\r\n    if (bVar2 == 0) {\r\n      FUN_142168580(param_1 + 0x4f);\r\n      return;\r\n    }\r\n    cVar1 = FUN_141d5fb60(param_1,param_1 + 0x4f);\r\n    if (cVar1 != '\\0') {\r\n      param_1[0x51].pVirtualTable = param_1;\r\n      AddTickFunctionPrerequisite(param_1 + 0x4f,param_1,&param_1[6].pOuterPrivate);\r\n      AddTickFunctionPrerequisite(param_1 + 0x4f,param_1,&param_1[0x59].pOuterPrivate);\r\n    }\r\n  }\r\n  return;\r\n}\r\n\r\n"
+          }
+        ],
+        "structuredContent": {
+          "result": "\r\n/* Updates component+C58 cloth-tick registration. Requires registered primary tick (+11C bit40) and\r\n   the mesh virtual+948 cloth policy. If desired registration differs from+C64 bit40, registers\r\n   through141D5FB60 or unregisters through142168580. Only successful registration assigns\r\n   component+CA8 (tick+50 Target) and adds primary+110 and end-physics+E08 prerequisites.\r\n   \r\n   Rollback: an unregistered cloth tick can retain a null Target even with CanEverTick set. Keep its\r\n   exact prefix, no pending task and no registration; do not invent a Target or schedule cloth work.\r\n   Native vtable1438829A8 identifies this tick; executor142100130 delegates null handling\r\n   to1420C0080. */\r\n\r\nvoid UpdateSkeletalMeshClothTickRegistration(UObject_Partial *param_1)\r\n\r\n{\r\n  char cVar1;\r\n  byte bVar2;\r\n  \r\n  if ((((ulonglong)param_1[7].pVirtualTable & 0x4000000000) == 0) ||\r\n     (cVar1 = (**(code **)((longlong)param_1->pVirtualTable + 0x948))(), cVar1 == '\\0')) {\r\n    bVar2 = 0;\r\n  }\r\n  else {\r\n    bVar2 = 1;\r\n  }\r\n  if (bVar2 != ((byte)param_1[0x4f].nInternalIndex >> 6 & 1)) {\r\n    if (bVar2 == 0) {\r\n      FUN_142168580(param_1 + 0x4f);\r\n      return;\r\n    }\r\n    cVar1 = FUN_141d5fb60(param_1,param_1 + 0x4f);\r\n    if (cVar1 != '\\0') {\r\n      param_1[0x51].pVirtualTable = param_1;\r\n      AddTickFunctionPrerequisite(param_1 + 0x4f,param_1,&param_1[6].pOuterPrivate);\r\n      AddTickFunctionPrerequisite(param_1 + 0x4f,param_1,&param_1[0x59].pOuterPrivate);\r\n    }\r\n  }\r\n  return;\r\n}\r\n\r\n"
+        },
+        "isError": false
+      }
+    },
+    {
+      "address": "141DDA690",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "\r\nvoid FUN_141dda690(UActorComponent_Partial *param_1,float param_2,uint param_3,\r\n                  FActorTickFunction_Partial *param_4)\r\n\r\n{\r\n  void *pvVar1;\r\n  undefined1 uVar2;\r\n  char cVar3;\r\n  UWorld_Partial *pUVar4;\r\n  uint uVar5;\r\n  \r\n  UActorComponent_TickComponent(&param_1->objectBase,param_2,param_3,param_4);\r\n  pUVar4 = *(UWorld_Partial **)&param_1[1].field_0x30;\r\n  if (pUVar4 == (UWorld_Partial *)0x0) {\r\n    pUVar4 = ResolveActorComponentWorld(param_1);\r\n  }\r\n  uVar5 = 0;\r\n  if (*(float *)&pUVar4[1].field_0x84 - g_flOne <\r\n      *(float *)((longlong)&param_1[4].objectBase.pClassPrivate + 4)) {\r\n    uVar5 = 4;\r\n  }\r\n  pvVar1 = (param_1->objectBase).pVirtualTable;\r\n  *(uint *)&param_1[6].field_0x70 = uVar5 | *(uint *)&param_1[6].field_0x70 & 0xfffffffb;\r\n  uVar2 = (**(code **)((longlong)pvVar1 + 0x888))(param_1);\r\n  cVar3 = (**(code **)((longlong)(param_1->objectBase).pVirtualTable + 0x8a0))(param_1);\r\n  if (cVar3 != '\\0') {\r\n    (**(code **)((longlong)(param_1->objectBase).pVirtualTable + 0x878))(param_1,param_2,0);\r\n  }\r\n  cVar3 = (**(code **)((longlong)(param_1->objectBase).pVirtualTable + 0x898))(param_1,uVar2);\r\n  if (cVar3 != '\\0') {\r\n    cVar3 = FUN_140f86b80(&param_1[5].field_0x120);\r\n    pvVar1 = (param_1->objectBase).pVirtualTable;\r\n    if (cVar3 == '\\0') {\r\n      (**(code **)((longlong)pvVar1 + 0x870))(param_1,param_4);\r\n    }\r\n    else {\r\n      (**(code **)((longlong)pvVar1 + 0x880))();\r\n    }\r\n  }\r\n  return;\r\n}\r\n\r\n"
+          }
+        ],
+        "structuredContent": {
+          "result": "\r\nvoid FUN_141dda690(UActorComponent_Partial *param_1,float param_2,uint param_3,\r\n                  FActorTickFunction_Partial *param_4)\r\n\r\n{\r\n  void *pvVar1;\r\n  undefined1 uVar2;\r\n  char cVar3;\r\n  UWorld_Partial *pUVar4;\r\n  uint uVar5;\r\n  \r\n  UActorComponent_TickComponent(&param_1->objectBase,param_2,param_3,param_4);\r\n  pUVar4 = *(UWorld_Partial **)&param_1[1].field_0x30;\r\n  if (pUVar4 == (UWorld_Partial *)0x0) {\r\n    pUVar4 = ResolveActorComponentWorld(param_1);\r\n  }\r\n  uVar5 = 0;\r\n  if (*(float *)&pUVar4[1].field_0x84 - g_flOne <\r\n      *(float *)((longlong)&param_1[4].objectBase.pClassPrivate + 4)) {\r\n    uVar5 = 4;\r\n  }\r\n  pvVar1 = (param_1->objectBase).pVirtualTable;\r\n  *(uint *)&param_1[6].field_0x70 = uVar5 | *(uint *)&param_1[6].field_0x70 & 0xfffffffb;\r\n  uVar2 = (**(code **)((longlong)pvVar1 + 0x888))(param_1);\r\n  cVar3 = (**(code **)((longlong)(param_1->objectBase).pVirtualTable + 0x8a0))(param_1);\r\n  if (cVar3 != '\\0') {\r\n    (**(code **)((longlong)(param_1->objectBase).pVirtualTable + 0x878))(param_1,param_2,0);\r\n  }\r\n  cVar3 = (**(code **)((longlong)(param_1->objectBase).pVirtualTable + 0x898))(param_1,uVar2);\r\n  if (cVar3 != '\\0') {\r\n    cVar3 = FUN_140f86b80(&param_1[5].field_0x120);\r\n    pvVar1 = (param_1->objectBase).pVirtualTable;\r\n    if (cVar3 == '\\0') {\r\n      (**(code **)((longlong)pvVar1 + 0x870))(param_1,param_4);\r\n    }\r\n    else {\r\n      (**(code **)((longlong)pvVar1 + 0x880))();\r\n    }\r\n  }\r\n  return;\r\n}\r\n\r\n"
+        },
+        "isError": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "artifacts": {
+    "loaded_horsemod": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll",
+      "pid": 37320,
+      "process_created": 1788569734.63786,
+      "sha256": "3440f3bfc8627df68b24da8118ad2385237634be1aee045717b775fc5ffb38e6",
+      "verification": "owned_process_mapped_file_and_sha256"
+    },
+    "raw_log": {
+      "complete_within_bound": true,
+      "path": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\rewrite-producer-entry-seek.UE4SS.log",
+      "sha256": "c703ddcdad63957cdeccc85f2dee25d2f3b05775591c68a9cab6e4a390cae0ce"
+    }
+  },
+  "case_id": "",
+  "certifying": false,
+  "cleanup": {
+    "deployment_restored": true,
+    "diagnostic_flags_restored_false": {
+      "correction_probe": true,
+      "forced_depth7_qualification": true,
+      "trace": true
+    },
+    "process_absent": true
+  },
+  "created_utc": "2026-09-05T00:56:54.507819+00:00",
+  "display_map_name": "",
+  "failure": {
+    "bounded_log": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\rewrite-producer-entry-seek.failure.log",
+    "bounded_log_lines": 69,
+    "field_or_mask": "0x1",
+    "fields": {
+      "cache_expected": "0/0/0/0",
+      "cache_observed": "0/0/0/0",
+      "cache_row": "4294967295",
+      "component_mask": "0x1",
+      "game_time": "360/360",
+      "identity": "0/0",
+      "identity_issue": "314",
+      "input_cache_chunk": "4294967295",
+      "input_scalar_mask": "0x0",
+      "move_dispatch": "0000000000000000/0000000000000000->0000000000000000/0000000000000001",
+      "native_mask": "0x40000",
+      "plan_base": "0:0",
+      "plan_batch": "0",
+      "plan_entry": "0:0",
+      "plan_exit": "0:0",
+      "plan_stage": "0",
+      "recorder_time": "360/360",
+      "source_end": "1565",
+      "status": "state_hash_mismatch",
+      "target": "1204",
+      "update_time": "360/360",
+      "vfx_edges_p1": "0/0/0/0->0/0/0/0",
+      "vfx_edges_p2": "0/0/0/0->0/0/0/0",
+      "wind_mask": "0x0"
+    },
+    "first_failing_frame": "1204",
+    "first_failure_line": "[2026-09-05 02:56:51.8001626] [HorseMod] owned replay seek request failed target=1204 source_end=1565 status=state_hash_mismatch component_mask=0x1 native_mask=0x40000 input_scalar_mask=0x0 input_cache_chunk=4294967295 game_time=360/360 update_time=360/360 recorder_time=360/360 cache_row=4294967295 cache_expected=0/0/0/0 cache_observed=0/0/0/0 move_dispatch=0000000000000000/0000000000000000->0000000000000000/0000000000000001 vfx_edges_p1=0/0/0/0->0/0/0/0 vfx_edges_p2=0/0/0/0->0/0/0/0 wind_mask=0x0 identity_issue=314 identity=0/0 plan_stage=0 plan_batch=0 plan_base=0:0 plan_entry=0:0 plan_exit=0:0",
+    "graph_provenance": null,
+    "lifecycle_phase": null,
+    "owner_pointer": null,
+    "owner_selector": null,
+    "return_rva": null
+  },
+  "kind": "replay_entry_failure",
+  "reason": "native replay entry failed: horsemod_fail_fast_health",
+  "report_schema": 2,
+  "result": "fail",
+  "row_id": "",
+  "stage_package_root": ""
+}

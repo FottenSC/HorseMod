@@ -1,0 +1,139 @@
+{
+  "scope": "read-only on-disk native prefix verification; not safe patch installation proof",
+  "game_sha256": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553",
+  "signatures": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a557a8c07410c276831e3ea9ba63ce8c6324184ebb705f519ca39547afd5030a.inl",
+    "sha256": "a557a8c07410c276831e3ea9ba63ce8c6324184ebb705f519ca39547afd5030a",
+    "bytes": 5258
+  },
+  "sites": [
+    {
+      "rva": "0x8ccaa0",
+      "bytes": "48895c24084889742410574883ec20488d05f241a902488bf1",
+      "match": true
+    },
+    {
+      "rva": "0x8cd120",
+      "bytes": "48895c2408574883ec20488bf98bda4881c1b0030000e875f8ffff",
+      "match": true
+    },
+    {
+      "rva": "0x21b4e60",
+      "bytes": "48895c24084889742410574883ec20488d054aac8301488bd9",
+      "match": true
+    },
+    {
+      "rva": "0x21b7820",
+      "bytes": "4c894c242044884424188854241055535657488d6c24c14881eca8000000",
+      "match": true
+    },
+    {
+      "rva": "0x21ba4c0",
+      "bytes": "48895c240848896c2410488974241848897c242041564883ec40",
+      "match": true
+    },
+    {
+      "rva": "0x21c5950",
+      "bytes": "48895c2410574883ec20488bd9488bfa488b89c80100004885c9",
+      "match": true
+    },
+    {
+      "rva": "0x1eecdf0",
+      "bytes": "40535657415441554881ec20010000488b055ac41f024833c4",
+      "match": true
+    },
+    {
+      "rva": "0x1d66700",
+      "bytes": "40534883ec20f6818801000001488bd974458b8188010000",
+      "match": true
+    },
+    {
+      "rva": "0x1d37f40",
+      "bytes": "40534883ec20f7818801000000000008488bd9740b488b01",
+      "match": true
+    },
+    {
+      "rva": "0x1d41970",
+      "bytes": "40534883ec208b8188010000488bd90fbae01c0f8226010000",
+      "match": true
+    },
+    {
+      "rva": "0x8d3d20",
+      "bytes": "48895c240848896c2410488974241857415641574883ec30",
+      "match": true
+    },
+    {
+      "rva": "0x2159b90",
+      "bytes": "48895c2418564883ec30410fb6400c498bd82442488bf1f6410c42",
+      "match": true
+    },
+    {
+      "rva": "0x2164920",
+      "bytes": "48895c2408574883ec30488bd9498bf8488d4c2420e89671e1fe",
+      "match": true
+    },
+    {
+      "rva": "0x39b420",
+      "bytes": "48895c24104889742418574883ec30488bf9c605fdbcdf0300",
+      "match": true
+    },
+    {
+      "rva": "0x544470",
+      "bytes": "4c8bdc5556574157498d6ba14881ec980000004c8db900010000",
+      "match": true
+    },
+    {
+      "rva": "0x2157bc0",
+      "bytes": "40534883ec20f6410c40488d05ef428701488901488bd97415",
+      "match": true
+    },
+    {
+      "rva": "0xd54cb0",
+      "bytes": "40554155488d6c24b14881eca80000004c8be9e82806feff84c00f85cd020000",
+      "match": true
+    },
+    {
+      "rva": "0x3aeb50",
+      "bytes": "48895c2408574883ec20488bb960050000488bd94885ff7422836f0801751c48",
+      "match": true
+    },
+    {
+      "rva": "0x3af4b0",
+      "bytes": "48895c24084889742410574883ec20488bf9488b89d00300004885c97405e82d",
+      "match": true
+    },
+    {
+      "rva": "0x1d99730",
+      "bytes": "488bc488501055564155488bec4881ec80000000440fb6ea488bf184d20f84c9",
+      "match": true
+    },
+    {
+      "rva": "0x3ba850",
+      "bytes": "48895c240848896c24104889742418574883ec20488be933db488b8958040000",
+      "match": true
+    },
+    {
+      "rva": "0x3bb550",
+      "bytes": "48895c24084889742410574883ec20488bb9980000008bf2488bd94885ff0f84",
+      "match": true
+    }
+  ],
+  "patch_library_sources": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6a16e998438dfaa358779fe7c37ee722c006eeea1d75e4f812753f7c488da3bb.cpp",
+      "sha256": "6a16e998438dfaa358779fe7c37ee722c006eeea1d75e4f812753f7c488da3bb",
+      "bytes": 33601
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c4405a3448c79a173b1c7c9730b1405ec59943ec55abf0a84a615c4e4b056a5c.cpp",
+      "sha256": "c4405a3448c79a173b1c7c9730b1405ec59943ec55abf0a84a615c4e4b056a5c",
+      "bytes": 8966
+    }
+  ],
+  "patch_limitation": "x64Detour::hook writes entry then NOP encodings; Detour::unHook writes originals then frees trampoline. Inspected code has no executing-thread rendezvous. CRI outer lock covers its own route only; calls_==0 cannot prove absence of an already-entered original body.",
+  "immutable": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\044cc11bda840b702a9fefb6e66088ec49272ef28f999bd6e25c6c5d53b9ee58.json",
+    "sha256": "044cc11bda840b702a9fefb6e66088ec49272ef28f999bd6e25c6c5d53b9ee58",
+    "bytes": 4309
+  }
+}

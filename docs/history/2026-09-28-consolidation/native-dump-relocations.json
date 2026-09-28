@@ -1,0 +1,157 @@
+{
+  "date": "2026-09-28",
+  "note": "Folder cleanup after narrative consolidation; raw file bytes unchanged. Historical ZIP/log references resolve through this map. Three tool-consumed manifests and generated CALLCOND data remain at original paths.",
+  "files": [
+    {
+      "old_path": "docs/investigations/dotvanisher-general-fix-native-2026-09-13.json",
+      "new_path": "docs/investigations/evidence/native/dotvanisher-general-fix-native-2026-09-13.json",
+      "sha256": "b6934ff335f9312487f446e6bb858b0b02b061fce2ded32930ce7f25df17c9cd",
+      "bytes": 192935
+    },
+    {
+      "old_path": "docs/investigations/dotvanisher-recovery-implementation-native-2026-09-13.json",
+      "new_path": "docs/investigations/evidence/native/dotvanisher-recovery-implementation-native-2026-09-13.json",
+      "sha256": "8d188be7f72bcbc48a1ac7fb70e0cabf244523c3b1fc43cf94da25f9955d2e43",
+      "bytes": 45864
+    },
+    {
+      "old_path": "docs/investigations/dotvanisher-route-ownership-2026-09-13.json",
+      "new_path": "docs/investigations/evidence/native/dotvanisher-route-ownership-2026-09-13.json",
+      "sha256": "3e097f3bab727eaed4be1be8464b22a3fd8f454b17249e669fe6d9d7d43a9bfb",
+      "bytes": 26098
+    },
+    {
+      "old_path": "docs/investigations/replay-checkpoint-lifetime-2026-09-14.json",
+      "new_path": "docs/investigations/evidence/native/replay-checkpoint-lifetime-2026-09-14.json",
+      "sha256": "628263cac8711ad5cf5cb02fec55e7e8040c50eda2732580b7742effd9eac6f8",
+      "bytes": 19250
+    },
+    {
+      "old_path": "docs/investigations/replay-cross-round-component-lifetime-2026-09-10.json",
+      "new_path": "docs/investigations/evidence/native/replay-cross-round-component-lifetime-2026-09-10.json",
+      "sha256": "70fa9597b7426082a3c60a1fea1e7eb3ff23e5ee37db01cd601813297b7322b1",
+      "bytes": 135921
+    },
+    {
+      "old_path": "docs/investigations/replay-cross-round-lighting-native-2026-09-10.json",
+      "new_path": "docs/investigations/evidence/native/replay-cross-round-lighting-native-2026-09-10.json",
+      "sha256": "1b7cf5f5cdc5897ee9433c751c0c86d73aa3ee06102c79c7895574485d1d4774",
+      "bytes": 18174
+    },
+    {
+      "old_path": "docs/investigations/replay-cross-round-physics-native-2026-09-10.json",
+      "new_path": "docs/investigations/evidence/native/replay-cross-round-physics-native-2026-09-10.json",
+      "sha256": "0cfbf4214475c51bb052ad542aa070547f1a63c1e7057cdffe6c2b84295ade7c",
+      "bytes": 15092
+    },
+    {
+      "old_path": "docs/investigations/replay-cross-round-retained-render-trace-2026-09-10.json",
+      "new_path": "docs/investigations/evidence/native/replay-cross-round-retained-render-trace-2026-09-10.json",
+      "sha256": "eb780b0d9861e3ef751b7b176b5533675800878da3bac0a068287fd4ca914bdf",
+      "bytes": 114365
+    },
+    {
+      "old_path": "docs/investigations/replay-ground-debris-native-2026-09-14.json",
+      "new_path": "docs/investigations/evidence/native/replay-ground-debris-native-2026-09-14.json",
+      "sha256": "8ab5c384bf14354459bc2b060c2fed4500a988d850eaa45eeecd7c5e1b2438d7",
+      "bytes": 71508
+    },
+    {
+      "old_path": "docs/investigations/replay-index-owner-native-audit-2026-09-10.json",
+      "new_path": "docs/investigations/evidence/native/replay-index-owner-native-audit-2026-09-10.json",
+      "sha256": "f7b82caef2580148c0fa6b5f779d0c6f5a322f39c57f74061c7576373a57de28",
+      "bytes": 29572
+    },
+    {
+      "old_path": "docs/investigations/replay-particle-component-replacement-2026-09-14.json",
+      "new_path": "docs/investigations/evidence/native/replay-particle-component-replacement-2026-09-14.json",
+      "sha256": "f66068113c78c5db4a0d8e92829e1abb7e232c5c9a6ddc51eadf54bc37a80742",
+      "bytes": 27264
+    },
+    {
+      "old_path": "docs/investigations/replay-particle-rematerialization-native-2026-09-14.json",
+      "new_path": "docs/investigations/evidence/native/replay-particle-rematerialization-native-2026-09-14.json",
+      "sha256": "3d72a0dc0f9c90b40ad53f67ae83d6813067c21e8e1eacd0184704364f48b7cb",
+      "bytes": 35472
+    },
+    {
+      "old_path": "docs/investigations/replay-physics-node-lifetime-native-2026-09-10.json",
+      "new_path": "docs/investigations/evidence/native/replay-physics-node-lifetime-native-2026-09-10.json",
+      "sha256": "28b13a338d7123983f94ea2d00a05c1c4f3cceed2aea0aa00c8e32bdef79de8f",
+      "bytes": 42623
+    },
+    {
+      "old_path": "docs/investigations/replay-source-round-continuation-2026-09-10.json",
+      "new_path": "docs/investigations/evidence/native/replay-source-round-continuation-2026-09-10.json",
+      "sha256": "42ff3c73dde0dee634e9a5ab68959a1067534fe73c15ed43aae1da846a54fc87",
+      "bytes": 11282
+    },
+    {
+      "old_path": "docs/investigations/replay-stage-secondary-tick-native-2026-09-11.json",
+      "new_path": "docs/investigations/evidence/native/replay-stage-secondary-tick-native-2026-09-11.json",
+      "sha256": "7a8d05030388f7992b913005823e38f22ebf69a63f5487614a9e112ff0545d6f",
+      "bytes": 5799
+    },
+    {
+      "old_path": "docs/investigations/replay-stage-tick-registration-native-2026-09-11.json",
+      "new_path": "docs/investigations/evidence/native/replay-stage-tick-registration-native-2026-09-11.json",
+      "sha256": "1f6c20e11360760e686580d217b1fbfad851af88313eb406dc8893554d7f03cb",
+      "bytes": 4865
+    },
+    {
+      "old_path": "docs/investigations/replay-static-field-native-2026-09-14.json",
+      "new_path": "docs/investigations/evidence/native/replay-static-field-native-2026-09-14.json",
+      "sha256": "57b001c154611be62293137af15f61d294fba3c0f4fcaad75b4c70442b2b6c39",
+      "bytes": 19526
+    },
+    {
+      "old_path": "docs/investigations/rollback-particle-continuation-inputs-native-2026-09-14.json",
+      "new_path": "docs/investigations/evidence/native/rollback-particle-continuation-inputs-native-2026-09-14.json",
+      "sha256": "6a887cdf1f598c7d53ab9a41b9669a11703e14607ef9821a6cb0188707f9e565",
+      "bytes": 48840
+    },
+    {
+      "old_path": "docs/investigations/rollback-particle-lifetime-native-2026-09-14.json",
+      "new_path": "docs/investigations/evidence/native/rollback-particle-lifetime-native-2026-09-14.json",
+      "sha256": "d5b6ce1eb9e8f3c9e0661e4b5999da09b886b07c6e47e2ac99e3a0ac1626ea91",
+      "bytes": 74465
+    },
+    {
+      "old_path": "docs/investigations/rollback-particle-listeners-native-2026-09-14.json",
+      "new_path": "docs/investigations/evidence/native/rollback-particle-listeners-native-2026-09-14.json",
+      "sha256": "d29bbd5a7a88cbbad43ce809107efaf398f24c59ab453240e2f8a262a3e66a86",
+      "bytes": 30771
+    },
+    {
+      "old_path": "docs/investigations/rollback-particle-native-owner-construction-2026-09-14.json",
+      "new_path": "docs/investigations/evidence/native/rollback-particle-native-owner-construction-2026-09-14.json",
+      "sha256": "0369edfc0ed3171781d755848756f92f48474bde5ed032729900c168ecd117ed",
+      "bytes": 34176
+    },
+    {
+      "old_path": "docs/investigations/rollback-particle-registration-native-2026-09-14.json",
+      "new_path": "docs/investigations/evidence/native/rollback-particle-registration-native-2026-09-14.json",
+      "sha256": "8b5b7acf2a2b755817fa6d53933e60062173ca434dbfb2c5f256c9a610df539a",
+      "bytes": 15416
+    },
+    {
+      "old_path": "docs/investigations/rollback-particle-version-inputs-native-2026-09-14.json",
+      "new_path": "docs/investigations/evidence/native/rollback-particle-version-inputs-native-2026-09-14.json",
+      "sha256": "d70938415457303f731da4a85f758479920e7d93fdf9083af8eb6cef538a5b4c",
+      "bytes": 21115
+    },
+    {
+      "old_path": "docs/investigations/round-end-replay-2026-09-15-native.json",
+      "new_path": "docs/investigations/evidence/native/round-end-replay-2026-09-15-native.json",
+      "sha256": "a554f2c2544072f9e44b44ba953ef03a0e203cdda7d8e0fe732c23f2d5fad0df",
+      "bytes": 188255
+    }
+  ],
+  "updated_markdown": [
+    "docs/history/2026-09-28-consolidation/investigations/dotvanisher-general-fix-2026-09-13.md",
+    "docs/history/2026-09-28-consolidation/investigations/dotvanisher-recovery-implementation-2026-09-13.md",
+    "docs/history/2026-09-28-consolidation/investigations/rollback-particle-lifetime-2026-09-14.md",
+    "docs/history/2026-09-28-consolidation/investigations/round-end-replay-2026-09-15.md"
+  ],
+  "rewritten_markdown_links": 6
+}

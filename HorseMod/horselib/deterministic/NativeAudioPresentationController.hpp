@@ -28,6 +28,9 @@ public:
     [[nodiscard]] std::size_t allocated_bytes() const noexcept;
     [[nodiscard]] PresentationJournal::Statistics statistics() const noexcept;
     [[nodiscard]] Status ResetStatistics() noexcept;
+    [[nodiscard]] std::uint64_t correction_id() const noexcept { return journal_.correction_id(); }
+    [[nodiscard]] std::optional<PresentationJournal::CorrectionObservation>
+        TakeDrainedCorrection() noexcept { return journal_.TakeDrainedCorrection(); }
 
 private:
     PresentationJournal journal_;

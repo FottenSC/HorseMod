@@ -1,0 +1,23 @@
+{
+  "directories": [],
+  "files": [],
+  "launches": [
+    {
+      "after": 1788604668.0558598,
+      "exe": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\SoulcaliburVI.exe",
+      "marker": "-HorseQualificationRun=startup-78bac37b467b46b7b174439346c42432"
+    }
+  ],
+  "processes": [
+    {
+      "created": 1788604670.7621713,
+      "exe": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\SoulcaliburVI.exe",
+      "kind": "game",
+      "pid": 75384
+    }
+  ],
+  "requests": [],
+  "run_id": "startup-78bac37b467b46b7b174439346c42432",
+  "schema_version": 1,
+  "state": "clean"
+}

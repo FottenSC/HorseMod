@@ -1,0 +1,111 @@
+{
+  "scope": "Private native ground physics acquisition/retirement. No typed A publication or historical dynamic-state claim.",
+  "sources": {
+    "HorseMod/horselib/deterministic/ReplayGroundPrivateBody.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b83870514338f39d34cb9bf841f8bfb813ec3bce3df44ca2cd654c4c72942929.hpp",
+      "sha256": "b83870514338f39d34cb9bf841f8bfb813ec3bce3df44ca2cd654c4c72942929",
+      "bytes": 3109
+    },
+    "HorseMod/horselib/deterministic/ReplayGroundPrivateQueues.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\aa613837c1297f0dc36f796229a874dba105581a46f4b52688986c9069099bfe.hpp",
+      "sha256": "aa613837c1297f0dc36f796229a874dba105581a46f4b52688986c9069099bfe",
+      "bytes": 2862
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayGroundColdPhysics.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\59f8cb4240db7c5f425cce8e1e235b1d07d11a150000ead20af38d2061222753.inl",
+      "sha256": "59f8cb4240db7c5f425cce8e1e235b1d07d11a150000ead20af38d2061222753",
+      "bytes": 10309
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayGroundColdGraph.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8d29fc489d95a125b3636aed0b5056c675780dad0eb83573aafcfc586acac557.inl",
+      "sha256": "8d29fc489d95a125b3636aed0b5056c675780dad0eb83573aafcfc586acac557",
+      "bytes": 30329
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayGroundDebrisState.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9a700ba6c942ecc9f9bcdba84e6b8b0050421be298ad26e656f1d4e213bb15e1.hpp",
+      "sha256": "9a700ba6c942ecc9f9bcdba84e6b8b0050421be298ad26e656f1d4e213bb15e1",
+      "bytes": 6635
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayHost.GroundDebris.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b85147bce83de800cb5ebea12911ae6b5634aa959bc6b011ffca32d074d54e5e.inl",
+      "sha256": "b85147bce83de800cb5ebea12911ae6b5634aa959bc6b011ffca32d074d54e5e",
+      "bytes": 73468
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayHost.ParticleOwners.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c9597b879448a21f785a12fdb54f4e33b560dc8e08a5c7553ee383fd89226cb0.inl",
+      "sha256": "c9597b879448a21f785a12fdb54f4e33b560dc8e08a5c7553ee383fd89226cb0",
+      "bytes": 40272
+    },
+    "tools/replay_ground_cold_root_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\dd816a2ccc10dcffbc5e3ce34dcf81148cf817ad9c767d3b3578049716343cf2.cpp",
+      "sha256": "dd816a2ccc10dcffbc5e3ce34dcf81148cf817ad9c767d3b3578049716343cf2",
+      "bytes": 11869
+    },
+    "tools/replay_physics_markers_selftest.inl": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d970d777dc476f049671dd271bef1a7ba7ebf465292588865aa0c389ce35becd.inl",
+      "sha256": "d970d777dc476f049671dd271bef1a7ba7ebf465292588865aa0c389ce35becd",
+      "bytes": 121675
+    },
+    "tools/native_candidate_regions_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a7fa80cc37a135b9f1a6e642559735a3de6ed2a51d56a55749560c715bac4e01.cpp",
+      "sha256": "a7fa80cc37a135b9f1a6e642559735a3de6ed2a51d56a55749560c715bac4e01",
+      "bytes": 387823
+    }
+  },
+  "logs": {
+    "ground-private-body-sdk.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\94d32533a428edfe7e1ce2b11eaeb5ae0dd3220fdd405cad982ac3d6a11b1e87.log",
+      "sha256": "94d32533a428edfe7e1ce2b11eaeb5ae0dd3220fdd405cad982ac3d6a11b1e87",
+      "bytes": 700
+    },
+    "ground-private-body-sdk-native-path.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1621e1430becf1b7e013089e6f3352f7e28754a8152dda83dde50c4a21a81379.log",
+      "sha256": "1621e1430becf1b7e013089e6f3352f7e28754a8152dda83dde50c4a21a81379",
+      "bytes": 3345
+    },
+    "ground-private-physics-focused.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1d5cdc9386a23aeb6e574314f19cc612bd0ce99f5c8a4f9ed876e6cf208f383e.log",
+      "sha256": "1d5cdc9386a23aeb6e574314f19cc612bd0ce99f5c8a4f9ed876e6cf208f383e",
+      "bytes": 116
+    },
+    "ground-private-physics-build.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\39e6a4094ec27c1341bb32e1401a234b89556b770a1fadd612dd13f7ab7ad43b.log",
+      "sha256": "39e6a4094ec27c1341bb32e1401a234b89556b770a1fadd612dd13f7ab7ad43b",
+      "bytes": 335
+    },
+    "ground-private-physics-native.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6666ad0b536f2fe0972401234cb3e49f11104e597dbfe982309ccb56cdc7cc19.log",
+      "sha256": "6666ad0b536f2fe0972401234cb3e49f11104e597dbfe982309ccb56cdc7cc19",
+      "bytes": 3904
+    },
+    "ground-private-physics-preflight.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0e4e7d3db6be0f22af557e406cd19cf0f22c07ed90d60b8642861059db4b157b.log",
+      "sha256": "0e4e7d3db6be0f22af557e406cd19cf0f22c07ed90d60b8642861059db4b157b",
+      "bytes": 313
+    },
+    "ground-private-physics-live.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\11f5db4d82230d1493753d2df1231aa0ff4a895793fb95e7d89ecdd201741b14.log",
+      "sha256": "11f5db4d82230d1493753d2df1231aa0ff4a895793fb95e7d89ecdd201741b14",
+      "bytes": 1273
+    }
+  },
+  "validation": {
+    "focused": "3 passed",
+    "build": "pass, 2 CTests",
+    "native": "required actual SDK checks pass; initial standalone forward-slash DLL invocation failed dependency load; corrected native Windows path passed",
+    "preflight": "ready",
+    "live": {
+      "run_id": "replay-0c7cc381c83649ae96ff14673b5e3da2",
+      "manifest": "build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/manifests/0014962073139838c675aeb4e5bf47e26333de33bc0bf1efac97fc14df1befc4.json",
+      "private_construction": "5 children passed at A617/B624; scene-less native actors/shapes and engine consumer absence",
+      "retirement": "native complete and fresh GPU complete",
+      "preparation_recovery": "B624 recovered before A publication",
+      "remaining_failure": "expired physics companion, code7; typed historical physics/render publication not implemented",
+      "cleanup": {
+        "complete": true,
+        "games_remaining": 0
+      }
+    }
+  },
+  "gates_promoted": []
+}

@@ -168,6 +168,14 @@ namespace Horse::GameImGui
 
         LRESULT on_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         {
+            // The held view already consumed physical left/right button
+            // transitions. Do not replay their queued copies into ImGui or
+            // the game when the unfinished application interval resumes.
+            if ((msg == WM_LBUTTONDOWN || msg == WM_LBUTTONUP || msg == WM_LBUTTONDBLCLK
+                    || msg == WM_RBUTTONDOWN || msg == WM_RBUTTONUP || msg == WM_RBUTTONDBLCLK)
+                && InSendMessageEx(nullptr) == ISMEX_NOSEND
+                && PresentHook::instance().consumed_replay_mouse_message(static_cast<DWORD>(GetMessageTime())))
+                return 0;
             // NOTE: F2 toggling is NOT handled here.
             //
             // SC6 registers its input devices with RawInput's
@@ -188,10 +196,10 @@ namespace Horse::GameImGui
             //    even when the overlay was invisible — the rationale
             //    being "keep ImGui's IO state warm so hover/cursor work
             //    on first show".  In practice
-            //      (a) ImGui_ImplWin32_NewFrame() re-polls GetCursorPos
-            //          on every frame, so the warm-IO assumption is
-            //          unnecessary — the very first NewFrame after a
-            //          show already fixes mouse position.
+            //      (a) The backend polls an untracked cursor; normal visible
+            //          playback also receives WM_MOUSEMOVE. Held replay views
+            //          explicitly poll position because tracked mouse messages
+            //          cannot run while the game-thread pump is suspended.
             //      (b) The per-message ImGui-context swap (3× SetCurrent-
             //          Context calls per WM_*) was hot-path overhead on
             //          mouse-move flooding the message pump.

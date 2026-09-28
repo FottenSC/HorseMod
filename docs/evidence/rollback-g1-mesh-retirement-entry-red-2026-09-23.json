@@ -1,0 +1,41 @@
+{
+  "result": "RED: 1403AF580 missing from actual entry routing; controlled native effect reached under retained owner hold",
+  "scope": "Entry routing only, not mesh lifetime admission proof",
+  "files": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7485c253d9744d24d9c712f342fed36bfe4ee772a5baec3e7ee9ddd185cdbb29.cmd",
+      "sha256": "7485c253d9744d24d9c712f342fed36bfe4ee772a5baec3e7ee9ddd185cdbb29",
+      "bytes": 338
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1a8f309f86e20cae1198ce78f13345fbf938db605db9c4ae3058199dd6c0f78c.exe",
+      "sha256": "1a8f309f86e20cae1198ce78f13345fbf938db605db9c4ae3058199dd6c0f78c",
+      "bytes": 183808
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a840d13c9ed958a540b788d62532e2182a6d8bf7afa9b90a748462d7b206f7d0.obj",
+      "sha256": "a840d13c9ed958a540b788d62532e2182a6d8bf7afa9b90a748462d7b206f7d0",
+      "bytes": 119794
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\2c902973576e46820e0893c869a69a37ef203fc648301f40406badee0943ca3f.cpp",
+      "sha256": "2c902973576e46820e0893c869a69a37ef203fc648301f40406badee0943ca3f",
+      "bytes": 8501
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d37ac3b89a06994e60dfbcb2168012c8345f6899ec8143a025395a4741622d59.hpp",
+      "sha256": "d37ac3b89a06994e60dfbcb2168012c8345f6899ec8143a025395a4741622d59",
+      "bytes": 24420
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\2deb0d5a7778023647c57525a2d95b5d005cd2c44676a7640e8c125bb2a7c4d8.inl",
+      "sha256": "2deb0d5a7778023647c57525a2d95b5d005cd2c44676a7640e8c125bb2a7c4d8",
+      "bytes": 5519
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\fb83843cc45f822408830315f6e0e49cb00a8a803d43f59b1c0aabc3b67e5f6f.py",
+      "sha256": "fb83843cc45f822408830315f6e0e49cb00a8a803d43f59b1c0aabc3b67e5f6f",
+      "bytes": 40266
+    }
+  ]
+}

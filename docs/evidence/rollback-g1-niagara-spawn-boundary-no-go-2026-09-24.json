@@ -1,0 +1,27 @@
+{
+  "result": "NO-GO existing Cascade spawn hook is not Niagara pre-spawn ownership",
+  "production_changes": false,
+  "tests_added": false,
+  "game_launched": false,
+  "build_run": false,
+  "ghidra_mutated": false,
+  "source_identities": {
+    "Schema.hpp": "fad5cacb05bcc3d29e51d39387c5127c532ee379bc82d114de56e91de07f15d7",
+    "DeterministicHookSet.PresentationTerminals.inl": "9c1c667b621b48a1d1ae18cc4f34dd66caa5ed19da5411b0ebae6309f27d1d35",
+    "DeterministicHookSet.LifecycleAndJournal.inl": "d6ee176b77d2cd0ac27abbd73d563edaceb51a4052f8ec6bfaad4981a56fca70",
+    "Sc6ReplayParticleComponentOwner.hpp": "b9f94d98dae7889acec9ba07db18697a8b7e7c674ea8bb0c50ffb90553ca0833",
+    "NativeReplayCallbackAdmission.hpp": "aee06ec747fa99fcaccfbe4b71cea3ac7b76d851b75959725d3ec271eadeff4e",
+    "NativeReplayPrerequisiteGuard.hpp": "421612a7a88506bf9f9a850709fdb40ab1fe6f8a46c7c877f20c8b8f88931833",
+    "ReplayComponentTickConsumer.hpp": "564f93e4e33cb2832f032e06cce832b1660880c350d05f5cd2955192595bb3b4"
+  },
+  "analysis": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\ec3b09f3033d9b56de077744bf10e17b700ad4a2fec994ca8616778cdcd4df76.json",
+    "sha256": "ec3b09f3033d9b56de077744bf10e17b700ad4a2fec994ca8616778cdcd4df76",
+    "bytes": 4985
+  },
+  "native": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\520a8c715f3e5bd86fa62d4e000362edcc0ab0fb5574d1e2449f9ed3776dfedf.json",
+    "sha256": "520a8c715f3e5bd86fa62d4e000362edcc0ab0fb5574d1e2449f9ed3776dfedf",
+    "bytes": 11159
+  }
+}

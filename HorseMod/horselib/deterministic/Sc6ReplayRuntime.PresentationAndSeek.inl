@@ -1,19 +1,39 @@
-bool Sc6ReplayRuntime::ConsumeResumeValidation() noexcept
+Status Sc6ReplayRuntime::ConsumeResumeValidation(
+    const NativeBatchEnvelope& observed) noexcept
 {
-    if (resume_validation_active_)
+    const auto* expected = batch_timeline_.GetBatch(resume_next_batch_);
+    if (!resume_validation_active_ || resume_next_batch_ >= resume_end_batch_
+        || expected == nullptr || !expected->completed_identity_valid
+        || !observed.completed_identity_valid
+        || expected->entry_coordinate != observed.entry_coordinate
+        || expected->exit_coordinate != observed.exit_coordinate
+        || expected->coordinate_count != observed.coordinate_count
+        || expected->replay_source_after != observed.replay_source_after
+        || expected->completed_hash != observed.completed_hash)
     {
-        pending_batch_id_ = 0;
-        pending_camera_source_frame_ = {};
-        pending_batch_coordinates_.clear();
-        if (resume_catchup_pending_)
-        {
-            resume_validation_active_ = false;
-            resume_catchup_pending_ = false;
-            timeline_status_.resume_validation_active = false;
-        }
-        return true;
+        timeline_status_.resume_failure_coordinate = observed.exit_coordinate;
+        timeline_status_.identity_issue = 312;
+        timeline_status_.identity_expected = resume_next_batch_;
+        timeline_status_.identity_observed = observed.batch_id;
+        if (expected != nullptr)
+            timeline_status_.resume_expected_hash = expected->completed_hash;
+        timeline_status_.resume_observed_hash = observed.completed_hash;
+        timeline_status_.failure = FailureCode::StateHashMismatch;
+        return Status::failure(timeline_status_.failure);
     }
-    return false;
+    pending_batch_id_ = 0;
+    pending_camera_source_frame_ = {};
+    pending_batch_coordinates_.clear();
+    // Consume every recorded call, including calls with no native coordinate.
+    // Reaching the final coordinate alone does not finish its outer work.
+    ++resume_next_batch_;
+    if (resume_next_batch_ == resume_end_batch_)
+    {
+        resume_validation_active_ = false;
+        resume_catchup_pending_ = false;
+        timeline_status_.resume_validation_active = false;
+    }
+    return Status::success();
 }
 
 Status Sc6ReplayRuntime::AccumulateObservedGameplayIdentity(
@@ -345,19 +365,68 @@ Status Sc6ReplayRuntime::ObserveOuterTick(
     bool skip_batch{};
     Status status = BeginObservedOuterTick(observation, coordinate_count,
         input_generation_changed, skip_batch);
-    const auto complete_outer_tick = [this](Status result) noexcept {
+    const auto complete_outer_tick = [this, &observation](Status result) noexcept {
+        // These observations belong to exactly this manager invocation,
+        // including a skipped state-0/1/3 call. Never merge them into a later
+        // state-2 batch or retain them until the bounded arrays overflow.
+        pending_consumer_count_ = 0;
+        pending_producer_count_ = 0;
+        last_completed_outer_batch_id_ = observation.batch_id;
         active_outer_tick_id_ = 0;
         return result;
     };
     if (!status.ok() || skip_batch) return complete_outer_tick(status);
 
     NativeBatchEnvelope envelope{};
+    envelope.preceding_outer_batch_id = last_completed_outer_batch_id_;
+    envelope.consumers_before = pending_consumers_;
+    envelope.consumers_before_count = pending_consumer_count_;
+    envelope.producers_before = pending_producers_;
+    envelope.producers_before_count = pending_producer_count_;
+    pending_producer_count_ = 0;
+    pending_consumer_count_ = 0;
+    envelope.replay_source_before = pending_replay_source_;
+    envelope.input_before = pending_replay_input_;
+    envelope.input_before_valid = pending_replay_input_valid_;
     FillObservedGameplayEnvelope(observation, coordinate_count,
         input_generation_changed, envelope);
     FillObservedPresentationEnvelope(observation, input_generation_changed,
         envelope);
-    if (ConsumeResumeValidation())
-        return complete_outer_tick(Status::success());
+    if (!online_predicted_remote_player_.has_value()
+        && replay_history_capture_required_ && !input_generation_changed
+        && !generation_rebaseline_pending_ && envelope.exit_coordinate.generation != 0)
+    {
+        auto& completed = timeline_canonical_capture_scratch_;
+        CandidateTransientCaptureDiagnostic diagnostic{};
+        status = checkpoint_capture_.CaptureCanonical(
+            envelope.exit_coordinate, completed, &diagnostic);
+        const bool canonical_completed = status.ok();
+        if (status.ok())
+            status = bridge_->CapturePlaybackSource(envelope.replay_source_after);
+        if (IsIdentityReplacementStatus(status.code))
+        {
+            // Owner replacement can happen in the native tail, after the
+            // final fencepost. Retire through the same generation boundary.
+            RecordIdentityReplacement(status.code, canonical_completed ? 7 : 6,
+                envelope.exit_coordinate, diagnostic);
+        }
+        else if (!status.ok())
+        {
+            timeline_status_.failure = status.code;
+            return complete_outer_tick(status);
+        }
+        else
+        {
+            envelope.completed_hash = completed.canonical_hash;
+            envelope.completed_components = completed.canonical_components;
+            envelope.completed_native = completed.canonical_native;
+            envelope.completed_move_dispatch = completed.canonical_move_dispatch;
+            envelope.completed_input_scalars = completed.canonical_input.scalars;
+            envelope.completed_identity_valid = true;
+        }
+    }
+    if (resume_validation_active_)
+        return complete_outer_tick(ConsumeResumeValidation(envelope));
 
     status = AccumulateObservedGameplayIdentity(observation);
     if (!status.ok()) return complete_outer_tick(status);
@@ -412,6 +481,11 @@ void Sc6ReplayRuntime::ObserveReplayExit() noexcept
     last_movevm_short25_valid_ = false;
     resume_target_ = {};
     resume_source_end_ = {};
+    resume_next_batch_ = 0;
+    resume_end_batch_ = 0;
+    pending_replay_source_ = {};
+    pending_replay_input_ = {};
+    pending_replay_input_valid_ = false;
     resume_validation_active_ = false;
     resume_catchup_pending_ = false;
     // A full native scene exit releases binding-owned transaction scratch.
@@ -472,6 +546,11 @@ void Sc6ReplayRuntime::ResetQualificationStateRetainingStorage() noexcept
     last_movevm_short25_valid_ = false;
     resume_target_ = {};
     resume_source_end_ = {};
+    resume_next_batch_ = 0;
+    resume_end_batch_ = 0;
+    pending_replay_source_ = {};
+    pending_replay_input_ = {};
+    pending_replay_input_valid_ = false;
     resume_validation_active_ = false;
     resume_catchup_pending_ = false;
     generation_rebaseline_pending_ = false;
@@ -772,7 +851,8 @@ Status Sc6ReplayRuntime::CaptureCorrectedCoordinate(
         snapshot.canonical_native, snapshot.canonical_move_dispatch,
         snapshot.canonical_input, snapshot.canonical_wind_semantic,
         snapshot.canonical_wind, snapshot.canonical_wind_node,
-        snapshot.canonical_animation, snapshot.canonical_stage_emitters};
+        snapshot.canonical_animation, snapshot.canonical_stage_emitters,
+        expected_canonical->replay_source};
     if (retained_landing != nullptr)
     {
         corrected.expected_landing_hashes[corrected.landing_count] =
@@ -1104,6 +1184,10 @@ Status Sc6ReplayRuntime::CaptureCorrectedReplayBatch(
             corrected->batch_indices[target] = batch_index;
             corrected->expected_batches[target] = envelope;
             corrected->replacement_batches[target] = envelope;
+            // Corrected output cannot inherit the authored completion claim.
+            // Its replacement continuation identity belongs to the epoch
+            // rewrite; until then seek must reject it during preflight.
+            corrected->replacement_batches[target].completed_identity_valid = false;
             corrected->replacement_batches[target].camera_source_frame =
                 camera_source;
             ApplyCorrectedPresentationObservation(
@@ -1175,6 +1259,9 @@ Status Sc6ReplayRuntime::PrepareReplayBatchHandoffs(
     else if (preserve_first_entry_input_log
         && batch_index == first_batch_index)
         status = Status::success();
+    else if (envelope.input_before_valid)
+        status = checkpoint_capture_.PrepareInputLogForReplay(
+            envelope.input_before, inputs.empty() ? InputPair{} : inputs[0]);
     else if (batch_entry != nullptr)
         status = checkpoint_capture_.RestoreInputLogForReplay(*batch_entry);
     else
@@ -1337,6 +1424,7 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
     std::optional<std::size_t> landing_batch_index,
     std::uint32_t landing_offset, Snapshot* landing,
     bool preserve_first_entry_input_log,
+    bool native_input_producer,
     std::uint64_t* replayed_coordinates, std::uint32_t* replayed_batches,
     std::size_t* failed_batch_index, NativeBatchEnvelope* failed_envelope,
     OwnedBatchReplayResult* failed_result,
@@ -1354,7 +1442,9 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
 {
     if (first_batch_index > final_batch_index || generation == 0
         || (landing_batch_index.has_value() && landing == nullptr)
-        || (corrected != nullptr && corrected != &corrected_replay_capture_))
+        || (corrected != nullptr && corrected != &corrected_replay_capture_)
+        || (native_input_producer && (corrected != nullptr
+            || first_batch_index != final_batch_index)))
     {
         return Status::failure(FailureCode::InvalidConfiguration);
     }
@@ -1414,7 +1504,7 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
                 && corrected_camera_source_valid
             ? corrected_camera_source : envelope->camera_source_frame;
         Status status = PrepareReplayBatchHandoffs(batch_index,
-            first_batch_index, preserve_first_entry_input_log, *envelope,
+            first_batch_index, preserve_first_entry_input_log || native_input_producer, *envelope,
             std::span{inputs.data(),
                 static_cast<std::size_t>(envelope->coordinate_count)},
             corrected, camera_source, capture_landing, landing_offset);
@@ -1435,6 +1525,7 @@ Status Sc6ReplayRuntime::ReplayOwnedBatchRange(
         request.inputs = std::span{inputs.data(),
             static_cast<std::size_t>(envelope->coordinate_count)};
         request.suppress_ephemeral_presentation = true;
+        request.native_input_producer = native_input_producer;
         if (corrected != nullptr)
         {
             if (corrected->batch_count >= corrected->batch_indices.size())

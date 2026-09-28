@@ -1,0 +1,36 @@
+{
+  "result": "RED exit81: later observer capture omits retained dormant tick",
+  "scope": "Actual production Capture union and observer call, external native memory/binding services",
+  "files": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\6fb4e7f7daee3899148278fff60618d5ab0664a77665ca8e55559f0d7336ceb0.cmd",
+      "sha256": "6fb4e7f7daee3899148278fff60618d5ab0664a77665ca8e55559f0d7336ceb0",
+      "bytes": 163
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\04b2d61cad33f54ac6df18f380bde0da0ad80a93a14a5160e144157c0b41941c.exe",
+      "sha256": "04b2d61cad33f54ac6df18f380bde0da0ad80a93a14a5160e144157c0b41941c",
+      "bytes": 142848
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\da46d13e14b9506402148b259d57e1258f3dea8a6c48583e712dae8835c20ad6.cpp",
+      "sha256": "da46d13e14b9506402148b259d57e1258f3dea8a6c48583e712dae8835c20ad6",
+      "bytes": 5748
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\966fe706f992bd4ef00a63ccf6e00916121d1517a46a3df5ec02c7d0f7ae1491.obj",
+      "sha256": "966fe706f992bd4ef00a63ccf6e00916121d1517a46a3df5ec02c7d0f7ae1491",
+      "bytes": 228479
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\22f0bcaefef05b3d1e558a7e523fca28139187d6c19724547fa484e9d14a98c2.cpp",
+      "sha256": "22f0bcaefef05b3d1e558a7e523fca28139187d6c19724547fa484e9d14a98c2",
+      "bytes": 520133
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\49ef3e939942017aa357ead419e983744a6642df698e3348b57d301ce3724c00.py",
+      "sha256": "49ef3e939942017aa357ead419e983744a6642df698e3348b57d301ce3724c00",
+      "bytes": 40257
+    }
+  ]
+}

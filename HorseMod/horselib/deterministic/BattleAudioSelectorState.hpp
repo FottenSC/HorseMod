@@ -32,6 +32,7 @@ struct BattleAudioSelectorBinding
     ResolveBattleAudioHandlerFn resolve_handler{};
     BattleAudioHandlerOverflowFn handler_overflowed{};
     void* resolve_user{};
+    bool exact_membership{};
 };
 
 // Local-only typed supplement for ALuxBattleSoundEventHandler +0x3E0. The

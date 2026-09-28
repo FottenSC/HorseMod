@@ -1,0 +1,33 @@
+{
+  "case_id": "raphael-maxi-snow-capped-showdown",
+  "certifying": false,
+  "cleanup": {
+    "diagnostic_flags_restored_false": {
+      "correction_probe": true,
+      "forced_depth7_qualification": true,
+      "trace": true
+    },
+    "process_absent": true
+  },
+  "created_utc": "2026-08-31T03:51:44.088976+00:00",
+  "display_map_name": "Snow-Capped Showdown",
+  "failure": {
+    "bounded_log": "E:\\myMods\\docs\\investigations\\evidence\\development-camera-statebuffer-snow-capped-confirmed-hit-depth1-rerun.failure.log",
+    "bounded_log_lines": 92,
+    "field_or_mask": null,
+    "fields": {},
+    "first_failing_frame": null,
+    "first_failure_line": "[2026-08-31 05:51:07.2431100] [HorseMod] frame-fencepost observation failed: generation_mismatch",
+    "graph_provenance": null,
+    "lifecycle_phase": null,
+    "owner_pointer": null,
+    "owner_selector": null,
+    "return_rva": null
+  },
+  "kind": "replay_entry_failure",
+  "reason": "forced correction native/presentation coverage is incomplete",
+  "report_schema": 2,
+  "result": "fail",
+  "row_id": "raphael-maxi-snow-capped-showdown__confirmed_hit__depth_1",
+  "stage_package_root": "/Game/Stage/STG009"
+}

@@ -1,0 +1,107 @@
+{
+  "schema": 1,
+  "date": "2026-09-24",
+  "scope": "Read-only source snapshot before documentation checkpoint; no production/test edits or tests",
+  "archive": {
+    "path": "build_cmake_LessEqual421__Shipping__Win64/replay-tests/evidence/objects/0ec066f661e7e7784e5dc4496aea31fc9f7dae08ab8ee189ba497121c9b3f6fd.zip",
+    "sha256": "0ec066f661e7e7784e5dc4496aea31fc9f7dae08ab8ee189ba497121c9b3f6fd",
+    "bytes": 218188
+  },
+  "native": {
+    "path": "docs/evidence/rollback-g1-physx-pre-wrapper-recovery-audit-2026-09-24.native.json",
+    "sha256": "8ca9ee04757df6061e30f69289a9fefecccc1da4c69393031e5366f51db8994e",
+    "bytes": 201237
+  },
+  "files": [
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayTaskGroup.hpp",
+      "sha256": "eb89c436c22effae0836503f677edc2491dce4c04d9d79b9bdc708856c428b2d",
+      "bytes": 6575
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayTaskGroup.cpp",
+      "sha256": "5d0f8a05f26f9fb79dab306c310e93831019cc161cb9b467cade1c137977f983",
+      "bytes": 33704
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayHost.Consumer.inl",
+      "sha256": "eb5843edbb18576351fb09ff563658ce628b5afa6270875cfec5764452b09039",
+      "bytes": 12508
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayHost.Application.inl",
+      "sha256": "575115fcb01c35572478e7f297560555b23c5047f62c5486bc5285fb3d655698",
+      "bytes": 34051
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayHost.Interior.inl",
+      "sha256": "748d075bf40b7058abb49191aca18005ade1edd2423e9e038f62bf346ede65ee",
+      "bytes": 41006
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayHost.Restore.inl",
+      "sha256": "0a20648f0e98ad4b9595623348de1c05287b2825d12dd19d48bcaee9ee62c1e1",
+      "bytes": 171732
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativeReplayTraceTaskGuard.hpp",
+      "sha256": "6d30460e5cec2270633eb4ca1081fe234ffaac4a93ff9aa66ccbbcfbb97e2a87",
+      "bytes": 29892
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativeReplayPrerequisiteGuard.hpp",
+      "sha256": "421612a7a88506bf9f9a850709fdb40ab1fe6f8a46c7c877f20c8b8f88931833",
+      "bytes": 22820
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ReplayPhysicsStepConsumer.hpp",
+      "sha256": "d4f851de36f2c9e5b768def3f2ee4220126e8ce8ca9c84b18722464d52227ed2",
+      "bytes": 9631
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/ReplaySeekOwnership.hpp",
+      "sha256": "b67c64b78debd4566f5526373fc9bb6e3e1deffb0b1fba7869de59fb4a788412",
+      "bytes": 5677
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplaySchedulerState.cpp",
+      "sha256": "2a5f89f46519976af102fe1a2415822300f49c3dd9ea2574c5d7d741d21a9c9b",
+      "bytes": 33646
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayWorldState.cpp",
+      "sha256": "8411ec62db6b0fb2d2d4ccf044888fa93b1e89665feb724a2b50f25fb70e3657",
+      "bytes": 136546
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/Sc6ReplayWorldState.hpp",
+      "sha256": "a114adc212c31246349ad9a4375926a9dc3ee0d5cae12b269a4514f790a3ed7d",
+      "bytes": 24152
+    },
+    {
+      "path": "HorseMod/horselib/deterministic/NativeReplayCallbackAdmission.hpp",
+      "sha256": "aee06ec747fa99fcaccfbe4b71cea3ac7b76d851b75959725d3ec271eadeff4e",
+      "bytes": 12058
+    },
+    {
+      "path": "AGENTS.md",
+      "sha256": "fb4db98b234695fa0e4e7736ebe1019e19ed02a190c3fd34b07436e69f6d4772",
+      "bytes": 6690
+    },
+    {
+      "path": "docs/rollback-depth-seven-plan.md",
+      "sha256": "ec02eef007417553fbaedaf9f95c636066e7dea0bc4f0333312df1b0bb410fa9",
+      "bytes": 14648
+    },
+    {
+      "path": "docs/rollback-netcode-local-readiness-plan-2026-09-22.md",
+      "sha256": "3b38d313ae7610ee6357b7faf70141f8d3117d28b6837ccb88e2f93d57b0f28d",
+      "bytes": 27211
+    },
+    {
+      "path": "docs/rollback-status.md",
+      "sha256": "40c94fdda77b2ef5f98452c66278b76877642d3c9694660855ae21fd31aa9473",
+      "bytes": 247945
+    }
+  ]
+}

@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "stages": {
+    "round2-steam-admission": {
+      "dependencies": {
+        "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\HorseMod.dll": "833a280e24f772122f4e662623d41382166af4b0a0fc7a80494d6b262f150d32",
+        "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\ReplayQualificationMod.dll": "3ebc71e6252bfffcf4d6a7dcce220981ec1c78f9c46a4115c1c2f4ac3a367c1f",
+        "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\generated\\deterministic_contract.json": "5707722da8cd4c09c8500a3f8e4143d7788f3508fbade98920266ab7fc55c40b",
+        "E:\\myMods\\docs\\investigations\\deterministic-production-candidate-manifest.json": "c0cba1c615ae02e4e754421565f83bf35be655f1eb37e2904f82a878e8a948fe",
+        "capture_harness": "1dc3a5ceebc999e3e7959f0b84a0d7d99ecb0ea29ba122580465d499f1cdb6b5"
+      },
+      "experiment": {
+        "competing_explanations": [
+          "Direct sandbox game launch lacked Steam launch context.",
+          "Sandbox client startup prevents game connection independently of the rollback runtime."
+        ],
+        "first_divergent_boundary": "Prior paired run exited during sandbox startup before native gameplay.",
+        "new_evidence": "Start sandbox Steam and launch both games through Steam; runtime also rejects failed preparation at manager entry and records bounded InputLog task/transition identities.",
+        "stop_condition": "First native/setup failure begins cleanup; otherwise retain exact round-two correction and same-process re-entry requirements."
+      },
+      "failure": "Command '['C:\\\\Program Files\\\\Python311\\\\python.exe', 'E:\\\\myMods\\\\tools\\\\deterministic_qualification.py', 'paired-online', '--case-manifest', 'E:\\\\myMods\\\\docs\\\\investigations\\\\deterministic-production-candidate-manifest.json', '--case', 'astaroth-raphael-silver-wolves-haven', '--dll', 'E:\\\\myMods\\\\build_cmake_LessEqual421__Shipping__Win64\\\\HorseMod\\\\HorseMod.dll', '--replay-mod', 'E:\\\\myMods\\\\build_cmake_LessEqual421__Shipping__Win64\\\\HorseMod\\\\ReplayQualificationMod.dll', '--schema', 'E:\\\\myMods\\\\build_cmake_LessEqual421__Shipping__Win64\\\\HorseMod\\\\generated\\\\deterministic_contract.json', '--output-dir', 'E:\\\\myMods\\\\docs\\\\investigations\\\\evidence\\\\rollback-reassessment\\\\online-steam-admission', '--report', 'E:\\\\myMods\\\\docs\\\\investigations\\\\evidence\\\\rollback-reassessment\\\\online-steam-admission\\\\report.json', '--scenario', 'online-round2-reentry', '--match-cycles', '2', '--launch-timeout', '300', '--match-timeout', '300', '--phase-timeout', '10', '--development-multiround-correction-smoke']' returned non-zero exit status 2.",
+      "report": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\online-steam-admission\\report.json",
+      "resource_journal": "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\online-steam-admission\\resources.json",
+      "specification": {
+        "command": [
+          "C:\\Program Files\\Python311\\python.exe",
+          "E:\\myMods\\tools\\deterministic_qualification.py",
+          "paired-online",
+          "--case-manifest",
+          "E:\\myMods\\docs\\investigations\\deterministic-production-candidate-manifest.json",
+          "--case",
+          "astaroth-raphael-silver-wolves-haven",
+          "--dll",
+          "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\HorseMod.dll",
+          "--replay-mod",
+          "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\ReplayQualificationMod.dll",
+          "--schema",
+          "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\generated\\deterministic_contract.json",
+          "--output-dir",
+          "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\online-steam-admission",
+          "--report",
+          "E:\\myMods\\docs\\investigations\\evidence\\rollback-reassessment\\online-steam-admission\\report.json",
+          "--scenario",
+          "online-round2-reentry",
+          "--match-cycles",
+          "2",
+          "--launch-timeout",
+          "300",
+          "--match-timeout",
+          "300",
+          "--phase-timeout",
+          "10",
+          "--development-multiround-correction-smoke"
+        ],
+        "scenario": {
+          "case_id": "astaroth-raphael-silver-wolves-haven",
+          "cleanup": [
+            "requests",
+            "watchers",
+            "impairment",
+            "processes",
+            "deployment"
+          ],
+          "cleanup_seconds": 30,
+          "correction_depths": [
+            7,
+            12,
+            1
+          ],
+          "cycles": 2,
+          "dependencies": [
+            "runtime",
+            "capture_bridge",
+            "capture_harness_sha256",
+            "stimulus_spec_sha256",
+            "schema_sha256"
+          ],
+          "failure": "",
+          "id": "online-round2-reentry",
+          "lifecycle_stage": "round-replacement",
+          "observations": [
+            "canonical-agreement",
+            "observed-correction-depth",
+            "correction-local-presentation",
+            "owned-storage-return"
+          ],
+          "prerequisites": [
+            "certificate-interop",
+            "native-python-tests"
+          ],
+          "profile": "clean",
+          "progress_seconds": 10,
+          "required_combat_round": 2,
+          "setup_seconds": 300,
+          "version": 2
+        }
+      },
+      "state": "failed"
+    }
+  }
+}

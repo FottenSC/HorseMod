@@ -13,4 +13,6 @@ def write_report(path: Path, report: dict[str, object]) -> None:
         encoding="utf-8",
     )
     os.replace(temporary, path)
+    from .replay_reporting import publish
+    publish(report, report_path=path)
 

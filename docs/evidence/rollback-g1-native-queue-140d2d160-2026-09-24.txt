@@ -1,0 +1,44 @@
+
+void FUN_140d2d160(longlong param_1,int param_2)
+
+{
+  void *pvVar1;
+  char cVar2;
+  undefined8 uVar3;
+  longlong lVar4;
+  int *piVar5;
+  ulonglong uVar6;
+  
+  pvVar1 = ThreadLocalStoragePointer;
+  uVar6 = (ulonglong)g_dwTlsIndex;
+  lVar4 = (longlong)param_2 * 0x3b8 + param_1;
+  *(undefined1 *)(lVar4 + 0x3e4) = 0;
+  *(int *)(lVar4 + 0x3e0) = *(int *)(lVar4 + 0x3e0) + 1;
+  piVar5 = (int *)(*(longlong *)((longlong)pvVar1 + uVar6 * 8) + 0x18);
+  do {
+    if (*piVar5 < DAT_144166dd8) {
+      _Init_thread_header(&DAT_144166dd8);
+      if (DAT_144166dd8 == -1) {
+        uVar3 = FUN_140da6170();
+        cVar2 = FParse_Param(uVar3,L"nothreading");
+        DAT_144166dd4 = cVar2 == '\0';
+        _Init_thread_footer(&DAT_144166dd8);
+      }
+    }
+    FUN_140d2ced0(param_1,param_2,DAT_144166dd4);
+    if ((*(char *)(lVar4 + 0x3e4) != '\0') || (*(char *)(lVar4 + 0x3e5) != '\0')) break;
+    if (*piVar5 < DAT_144166dd8) {
+      _Init_thread_header(&DAT_144166dd8);
+      if (DAT_144166dd8 == -1) {
+        uVar3 = FUN_140da6170();
+        cVar2 = FParse_Param(uVar3,L"nothreading");
+        DAT_144166dd4 = cVar2 == '\0';
+        _Init_thread_footer(&DAT_144166dd8);
+      }
+    }
+  } while (DAT_144166dd4 != '\0');
+  *(int *)(lVar4 + 0x3e0) = *(int *)(lVar4 + 0x3e0) + -1;
+  return;
+}
+
+

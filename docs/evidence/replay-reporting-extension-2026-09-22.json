@@ -1,0 +1,116 @@
+{
+  "scope": "Replay diagnostics/output/inspection only; no native campaign or acceptance changes",
+  "validation_result": "273 passed in 37.17s; 60 reporting cases included",
+  "initial_regression": "4 new tests failed before implementation; 19 existing tests passed",
+  "validation": {
+    "reporting-extension-red.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b3d5837db1c296168745dca4ec10a7af8249959d5dc04bbb4ba3e480c626d1d6.log",
+      "sha256": "b3d5837db1c296168745dca4ec10a7af8249959d5dc04bbb4ba3e480c626d1d6",
+      "bytes": 6359
+    },
+    "reporting-extension-tests.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f8fd0513ce7f1aa40031d34c08a99647aa005b7103e7e149f2bf4454581b21f1.log",
+      "sha256": "f8fd0513ce7f1aa40031d34c08a99647aa005b7103e7e149f2bf4454581b21f1",
+      "bytes": 101
+    },
+    "reporting-extension-regressions.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\2b0366f7cc4d08f43a6f59e6c154f54dc9d83887820701d67a5934b077c03702.log",
+      "sha256": "2b0366f7cc4d08f43a6f59e6c154f54dc9d83887820701d67a5934b077c03702",
+      "bytes": 346
+    },
+    "reporting-extension-selection.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f1ba7f34e3d6a229ebfddf44bdc881483f04d5cbdf2fd9d9fa8328fd8fdc51b2.json",
+      "sha256": "f1ba7f34e3d6a229ebfddf44bdc881483f04d5cbdf2fd9d9fa8328fd8fdc51b2",
+      "bytes": 8961
+    },
+    "reporting-extension-measurements.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7fc464106fd90675c753d755281b56a7003cf9649f1ddf11e29b9d393ef16555.json",
+      "sha256": "7fc464106fd90675c753d755281b56a7003cf9649f1ddf11e29b9d393ef16555",
+      "bytes": 2344
+    },
+    "reporting-extension-native-audit.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\052b5cc3eded116dc4904df745270fd7ba8938af9f55f7ece9e9a9ae7093db6f.json",
+      "sha256": "052b5cc3eded116dc4904df745270fd7ba8938af9f55f7ece9e9a9ae7093db6f",
+      "bytes": 1038
+    }
+  },
+  "source_contents": {
+    "tools/replay_test.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4cb8f511de9e4e3c37ef40a4cfc26bb7854ba2f3fd6016407ab852fb3ccde0bc.py",
+      "sha256": "4cb8f511de9e4e3c37ef40a4cfc26bb7854ba2f3fd6016407ab852fb3ccde0bc",
+      "bytes": 409679
+    },
+    "tools/deterministic_qualification/replay_reporting.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9f8ef0609c8f9e894c0e9895aec3879c7b4b8301e38b8511cb1d29c54178e693.py",
+      "sha256": "9f8ef0609c8f9e894c0e9895aec3879c7b4b8301e38b8511cb1d29c54178e693",
+      "bytes": 26959
+    },
+    "tools/deterministic_qualification/replay_diagnostics.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\eaa9ed2340ec6b9322bd63594681bf0783cc987a81fa011f67760c99ae967935.py",
+      "sha256": "eaa9ed2340ec6b9322bd63594681bf0783cc987a81fa011f67760c99ae967935",
+      "bytes": 2895
+    },
+    "tools/deterministic_qualification/replay_evidence.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\2f824e232c3346ddb625026f6f6c8e3cb035793681f825b5b8dd01c9d1be7229.py",
+      "sha256": "2f824e232c3346ddb625026f6f6c8e3cb035793681f825b5b8dd01c9d1be7229",
+      "bytes": 18267
+    },
+    "tools/deterministic_qualification/runner.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0d6531363aa55aa7f17a0c23a1c5145ffa6339b2d2c080a13d2933f1298b2064.py",
+      "sha256": "0d6531363aa55aa7f17a0c23a1c5145ffa6339b2d2c080a13d2933f1298b2064",
+      "bytes": 104504
+    },
+    "tools/deterministic_qualification/report.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\bc72e39ab0c377e1464b5e2437a1f3b9a0fbedadd1b0bd4aac91c2a787a1dfaa.py",
+      "sha256": "bc72e39ab0c377e1464b5e2437a1f3b9a0fbedadd1b0bd4aac91c2a787a1dfaa",
+      "bytes": 506
+    },
+    "tools/deterministic_qualification/replay_profiles.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d81fef4ac487706edf6fd9dd8cb59870b8782d62a3a0e44e60d9ccea2d528394.py",
+      "sha256": "d81fef4ac487706edf6fd9dd8cb59870b8782d62a3a0e44e60d9ccea2d528394",
+      "bytes": 4850
+    },
+    "tools/deterministic_qualification/replay_test_groups.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\76fbd7af7ca987ace6057df9beef9dead7367c4b4ebec03c1eeb2a8244c42067.json",
+      "sha256": "76fbd7af7ca987ace6057df9beef9dead7367c4b4ebec03c1eeb2a8244c42067",
+      "bytes": 25180
+    },
+    "tools/deterministic_qualification/tests/test_replay_reporting.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7b7b6b1856e91cdd67aaff4d850e87154ca7d3560570f5b8bbbd0a98b243e344.py",
+      "sha256": "7b7b6b1856e91cdd67aaff4d850e87154ca7d3560570f5b8bbbd0a98b243e344",
+      "bytes": 29184
+    },
+    "tools/deterministic_qualification/replay_run.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8cc92f10a74888b73f63f7c76b15323d1716f8a36dec7a5bc112ece5c867a052.py",
+      "sha256": "8cc92f10a74888b73f63f7c76b15323d1716f8a36dec7a5bc112ece5c867a052",
+      "bytes": 8596
+    },
+    "tools/deterministic_qualification/replay_fidelity.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\36156e11a053369d837998c26a154498a6728e3d3aa7118288c0db02f1f919a6.py",
+      "sha256": "36156e11a053369d837998c26a154498a6728e3d3aa7118288c0db02f1f919a6",
+      "bytes": 75614
+    },
+    "docs/replay-tool-output.md": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\a2b109e143fb272b31899291c8ceaa2fa9be44c4402ffcc38a4e49997c68fa3c.md",
+      "sha256": "a2b109e143fb272b31899291c8ceaa2fa9be44c4402ffcc38a4e49997c68fa3c",
+      "bytes": 6198
+    },
+    "docs/rollback-status.md": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\258bea81cc91d5a27cae0385e17a127969946315d17ccfa8a3237b4b5e6ebd29.md",
+      "sha256": "258bea81cc91d5a27cae0385e17a127969946315d17ccfa8a3237b4b5e6ebd29",
+      "bytes": 92556
+    }
+  },
+  "ownership_logic": "replay_run.py SHA256 unchanged from prior reporting evidence",
+  "prior_checkpoint": "docs/evidence/replay-reporting-2026-09-22.json",
+  "limitations": [
+    "Legacy scans are bounded and may need continuation; unmatched identities remain unknown",
+    "Diagnostic indexes verify raw-log hashes, which reads the whole indexed log",
+    "No underlying rollback gate is completed by reporting tests"
+  ],
+  "immutable_receipt": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9a5c13aadf7eaa6384dc30e0ec73e938191d5c5f2b7139a0541098aa27b66f3b.json",
+    "sha256": "9a5c13aadf7eaa6384dc30e0ec73e938191d5c5f2b7139a0541098aa27b66f3b",
+    "bytes": 7135
+  }
+}

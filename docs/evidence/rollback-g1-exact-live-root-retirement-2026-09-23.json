@@ -1,0 +1,432 @@
+{
+  "program": "SoulcaliburVI.exe",
+  "date": "2026-09-23",
+  "scope": "Exact census-confirmed LuxBattleChara143268078 and SceneComponent143360370 retirement entries. Static native evidence; no source/database edits.",
+  "census_provenance": "Parent reports stockrun replay-18f10ec2fbd24538a164374f24bd2a70 native tick205; chara classLuxBattleChara slot01403B1980, scene classSceneComponent slot01408CD720. Parent retains immutable live receipt separately.",
+  "guards": [
+    {
+      "entry": "1403AEB50",
+      "abi": "void __fastcall(void* chara)",
+      "coverage": "Exact chara nondeleting contents before shared+560 release, async+548 entry destruction and buffers.",
+      "prefix25": "48895c2408574883ec20488bb960050000488bd94885ff7422"
+    },
+    {
+      "entry": "1403AF4B0",
+      "abi": "void __fastcall(void* scene)",
+      "coverage": "Exact scene nondeleting contents before +3D0 free and +360 callbacks destruction; underlying actor-component follows.",
+      "prefix25": "48895c24084889742410574883ec20488bf9488b89d0030000"
+    },
+    {
+      "entry": "141D99730",
+      "abi": "void __fastcall(void* scene,bool promoteChildren)",
+      "coverage": "Scene logicalDestroyComponent before optional root replacement, detach/reparent/transform effects. Existing141D41970 occurs after these effects.",
+      "prefix24": "488bc488501055564155488bec4881ec80000000440fb6ea"
+    },
+    {
+      "entry": "1403BA850",
+      "abi": "void __fastcall(void* chara)",
+      "coverage": "Exact chara vtable+500 Destroyed before manager destruction and chara+458 clear."
+    },
+    {
+      "entry": "1403BB550",
+      "abi": "void __fastcall(void* chara,uint32 reason)",
+      "coverage": "Exact chara vtable+4D0 EndPlay before delegates removal and transient component teardown."
+    }
+  ],
+  "facts": [
+    "Deleting wrappers1403B1980 and1408CD720 call listed contents bodies before optional free, with no preceding cleanup.",
+    "Scene interface thunk1408CD03C subtracts0x28 fromRCX and jumps observed deletingwrapper; normalizedcontents guard covers it.",
+    "DestroyBattleAsyncRequestEntryArray1403AE3D0 invokes dynamic payload virtual+10 and frees payload/backing; destructor is not a wait-for-worker ownership guarantee.",
+    "Existing guard default Matches must include scene for logical unregister/destroy, and chara/scene for corresponding new physical entries.",
+    "Bounded source address search found direct cleanup/signature uses of141D99730 but no competing hook for proposed entries."
+  ],
+  "limitations": [
+    "These entry guards furnish before-entry terminal retirement protection only when installed safely with inflight admission synchronization. They do not prove exclusion of arbitrary async root state mutation or physical paths bypassing the inspected concrete family entries.",
+    "No native GT assertion found in inspected retirement bodies. UObject lifetime cannot be assumed GT-only.",
+    "No complete supported replacement for prior no-native-worker ExecutionDomain was proved; no live hold performed.",
+    "Dynamic chara+548 async payload targets need ownership disposition if they can execute independently duringhold; pool presence alone does not establish or refute it."
+  ],
+  "raw": {
+    "bodies": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nvoid * FUN_1408cd720(void *param_1,ulonglong param_2)\r\n\r\n{\r\n  FUN_1403af4b0();\r\n  if ((param_2 & 1) != 0) {\r\n    UE_FMemory_Free(param_1);\r\n  }\r\n  return param_1;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nvoid * FUN_1408cd720(void *param_1,ulonglong param_2)\r\n\r\n{\r\n  FUN_1403af4b0();\r\n  if ((param_2 & 1) != 0) {\r\n    UE_FMemory_Free(param_1);\r\n  }\r\n  return param_1;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nvoid FUN_1403aeb50(longlong param_1)\r\n\r\n{\r\n  longlong *plVar1;\r\n  int *piVar2;\r\n  longlong *plVar3;\r\n  \r\n  plVar3 = *(longlong **)(param_1 + 0x560);\r\n  if (plVar3 != (longlong *)0x0) {\r\n    plVar1 = plVar3 + 1;\r\n    *(int *)plVar1 = (int)*plVar1 + -1;\r\n    if ((int)*plVar1 == 0) {\r\n      (**(code **)*plVar3)(plVar3);\r\n      piVar2 = (int *)((longlong)plVar3 + 0xc);\r\n      *piVar2 = *piVar2 + -1;\r\n      if (*piVar2 == 0) {\r\n        (**(code **)(*plVar3 + 8))(plVar3,1);\r\n      }\r\n    }\r\n  }\r\n  DestroyBattleAsyncRequestEntryArray((TArrayHeader *)(param_1 + 0x548));\r\n  if (*(void **)(param_1 + 0x520) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x520));\r\n  }\r\n  if (*(void **)(param_1 + 0x510) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x510));\r\n  }\r\n  FUN_14057c440(param_1 + 0x4c0);\r\n  FUN_14200d730(param_1 + 0x470);\r\n  *(undefined4 *)(param_1 + 0x440) = 0;\r\n  if (*(void **)(param_1 + 0x438) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x438));\r\n  }\r\n  FUN_140505380(param_1 + 0x3f8,0);\r\n  if (*(void **)(param_1 + 0x418) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x418));\r\n  }\r\n  if (*(void **)(param_1 + 0x3f8) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x3f8));\r\n  }\r\n  if (*(void **)(param_1 + 1000) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 1000));\r\n  }\r\n  if (*(void **)(param_1 + 0x3b0) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x3b0));\r\n  }\r\n  FUN_1403ae680(param_1);\r\n  return;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nvoid FUN_1403aeb50(longlong param_1)\r\n\r\n{\r\n  longlong *plVar1;\r\n  int *piVar2;\r\n  longlong *plVar3;\r\n  \r\n  plVar3 = *(longlong **)(param_1 + 0x560);\r\n  if (plVar3 != (longlong *)0x0) {\r\n    plVar1 = plVar3 + 1;\r\n    *(int *)plVar1 = (int)*plVar1 + -1;\r\n    if ((int)*plVar1 == 0) {\r\n      (**(code **)*plVar3)(plVar3);\r\n      piVar2 = (int *)((longlong)plVar3 + 0xc);\r\n      *piVar2 = *piVar2 + -1;\r\n      if (*piVar2 == 0) {\r\n        (**(code **)(*plVar3 + 8))(plVar3,1);\r\n      }\r\n    }\r\n  }\r\n  DestroyBattleAsyncRequestEntryArray((TArrayHeader *)(param_1 + 0x548));\r\n  if (*(void **)(param_1 + 0x520) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x520));\r\n  }\r\n  if (*(void **)(param_1 + 0x510) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x510));\r\n  }\r\n  FUN_14057c440(param_1 + 0x4c0);\r\n  FUN_14200d730(param_1 + 0x470);\r\n  *(undefined4 *)(param_1 + 0x440) = 0;\r\n  if (*(void **)(param_1 + 0x438) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x438));\r\n  }\r\n  FUN_140505380(param_1 + 0x3f8,0);\r\n  if (*(void **)(param_1 + 0x418) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x418));\r\n  }\r\n  if (*(void **)(param_1 + 0x3f8) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x3f8));\r\n  }\r\n  if (*(void **)(param_1 + 1000) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 1000));\r\n  }\r\n  if (*(void **)(param_1 + 0x3b0) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x3b0));\r\n  }\r\n  FUN_1403ae680(param_1);\r\n  return;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\nvoid FUN_1403af4b0(longlong param_1)\r\n\r\n{\r\n  void *pMemory;\r\n  \r\n  if (*(void **)(param_1 + 0x3d0) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x3d0));\r\n  }\r\n  DestroyCallbackEntryCollection((FCallbackEntryCollection_Partial *)(param_1 + 0x360));\r\n  if (*(void **)(param_1 + 0x348) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x348));\r\n  }\r\n  *(undefined4 *)(param_1 + 0x230) = 0;\r\n  if (*(void **)(param_1 + 0x228) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x228));\r\n  }\r\n  *(undefined4 *)(param_1 + 0x1f0) = 0;\r\n  if (*(int *)(param_1 + 500) != 0) {\r\n    ResizeTArrayAllocationExact16B((FLuxTArrayHeader *)(param_1 + 0x1e8),0);\r\n  }\r\n  *(undefined4 *)(param_1 + 0x218) = 0xffffffff;\r\n  *(undefined4 *)(param_1 + 0x21c) = 0;\r\n  *(undefined4 *)(param_1 + 0x210) = 0;\r\n  if (*(int *)(param_1 + 0x214) != 0) {\r\n    *(undefined4 *)(param_1 + 0x214) = 0;\r\n    TBitArray_Reserve(param_1 + 0x1f8,0);\r\n  }\r\n  if (*(void **)(param_1 + 0x208) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x208));\r\n  }\r\n  pMemory = ((FLuxTArrayHeader *)(param_1 + 0x1e8))->pData;\r\n  if (pMemory != (void *)0x0) {\r\n    FMemory_Free(pMemory);\r\n  }\r\n  if (*(void **)(param_1 + 0x1d8) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x1d8));\r\n  }\r\n  FUN_1403af1b0(param_1);\r\n  return;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\nvoid FUN_1403af4b0(longlong param_1)\r\n\r\n{\r\n  void *pMemory;\r\n  \r\n  if (*(void **)(param_1 + 0x3d0) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x3d0));\r\n  }\r\n  DestroyCallbackEntryCollection((FCallbackEntryCollection_Partial *)(param_1 + 0x360));\r\n  if (*(void **)(param_1 + 0x348) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x348));\r\n  }\r\n  *(undefined4 *)(param_1 + 0x230) = 0;\r\n  if (*(void **)(param_1 + 0x228) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x228));\r\n  }\r\n  *(undefined4 *)(param_1 + 0x1f0) = 0;\r\n  if (*(int *)(param_1 + 500) != 0) {\r\n    ResizeTArrayAllocationExact16B((FLuxTArrayHeader *)(param_1 + 0x1e8),0);\r\n  }\r\n  *(undefined4 *)(param_1 + 0x218) = 0xffffffff;\r\n  *(undefined4 *)(param_1 + 0x21c) = 0;\r\n  *(undefined4 *)(param_1 + 0x210) = 0;\r\n  if (*(int *)(param_1 + 0x214) != 0) {\r\n    *(undefined4 *)(param_1 + 0x214) = 0;\r\n    TBitArray_Reserve(param_1 + 0x1f8,0);\r\n  }\r\n  if (*(void **)(param_1 + 0x208) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x208));\r\n  }\r\n  pMemory = ((FLuxTArrayHeader *)(param_1 + 0x1e8))->pData;\r\n  if (pMemory != (void *)0x0) {\r\n    FMemory_Free(pMemory);\r\n  }\r\n  if (*(void **)(param_1 + 0x1d8) != (void *)0x0) {\r\n    FMemory_Free(*(void **)(param_1 + 0x1d8));\r\n  }\r\n  FUN_1403af1b0(param_1);\r\n  return;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "signatures_xrefs": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "address": "1403aeb50",
+          "bytes": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"address\":\"1403aeb50\",\"length\":32,\"data\":[72,137,92,36,8,87,72,131,236,32,72,139,185,96,5,0,0,72,139,217,72,133,255,116,34,131,111,8,1,117,28,72],\"hex\":\"48895c2408574883ec20488bb960050000488bd94885ff7422836f0801751c48\"}"
+              }
+            ],
+            "structuredContent": {
+              "result": "{\"address\":\"1403aeb50\",\"length\":32,\"data\":[72,137,92,36,8,87,72,131,236,32,72,139,185,96,5,0,0,72,139,217,72,133,255,116,34,131,111,8,1,117,28,72],\"hex\":\"48895c2408574883ec20488bb960050000488bd94885ff7422836f0801751c48\"}"
+            },
+            "isError": false
+          },
+          "xrefs": {
+            "content": [
+              {
+                "type": "text",
+                "text": "From 1448ae804 [DATA]\nFrom 1403b198f in UE4_Dtor_0x568 [UNCONDITIONAL_CALL]\nFrom 14044d2c5 in LuxObject_VirtualDtor_Free3Ptrs0x578_Size0x620 [UNCONDITIONAL_CALL]\nFrom 14044595e in LuxObject_Dtor_FreeFieldsAt0x578_0x6f8Range [UNCONDITIONAL_CALL]"
+              }
+            ],
+            "structuredContent": {
+              "result": "From 1448ae804 [DATA]\nFrom 1403b198f in UE4_Dtor_0x568 [UNCONDITIONAL_CALL]\nFrom 14044d2c5 in LuxObject_VirtualDtor_Free3Ptrs0x578_Size0x620 [UNCONDITIONAL_CALL]\nFrom 14044595e in LuxObject_Dtor_FreeFieldsAt0x578_0x6f8Range [UNCONDITIONAL_CALL]"
+            },
+            "isError": false
+          }
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "address": "1403af4b0",
+          "bytes": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"address\":\"1403af4b0\",\"length\":32,\"data\":[72,137,92,36,8,72,137,116,36,16,87,72,131,236,32,72,139,249,72,139,137,208,3,0,0,72,133,201,116,5,232,45],\"hex\":\"48895c24084889742410574883ec20488bf9488b89d00300004885c97405e82d\"}"
+              }
+            ],
+            "structuredContent": {
+              "result": "{\"address\":\"1403af4b0\",\"length\":32,\"data\":[72,137,92,36,8,72,137,116,36,16,87,72,131,236,32,72,139,249,72,139,137,208,3,0,0,72,133,201,116,5,232,45],\"hex\":\"48895c24084889742410574883ec20488bf9488b89d00300004885c97405e82d\"}"
+            },
+            "isError": false
+          },
+          "xrefs": {
+            "content": [
+              {
+                "type": "text",
+                "text": "From 1448ae888 [DATA]\nFrom 1408cd72f in FUN_1408cd720 [UNCONDITIONAL_CALL]\nFrom 141c0ba63 in FUN_141c0ba40 [UNCONDITIONAL_CALL]\nFrom 141ccc5cb in FUN_141ccc580 [UNCONDITIONAL_CALL]\nFrom 141d0cea1 in FUN_141d0ce50 [UNCONDITIONAL_CALL]\nFrom 141d6e7bf in FUN_141d6e7b0 [UNCONDITIONAL_CALL]\nFrom 141d6e87f in FUN_141d6e870 [UNCONDITIONAL_CALL]\nFrom 141d6e9bf in FUN_141d6e9b0 [UNCONDITIONAL_CALL]\nFrom 141d8fb1d in FUN_141d8fac0 [UNCONDITIONAL_CALL]\nFrom 141d8fbf2 in FUN_141d8fbb0 [UNCONDITIONAL_CALL]\nFrom 141d8fcdd in FUN_141d8fc80 [UNCONDITIONAL_CALL]\nFrom 141d8fe8d in FUN_141d8fe30 [UNCONDITIONAL_CALL]\nFrom 141db947f in FUN_141db9470 [UNCONDITIONAL_CALL]\nFrom 14200f761 in FUN_14200f710 [UNCONDITIONAL_CALL]\nFrom 14200f90f in FUN_14200f900 [UNCONDITIONAL_CALL]\nFrom 142035473 in FUN_142035450 [UNCONDITIONAL_CALL]\nFrom 1421b5aaf in FUN_1421b5aa0 [UNCONDITIONAL_CALL]\nFrom 142ddb3ff in FUN_142ddb3d0 [UNCONDITIONAL_CALL]\nFrom 143050bf0 in FUN_143050b70 [UNCONDITIONAL_CALL]\nFrom 143050c47 in FUN_143050c00 [UNCONDITIONAL_CALL]\nFrom 1430ac862 in FUN_1430ac850 [UNCONDITIONAL_CALL]\nFrom 1403af4a6 in FUN_1403af330 [UNCONDITIONAL_CALL]\nFrom 1408ccbcd in DestroyLuxTraceComponentContents [UNCONDITIONAL_CALL]\nFrom 1417d0670 in FUN_1417d05c0 [UNCONDITIONAL_CALL]\nFrom 1418e8438 in FUN_1418e8340 [UNCONDITIONAL_CALL]\nFrom 141d32bd3 in FUN_141d32b30 [UNCONDITIONAL_CALL]\nFrom 141d6d369 in FUN_141d6d300 [UNCONDITIONAL_CALL]\nFrom 141d6d516 in FUN_141d6d4a0 [UNCONDITIONAL_CALL]\nFrom 141d8f213 in FUN_141d8f140 [UNCONDITIONAL_CALL]\nFrom 141db7b71 in FUN_141db7ad0 [UNCONDITIONAL_CALL]\nFrom 1428c1342 in FUN_1428c1280 [UNCONDITIONAL_CALL]"
+              }
+            ],
+            "structuredContent": {
+              "result": "From 1448ae888 [DATA]\nFrom 1408cd72f in FUN_1408cd720 [UNCONDITIONAL_CALL]\nFrom 141c0ba63 in FUN_141c0ba40 [UNCONDITIONAL_CALL]\nFrom 141ccc5cb in FUN_141ccc580 [UNCONDITIONAL_CALL]\nFrom 141d0cea1 in FUN_141d0ce50 [UNCONDITIONAL_CALL]\nFrom 141d6e7bf in FUN_141d6e7b0 [UNCONDITIONAL_CALL]\nFrom 141d6e87f in FUN_141d6e870 [UNCONDITIONAL_CALL]\nFrom 141d6e9bf in FUN_141d6e9b0 [UNCONDITIONAL_CALL]\nFrom 141d8fb1d in FUN_141d8fac0 [UNCONDITIONAL_CALL]\nFrom 141d8fbf2 in FUN_141d8fbb0 [UNCONDITIONAL_CALL]\nFrom 141d8fcdd in FUN_141d8fc80 [UNCONDITIONAL_CALL]\nFrom 141d8fe8d in FUN_141d8fe30 [UNCONDITIONAL_CALL]\nFrom 141db947f in FUN_141db9470 [UNCONDITIONAL_CALL]\nFrom 14200f761 in FUN_14200f710 [UNCONDITIONAL_CALL]\nFrom 14200f90f in FUN_14200f900 [UNCONDITIONAL_CALL]\nFrom 142035473 in FUN_142035450 [UNCONDITIONAL_CALL]\nFrom 1421b5aaf in FUN_1421b5aa0 [UNCONDITIONAL_CALL]\nFrom 142ddb3ff in FUN_142ddb3d0 [UNCONDITIONAL_CALL]\nFrom 143050bf0 in FUN_143050b70 [UNCONDITIONAL_CALL]\nFrom 143050c47 in FUN_143050c00 [UNCONDITIONAL_CALL]\nFrom 1430ac862 in FUN_1430ac850 [UNCONDITIONAL_CALL]\nFrom 1403af4a6 in FUN_1403af330 [UNCONDITIONAL_CALL]\nFrom 1408ccbcd in DestroyLuxTraceComponentContents [UNCONDITIONAL_CALL]\nFrom 1417d0670 in FUN_1417d05c0 [UNCONDITIONAL_CALL]\nFrom 1418e8438 in FUN_1418e8340 [UNCONDITIONAL_CALL]\nFrom 141d32bd3 in FUN_141d32b30 [UNCONDITIONAL_CALL]\nFrom 141d6d369 in FUN_141d6d300 [UNCONDITIONAL_CALL]\nFrom 141d6d516 in FUN_141d6d4a0 [UNCONDITIONAL_CALL]\nFrom 141d8f213 in FUN_141d8f140 [UNCONDITIONAL_CALL]\nFrom 141db7b71 in FUN_141db7ad0 [UNCONDITIONAL_CALL]\nFrom 1428c1342 in FUN_1428c1280 [UNCONDITIONAL_CALL]"
+            },
+            "isError": false
+          }
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "address": "1403b1980",
+          "bytes": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"address\":\"1403b1980\",\"length\":32,\"data\":[72,137,92,36,8,87,72,131,236,32,139,218,72,139,249,232,188,209,255,255,246,195,1,116,13,186,104,5,0,0,72,139],\"hex\":\"48895c2408574883ec208bda488bf9e8bcd1fffff6c301740dba68050000488b\"}"
+              }
+            ],
+            "structuredContent": {
+              "result": "{\"address\":\"1403b1980\",\"length\":32,\"data\":[72,137,92,36,8,87,72,131,236,32,139,218,72,139,249,232,188,209,255,255,246,195,1,116,13,186,104,5,0,0,72,139],\"hex\":\"48895c2408574883ec208bda488bf9e8bcd1fffff6c301740dba68050000488b\"}"
+            },
+            "isError": false
+          },
+          "xrefs": {
+            "content": [
+              {
+                "type": "text",
+                "text": "From 1448ae9cc [DATA]\nFrom 143268078 [DATA]"
+              }
+            ],
+            "structuredContent": {
+              "result": "From 1448ae9cc [DATA]\nFrom 143268078 [DATA]"
+            },
+            "isError": false
+          }
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "address": "1408cd720",
+          "bytes": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"address\":\"1408cd720\",\"length\":32,\"data\":[72,137,92,36,8,87,72,131,236,32,139,218,72,139,249,232,124,29,174,255,246,195,1,116,13,186,224,3,0,0,72,139],\"hex\":\"48895c2408574883ec208bda488bf9e87c1daefff6c301740dbae0030000488b\"}"
+              }
+            ],
+            "structuredContent": {
+              "result": "{\"address\":\"1408cd720\",\"length\":32,\"data\":[72,137,92,36,8,87,72,131,236,32,139,218,72,139,249,232,124,29,174,255,246,195,1,116,13,186,224,3,0,0,72,139],\"hex\":\"48895c2408574883ec208bda488bf9e87c1daefff6c301740dbae0030000488b\"}"
+            },
+            "isError": false
+          },
+          "xrefs": {
+            "content": [
+              {
+                "type": "text",
+                "text": "From 1448e4000 [DATA]\nFrom 143360370 [DATA]\nFrom 1408cd040 [UNCONDITIONAL_CALL]"
+              }
+            ],
+            "structuredContent": {
+              "result": "From 1448e4000 [DATA]\nFrom 143360370 [DATA]\nFrom 1408cd040 [UNCONDITIONAL_CALL]"
+            },
+            "isError": false
+          }
+        }
+      }
+    ],
+    "logical": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\n/* Destroys ALuxBattleChara-owned trace and linked-actor helpers before base actor destruction.\r\n   \r\n   Algorithm:\r\n   1. If pChara->pTraceManager (+0x458) is non-null, request actor destruction and clear the owning\r\n   field.\r\n   2. Walk pLinkedActorsData[0..nLinkedActorCount) at +0x3E8/+0x3F0 and request destruction of every\r\n   linked actor.\r\n   3. Continue through the base actor Destroyed path.\r\n   \r\n   Parameters:\r\n     pChara: ALuxBattleChara_MovePhaseOverlay * - exact minimum overlay for the gameplay-coupled\r\n   move-phase, linked-actor, and trace-manager fields.\r\n   \r\n   Returns:\r\n     void.\r\n   \r\n   Structure Layout:\r\n     +0x3D5 bool fMovePhaseConditionalStateEnabled.\r\n     +0x3D7 bool fMovePhaseActiveLatched.\r\n     +0x3E0 uint dwMovePhaseResetField3E0.\r\n     +0x3E8 ALuxBattleChara_LinkedActorPhaseOverlay ** pLinkedActorsData.\r\n     +0x3F0 int nLinkedActorCount.\r\n     +0x3F4 int nLinkedActorCapacity.\r\n     +0x458 ALuxTraceManager * pTraceManager.\r\n   \r\n   Ownership Proof:\r\n     ALuxBattleChara_SpawnTraceManager (0x1403B58A0) spawns ALuxTraceManager and stores it at\r\n   +0x458.\r\n     ALuxBattleChara_RegisterWeaponWithTraceManager (0x1403CFC30) configures the stored actor.\r\n     This function destroys that actor and nulls +0x458, proving character lifecycle ownership.\r\n     The same function destroys the +0x3E8 linked actors, proving they are runtime children rather\r\n   than presentation-only handles.\r\n   \r\n   Rollback Relevance:\r\n     The manager and linked actors contain state mutated by the collection-0/collection-10 gameplay\r\n   routes. Snapshot/restore must preserve their deterministic state and identity; resimulation must\r\n   not skip those routes.\r\n   \r\n   Named Locals:\r\n     The loop cursor/count values are register-only SSA projections. Ghidra exposes only local_res*\r\n   phantom stack entries, so no false storage-backed local names are applied.\r\n   \r\n   Source:\r\n     SoulcaliburVI.exe 0x1403BA850; spawn 0x1403B58A0; configuration 0x1403CFC30. */\r\n\r\nvoid ALuxBattleChara_Destroyed(ALuxBattleChara_MovePhaseOverlay *pChara)\r\n\r\n{\r\n  ulonglong uVar1;\r\n  ulonglong uVar2;\r\n  ALuxCharaAppxActor_Partial **ppAVar3;\r\n  \r\n  uVar1 = 0;\r\n                    /* Trace manager ownership ends in Destroyed, not just EndPlay. */\r\n  if (pChara->pTraceManager != (ALuxTraceManager *)0x0) {\r\n    HandleActorDestructionRequest((AActor_Partial *)pChara->pTraceManager,false,true);\r\n    pChara->pTraceManager = (ALuxTraceManager *)0x0;\r\n  }\r\n                    /* Appx helper actors are destroyed as runtime children of the chara. */\r\n  ppAVar3 = pChara->pAppendixActors;\r\n  uVar2 = (ulonglong)((longlong)(ppAVar3 + pChara->nAppendixActorCount) + (7 - (longlong)ppAVar3))\r\n          >> 3;\r\n  if (ppAVar3 + pChara->nAppendixActorCount < ppAVar3) {\r\n    uVar2 = uVar1;\r\n  }\r\n  if (uVar2 != 0) {\r\n    do {\r\n      HandleActorDestructionRequest((AActor_Partial *)*ppAVar3,false,true);\r\n      uVar1 = uVar1 + 1;\r\n      ppAVar3 = ppAVar3 + 1;\r\n    } while (uVar1 != uVar2);\r\n  }\r\n  AActor_PreNetReceive_DispatchAndPruneWeakPtrs((longlong *)pChara);\r\n  return;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\n/* Destroys ALuxBattleChara-owned trace and linked-actor helpers before base actor destruction.\r\n   \r\n   Algorithm:\r\n   1. If pChara->pTraceManager (+0x458) is non-null, request actor destruction and clear the owning\r\n   field.\r\n   2. Walk pLinkedActorsData[0..nLinkedActorCount) at +0x3E8/+0x3F0 and request destruction of every\r\n   linked actor.\r\n   3. Continue through the base actor Destroyed path.\r\n   \r\n   Parameters:\r\n     pChara: ALuxBattleChara_MovePhaseOverlay * - exact minimum overlay for the gameplay-coupled\r\n   move-phase, linked-actor, and trace-manager fields.\r\n   \r\n   Returns:\r\n     void.\r\n   \r\n   Structure Layout:\r\n     +0x3D5 bool fMovePhaseConditionalStateEnabled.\r\n     +0x3D7 bool fMovePhaseActiveLatched.\r\n     +0x3E0 uint dwMovePhaseResetField3E0.\r\n     +0x3E8 ALuxBattleChara_LinkedActorPhaseOverlay ** pLinkedActorsData.\r\n     +0x3F0 int nLinkedActorCount.\r\n     +0x3F4 int nLinkedActorCapacity.\r\n     +0x458 ALuxTraceManager * pTraceManager.\r\n   \r\n   Ownership Proof:\r\n     ALuxBattleChara_SpawnTraceManager (0x1403B58A0) spawns ALuxTraceManager and stores it at\r\n   +0x458.\r\n     ALuxBattleChara_RegisterWeaponWithTraceManager (0x1403CFC30) configures the stored actor.\r\n     This function destroys that actor and nulls +0x458, proving character lifecycle ownership.\r\n     The same function destroys the +0x3E8 linked actors, proving they are runtime children rather\r\n   than presentation-only handles.\r\n   \r\n   Rollback Relevance:\r\n     The manager and linked actors contain state mutated by the collection-0/collection-10 gameplay\r\n   routes. Snapshot/restore must preserve their deterministic state and identity; resimulation must\r\n   not skip those routes.\r\n   \r\n   Named Locals:\r\n     The loop cursor/count values are register-only SSA projections. Ghidra exposes only local_res*\r\n   phantom stack entries, so no false storage-backed local names are applied.\r\n   \r\n   Source:\r\n     SoulcaliburVI.exe 0x1403BA850; spawn 0x1403B58A0; configuration 0x1403CFC30. */\r\n\r\nvoid ALuxBattleChara_Destroyed(ALuxBattleChara_MovePhaseOverlay *pChara)\r\n\r\n{\r\n  ulonglong uVar1;\r\n  ulonglong uVar2;\r\n  ALuxCharaAppxActor_Partial **ppAVar3;\r\n  \r\n  uVar1 = 0;\r\n                    /* Trace manager ownership ends in Destroyed, not just EndPlay. */\r\n  if (pChara->pTraceManager != (ALuxTraceManager *)0x0) {\r\n    HandleActorDestructionRequest((AActor_Partial *)pChara->pTraceManager,false,true);\r\n    pChara->pTraceManager = (ALuxTraceManager *)0x0;\r\n  }\r\n                    /* Appx helper actors are destroyed as runtime children of the chara. */\r\n  ppAVar3 = pChara->pAppendixActors;\r\n  uVar2 = (ulonglong)((longlong)(ppAVar3 + pChara->nAppendixActorCount) + (7 - (longlong)ppAVar3))\r\n          >> 3;\r\n  if (ppAVar3 + pChara->nAppendixActorCount < ppAVar3) {\r\n    uVar2 = uVar1;\r\n  }\r\n  if (uVar2 != 0) {\r\n    do {\r\n      HandleActorDestructionRequest((AActor_Partial *)*ppAVar3,false,true);\r\n      uVar1 = uVar1 + 1;\r\n      ppAVar3 = ppAVar3 + 1;\r\n    } while (uVar1 != uVar2);\r\n  }\r\n  AActor_PreNetReceive_DispatchAndPruneWeakPtrs((longlong *)pChara);\r\n  return;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "\r\n/* WARNING: Struct \"ALuxBattleChara_Partial\": ignoring multiple overlapping fields */\r\n/* ALuxBattleChara EndPlay delegate and transient-state cleanup.\r\n   \r\n   Source:\r\n     SoulcaliburVI.exe 0x1403BB550 (reverse engineered).\r\n   \r\n   Purpose:\r\n     Unbinds ALuxBattleChara from BattleManager/battle-subsystem delegates, releases transient\r\n   component state, and forwards EndPlay to the base class.\r\n   \r\n   Algorithm:\r\n   1. Resolve pBattleManager at +0x98 and remove manager delegate bindings owned by this chara.\r\n   2. Resolve battle subsystem delegates and remove this chara from subsystem callback lists.\r\n   3. Call ALuxBattleChara_TearDownCreationAndAnimInstances.\r\n   4. Dispatch base EndPlay with the original EndPlay reason.\r\n   \r\n   Parameters:\r\n     pChara: ALuxBattleChara_Partial * - actor leaving play.\r\n     dwEndPlayReason: uint - Unreal EEndPlayReason value forwarded to the base class.\r\n   \r\n   Returns:\r\n     void.\r\n   \r\n   Structure Layout:\r\n     ALuxBattleChara_Partial +0x98: pBattleManager.\r\n     Battle subsystem delegate offsets are subsystem-owned and documented inline, not folded into\r\n   the chara struct.\r\n   \r\n   Special Cases:\r\n     - This variant removes both manager and subsystem delegate ownership before base EndPlay\r\n   dispatch. */\r\n\r\nvoid ALuxBattleChara_EndPlay(ALuxBattleChara_Partial *pChara,uint dwEndPlayReason)\r\n\r\n{\r\n  longlong lVar1;\r\n  UClassCastMetadata_Partial *pUVar2;\r\n  UWorld_Partial *pWorld;\r\n  ULuxBattleEventListenerHub_Partial *pUVar3;\r\n  \r\n  lVar1 = *(longlong *)&pChara->flPoseRollTurns;\r\n  if (lVar1 != 0) {\r\n    pUVar2 = Z_Construct_UClass_ALuxBattleManager();\r\n    if ((pUVar2->nClassDepth <= *(int *)(*(longlong *)(lVar1 + 0x10) + 0x90)) &&\r\n       ((void **)*(undefined1 **)\r\n                  (*(longlong *)(*(longlong *)(lVar1 + 0x10) + 0x88) +\r\n                  (longlong)pUVar2->nClassDepth * 8) == &pUVar2->pCastClassNode)) {\r\n                    /* This EndPlay variant removes both manager and subsystem delegate ownership.\r\n                        */\r\n      MulticastDelegate_RemoveAll(lVar1 + 0x870,pChara);\r\n      MulticastDelegate_RemoveAll(lVar1 + 0x8e0,pChara);\r\n      MulticastDelegate_RemoveAll(lVar1 + 0xb80,pChara);\r\n      MulticastDelegate_RemoveAll(lVar1 + 0xdb0,pChara);\r\n      MulticastDelegate_RemoveAll(lVar1 + 0xfe0,pChara);\r\n      MulticastDelegate_RemoveAll(lVar1 + 0x1050,pChara);\r\n      MulticastDelegate_RemoveAll(lVar1 + 0xd40,pChara);\r\n    }\r\n  }\r\n  pWorld = (UWorld_Partial *)(**(code **)(*(longlong *)pChara + 0x138))(pChara);\r\n  pUVar3 = GetLuxBattleEventListenerHubFromWorld(pWorld);\r\n  if (pUVar3 != (ULuxBattleEventListenerHub_Partial *)0x0) {\r\n    MulticastDelegate_RemoveAll(pUVar3->pACallbackCollections + 0x17,pChara);\r\n    MulticastDelegate_RemoveAll(pUVar3->pACallbackCollections + 0x1e,pChara);\r\n    MulticastDelegate_RemoveAll(pUVar3->pACallbackCollections + 0x1f,pChara);\r\n    MulticastDelegate_RemoveAll(pUVar3->pACallbackCollections + 0x23,pChara);\r\n  }\r\n                    /* Transient component teardown happens before base EndPlay dispatch. */\r\n  ALuxBattleChara_TearDownCreationAndAnimInstances(pChara);\r\n  AActorEndPlay(pChara,dwEndPlayReason);\r\n  return;\r\n}\r\n\r\n"
+            }
+          ],
+          "structuredContent": {
+            "result": "\r\n/* WARNING: Struct \"ALuxBattleChara_Partial\": ignoring multiple overlapping fields */\r\n/* ALuxBattleChara EndPlay delegate and transient-state cleanup.\r\n   \r\n   Source:\r\n     SoulcaliburVI.exe 0x1403BB550 (reverse engineered).\r\n   \r\n   Purpose:\r\n     Unbinds ALuxBattleChara from BattleManager/battle-subsystem delegates, releases transient\r\n   component state, and forwards EndPlay to the base class.\r\n   \r\n   Algorithm:\r\n   1. Resolve pBattleManager at +0x98 and remove manager delegate bindings owned by this chara.\r\n   2. Resolve battle subsystem delegates and remove this chara from subsystem callback lists.\r\n   3. Call ALuxBattleChara_TearDownCreationAndAnimInstances.\r\n   4. Dispatch base EndPlay with the original EndPlay reason.\r\n   \r\n   Parameters:\r\n     pChara: ALuxBattleChara_Partial * - actor leaving play.\r\n     dwEndPlayReason: uint - Unreal EEndPlayReason value forwarded to the base class.\r\n   \r\n   Returns:\r\n     void.\r\n   \r\n   Structure Layout:\r\n     ALuxBattleChara_Partial +0x98: pBattleManager.\r\n     Battle subsystem delegate offsets are subsystem-owned and documented inline, not folded into\r\n   the chara struct.\r\n   \r\n   Special Cases:\r\n     - This variant removes both manager and subsystem delegate ownership before base EndPlay\r\n   dispatch. */\r\n\r\nvoid ALuxBattleChara_EndPlay(ALuxBattleChara_Partial *pChara,uint dwEndPlayReason)\r\n\r\n{\r\n  longlong lVar1;\r\n  UClassCastMetadata_Partial *pUVar2;\r\n  UWorld_Partial *pWorld;\r\n  ULuxBattleEventListenerHub_Partial *pUVar3;\r\n  \r\n  lVar1 = *(longlong *)&pChara->flPoseRollTurns;\r\n  if (lVar1 != 0) {\r\n    pUVar2 = Z_Construct_UClass_ALuxBattleManager();\r\n    if ((pUVar2->nClassDepth <= *(int *)(*(longlong *)(lVar1 + 0x10) + 0x90)) &&\r\n       ((void **)*(undefined1 **)\r\n                  (*(longlong *)(*(longlong *)(lVar1 + 0x10) + 0x88) +\r\n                  (longlong)pUVar2->nClassDepth * 8) == &pUVar2->pCastClassNode)) {\r\n                    /* This EndPlay variant removes both manager and subsystem delegate ownership.\r\n                        */\r\n      MulticastDelegate_RemoveAll(lVar1 + 0x870,pChara);\r\n      MulticastDelegate_RemoveAll(lVar1 + 0x8e0,pChara);\r\n      MulticastDelegate_RemoveAll(lVar1 + 0xb80,pChara);\r\n      MulticastDelegate_RemoveAll(lVar1 + 0xdb0,pChara);\r\n      MulticastDelegate_RemoveAll(lVar1 + 0xfe0,pChara);\r\n      MulticastDelegate_RemoveAll(lVar1 + 0x1050,pChara);\r\n      MulticastDelegate_RemoveAll(lVar1 + 0xd40,pChara);\r\n    }\r\n  }\r\n  pWorld = (UWorld_Partial *)(**(code **)(*(longlong *)pChara + 0x138))(pChara);\r\n  pUVar3 = GetLuxBattleEventListenerHubFromWorld(pWorld);\r\n  if (pUVar3 != (ULuxBattleEventListenerHub_Partial *)0x0) {\r\n    MulticastDelegate_RemoveAll(pUVar3->pACallbackCollections + 0x17,pChara);\r\n    MulticastDelegate_RemoveAll(pUVar3->pACallbackCollections + 0x1e,pChara);\r\n    MulticastDelegate_RemoveAll(pUVar3->pACallbackCollections + 0x1f,pChara);\r\n    MulticastDelegate_RemoveAll(pUVar3->pACallbackCollections + 0x23,pChara);\r\n  }\r\n                    /* Transient component teardown happens before base EndPlay dispatch. */\r\n  ALuxBattleChara_TearDownCreationAndAnimInstances(pChara);\r\n  AActorEndPlay(pChara,dwEndPlayReason);\r\n  return;\r\n}\r\n\r\n"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "logical_refs": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "From 1448af3bc [DATA]\nFrom 140456563 in FUN_1404564f0 [UNCONDITIONAL_CALL]\nFrom 143268578 [DATA]"
+            }
+          ],
+          "structuredContent": {
+            "result": "From 1448af3bc [DATA]\nFrom 140456563 in FUN_1404564f0 [UNCONDITIONAL_CALL]\nFrom 143268578 [DATA]"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "From 1448af4dc [DATA]\nFrom 140456d09 in FUN_140456d00 [UNCONDITIONAL_CALL]\nFrom 143268548 [DATA]"
+            }
+          ],
+          "structuredContent": {
+            "result": "From 1448af4dc [DATA]\nFrom 140456d09 in FUN_140456d00 [UNCONDITIONAL_CALL]\nFrom 143268548 [DATA]"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "scene_logical": {
+      "content": [
+        {
+          "type": "text",
+          "text": "\r\n/* Destroys a scene component, optionally preserving and reparenting attached children.\r\n   \r\n   Algorithm:\r\n   1. When child promotion is requested, inspect the owning actor, current attach parent, and child\r\n   array.\r\n   2. Detach the component while preserving world-space transform state.\r\n   3. Select or create the replacement parent and reattach eligible children.\r\n   4. Preserve relative transform data across the reparenting operation.\r\n   5. Release temporary child storage.\r\n   6. Tail-call DestroyActorComponent with the original flag.\r\n   \r\n   Parameters:\r\n   pComponent - Scene component being destroyed.\r\n   fPromoteChildren - Whether eligible attached children should be promoted/reparented.\r\n   \r\n   Returns:\r\n   void.\r\n   \r\n   Special Cases:\r\n   The transform locals are typed FVector4 and FVector3f_Partial projections; remaining\r\n   register-only temporaries are decompiler artifacts.\r\n   \r\n   Source:\r\n   SoulcaliburVI.exe 0x141D99730; called by the Lux particle-system destruction override. */\r\n\r\nvoid USceneComponent_DestroyComponent\r\n               (USceneComponent_WorldTransformOverlay *pComponent,bool fPromoteChildren)\r\n\r\n{\r\n  void **ppvVar1;\r\n  FTransform48 *pFVar2;\r\n  undefined8 uVar3;\r\n  byte bVar4;\r\n  UObject_Partial *pUVar5;\r\n  void *_Src;\r\n  undefined1 auVar6 [16];\r\n  float fVar7;\r\n  float fVar8;\r\n  char cVar9;\r\n  undefined8 *puVar10;\r\n  USceneComponent_WorldTransformOverlay *pUVar11;\r\n  FVector4 *pFVar12;\r\n  int iVar13;\r\n  undefined7 in_register_00000011;\r\n  longlong lVar14;\r\n  longlong *plVar15;\r\n  longlong *plVar16;\r\n  longlong *plVar17;\r\n  longlong *plVar18;\r\n  USceneComponent_WorldTransformOverlay *pReplacementParent;\r\n  USceneComponent_WorldTransformOverlay **ppReplacementParent;\r\n  ulonglong in_stack_ffffffffffffff88;\r\n  ulonglong uVar19;\r\n  FVector3f_Partial relativeLocation;\r\n  FVector3f_Partial relativeEulerDegrees;\r\n  FVector4 relativeRotation;\r\n  \r\n  if ((fPromoteChildren) &&\r\n     (pUVar5 = (pComponent->actorComponentBase).pOwner, pUVar5 != (UObject_Partial *)0x0)) {\r\n    (**(code **)((longlong)pUVar5->pVirtualTable + 0x70))(pUVar5,CONCAT71(in_register_00000011,1));\r\n    ppvVar1 = &pComponent->pAttachChildren;\r\n    pReplacementParent = (USceneComponent_WorldTransformOverlay *)0x0;\r\n    if (pComponent == pUVar5[9].pVirtualTable) {\r\n      puVar10 = (undefined8 *)FUN_141d8be40(ppvVar1,pUVar5);\r\n      if (puVar10 == (undefined8 *)0x0) {\r\n        (**(code **)((longlong)(pComponent->actorComponentBase).objectBase.pVirtualTable + 0x128))\r\n                  (pComponent,0,(pComponent->actorComponentBase).objectBase.pOuterPrivate);\r\n        uVar19 = 0;\r\n        pUVar11 = (USceneComponent_WorldTransformOverlay *)\r\n                  FUN_141d8c190(pUVar5,FName_144392c18,8,0,\r\n                                in_stack_ffffffffffffff88 & 0xffffffffffffff00,0);\r\n        bVar4 = pComponent->pReserved30C[0xc];\r\n        pUVar11->pReserved30C[0xc] = bVar4;\r\n        pFVar2 = &pComponent->componentToWorld;\r\n        fVar7 = (pFVar2->rotation).flX;\r\n        fVar8 = (pComponent->componentToWorld).rotation.flY;\r\n        relativeRotation.flX = (pFVar2->rotation).flX;\r\n        relativeRotation.flY = (pFVar2->rotation).flY;\r\n        relativeRotation.flZ = (pComponent->componentToWorld).rotation.flZ;\r\n        relativeRotation.flW = (pComponent->componentToWorld).rotation.flW;\r\n        auVar6._4_4_ = -(uint)(pComponent->flCachedWorldRotationY != fVar8);\r\n        auVar6._0_4_ = -(uint)(pComponent->flCachedWorldRotationX != fVar7);\r\n        auVar6._8_4_ = -(uint)(pComponent->flCachedWorldRotationZ != relativeRotation.flZ);\r\n        auVar6._12_4_ = -(uint)(pComponent->flCachedWorldRotationW != relativeRotation.flW);\r\n        iVar13 = movmskps((uint)bVar4,auVar6);\r\n        if (iVar13 != 0) {\r\n          pComponent->flCachedWorldRotationX = fVar7;\r\n          pComponent->flCachedWorldRotationY = fVar8;\r\n          pComponent->flCachedWorldRotationZ = relativeRotation.flZ;\r\n          pComponent->flCachedWorldRotationW = relativeRotation.flW;\r\n          puVar10 = (undefined8 *)FQuat_ToEulerDegrees(&relativeRotation,&relativeEulerDegrees);\r\n          uVar3 = *puVar10;\r\n          (pComponent->cachedWorldRotationDegrees).flX = (float)(int)uVar3;\r\n          (pComponent->cachedWorldRotationDegrees).flY = (float)(int)((ulonglong)uVar3 >> 0x20);\r\n          (pComponent->cachedWorldRotationDegrees).flZ = *(float *)(puVar10 + 1);\r\n        }\r\n        relativeLocation.flX = (pComponent->componentToWorld).translation.flX;\r\n        relativeLocation.flY = (pComponent->componentToWorld).translation.flY;\r\n        relativeLocation.flZ = (pComponent->componentToWorld).translation.flZ;\r\n        relativeEulerDegrees.flX = (pComponent->cachedWorldRotationDegrees).flX;\r\n        relativeEulerDegrees.flY = (pComponent->cachedWorldRotationDegrees).flY;\r\n        relativeEulerDegrees.flZ = (pComponent->cachedWorldRotationDegrees).flZ;\r\n        relativeRotation.flZ = relativeLocation.flZ;\r\n        if (pUVar11->pAttachParent == (USceneComponent_WorldTransformOverlay *)0x0) {\r\n          uVar3._0_4_ = (pComponent->cachedWorldRotationDegrees).flX;\r\n          uVar3._4_4_ = (pComponent->cachedWorldRotationDegrees).flY;\r\n          relativeEulerDegrees._0_8_ = relativeLocation._0_8_;\r\n          relativeLocation._0_8_ = uVar3;\r\n          relativeLocation.flZ = relativeEulerDegrees.flZ;\r\n          relativeEulerDegrees.flZ = relativeRotation.flZ;\r\n          relativeRotation._0_8_ = relativeEulerDegrees._0_8_;\r\n          SetSceneComponentRelativePoseFromEuler\r\n                    (pUVar11,&relativeEulerDegrees,&relativeLocation,false,\r\n                     (FHitResult136_Partial *)0x0,0);\r\n        }\r\n        else {\r\n          relativeRotation._0_8_ = relativeLocation._0_8_;\r\n          pFVar12 = ConvertEulerDegreesToQuaternion(&relativeEulerDegrees,&relativeRotation);\r\n          FUN_141dad910(pUVar11,&relativeLocation,pFVar12,0,0,uVar19 & 0xffffffff00000000);\r\n        }\r\n        FUN_141c0c8a0(pUVar5,pUVar11);\r\n        RegisterComponentWithOwnerWorld((UActorComponent_Partial *)pUVar11);\r\n        pReplacementParent = pUVar11;\r\n      }\r\n      else {\r\n        pReplacementParent = (USceneComponent_WorldTransformOverlay *)*puVar10;\r\n      }\r\n      (**(code **)((longlong)pUVar5->pVirtualTable + 0x70))(pUVar5,1);\r\n      FUN_141c2bbd0(pUVar5,pReplacementParent);\r\n    }\r\n    else {\r\n      pUVar11 = pComponent->pAttachParent;\r\n      plVar15 = pUVar11->pAttachChildren;\r\n      plVar16 = plVar15 + pUVar11->nAttachChildrenCount;\r\n      for (; (plVar15 != plVar16 &&\r\n             ((USceneComponent_WorldTransformOverlay *)*plVar15 != pComponent));\r\n          plVar15 = plVar15 + 1) {\r\n      }\r\n      (**(code **)((longlong)(pComponent->actorComponentBase).objectBase.pVirtualTable + 0x3c8))\r\n                (pComponent,g_abDetachmentKeepWorldTransformRules);\r\n      if (0 < pComponent->nAttachChildrenCount) {\r\n        plVar15 = *ppvVar1;\r\n        plVar16 = plVar15 + pComponent->nAttachChildrenCount;\r\n        for (; plVar15 != plVar16; plVar15 = plVar15 + 1) {\r\n          if (((longlong *)*plVar15 != (longlong *)0x0) &&\r\n             (cVar9 = (**(code **)(*(longlong *)*plVar15 + 0xe8))(), cVar9 == '\\0')) {\r\n            if (plVar15 != (longlong *)0x0) {\r\n              pReplacementParent = (USceneComponent_WorldTransformOverlay *)*plVar15;\r\n              goto apply_replacement_parent;\r\n            }\r\n            break;\r\n          }\r\n        }\r\n        pReplacementParent = *(USceneComponent_WorldTransformOverlay **)*ppvVar1;\r\n      }\r\napply_replacement_parent:\r\n      if (pReplacementParent != (USceneComponent_WorldTransformOverlay *)0x0) {\r\n        relativeEulerDegrees.flX = 0.0;\r\n        relativeEulerDegrees.flY = 0.0;\r\n        FUN_141d92b60(pReplacementParent,pUVar11,g_abAttachmentKeepWorldTransformRules,0);\r\n        ppReplacementParent = &pReplacementParent;\r\n        FUN_140dbde60(&pUVar11->pAttachChildren,&ppReplacementParent);\r\n        FUN_141da2790(&pUVar11->pAttachChildren,&pReplacementParent);\r\n      }\r\n    }\r\n    plVar15 = (longlong *)0x0;\r\n    relativeRotation.flZ = (float)pComponent->nAttachChildrenCount;\r\n    lVar14 = (longlong)(int)relativeRotation.flZ;\r\n    _Src = *ppvVar1;\r\n    relativeRotation.flX = 0.0;\r\n    relativeRotation.flY = 0.0;\r\n    plVar16 = plVar15;\r\n    if (relativeRotation.flZ != 0.0) {\r\n      SetTArrayAllocationCapacity8((TArrayHeader *)&relativeRotation,(int)relativeRotation.flZ,0);\r\n      plVar16 = (longlong *)relativeRotation._0_8_;\r\n      memcpy((void *)relativeRotation._0_8_,_Src,lVar14 << 3);\r\n    }\r\n    plVar18 = (longlong *)\r\n              ((ulonglong)\r\n               ((longlong)(plVar16 + (int)relativeRotation.flZ) + (7 - (longlong)plVar16)) >> 3);\r\n    if (plVar16 + (int)relativeRotation.flZ < plVar16) {\r\n      plVar18 = plVar15;\r\n    }\r\n    plVar17 = plVar16;\r\n    if (plVar18 != (longlong *)0x0) {\r\n      do {\r\n        pUVar11 = (USceneComponent_WorldTransformOverlay *)*plVar17;\r\n        (**(code **)((longlong)(pUVar11->actorComponentBase).objectBase.pVirtualTable + 0x3c8))\r\n                  (pUVar11,g_abDetachmentKeepWorldTransformRules);\r\n        if (pUVar11 != pReplacementParent) {\r\n          relativeEulerDegrees.flX = 0.0;\r\n          relativeEulerDegrees.flY = 0.0;\r\n          FUN_141d92b60(pUVar11,pReplacementParent,g_abAttachmentKeepWorldTransformRules,0);\r\n        }\r\n        plVar15 = (longlong *)((longlong)plVar15 + 1);\r\n        plVar17 = plVar17 + 1;\r\n      } while (plVar15 != plVar18);\r\n    }\r\n    if (plVar16 != (longlong *)0x0) {\r\n      FMemory_Free(plVar16);\r\n    }\r\n  }\r\n  DestroyActorComponent(&pComponent->actorComponentBase,fPromoteChildren);\r\n  return;\r\n}\r\n\r\n"
+        }
+      ],
+      "structuredContent": {
+        "result": "\r\n/* Destroys a scene component, optionally preserving and reparenting attached children.\r\n   \r\n   Algorithm:\r\n   1. When child promotion is requested, inspect the owning actor, current attach parent, and child\r\n   array.\r\n   2. Detach the component while preserving world-space transform state.\r\n   3. Select or create the replacement parent and reattach eligible children.\r\n   4. Preserve relative transform data across the reparenting operation.\r\n   5. Release temporary child storage.\r\n   6. Tail-call DestroyActorComponent with the original flag.\r\n   \r\n   Parameters:\r\n   pComponent - Scene component being destroyed.\r\n   fPromoteChildren - Whether eligible attached children should be promoted/reparented.\r\n   \r\n   Returns:\r\n   void.\r\n   \r\n   Special Cases:\r\n   The transform locals are typed FVector4 and FVector3f_Partial projections; remaining\r\n   register-only temporaries are decompiler artifacts.\r\n   \r\n   Source:\r\n   SoulcaliburVI.exe 0x141D99730; called by the Lux particle-system destruction override. */\r\n\r\nvoid USceneComponent_DestroyComponent\r\n               (USceneComponent_WorldTransformOverlay *pComponent,bool fPromoteChildren)\r\n\r\n{\r\n  void **ppvVar1;\r\n  FTransform48 *pFVar2;\r\n  undefined8 uVar3;\r\n  byte bVar4;\r\n  UObject_Partial *pUVar5;\r\n  void *_Src;\r\n  undefined1 auVar6 [16];\r\n  float fVar7;\r\n  float fVar8;\r\n  char cVar9;\r\n  undefined8 *puVar10;\r\n  USceneComponent_WorldTransformOverlay *pUVar11;\r\n  FVector4 *pFVar12;\r\n  int iVar13;\r\n  undefined7 in_register_00000011;\r\n  longlong lVar14;\r\n  longlong *plVar15;\r\n  longlong *plVar16;\r\n  longlong *plVar17;\r\n  longlong *plVar18;\r\n  USceneComponent_WorldTransformOverlay *pReplacementParent;\r\n  USceneComponent_WorldTransformOverlay **ppReplacementParent;\r\n  ulonglong in_stack_ffffffffffffff88;\r\n  ulonglong uVar19;\r\n  FVector3f_Partial relativeLocation;\r\n  FVector3f_Partial relativeEulerDegrees;\r\n  FVector4 relativeRotation;\r\n  \r\n  if ((fPromoteChildren) &&\r\n     (pUVar5 = (pComponent->actorComponentBase).pOwner, pUVar5 != (UObject_Partial *)0x0)) {\r\n    (**(code **)((longlong)pUVar5->pVirtualTable + 0x70))(pUVar5,CONCAT71(in_register_00000011,1));\r\n    ppvVar1 = &pComponent->pAttachChildren;\r\n    pReplacementParent = (USceneComponent_WorldTransformOverlay *)0x0;\r\n    if (pComponent == pUVar5[9].pVirtualTable) {\r\n      puVar10 = (undefined8 *)FUN_141d8be40(ppvVar1,pUVar5);\r\n      if (puVar10 == (undefined8 *)0x0) {\r\n        (**(code **)((longlong)(pComponent->actorComponentBase).objectBase.pVirtualTable + 0x128))\r\n                  (pComponent,0,(pComponent->actorComponentBase).objectBase.pOuterPrivate);\r\n        uVar19 = 0;\r\n        pUVar11 = (USceneComponent_WorldTransformOverlay *)\r\n                  FUN_141d8c190(pUVar5,FName_144392c18,8,0,\r\n                                in_stack_ffffffffffffff88 & 0xffffffffffffff00,0);\r\n        bVar4 = pComponent->pReserved30C[0xc];\r\n        pUVar11->pReserved30C[0xc] = bVar4;\r\n        pFVar2 = &pComponent->componentToWorld;\r\n        fVar7 = (pFVar2->rotation).flX;\r\n        fVar8 = (pComponent->componentToWorld).rotation.flY;\r\n        relativeRotation.flX = (pFVar2->rotation).flX;\r\n        relativeRotation.flY = (pFVar2->rotation).flY;\r\n        relativeRotation.flZ = (pComponent->componentToWorld).rotation.flZ;\r\n        relativeRotation.flW = (pComponent->componentToWorld).rotation.flW;\r\n        auVar6._4_4_ = -(uint)(pComponent->flCachedWorldRotationY != fVar8);\r\n        auVar6._0_4_ = -(uint)(pComponent->flCachedWorldRotationX != fVar7);\r\n        auVar6._8_4_ = -(uint)(pComponent->flCachedWorldRotationZ != relativeRotation.flZ);\r\n        auVar6._12_4_ = -(uint)(pComponent->flCachedWorldRotationW != relativeRotation.flW);\r\n        iVar13 = movmskps((uint)bVar4,auVar6);\r\n        if (iVar13 != 0) {\r\n          pComponent->flCachedWorldRotationX = fVar7;\r\n          pComponent->flCachedWorldRotationY = fVar8;\r\n          pComponent->flCachedWorldRotationZ = relativeRotation.flZ;\r\n          pComponent->flCachedWorldRotationW = relativeRotation.flW;\r\n          puVar10 = (undefined8 *)FQuat_ToEulerDegrees(&relativeRotation,&relativeEulerDegrees);\r\n          uVar3 = *puVar10;\r\n          (pComponent->cachedWorldRotationDegrees).flX = (float)(int)uVar3;\r\n          (pComponent->cachedWorldRotationDegrees).flY = (float)(int)((ulonglong)uVar3 >> 0x20);\r\n          (pComponent->cachedWorldRotationDegrees).flZ = *(float *)(puVar10 + 1);\r\n        }\r\n        relativeLocation.flX = (pComponent->componentToWorld).translation.flX;\r\n        relativeLocation.flY = (pComponent->componentToWorld).translation.flY;\r\n        relativeLocation.flZ = (pComponent->componentToWorld).translation.flZ;\r\n        relativeEulerDegrees.flX = (pComponent->cachedWorldRotationDegrees).flX;\r\n        relativeEulerDegrees.flY = (pComponent->cachedWorldRotationDegrees).flY;\r\n        relativeEulerDegrees.flZ = (pComponent->cachedWorldRotationDegrees).flZ;\r\n        relativeRotation.flZ = relativeLocation.flZ;\r\n        if (pUVar11->pAttachParent == (USceneComponent_WorldTransformOverlay *)0x0) {\r\n          uVar3._0_4_ = (pComponent->cachedWorldRotationDegrees).flX;\r\n          uVar3._4_4_ = (pComponent->cachedWorldRotationDegrees).flY;\r\n          relativeEulerDegrees._0_8_ = relativeLocation._0_8_;\r\n          relativeLocation._0_8_ = uVar3;\r\n          relativeLocation.flZ = relativeEulerDegrees.flZ;\r\n          relativeEulerDegrees.flZ = relativeRotation.flZ;\r\n          relativeRotation._0_8_ = relativeEulerDegrees._0_8_;\r\n          SetSceneComponentRelativePoseFromEuler\r\n                    (pUVar11,&relativeEulerDegrees,&relativeLocation,false,\r\n                     (FHitResult136_Partial *)0x0,0);\r\n        }\r\n        else {\r\n          relativeRotation._0_8_ = relativeLocation._0_8_;\r\n          pFVar12 = ConvertEulerDegreesToQuaternion(&relativeEulerDegrees,&relativeRotation);\r\n          FUN_141dad910(pUVar11,&relativeLocation,pFVar12,0,0,uVar19 & 0xffffffff00000000);\r\n        }\r\n        FUN_141c0c8a0(pUVar5,pUVar11);\r\n        RegisterComponentWithOwnerWorld((UActorComponent_Partial *)pUVar11);\r\n        pReplacementParent = pUVar11;\r\n      }\r\n      else {\r\n        pReplacementParent = (USceneComponent_WorldTransformOverlay *)*puVar10;\r\n      }\r\n      (**(code **)((longlong)pUVar5->pVirtualTable + 0x70))(pUVar5,1);\r\n      FUN_141c2bbd0(pUVar5,pReplacementParent);\r\n    }\r\n    else {\r\n      pUVar11 = pComponent->pAttachParent;\r\n      plVar15 = pUVar11->pAttachChildren;\r\n      plVar16 = plVar15 + pUVar11->nAttachChildrenCount;\r\n      for (; (plVar15 != plVar16 &&\r\n             ((USceneComponent_WorldTransformOverlay *)*plVar15 != pComponent));\r\n          plVar15 = plVar15 + 1) {\r\n      }\r\n      (**(code **)((longlong)(pComponent->actorComponentBase).objectBase.pVirtualTable + 0x3c8))\r\n                (pComponent,g_abDetachmentKeepWorldTransformRules);\r\n      if (0 < pComponent->nAttachChildrenCount) {\r\n        plVar15 = *ppvVar1;\r\n        plVar16 = plVar15 + pComponent->nAttachChildrenCount;\r\n        for (; plVar15 != plVar16; plVar15 = plVar15 + 1) {\r\n          if (((longlong *)*plVar15 != (longlong *)0x0) &&\r\n             (cVar9 = (**(code **)(*(longlong *)*plVar15 + 0xe8))(), cVar9 == '\\0')) {\r\n            if (plVar15 != (longlong *)0x0) {\r\n              pReplacementParent = (USceneComponent_WorldTransformOverlay *)*plVar15;\r\n              goto apply_replacement_parent;\r\n            }\r\n            break;\r\n          }\r\n        }\r\n        pReplacementParent = *(USceneComponent_WorldTransformOverlay **)*ppvVar1;\r\n      }\r\napply_replacement_parent:\r\n      if (pReplacementParent != (USceneComponent_WorldTransformOverlay *)0x0) {\r\n        relativeEulerDegrees.flX = 0.0;\r\n        relativeEulerDegrees.flY = 0.0;\r\n        FUN_141d92b60(pReplacementParent,pUVar11,g_abAttachmentKeepWorldTransformRules,0);\r\n        ppReplacementParent = &pReplacementParent;\r\n        FUN_140dbde60(&pUVar11->pAttachChildren,&ppReplacementParent);\r\n        FUN_141da2790(&pUVar11->pAttachChildren,&pReplacementParent);\r\n      }\r\n    }\r\n    plVar15 = (longlong *)0x0;\r\n    relativeRotation.flZ = (float)pComponent->nAttachChildrenCount;\r\n    lVar14 = (longlong)(int)relativeRotation.flZ;\r\n    _Src = *ppvVar1;\r\n    relativeRotation.flX = 0.0;\r\n    relativeRotation.flY = 0.0;\r\n    plVar16 = plVar15;\r\n    if (relativeRotation.flZ != 0.0) {\r\n      SetTArrayAllocationCapacity8((TArrayHeader *)&relativeRotation,(int)relativeRotation.flZ,0);\r\n      plVar16 = (longlong *)relativeRotation._0_8_;\r\n      memcpy((void *)relativeRotation._0_8_,_Src,lVar14 << 3);\r\n    }\r\n    plVar18 = (longlong *)\r\n              ((ulonglong)\r\n               ((longlong)(plVar16 + (int)relativeRotation.flZ) + (7 - (longlong)plVar16)) >> 3);\r\n    if (plVar16 + (int)relativeRotation.flZ < plVar16) {\r\n      plVar18 = plVar15;\r\n    }\r\n    plVar17 = plVar16;\r\n    if (plVar18 != (longlong *)0x0) {\r\n      do {\r\n        pUVar11 = (USceneComponent_WorldTransformOverlay *)*plVar17;\r\n        (**(code **)((longlong)(pUVar11->actorComponentBase).objectBase.pVirtualTable + 0x3c8))\r\n                  (pUVar11,g_abDetachmentKeepWorldTransformRules);\r\n        if (pUVar11 != pReplacementParent) {\r\n          relativeEulerDegrees.flX = 0.0;\r\n          relativeEulerDegrees.flY = 0.0;\r\n          FUN_141d92b60(pUVar11,pReplacementParent,g_abAttachmentKeepWorldTransformRules,0);\r\n        }\r\n        plVar15 = (longlong *)((longlong)plVar15 + 1);\r\n        plVar17 = plVar17 + 1;\r\n      } while (plVar15 != plVar18);\r\n    }\r\n    if (plVar16 != (longlong *)0x0) {\r\n      FMemory_Free(plVar16);\r\n    }\r\n  }\r\n  DestroyActorComponent(&pComponent->actorComponentBase,fPromoteChildren);\r\n  return;\r\n}\r\n\r\n"
+      },
+      "isError": false
+    },
+    "logical_signatures": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "address": "141d99730",
+          "bytes": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"address\":\"141d99730\",\"length\":40,\"data\":[72,139,196,136,80,16,85,86,65,85,72,139,236,72,129,236,128,0,0,0,68,15,182,234,72,139,241,132,210,15,132,201,3,0,0,72,137,88,8,72],\"hex\":\"488bc488501055564155488bec4881ec80000000440fb6ea488bf184d20f84c90300004889580848\"}"
+              }
+            ],
+            "structuredContent": {
+              "result": "{\"address\":\"141d99730\",\"length\":40,\"data\":[72,139,196,136,80,16,85,86,65,85,72,139,236,72,129,236,128,0,0,0,68,15,182,234,72,139,241,132,210,15,132,201,3,0,0,72,137,88,8,72],\"hex\":\"488bc488501055564155488bec4881ec80000000440fb6ea488bf184d20f84c90300004889580848\"}"
+            },
+            "isError": false
+          },
+          "refs": {
+            "content": [
+              {
+                "type": "text",
+                "text": "From 1449bf498 [DATA]\nFrom 143f9bcbc [DATA]\nFrom 143f9bd10 [DATA]\nFrom 1417e1559 in FUN_1417e1550 [UNCONDITIONAL_CALL]\nFrom 140898e7c in DestroyGroundDebrisComponent [UNCONDITIONAL_CALL]\nFrom 1408ced29 in ULuxParticleSystemComponent_DestroyComponent [UNCONDITIONAL_CALL]\nFrom 14160e30a in FUN_14160e2c0 [UNCONDITIONAL_CALL]\nFrom 14160e35a in FUN_14160e310 [UNCONDITIONAL_CALL]\nFrom 14160e3d3 in FUN_14160e360 [UNCONDITIONAL_CALL]\nFrom 1432668c0 [DATA]\nFrom 1432d07b0 [DATA]\nFrom 1432d10b8 [DATA]\nFrom 1433606d0 [DATA]\nFrom 143361008 [DATA]\nFrom 143674300 [DATA]\nFrom 1436be968 [DATA]\nFrom 1436bdc40 [DATA]\nFrom 1436c67c0 [DATA]\nFrom 1436cf310 [DATA]\nFrom 1436cb570 [DATA]\nFrom 1436ce638 [DATA]\nFrom 143749c40 [DATA]\nFrom 14376b4c8 [DATA]\nFrom 1437abef0 [DATA]\nFrom 1437de200 [DATA]"
+              }
+            ],
+            "structuredContent": {
+              "result": "From 1449bf498 [DATA]\nFrom 143f9bcbc [DATA]\nFrom 143f9bd10 [DATA]\nFrom 1417e1559 in FUN_1417e1550 [UNCONDITIONAL_CALL]\nFrom 140898e7c in DestroyGroundDebrisComponent [UNCONDITIONAL_CALL]\nFrom 1408ced29 in ULuxParticleSystemComponent_DestroyComponent [UNCONDITIONAL_CALL]\nFrom 14160e30a in FUN_14160e2c0 [UNCONDITIONAL_CALL]\nFrom 14160e35a in FUN_14160e310 [UNCONDITIONAL_CALL]\nFrom 14160e3d3 in FUN_14160e360 [UNCONDITIONAL_CALL]\nFrom 1432668c0 [DATA]\nFrom 1432d07b0 [DATA]\nFrom 1432d10b8 [DATA]\nFrom 1433606d0 [DATA]\nFrom 143361008 [DATA]\nFrom 143674300 [DATA]\nFrom 1436be968 [DATA]\nFrom 1436bdc40 [DATA]\nFrom 1436c67c0 [DATA]\nFrom 1436cf310 [DATA]\nFrom 1436cb570 [DATA]\nFrom 1436ce638 [DATA]\nFrom 143749c40 [DATA]\nFrom 14376b4c8 [DATA]\nFrom 1437abef0 [DATA]\nFrom 1437de200 [DATA]"
+            },
+            "isError": false
+          }
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "address": "1403ba850",
+          "bytes": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"address\":\"1403ba850\",\"length\":40,\"data\":[72,137,92,36,8,72,137,108,36,16,72,137,116,36,24,87,72,131,236,32,72,139,233,51,219,72,139,137,88,4,0,0,72,133,201,116,17,65,176,1],\"hex\":\"48895c240848896c24104889742418574883ec20488be933db488b89580400004885c9741141b001\"}"
+              }
+            ],
+            "structuredContent": {
+              "result": "{\"address\":\"1403ba850\",\"length\":40,\"data\":[72,137,92,36,8,72,137,108,36,16,72,137,116,36,24,87,72,131,236,32,72,139,233,51,219,72,139,137,88,4,0,0,72,133,201,116,17,65,176,1],\"hex\":\"48895c240848896c24104889742418574883ec20488be933db488b89580400004885c9741141b001\"}"
+            },
+            "isError": false
+          },
+          "refs": {
+            "content": [
+              {
+                "type": "text",
+                "text": "From 1448af3bc [DATA]\nFrom 140456563 in FUN_1404564f0 [UNCONDITIONAL_CALL]\nFrom 143268578 [DATA]"
+              }
+            ],
+            "structuredContent": {
+              "result": "From 1448af3bc [DATA]\nFrom 140456563 in FUN_1404564f0 [UNCONDITIONAL_CALL]\nFrom 143268578 [DATA]"
+            },
+            "isError": false
+          }
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "address": "1403bb550",
+          "bytes": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"address\":\"1403bb550\",\"length\":40,\"data\":[72,137,92,36,8,72,137,116,36,16,87,72,131,236,32,72,139,185,152,0,0,0,139,242,72,139,217,72,133,255,15,132,150,0,0,0,232,215,222,88],\"hex\":\"48895c24084889742410574883ec20488bb9980000008bf2488bd94885ff0f8496000000e8d7de58\"}"
+              }
+            ],
+            "structuredContent": {
+              "result": "{\"address\":\"1403bb550\",\"length\":40,\"data\":[72,137,92,36,8,72,137,116,36,16,87,72,131,236,32,72,139,185,152,0,0,0,139,242,72,139,217,72,133,255,15,132,150,0,0,0,232,215,222,88],\"hex\":\"48895c24084889742410574883ec20488bb9980000008bf2488bd94885ff0f8496000000e8d7de58\"}"
+            },
+            "isError": false
+          },
+          "refs": {
+            "content": [
+              {
+                "type": "text",
+                "text": "From 1448af4dc [DATA]\nFrom 140456d09 in FUN_140456d00 [UNCONDITIONAL_CALL]\nFrom 143268548 [DATA]"
+              }
+            ],
+            "structuredContent": {
+              "result": "From 1448af4dc [DATA]\nFrom 140456d09 in FUN_140456d00 [UNCONDITIONAL_CALL]\nFrom 143268548 [DATA]"
+            },
+            "isError": false
+          }
+        }
+      }
+    ],
+    "scene_slots": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"address\":\"143360590\",\"length\":176,\"data\":[176,62,60,64,1,0,0,0,96,187,244,64,1,0,0,0,208,70,211,65,1,0,0,0,112,24,212,65,1,0,0,0,48,213,213,65,1,0,0,0,192,86,214,65,1,0,0,0,192,200,212,65,1,0,0,0,192,213,213,65,1,0,0,0,64,156,45,64,1,0,0,0,128,100,213,65,1,0,0,0,240,114,45,64,1,0,0,0,176,251,215,65,1,0,0,0,48,96,218,65,1,0,0,0,48,104,218,65,1,0,0,0,240,114,45,64,1,0,0,0,32,14,212,65,1,0,0,0,208,197,213,65,1,0,0,0,192,197,213,65,1,0,0,0,192,26,212,65,1,0,0,0,96,253,212,65,1,0,0,0,112,253,212,65,1,0,0,0,64,156,45,64,1,0,0,0],\"hex\":\"b03e3c400100000060bbf44001000000d046d341010000007018d4410100000030d5d54101000000c056d64101000000c0c8d44101000000c0d5d54101000000409c2d40010000008064d54101000000f0722d4001000000b0fbd741010000003060da41010000003068da4101000000f0722d4001000000200ed44101000000d0c5d54101000000c0c5d54101000000c01ad4410100000060fdd4410100000070fdd44101000000409c2d4001000000\"}"
+            }
+          ],
+          "structuredContent": {
+            "result": "{\"address\":\"143360590\",\"length\":176,\"data\":[176,62,60,64,1,0,0,0,96,187,244,64,1,0,0,0,208,70,211,65,1,0,0,0,112,24,212,65,1,0,0,0,48,213,213,65,1,0,0,0,192,86,214,65,1,0,0,0,192,200,212,65,1,0,0,0,192,213,213,65,1,0,0,0,64,156,45,64,1,0,0,0,128,100,213,65,1,0,0,0,240,114,45,64,1,0,0,0,176,251,215,65,1,0,0,0,48,96,218,65,1,0,0,0,48,104,218,65,1,0,0,0,240,114,45,64,1,0,0,0,32,14,212,65,1,0,0,0,208,197,213,65,1,0,0,0,192,197,213,65,1,0,0,0,192,26,212,65,1,0,0,0,96,253,212,65,1,0,0,0,112,253,212,65,1,0,0,0,64,156,45,64,1,0,0,0],\"hex\":\"b03e3c400100000060bbf44001000000d046d341010000007018d4410100000030d5d54101000000c056d64101000000c0c8d44101000000c0d5d54101000000409c2d40010000008064d54101000000f0722d4001000000b0fbd741010000003060da41010000003068da4101000000f0722d4001000000200ed44101000000d0c5d54101000000c0c5d54101000000c01ad4410100000060fdd4410100000070fdd44101000000409c2d4001000000\"}"
+          },
+          "isError": false
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"address\":\"1408cd020\",\"length\":64,\"data\":[0,204,204,204,72,129,233,224,3,0,0,233,192,5,0,0,72,131,233,40,233,23,6,0,0,204,204,204,72,131,233,40,233,219,6,0,0,204,204,204,72,131,233,40,233,143,7,0,0,204,204,204,204,204,204,204,204,204,204,204,204,204,204,204],\"hex\":\"00cccccc4881e9e0030000e9c00500004883e928e917060000cccccc4883e928e9db060000cccccc4883e928e98f070000cccccccccccccccccccccccccccccc\"}"
+            }
+          ],
+          "structuredContent": {
+            "result": "{\"address\":\"1408cd020\",\"length\":64,\"data\":[0,204,204,204,72,129,233,224,3,0,0,233,192,5,0,0,72,131,233,40,233,23,6,0,0,204,204,204,72,131,233,40,233,219,6,0,0,204,204,204,72,131,233,40,233,143,7,0,0,204,204,204,204,204,204,204,204,204,204,204,204,204,204,204],\"hex\":\"00cccccc4881e9e0030000e9c00500004883e928e917060000cccccc4883e928e9db060000cccccc4883e928e98f070000cccccccccccccccccccccccccccccc\"}"
+          },
+          "isError": false
+        }
+      }
+    ],
+    "chara_async_destructor": {
+      "content": [
+        {
+          "type": "text",
+          "text": "\r\n/* Destroys an array of 0x50-byte Lux async request entries and frees the backing array.\r\n   \r\n   Algorithm:\r\n   1. Iterate pEntries->nNum entries with stride 0x50.\r\n   2. Resolve each entry payload from heap storage at +0x30 or inline storage at +0x10 when\r\n   nPayloadCount is non-zero.\r\n   3. Call the payload vtable release/destructor hook at +0x10 with flag 0.\r\n   4. Free any heap payload pointer at entry+0x30.\r\n   5. Free pEntries->Data after all entries are destroyed.\r\n   \r\n   Parameters:\r\n   pEntries: TArrayHeader * - array header for 0x50-byte async request entries.\r\n   \r\n   Returns:\r\n   void.\r\n   \r\n   Special Cases:\r\n   This helper does not reset nNum/nMax after freeing. Callers use it as a destructor for owning\r\n   native objects, including ULuxGameInstance_Partial.battleAsyncRequestQueue.requests. */\r\n\r\nvoid DestroyBattleAsyncRequestEntryArray(TArrayHeader *pEntries)\r\n\r\n{\r\n  longlong *plVar1;\r\n  ulonglong *puVar2;\r\n  int iVar3;\r\n  \r\n  iVar3 = pEntries->nNum;\r\n  if (iVar3 != 0) {\r\n    puVar2 = (ulonglong *)(pEntries->Data + 0x30);\r\n    do {\r\n      if (((int)puVar2[2] != 0) &&\r\n         (plVar1 = (longlong *)((ulonglong)(*puVar2 != 0) - 1 & (ulonglong)(puVar2 + -4) | *puVar2),\r\n         plVar1 != (longlong *)0x0)) {\r\n        (**(code **)(*plVar1 + 0x10))(plVar1,0);\r\n      }\r\n      if ((void *)*puVar2 != (void *)0x0) {\r\n        FMemory_Free((void *)*puVar2);\r\n      }\r\n      puVar2 = puVar2 + 10;\r\n      iVar3 = iVar3 + -1;\r\n    } while (iVar3 != 0);\r\n  }\r\n  if (pEntries->Data != (undefined *)0x0) {\r\n    FMemory_Free(pEntries->Data);\r\n  }\r\n  return;\r\n}\r\n\r\n"
+        }
+      ],
+      "structuredContent": {
+        "result": "\r\n/* Destroys an array of 0x50-byte Lux async request entries and frees the backing array.\r\n   \r\n   Algorithm:\r\n   1. Iterate pEntries->nNum entries with stride 0x50.\r\n   2. Resolve each entry payload from heap storage at +0x30 or inline storage at +0x10 when\r\n   nPayloadCount is non-zero.\r\n   3. Call the payload vtable release/destructor hook at +0x10 with flag 0.\r\n   4. Free any heap payload pointer at entry+0x30.\r\n   5. Free pEntries->Data after all entries are destroyed.\r\n   \r\n   Parameters:\r\n   pEntries: TArrayHeader * - array header for 0x50-byte async request entries.\r\n   \r\n   Returns:\r\n   void.\r\n   \r\n   Special Cases:\r\n   This helper does not reset nNum/nMax after freeing. Callers use it as a destructor for owning\r\n   native objects, including ULuxGameInstance_Partial.battleAsyncRequestQueue.requests. */\r\n\r\nvoid DestroyBattleAsyncRequestEntryArray(TArrayHeader *pEntries)\r\n\r\n{\r\n  longlong *plVar1;\r\n  ulonglong *puVar2;\r\n  int iVar3;\r\n  \r\n  iVar3 = pEntries->nNum;\r\n  if (iVar3 != 0) {\r\n    puVar2 = (ulonglong *)(pEntries->Data + 0x30);\r\n    do {\r\n      if (((int)puVar2[2] != 0) &&\r\n         (plVar1 = (longlong *)((ulonglong)(*puVar2 != 0) - 1 & (ulonglong)(puVar2 + -4) | *puVar2),\r\n         plVar1 != (longlong *)0x0)) {\r\n        (**(code **)(*plVar1 + 0x10))(plVar1,0);\r\n      }\r\n      if ((void *)*puVar2 != (void *)0x0) {\r\n        FMemory_Free((void *)*puVar2);\r\n      }\r\n      puVar2 = puVar2 + 10;\r\n      iVar3 = iVar3 + -1;\r\n    } while (iVar3 != 0);\r\n  }\r\n  if (pEntries->Data != (undefined *)0x0) {\r\n    FMemory_Free(pEntries->Data);\r\n  }\r\n  return;\r\n}\r\n\r\n"
+      },
+      "isError": false
+    }
+  }
+}

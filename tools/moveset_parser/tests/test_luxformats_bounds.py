@@ -6,6 +6,7 @@ import pytest
 
 from luxformats import (
     LuxBattleAttackCell,
+    parse_attack_cell,
     parse_hit_dat,
     parse_khd,
     parse_lpb,
@@ -15,12 +16,26 @@ from luxformats import (
 )
 
 
+def test_attack_cell_decodes_six_signed_move_offset_triples():
+    raw = bytearray(0x70)
+    expected = tuple((index * 10 + 1, -index, index * 15 - 30) for index in range(6))
+    for index, values in enumerate(expected):
+        struct.pack_into("<3h", raw, 0x08 + index * 6, *values)
+
+    parsed = parse_attack_cell(bytes(raw), 0)
+    actual = tuple(
+        (cell.nRangeRaw, cell.nHorizontalAngleDegrees, cell.nVerticalAngleDegrees)
+        for cell in parsed.moveOffsetCells
+    )
+    assert actual == expected
+
+
 def test_zero_damage_high_unblockable_cell_is_header():
     cell = LuxBattleAttackCell(
         raw=b"",
         wU16AttackFlags=0x080 | 0x200,
         wI16BaseDamage=0,
-        wU16HitboxGroupBitfield=0,
+        wU16PackedSubwindowSelector=0,
     )
 
     assert cell.cell_role == "Header"

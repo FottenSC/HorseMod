@@ -1,0 +1,93 @@
+
+/* WARNING: Removing unreachable block (ram,0x00014215ca40) */
+/* WARNING: Removing unreachable block (ram,0x00014215ca4a) */
+/* WARNING: Removing unreachable block (ram,0x00014215ca54) */
+
+undefined8 * FUN_14215c8d0(undefined8 *param_1,longlong param_2,undefined4 param_3)
+
+{
+  int *piVar1;
+  undefined8 *puVar2;
+  int iVar3;
+  DWORD *pDVar4;
+  longlong *plVar5;
+  longlong *plVar6;
+  longlong lVar7;
+  undefined8 *puVar8;
+  longlong *plVar9;
+  undefined4 uVar10;
+  undefined8 local_res8;
+  longlong local_res10;
+  undefined4 local_res18;
+  
+  plVar9 = (longlong *)0x0;
+  uVar10 = 0;
+  local_res18 = 0;
+  if (param_2 != 0) {
+    uVar10 = *(undefined4 *)(param_2 + 0x28);
+  }
+  pDVar4 = (DWORD *)FUN_140d25ee0();
+  plVar5 = TlsGetValue(*pDVar4);
+  if (plVar5 == (longlong *)0x0) {
+    plVar6 = FMemory_Malloc(0x18);
+    plVar5 = plVar9;
+    if (plVar6 != (longlong *)0x0) {
+      *plVar6 = 0;
+      plVar6[1] = 0;
+      *(undefined4 *)(plVar6 + 2) = 0;
+      plVar5 = plVar6;
+    }
+    TlsSetValue(*pDVar4,plVar5);
+  }
+  if (plVar5[1] == 0) {
+    if (*plVar5 == 0) {
+      lVar7 = UE4_WeakObjPool_PopSlot(pDVar4 + 2);
+      plVar5[1] = lVar7;
+      if (lVar7 == 0) {
+        puVar8 = (undefined8 *)GMalloc_Malloc_Dispatch(0x2000,0);
+        plVar5[1] = (longlong)puVar8;
+        lVar7 = 0x1f;
+        do {
+          puVar2 = puVar8 + 0x20;
+          *puVar8 = puVar2;
+          lVar7 = lVar7 + -1;
+          puVar8 = puVar2;
+        } while (lVar7 != 0);
+        *puVar2 = 0;
+      }
+    }
+    else {
+      plVar5[1] = *plVar5;
+      *plVar5 = 0;
+    }
+    *(undefined4 *)(plVar5 + 2) = 0x20;
+  }
+  plVar6 = (longlong *)plVar5[1];
+  lVar7 = *plVar6;
+  *(int *)(plVar5 + 2) = (int)plVar5[2] + -1;
+  plVar5[1] = lVar7;
+  plVar5 = plVar9;
+  if (plVar6 != (longlong *)0x0) {
+    puVar8 = (undefined8 *)FUN_140d1fb90(&local_res10);
+    local_res8 = *puVar8;
+    *puVar8 = 0;
+    plVar9 = (longlong *)FUN_1421565e0(plVar6,&local_res8,uVar10);
+    plVar5 = (longlong *)0x2;
+  }
+  param_1[1] = param_2;
+  *(undefined4 *)(param_1 + 2) = param_3;
+  *param_1 = plVar9;
+  if ((plVar5 != (longlong *)0x0) && (local_res10 != 0)) {
+    LOCK();
+    piVar1 = (int *)(local_res10 + 0x48);
+    iVar3 = *piVar1;
+    *piVar1 = *piVar1 + -1;
+    UNLOCK();
+    if (iVar3 == 1) {
+      FUN_140d2ebe0();
+    }
+  }
+  return param_1;
+}
+
+

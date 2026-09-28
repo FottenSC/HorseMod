@@ -1,0 +1,5 @@
+{
+  "claim": "local decision acceptance only; no stage confirmation/combat coverage",
+  "observed_at_utc": "2026-09-04T22:05:05Z",
+  "reason": "Both character local decisions accepted at timer30, but both remain CharaSelectExec for more than30seconds; synchronization boundary failed. Stop before timer-driven progress can count."
+}

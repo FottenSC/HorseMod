@@ -1,58 +1,57 @@
 # DotVanisher
 
-DotVanisher is a small SoulCalibur VI UE4SS C++ mod that reduces false
-spectator disconnects while a match is loading.
+DotVanisher adds bounded spectator connection recovery and host battle-end grace to Soulcalibur VI.
 
-When the host has pending spectators, the vanilla game can time out the
-watch queue and force spectators out even though the two players continue
-into the match normally. This happens more often with slow storage or newer,
-heavier stages. DotVanisher gives the host watch queue a bounded 90-second
-grace window before the vanilla timeout cleanup is allowed to run.
+## What's new in 1.1.0
 
-## Features
+- Adds recovery for a successful watch assignment that arrives before the assigned player's connection route is available locally.
+- Preserves the original request deadline and acknowledgment handling. Duplicate pending assignments do not restart the deadline.
+- Handles cancellation, session changes and repeated attempts so an old assignment cannot be applied to a different tracked connection.
+- Adds executable and hook compatibility checks for the new recovery paths.
+- Keeps the existing 90-second host battle-end grace as a separate feature.
 
-- Softens the host spectator watch timeout during slow match loads.
-- Leaves normal player match flow untouched.
-- Leaves explicit spectator leave/cancel/end handling untouched.
-- No ImGui, no settings UI, no HorseMod dependency.
+The new recovery runs on the machine receiving the watch assignment. A room host who is spectating can be that machine; installing on the host does not modify remote clients.
+
+## Validation and limits
+
+Version 1.1.0 has passed compilation, offline tests with simulated native callbacks, and checks against the supported executable. **It has not been live-tested in an online match.**
+
+This targets a specific connection-ordering failure. It does not fix every loading-dots problem, extend initial connection-request timeouts, or repair missing loading data. Recovery requires the original connection-owning thread to continue running.
+
+The older host timer applies to watcher cleanup after a battle ends. Earlier descriptions presenting that timer as general slow-loading protection were too broad.
 
 ## Requirements
 
-- SoulCalibur VI on Steam.
-- One of:
-  - UE4SS installed manually in the game's `Binaries/Win64` directory, or
-  - unreal-shimloader, which bundles UE4SS and is pulled in automatically
-    when installing via a Thunderstore-compatible mod manager.
+- Soulcalibur VI on Steam, using the executable supported by the mod's compatibility checks.
+- UE4SS, either installed manually or through the included unreal-shimloader dependency.
+- No HorseMod dependency, settings UI or ImGui overlay.
 
 ## Installation
 
-### Mod Manager
+### Mod manager
 
-Install DotVanisher from the SoulCalibur VI Thunderstore community page using
-a compatible mod manager. The manager installs the unreal-shimloader
-dependency and routes the mod files for UE4SS automatically.
+Install through a Thunderstore-compatible mod manager for Soulcalibur VI. The package declares unreal-shimloader as a dependency and uses its mod layout.
 
 ### Manual
 
-Manual users should place the mod at:
+With UE4SS already installed, place the mod files at:
 
-```
+```text
 <game>/Binaries/Win64/ue4ss/Mods/DotVanisher/
   enabled.txt
   dlls/
     main.dll
 ```
 
-## Notes
+## Updating or disabling
 
-DotVanisher is intentionally narrow. It only detours the host watch tick
-timeout path and only offsets the pending-watch timeout timer while spectators
-are waiting, for up to 90 seconds per pending-watch epoch.
+Close the game before updating. Restart the game after disabling or removing DotVanisher: its native hooks remain active until the process exits, including when UE4SS removes the mod object.
+
+Unsupported executable builds or conflicting recovery hooks disable the new recovery behavior. Check the UE4SS log for messages beginning with `[DotVanisher]`.
 
 ## Credits
 
-Built on UE4SS and PolyHook 2. Reverse-engineering work came from the SC6
-HorseMod investigation into the host spectator timeout path.
+Built on UE4SS and PolyHook 2, with reverse-engineering work from the HorseMod project.
 
 ## AI disclosure
 

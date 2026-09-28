@@ -1,0 +1,88 @@
+[
+  {
+    "Type": "BlueprintGeneratedClass",
+    "Name": "LBP_StageShipCamera_C",
+    "Flags": "RF_Public | RF_Transactional | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'BlueprintGeneratedClass'",
+    "Package": "Stage/Common/Blurprints/LBP_StageShipCamera",
+    "Properties": {
+      "SimpleConstructionScript": {
+        "ObjectName": "SimpleConstructionScript'LBP_StageShipCamera_C:SimpleConstructionScript_0'",
+        "ObjectPath": "Stage/Common/Blurprints/LBP_StageShipCamera.4"
+      }
+    },
+    "SuperStruct": {
+      "ObjectName": "Class'LuxBattleStageShipCameraActor'",
+      "ObjectPath": "/Script/LuxorGame"
+    },
+    "ClassFlags": "CLASS_Optional | CLASS_CompiledFromBlueprint | CLASS_HasInstancedReference",
+    "ClassWithin": {
+      "ObjectName": "Class'Object'",
+      "ObjectPath": "/Script/CoreUObject"
+    },
+    "ClassConfigName": "Engine",
+    "bCooked": true,
+    "ClassDefaultObject": {
+      "ObjectName": "LBP_StageShipCamera_C'Default__LBP_StageShipCamera_C'",
+      "ObjectPath": "Stage/Common/Blurprints/LBP_StageShipCamera.1"
+    }
+  },
+  {
+    "Type": "LBP_StageShipCamera_C",
+    "Name": "Default__LBP_StageShipCamera_C",
+    "Flags": "RF_Public | RF_ClassDefaultObject | RF_ArchetypeObject | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "BlueprintGeneratedClass'Stage/Common/Blurprints/LBP_StageShipCamera.LBP_StageShipCamera_C'",
+    "Package": "Stage/Common/Blurprints/LBP_StageShipCamera",
+    "Properties": {
+      "RootComponent": null
+    }
+  },
+  {
+    "Type": "SceneComponent",
+    "Name": "DefaultSceneRoot_GEN_VARIABLE",
+    "Flags": "RF_Public | RF_Transactional | RF_ArchetypeObject | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'SceneComponent'",
+    "Outer": {
+      "ObjectName": "BlueprintGeneratedClass'LBP_StageShipCamera_C'",
+      "ObjectPath": "Stage/Common/Blurprints/LBP_StageShipCamera.0"
+    }
+  },
+  {
+    "Type": "SCS_Node",
+    "Name": "SCS_Node_0",
+    "Flags": "RF_Transactional | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'SCS_Node'",
+    "Outer": {
+      "ObjectName": "SimpleConstructionScript'LBP_StageShipCamera_C:SimpleConstructionScript_0'",
+      "ObjectPath": "Stage/Common/Blurprints/LBP_StageShipCamera.4"
+    },
+    "Properties": {
+      "ComponentClass": {
+        "ObjectName": "Class'SceneComponent'",
+        "ObjectPath": "/Script/Engine"
+      },
+      "ComponentTemplate": {
+        "ObjectName": "SceneComponent'LBP_StageShipCamera_C:DefaultSceneRoot_GEN_VARIABLE'",
+        "ObjectPath": "Stage/Common/Blurprints/LBP_StageShipCamera.2"
+      },
+      "VariableGuid": "5AA20FE3-4232A96A-BF3062A5-5CDA4365",
+      "InternalVariableName": "DefaultSceneRoot"
+    }
+  },
+  {
+    "Type": "SimpleConstructionScript",
+    "Name": "SimpleConstructionScript_0",
+    "Flags": "RF_Transactional | RF_WasLoaded | RF_LoadCompleted",
+    "Class": "UScriptClass'SimpleConstructionScript'",
+    "Outer": {
+      "ObjectName": "BlueprintGeneratedClass'LBP_StageShipCamera_C'",
+      "ObjectPath": "Stage/Common/Blurprints/LBP_StageShipCamera.0"
+    },
+    "Properties": {
+      "DefaultSceneRootNode": {
+        "ObjectName": "SCS_Node'LBP_StageShipCamera_C:SimpleConstructionScript_0.SCS_Node_0'",
+        "ObjectPath": "Stage/Common/Blurprints/LBP_StageShipCamera.3"
+      }
+    }
+  }
+]

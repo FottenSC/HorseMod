@@ -1,0 +1,23 @@
+> Archived investigation/checkpoint. Its results and instructions apply to its recorded sources; see [current status](../../../rollback-status.md) for active work.
+
+# Stage tick-registration ownership
+
+Late11000 candidate d6679c3bf55a44ad8e3a701bde99d260 rejects world_C: stage component0 flags+188 differ by20000000. The retained report/log is seek-late-stage-flags-failure.json. B remains retained, no commit, cleanup complete. This is scheduling/lifecycle state, not presentation dirtiness.
+
+Native141D58A20 checks component registration bit0 and bit29, calls virtual2D8 with the requested registration state, clears global registration context144392300 and updates bit29. Base virtual141D58AC0 calls142168580 on removal only if primary tick+0C bit40 is set; addition calls141D5FB60, which can register only when primary tick+0C bit2 is set. Component primary tick is+110. The base constructor141D31450 installs vtable143865FB0 whose2D8 slot is141D58AC0. Actual PE instructions and Ghidra decompilation agree. Destroy/unregister consumers141D41970/141D66700 use the same flag to decide registration teardown.
+
+Invariant: preserve component logical registration and native scheduler membership together. Do not mask bit29 as render work or directly flip it. For components with the verified base registration virtual and neither CanEverTick nor Registered in the primary tick, the native wrapper can restore the logical flag without scheduling, allocation, or gameplay callbacks. Subclass overrides or possible/registered ticks remain rejected until their additional ownership is proven.
+
+Implementation scope: extend the existing stage component witness with registration virtual and primary flags; allow flag29 variation only under that native no-membership contract. Restore source/B logical registration through native141D58A20 at the held application boundary, verify complete primary prefix and unrelated component flags unchanged, and keep B until all native tails/retirement complete. Existing world/render checks must use the same narrow admission. No extra historical renderer capture or new participant is required.
+
+Focused proof: local negative cases for override, CanEverTick, registered tick and unrelated flag changes; reversible native-wrapper fixture; then same late target commit plus independent continuation. Cancellation after late execution must recover complete B before claiming general ownership. Memory impact is two small binding fields per retained stage component; no GPU copies/readbacks or GPU waits are added. Native call and verification latency must be included in restore cost; existing retirement owns all resources.
+
+Unknown: the live failing component's registration virtual/primary flags were not yet reported. Admission must reject if they do not meet the verified contract. If it passes, late independent continuation and undo remain live requirements, not inferred from this static audit.
+
+## Live handler finding
+
+Candidate d65fb606ef494e5181d48c32ee8d6582 rejected the dormant contract: actual registration handler141DA9000 and primary flags6. The saved expected flag byte42 becomes10 at11000. Disassembly establishes a secondary tick at component+7B0 (owner+800), in addition to primary+110. Registration adds prerequisites on primary+110 and world+7E0. Unregistration removes both registered ticks through142168580, leaving their prefixes/prerequisite backing available. The existing scheduler capture enumerates registered sets plus explicitly retained primary trace/B-birth ticks; this does not by itself prove retention of an unregistered stage secondary tick.
+
+No broader admission was added. Before implementing support, prove that both actual tick prefixes, exact level/weak owner, prerequisite allocations and B registration state are retained and restored together. Calling native registration after exact scheduler installation can change enable state or append prerequisites; simply calling the wrapper is not sufficient. A focused fixture must verify both directions and rejection on missing tick/changed owner before the next live retry. Then require late committed continuation and cancellation with independently matching complete B recovery. This is scheduling ownership work; no GPU history participant is justified. Added ownership bytes and CPU capture/restore cost must be measured; no extra GPU wait is expected from tick ownership itself.
+
+This candidate retained B and cleaned up completely; no commit or native control. Exact-hold readiness25819033us,363617834 conservative bytes, zero diagnostic GPU maps. These are failed-seek diagnostics, not completed latency. Evidence: seek-late-registration-handler-failure.json and replay-stage-secondary-tick-native-2026-09-11.json.

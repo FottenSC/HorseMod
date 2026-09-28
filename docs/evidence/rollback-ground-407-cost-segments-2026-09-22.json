@@ -1,0 +1,153 @@
+{
+  "source_log": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\bb4a9f790487e9acf307a3b83977cf2c9efebda5c2eeea840cf38be0e356cb4a.log",
+  "sha256": "bb4a9f790487e9acf307a3b83977cf2c9efebda5c2eeea840cf38be0e356cb4a",
+  "scope": "Read-only segment summary of prior407; CPU wall segments include work between participant markers and exclude preceding timing log. No end-to-end performance acceptance.",
+  "capture_segments": {
+    "hud": {
+      "n": 845,
+      "median_us": 20878,
+      "p95_us": 28865,
+      "max_us": 56508
+    },
+    "traces": {
+      "n": 845,
+      "median_us": 14644,
+      "p95_us": 21757,
+      "max_us": 27031
+    },
+    "vfx_requests": {
+      "n": 845,
+      "median_us": 9595,
+      "p95_us": 14013,
+      "max_us": 18657
+    },
+    "vfx_handler": {
+      "n": 845,
+      "median_us": 9206,
+      "p95_us": 13262,
+      "max_us": 17409
+    },
+    "world": {
+      "n": 845,
+      "median_us": 7740,
+      "p95_us": 10751,
+      "max_us": 12409
+    },
+    "particle_configuration": {
+      "n": 438,
+      "median_us": 1722.0,
+      "p95_us": 3280,
+      "max_us": 6388
+    },
+    "gameplay": {
+      "n": 845,
+      "median_us": 322,
+      "p95_us": 461,
+      "max_us": 1216
+    },
+    "physics_binding": {
+      "n": 845,
+      "median_us": 278,
+      "p95_us": 373,
+      "max_us": 476
+    },
+    "scheduler": {
+      "n": 845,
+      "median_us": 274,
+      "p95_us": 407,
+      "max_us": 686
+    },
+    "lease": {
+      "n": 845,
+      "median_us": 234,
+      "p95_us": 341,
+      "max_us": 476
+    },
+    "encoded_ucrt": {
+      "n": 845,
+      "median_us": 91,
+      "p95_us": 104,
+      "max_us": 289
+    },
+    "ground_configuration": {
+      "n": 845,
+      "median_us": 57,
+      "p95_us": 135,
+      "max_us": 523
+    },
+    "source_registration": {
+      "n": 845,
+      "median_us": 48,
+      "p95_us": 73,
+      "max_us": 122
+    },
+    "input_revision": {
+      "n": 845,
+      "median_us": 13,
+      "p95_us": 21,
+      "max_us": 92
+    },
+    "particle_completion_owners": {
+      "n": 845,
+      "median_us": 8,
+      "p95_us": 11,
+      "max_us": 77
+    },
+    "source": {
+      "n": 845,
+      "median_us": 4,
+      "p95_us": 10,
+      "max_us": 98
+    },
+    "rendering": {
+      "n": 845,
+      "median_us": 0,
+      "p95_us": 0,
+      "max_us": 0
+    },
+    "ucrt": {
+      "n": 845,
+      "median_us": 0,
+      "p95_us": 0,
+      "max_us": 1
+    }
+  },
+  "c_capture_segments": {
+    "false:hud": {
+      "n": 407,
+      "median_us": 20764,
+      "p95_us": 30090,
+      "max_us": 35821
+    },
+    "false:traces": {
+      "n": 407,
+      "median_us": 16291,
+      "p95_us": 22810,
+      "max_us": 27606
+    },
+    "false:vfx": {
+      "n": 407,
+      "median_us": 12537,
+      "p95_us": 15053,
+      "max_us": 17583
+    },
+    "false:scheduler": {
+      "n": 407,
+      "median_us": 373,
+      "p95_us": 571,
+      "max_us": 772
+    },
+    "false:physics": {
+      "n": 407,
+      "median_us": 282,
+      "p95_us": 371,
+      "max_us": 512
+    },
+    "false:render_bindings": {
+      "n": 407,
+      "median_us": 0,
+      "p95_us": 0,
+      "max_us": 1
+    }
+  }
+}

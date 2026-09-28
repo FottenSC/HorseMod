@@ -17,6 +17,45 @@
 
 namespace Horse::Deterministic
 {
+namespace {
+// Encoding and verification retain separate buffers so nested verification
+// cannot invalidate the encoder's views. All persistent vector ownership is
+// observable, including allocations made before the replay host is created.
+struct CodecThreadScratch {
+    std::array<std::vector<std::byte>, 9> encode;
+    std::array<std::vector<std::byte>, 4> decode;
+};
+thread_local CodecThreadScratch codec_thread_scratch;
+}
+
+std::size_t CandidateCheckpointCodec::ThreadScratchBytes() noexcept
+{
+    std::size_t bytes = sizeof(codec_thread_scratch);
+    for (const auto& buffer : codec_thread_scratch.encode) bytes += buffer.capacity();
+    for (const auto& buffer : codec_thread_scratch.decode) bytes += buffer.capacity();
+    return bytes;
+}
+
+Status CandidateCheckpointCodec::PrepareThreadScratchStorage(std::size_t additional_budget) noexcept
+{
+    // Each canonical/local stream fits the existing complete encoded envelope.
+    // Charge the entire replacement allocation while the old vector is alive.
+    const auto prepare = [&](auto& buffers) {
+        for (auto& buffer : buffers) {
+            if (buffer.capacity() >= candidate_checkpoint_capture_byte_capacity) continue;
+            if (candidate_checkpoint_capture_byte_capacity > additional_budget) return false;
+            const auto old = buffer.capacity();
+            buffer.reserve(candidate_checkpoint_capture_byte_capacity);
+            additional_budget -= buffer.capacity() - old;
+        }
+        return true;
+    };
+    try {
+        return prepare(codec_thread_scratch.encode) && prepare(codec_thread_scratch.decode)
+            ? Status::success() : Status::failure(FailureCode::CapacityExceeded);
+    } catch (...) { return Status::failure(FailureCode::CapacityExceeded); }
+}
+
 std::size_t CandidateCheckpointDynamicCapacity(
     const CandidateCheckpointImage& image,
     bool include_attached_local_images) noexcept
@@ -117,7 +156,7 @@ void reset_checkpoint_image(CandidateCheckpointImage& output) noexcept
 constexpr std::array<std::byte, 8> magic{
     std::byte{'H'}, std::byte{'R'}, std::byte{'S'}, std::byte{'C'},
     std::byte{'P'}, std::byte{0}, std::byte{0}, std::byte{11}};
-constexpr std::uint32_t format_version = 18;
+constexpr std::uint32_t format_version = 21;
 constexpr std::array<std::byte, 20> hash_domain{
     std::byte{'H'}, std::byte{'o'}, std::byte{'r'}, std::byte{'s'},
     std::byte{'e'}, std::byte{'C'}, std::byte{'a'}, std::byte{'n'},
@@ -177,13 +216,18 @@ void append_ucrt_canonical(
     append(output, image.state);
     append(output, image.draws);
     append(output, static_cast<std::uint8_t>(image.seeded));
+    append(output, image.combat_state);
+    append(output, image.seed_state);
+    append(output, image.warmup_draws);
+    append(output, image.native_draws);
+    append(output, image.unknown_draws);
+    append(output, image.epoch);
+    append(output, static_cast<std::uint8_t>(image.combat_ready));
 }
 
 bool valid_ucrt_image(const UcrtRandBrokerImage& image) noexcept
 {
-    return image.seeded
-        && image.algorithm_version == Schema::Sc6UcrtLayout::algorithm_version
-        && image.allowlist_version == Schema::Sc6UcrtLayout::allowlist_version;
+    return UcrtRandBroker::ValidateImage(image);
 }
 
 bool valid_wind_image(const StageWindTopologyImage& image) noexcept
@@ -576,38 +620,38 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
     }
     try
     {
-        static thread_local std::vector<std::byte> native_canonical;
+        auto& native_canonical = codec_thread_scratch.encode[0];
         NativeCandidateRegions::CanonicalBytes(
             image.native, native_canonical);
         if (native_canonical.empty()
             || native_canonical.size() > std::numeric_limits<std::uint32_t>::max())
             return Status::failure(FailureCode::CapacityExceeded);
-        static thread_local std::vector<std::byte> native_peer_canonical;
+        auto& native_peer_canonical = codec_thread_scratch.encode[1];
         NativeCandidateRegions::PeerCanonicalBytes(
             image.native, native_canonical, native_peer_canonical);
         if (native_peer_canonical.empty())
             return Status::failure(FailureCode::CaptureFailed);
-        static thread_local std::vector<std::byte> move_dispatch_canonical;
+        auto& move_dispatch_canonical = codec_thread_scratch.encode[2];
         MoveDispatchState::CanonicalBytes(
             image.move_dispatch, move_dispatch_canonical);
         if (move_dispatch_canonical.empty()
             || move_dispatch_canonical.size()
                 > std::numeric_limits<std::uint32_t>::max())
             return Status::failure(FailureCode::CapacityExceeded);
-        static thread_local std::vector<std::byte> secondary_canonical;
+        auto& secondary_canonical = codec_thread_scratch.encode[3];
         SecondaryEventState::CanonicalBytes(
             image.secondary_events, secondary_canonical);
-        static thread_local std::vector<std::byte> animation_canonical;
+        auto& animation_canonical = codec_thread_scratch.encode[4];
         CharaAnimationState::CanonicalBytes(
             image.chara_animation, animation_canonical);
-        static thread_local std::vector<std::byte> animation_peer_canonical;
+        auto& animation_peer_canonical = codec_thread_scratch.encode[5];
         CharaAnimationState::PeerCanonicalBytes(
             image.chara_animation, animation_peer_canonical);
-        static thread_local std::vector<std::byte> ucrt_canonical;
+        auto& ucrt_canonical = codec_thread_scratch.encode[6];
         ucrt_canonical.clear();
-        if (ucrt_canonical.capacity() < 32) ucrt_canonical.reserve(32);
+        if (ucrt_canonical.capacity() < 64) ucrt_canonical.reserve(64);
         append_ucrt_canonical(ucrt_canonical, image.ucrt);
-        static thread_local std::vector<std::byte> wind_canonical;
+        auto& wind_canonical = codec_thread_scratch.encode[7];
         const auto wind_status = StageWindTopologyProbe::CanonicalBytes(
             image.wind, wind_canonical);
         if (!wind_status.ok()) return wind_status;
@@ -623,7 +667,7 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
             + move_dispatch_canonical.size() + secondary_canonical.size()
             + animation_canonical.size() + ucrt_canonical.size()
             + wind_canonical.size();
-        static thread_local std::vector<std::byte> wind_local;
+        auto& wind_local = codec_thread_scratch.encode[8];
         wind_local.clear();
         encode_wind_local(image.wind, wind_local);
         const auto battle_audio_selector_local =
@@ -849,11 +893,7 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
         append(output.bytes, static_cast<std::uint32_t>(
             battle_audio_selector_local.size()));
         append(output.bytes, local_checksum(battle_audio_selector_local));
-        append(output.bytes, image.ucrt.algorithm_version);
-        append(output.bytes, image.ucrt.allowlist_version);
-        append(output.bytes, image.ucrt.state);
-        append(output.bytes, image.ucrt.draws);
-        append(output.bytes, static_cast<std::uint8_t>(image.ucrt.seeded));
+        append_ucrt_canonical(output.bytes, image.ucrt);
         append(output.bytes, static_cast<std::uint8_t>(
             movable_image != nullptr));
         append(output.bytes, static_cast<std::uint32_t>(image.local_images.size()));
@@ -875,6 +915,21 @@ Status CandidateCheckpointCodec::EncodeInternal(FrameCoordinate coordinate,
             if (movable_image == nullptr)
                 append_range(output.bytes, local.bytes);
         }
+        // Local restoration owns the complete typed camera image. Keep it
+        // separate from the existing peer fingerprint and checksum every field.
+        const auto camera_begin = output.bytes.size();
+        for (const auto& camera : image.native.camera_components) {
+            append(output.bytes, camera.common);
+            append(output.bytes, camera.derived);
+            append(output.bytes, camera.vtable_rva);
+            append(output.bytes, camera.writer_rva);
+            append(output.bytes, camera.derived_size);
+            append(output.bytes, camera.tracked_chara_slot);
+            append(output.bytes, camera.state_buffer_chara_slots);
+            append(output.bytes, camera.serialization);
+            append(output.bytes, camera.present);
+        }
+        append(output.bytes, local_checksum(std::span<const std::byte>(output.bytes).subspan(camera_begin)));
         append_range(output.bytes, native_canonical);
         append_range(output.bytes, move_dispatch_canonical);
         append_range(output.bytes, secondary_canonical);
@@ -912,6 +967,7 @@ Status CandidateCheckpointCodec::Decode(
     std::uint32_t battle_audio_selector_local_size_observed{};
     std::uint64_t battle_audio_selector_local_checksum{};
     std::uint8_t ucrt_seeded{};
+    std::uint8_t ucrt_combat_ready{};
     std::uint8_t attached_local_storage{};
     std::uint32_t local_count{};
     if (snapshot.coordinate.generation == 0 || snapshot.context_identity == 0
@@ -940,6 +996,13 @@ Status CandidateCheckpointCodec::Decode(
         || !reader.Take(output.ucrt.state)
         || !reader.Take(output.ucrt.draws)
         || !reader.Take(ucrt_seeded) || ucrt_seeded > 1
+        || !reader.Take(output.ucrt.combat_state)
+        || !reader.Take(output.ucrt.seed_state)
+        || !reader.Take(output.ucrt.warmup_draws)
+        || !reader.Take(output.ucrt.native_draws)
+        || !reader.Take(output.ucrt.unknown_draws)
+        || !reader.Take(output.ucrt.epoch)
+        || !reader.Take(ucrt_combat_ready) || ucrt_combat_ready > 1
         || !reader.Take(attached_local_storage)
         || attached_local_storage > 1
         || !reader.Take(local_count) || local_count == 0
@@ -951,6 +1014,7 @@ Status CandidateCheckpointCodec::Decode(
         return Status::failure(FailureCode::CaptureFailed);
     }
     output.ucrt.seeded = ucrt_seeded != 0;
+    output.ucrt.combat_ready = ucrt_combat_ready != 0;
     try
     {
         output.local_images.reserve(maximum_local_reconstruction_images);
@@ -987,7 +1051,7 @@ Status CandidateCheckpointCodec::Decode(
             : index == 1
                 && serializer_id == static_cast<std::uint32_t>(
                     LocalSerializerId::MotionBankTriples)
-                && local_size == motion_bank_image_bytes;
+                && local_size >= motion_bank_base_image_bytes && local_size <= motion_bank_image_bytes;
         if (!valid_serializer)
             return Status::failure(FailureCode::CaptureFailed);
         local.serializer_id = static_cast<LocalSerializerId>(serializer_id);
@@ -1013,6 +1077,25 @@ Status CandidateCheckpointCodec::Decode(
         }
         catch (...) { return Status::failure(FailureCode::CapacityExceeded); }
     }
+    decltype(output.native.camera_components) local_cameras{};
+    LocalImageChecksum camera_checksum;
+    const auto take_camera_field = [&](auto& field) {
+        if (!reader.Take(field)) return false;
+        camera_checksum.Add(&field, sizeof(field));
+        return true;
+    };
+    for (auto& camera : local_cameras) {
+        if (!take_camera_field(camera.common) || !take_camera_field(camera.derived)
+            || !take_camera_field(camera.vtable_rva) || !take_camera_field(camera.writer_rva)
+            || !take_camera_field(camera.derived_size) || !take_camera_field(camera.tracked_chara_slot)
+            || !take_camera_field(camera.state_buffer_chara_slots)
+            || !take_camera_field(camera.serialization) || !take_camera_field(camera.present)
+            || camera.present > 1 || camera.derived_size > camera.derived.size())
+            return Status::failure(FailureCode::CaptureFailed);
+    }
+    std::uint64_t observed_camera_checksum{};
+    if (!reader.Take(observed_camera_checksum) || observed_camera_checksum != camera_checksum.Finish())
+        return Status::failure(FailureCode::RestoreVerificationFailed);
     const auto native_canonical = reader.TakeView(native_canonical_size);
     const auto move_dispatch_canonical =
         reader.TakeView(move_dispatch_canonical_size);
@@ -1043,11 +1126,11 @@ Status CandidateCheckpointCodec::Decode(
         return Status::failure(FailureCode::CaptureFailed);
     }
     CanonicalHash verified_hash{};
-    static thread_local std::vector<std::byte> ucrt_canonical;
+    auto& ucrt_canonical = codec_thread_scratch.decode[0];
     try
     {
         ucrt_canonical.clear();
-        if (ucrt_canonical.capacity() < 32) ucrt_canonical.reserve(32);
+        if (ucrt_canonical.capacity() < 64) ucrt_canonical.reserve(64);
         append_ucrt_canonical(ucrt_canonical, output.ucrt);
     }
     catch (...)
@@ -1057,6 +1140,7 @@ Status CandidateCheckpointCodec::Decode(
     }
     const Status decoded = NativeCandidateRegions::DecodeCanonicalBytes(
         native_canonical, output.native);
+    if (decoded.ok()) output.native.camera_components = local_cameras;
     const Status move_dispatch_decoded = MoveDispatchState::DecodeCanonicalBytes(
         move_dispatch_canonical, output.move_dispatch);
     const Status secondary_decoded = SecondaryEventState::DecodeCanonicalBytes(
@@ -1067,17 +1151,17 @@ Status CandidateCheckpointCodec::Decode(
     const Status battle_audio_selector_decoded =
         decode_battle_audio_selector_local(
             battle_audio_selector_local, output.battle_audio_selector);
-    static thread_local std::vector<std::byte> native_peer_canonical;
+    auto& native_peer_canonical = codec_thread_scratch.decode[1];
     native_peer_canonical.clear();
     if (decoded.ok())
         NativeCandidateRegions::PeerCanonicalBytes(
             output.native, native_canonical, native_peer_canonical);
-    static thread_local std::vector<std::byte> animation_peer_canonical;
+    auto& animation_peer_canonical = codec_thread_scratch.decode[2];
     animation_peer_canonical.clear();
     if (animation_decoded.ok())
         CharaAnimationState::PeerCanonicalBytes(
             output.chara_animation, animation_peer_canonical);
-    static thread_local std::vector<std::byte> wind_canonical;
+    auto& wind_canonical = codec_thread_scratch.decode[3];
     wind_canonical.clear();
     if (wind_decoded.ok())
     {

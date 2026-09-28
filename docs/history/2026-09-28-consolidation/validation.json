@@ -1,0 +1,29 @@
+{
+  "scope": "Documentation only. Original 97 narrative files; separately created code-usage-2026-09-28.md excluded and untouched. No native or runtime tests run.",
+  "relocated_notes": 92,
+  "preserved_rewritten_pages": 3,
+  "condensed_topic_references": 4,
+  "active_reading_set_files": 10,
+  "active_reading_set_bytes": 95185,
+  "status_before_bytes": 60961,
+  "status_after_bytes": 5895,
+  "original_zip_entries_verified": 96,
+  "archived_document_hashes_verified": 95,
+  "canonical_and_index_local_links_checked": 232,
+  "missing_targets": [],
+  "missing_anchors": [],
+  "rebased_markdown_links": 1373,
+  "newly_broken_existing_targets": [],
+  "preexisting_unresolved_reference_occurrences": 151,
+  "limits": "Pre-existing unresolved historical locators were retained rather than inventing missing evidence. Immutable raw logs/JSON/source artifacts and third-party checkouts were not moved or rewritten.",
+  "concurrent_workspace_note": "A separate code-usage report and unrelated AGENTS edits were observed during final verification and left outside this task.",
+  "native_dump_cleanup_followup": {
+    "moved_files": 24,
+    "raw_hashes_verified": 24,
+    "local_links_checked": 134,
+    "broken_links": [],
+    "remaining_root_json": "Three tooling manifests and one generated CALLCOND domain file; paths unchanged.",
+    "runtime_changes": false,
+    "agents_md_changed": false
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "result": "PASS five focused production-boundary tests",
+  "log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\f77ef7a033954196fe32b6b4463555e3dc597ae2a44a061df0595d000d332930.json",
+    "sha256": "f77ef7a033954196fe32b6b4463555e3dc597ae2a44a061df0595d000d332930",
+    "bytes": 101
+  },
+  "source_retention": {
+    "manifest_sha256": "b28bedb2b5ac04ccc3a135a3f44784ab9a0366e3bb0e960cd9e16978b7297e60",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-b28bedb2b5ac04ccc3a135a3f44784ab9a0366e3bb0e960cd9e16978b7297e60.zip",
+    "archive_sha256": "bd9b9b1db0df4c6cef80efd30ddc656c8b08e2a899880f0c0ec6cccda9b6acec",
+    "files": 16603,
+    "uncompressed_bytes": 92797886,
+    "reconstructible": true
+  },
+  "red": "docs/evidence/rollback-g1-context-world-red-2026-09-24.json",
+  "native_run_manifest": "8fa41a248631d185fbb869afb986519060c5aece17e56b4c732e261a48c35119",
+  "scope": "TickEngineWorld routing fix, preserving bound-only pause/accounting and original world argument throughout continuation. Shared named-thread queue admission remains enforced through existing world/task executor. Local external continuation probes do not prove native completion or B recovery.",
+  "cases": [
+    "Other context world always uses owned executor even while bound world paused",
+    "Context change during continuation does not retarget original world or restart executor",
+    "Other context completion does not increment bound-world completion",
+    "Paused bound world remains skipped and held update counted",
+    "Bound world completion remains counted after context mutation",
+    "Idle-mode skip unchanged"
+  ],
+  "command": "PYTHONPATH=tools python -m pytest -q -x tools/deterministic_qualification/tests/test_consumer_host.py::test_engine_context_worlds_preserve_owned_dispatch tools/deterministic_qualification/tests/test_consumer_host.py::test_world_start_preserves_owned_prior_cleanup_wait tools/deterministic_qualification/tests/test_consumer_host.py::test_prerequisite_guard_reads_and_pre_native_witness tools/deterministic_qualification/tests/test_consumer_host.py::test_consumer_retirement_entries_stop_before_native_effects tools/deterministic_qualification/tests/test_replay_run.py::test_component_dispatch_revalidates_admitted_consumer",
+  "remaining": "Required build/native/two CTests and shortest bounded live retry owned by parent. G1 and complete-B recovery remain unproven."
+}

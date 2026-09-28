@@ -1,0 +1,35 @@
+{
+  "stage": "GREEN",
+  "date": "2026-09-24",
+  "result": "PASS four focused production-boundary tests in2.36seconds",
+  "source_retention": {
+    "manifest_sha256": "f20feef429629800d9535c55b39cb0ec1f9beb97d7d9776b0ad3c2f7d2b4089d",
+    "archive": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\source-archives\\source-f20feef429629800d9535c55b39cb0ec1f9beb97d7d9776b0ad3c2f7d2b4089d.zip",
+    "archive_sha256": "a38e516e1aab80536ce0ff8de52e16bc2879b74a6a091e6175439b396e4f75b0",
+    "files": 16606,
+    "uncompressed_bytes": 92823238,
+    "reconstructible": true
+  },
+  "log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8d5d8f678dd7f98c6d6225feab6842340281e849ae45643af22d9b8f169603c8.json",
+    "sha256": "8d5d8f678dd7f98c6d6225feab6842340281e849ae45643af22d9b8f169603c8",
+    "bytes": 100
+  },
+  "red": "docs/evidence/rollback-g1-recovery-diagnostic-red-2026-09-24.json",
+  "live_manifest": "a4b176cb56a91644a055ce8c56e9a25c6a409cf7cfee26e79a51e9232c59f106",
+  "command": "PYTHONPATH=tools python -m pytest -q -x tools/deterministic_qualification/tests/test_consumer_host.py::test_second_consumer_failure_preserves_actual_recovery_witness tools/deterministic_qualification/tests/test_startup_failure.py::test_consumer_preopened_empty_cleanup_uses_durable_runner_permission tools/deterministic_qualification/tests/test_startup_failure.py::test_consumer_failure_collector_preserves_crash_bytes_and_run_identity tools/deterministic_qualification/tests/test_consumer_host.py::test_consumer_recovery_requires_native_mutation_and_complete_retirement",
+  "changes": [
+    "Second Failed observer state reads actual restore witness once and logs exact seek/restore failure, ownership, participant and readiness before stopping; no repeated cancellation or recovery promotion",
+    "Runner journals exact empty SHA256 before launch only for preopened consumer failure destination; journal reload restores both prior absence and prior report; generic empty and foreign run report remain rejected",
+    "Collector retains exact empty bytes and explicit preopened-empty marker without creating failure record"
+  ],
+  "limits": [
+    "Live exact post-render failure predicate remains unknown",
+    "No native recovery behavior or guard changed",
+    "Build/native/live orchestration pending parent"
+  ],
+  "intermediate_fixture_failure": {
+    "log_sha256": "bdcc83620d29fd244c82e137cadd05dfc8f188e58866f85f0adbc7c2a7e0afe6",
+    "reason": "Fixture expected seek UndoFailed but second call retained default UnsupportedContent; set explicit distinct seek failure input, production unchanged"
+  }
+}

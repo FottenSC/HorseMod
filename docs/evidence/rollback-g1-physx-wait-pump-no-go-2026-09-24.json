@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "date": "2026-09-24",
+  "scope": "read-only native task-graph wait-pump counterexample and Astra high no-go assessment",
+  "files": {
+    "native_audit": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c994330507d3691e19292d9581679ee3bbde6d997e4a7304ec1311e672bcfad4.md",
+      "sha256": "c994330507d3691e19292d9581679ee3bbde6d997e4a7304ec1311e672bcfad4",
+      "bytes": 3109
+    },
+    "astra_assessment": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d27ea9b839060d7b8749fa9ef44c72bae1baa3810a8efac155657338d9b185d5.txt",
+      "sha256": "d27ea9b839060d7b8749fa9ef44c72bae1baa3810a8efac155657338d9b185d5",
+      "bytes": 3343
+    },
+    "astra_events": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\990d3fe96c5aa9a15189f1cad304de65f43260d2ba658ea9249ca695ca5c8d13.log",
+      "sha256": "990d3fe96c5aa9a15189f1cad304de65f43260d2ba658ea9249ca695ca5c8d13",
+      "bytes": 565884
+    }
+  },
+  "code_changed": false,
+  "tests_or_live_this_audit": false,
+  "selected_phase_reference": "docs/evidence/rollback-g1-physx-callback-observation-2026-09-24.json",
+  "remaining_blocker": "Wait may pump general task queues; actual destructor branch and callback/event dependency closure are not proven. Site11 has no generation-stable writer owner or recoverable enclosing task disposition.",
+  "next_resolving_check": "Determine actual +0x60 processing-state branch at scene replacement/destruction; trace initial/repeat substep completion into waited events and establish synchronized writer exclusion before site11 recovery."
+}

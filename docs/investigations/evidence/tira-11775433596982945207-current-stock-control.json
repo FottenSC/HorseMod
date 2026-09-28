@@ -1,0 +1,40 @@
+{
+  "case_id": "tira-authored-11775433596982945207",
+  "certifying": false,
+  "cleanup": {
+    "diagnostic_flags_restored_false": {
+      "correction_probe": true,
+      "forced_depth7_qualification": true,
+      "trace": true
+    },
+    "process_absent": true
+  },
+  "created_utc": "2026-09-01T22:21:24.831583+00:00",
+  "display_map_name": "Astral Chaos: Tide of the Damned",
+  "failure": {
+    "bounded_log": "E:\\myMods\\docs\\investigations\\evidence\\tira-11775433596982945207-current-stock-control.failure.log",
+    "bounded_log_lines": 66,
+    "field_or_mask": null,
+    "fields": {
+      "elapsed_us": "1985930",
+      "forward_ticks": "0",
+      "fps_milli": "60425",
+      "minimum": "59001",
+      "tick_rate_milli": "0",
+      "viewport_frames": "120"
+    },
+    "first_failing_frame": null,
+    "first_failure_line": "[2026-09-02 00:21:21.5795251] [ReplayQualification] normal-render active battle rate failed viewport_frames=120 forward_ticks=0 elapsed_us=1985930 fps_milli=60425 tick_rate_milli=0 minimum=59001",
+    "graph_provenance": null,
+    "lifecycle_phase": null,
+    "owner_pointer": null,
+    "owner_selector": null,
+    "return_rva": null
+  },
+  "kind": "replay_entry_failure",
+  "reason": "native replay entry failed: normal_render_active_battle_rate_below_minimum",
+  "report_schema": 2,
+  "result": "fail",
+  "row_id": "current-stock-control",
+  "stage_package_root": "/Game/Stage/STG004"
+}

@@ -1,0 +1,70 @@
+{
+  "scope": "G1 retained task dispatcher and host control flow; no live suspension or B recovery claimed",
+  "result": "pass",
+  "local_tests": 6,
+  "local_log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\ce51717ba3587999cfeb6b5abbcde99700f9cdd850fe828581a3cdeb9c5eac28.log",
+    "sha256": "ce51717ba3587999cfeb6b5abbcde99700f9cdd850fe828581a3cdeb9c5eac28",
+    "bytes": 117
+  },
+  "runner_setup_red": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\1ea1b2e9299df5583ab20a1e6531dbd2156c1ff768c75595688c3474d6f4b74c.log",
+    "sha256": "1ea1b2e9299df5583ab20a1e6531dbd2156c1ff768c75595688c3474d6f4b74c",
+    "bytes": 2718
+  },
+  "native_regressions": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d15c2da7a779fa0cd94f2abba5fb22380f7ffb8e9a0c7dbed8ecb422f6b6e498.json",
+    "sha256": "d15c2da7a779fa0cd94f2abba5fb22380f7ffb8e9a0c7dbed8ecb422f6b6e498",
+    "bytes": 2141
+  },
+  "native_log": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\c43e991602baf28b6b0cfe5bc8deb749a8080b540465d87116a7eaff019c954e.log",
+    "sha256": "c43e991602baf28b6b0cfe5bc8deb749a8080b540465d87116a7eaff019c954e",
+    "bytes": 5195
+  },
+  "nested_dispatch_red": {
+    "exit": 84,
+    "scope": "actual production PumpOne/ResumeConsumerTask extracted before execution-in-progress guard; interface fixture does not grant native UObject ownership",
+    "inputs": [
+      {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\ec60303793e378f3d0c7a17eccc7616b253fca798c3a8799f4548bd998ddb8df.inl",
+        "sha256": "ec60303793e378f3d0c7a17eccc7616b253fca798c3a8799f4548bd998ddb8df",
+        "bytes": 344
+      },
+      {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\e1863830bb124f19c2b406a6c094e9ba3d3d1a92c7aeba011ae6a224dbad3d2d.inl",
+        "sha256": "e1863830bb124f19c2b406a6c094e9ba3d3d1a92c7aeba011ae6a224dbad3d2d",
+        "bytes": 1507
+      },
+      {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4451af6ac29e077c5abf53c1136bd222085fe69d6f6247400e72c0908588b8aa.inl",
+        "sha256": "4451af6ac29e077c5abf53c1136bd222085fe69d6f6247400e72c0908588b8aa",
+        "bytes": 4902
+      },
+      {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\99aa037e7b76dd3a31b68244ca2d5734fc970e13063c3608efabca795f543f4d.inl",
+        "sha256": "99aa037e7b76dd3a31b68244ca2d5734fc970e13063c3608efabca795f543f4d",
+        "bytes": 3153
+      },
+      {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\9cfc8f6b4aebba06f017d425df4d33852b953f7b9d7387d2e73ca4bc2b692c49.inl",
+        "sha256": "9cfc8f6b4aebba06f017d425df4d33852b953f7b9d7387d2e73ca4bc2b692c49",
+        "bytes": 498
+      },
+      {
+        "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\fc148c392b02b3a1d95cab866900f718b2c8d2dfc653d9b71c89a0989b7dbe2a.exe",
+        "sha256": "fc148c392b02b3a1d95cab866900f718b2c8d2dfc653d9b71c89a0989b7dbe2a",
+        "bytes": 168448
+      }
+    ]
+  },
+  "native_sources": [
+    "docs\\evidence\\rollback-g1-cri-empty-dispatch-native-2026-09-23.json",
+    "docs\\evidence\\rollback-g1-physics-cri-quiescence-native-2026-09-23.json"
+  ],
+  "immutable": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8e7bb4d4e5e88de7733529bc2d10ee0686d90d61ea60f2bbd9912ece8beb9143.json",
+    "sha256": "8e7bb4d4e5e88de7733529bc2d10ee0686d90d61ea60f2bbd9912ece8beb9143",
+    "bytes": 3566
+  }
+}

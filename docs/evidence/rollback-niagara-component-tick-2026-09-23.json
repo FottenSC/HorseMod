@@ -1,0 +1,6 @@
+{
+  "address": "141BCDB90",
+  "assembly": "141bcdb90: PUSH RBX \n141bcdb92: SUB RSP,0x20 \n141bcdb96: TEST dword ptr [RCX + 0x188],0x40000 \n141bcdba0: MOV RBX,RCX \n141bcdba3: JZ 0x141bcdbb6 \n141bcdba5: MOV RCX,qword ptr [RCX + 0x810] \n141bcdbac: TEST RCX,RCX \n141bcdbaf: JZ 0x141bcdbb6 \n141bcdbb1: CALL 0x141bcc8e0 \n141bcdbb6: MOV RCX,qword ptr [RBX + 0x790] \n141bcdbbd: TEST RCX,RCX \n141bcdbc0: JZ 0x141bcdbcf \n141bcdbc2: MOVZX EAX,byte ptr [RBX + 0x850] \n141bcdbc9: MOV byte ptr [RCX + 0x1b0],AL \n141bcdbcf: XOR R8D,R8D \n141bcdbd2: XOR EDX,EDX \n141bcdbd4: MOV RCX,RBX \n141bcdbd7: CALL 0x1403d3030 \n141bcdbdc: MOV RCX,RBX \n141bcdbdf: ADD RSP,0x20 \n141bcdbe3: POP RBX \n141bcdbe4: JMP 0x141d4e8f0 \n",
+  "finding": "Niagara component tick tests component+188 bit0x40000 and system pointer+810, then calls141BCC8E0. This caller has no global Niagara configuration check. Remaining branch updates render proxy+1b0 from component+850 and invokes scene transform/render-dirty paths. Disabled authored configuration alone does not prove runtime isolation.",
+  "xref": "vtable/data pointer1437FA518"
+}

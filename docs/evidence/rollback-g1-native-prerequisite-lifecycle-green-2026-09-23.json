@@ -1,0 +1,31 @@
+{
+  "result": "PASS shipped public removal, actual graph linking, callback before event completion, native dependency decrement/enqueue once, event7->6 and task pool retirement; two-edge swap-remove preserved distinct edge",
+  "scope": "Mapped shipped-native lifecycle only; external heap, CRT copy, object-array storage, TLS, enqueue capture. No UObject lifetime, production mutation admission, or B recovery claim.",
+  "files": [
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\4be403d4c5338e0eeb6f68543f9788f657cd73d1ab10e779db9cfda4686915d6.log",
+      "sha256": "4be403d4c5338e0eeb6f68543f9788f657cd73d1ab10e779db9cfda4686915d6",
+      "bytes": 5002
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\609bd44c5b8f085e39444bc6bce0cef55e612774075061168e2cde862ae19c18.inl",
+      "sha256": "609bd44c5b8f085e39444bc6bce0cef55e612774075061168e2cde862ae19c18",
+      "bytes": 11837
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\be4482371cf19b2bae8264c320d550dd5764b1b3d5805b35dd9461925e4d4e4c.cpp",
+      "sha256": "be4482371cf19b2bae8264c320d550dd5764b1b3d5805b35dd9461925e4d4e4c",
+      "bytes": 423662
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\5a99bbd9178785fe9f924476689642c7fc73acd7a419184721fb2f646f80ca71.json",
+      "sha256": "5a99bbd9178785fe9f924476689642c7fc73acd7a419184721fb2f646f80ca71",
+      "bytes": 43239
+    },
+    {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\cac51e8b3b9a6031fbaa21db5017ec9d3f2627b577f938dea19a80a63a035a7b.exe",
+      "sha256": "cac51e8b3b9a6031fbaa21db5017ec9d3f2627b577f938dea19a80a63a035a7b",
+      "bytes": 1689600
+    }
+  ]
+}

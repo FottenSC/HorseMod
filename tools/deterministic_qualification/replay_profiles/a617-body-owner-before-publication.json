@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "name": "a617-body-owner-before-publication",
+  "purpose": "diagnostic",
+  "arguments": [
+    "combat-restore",
+    "--combat-case", "before",
+    "--host-seek",
+    "--combat-exact-advance",
+    "--combat-anchor-tick", "617",
+    "--combat-advanced-tick", "624",
+    "--host-seek-target", "624",
+    "--replay-budget-gib", "1",
+    "--timeout", "180",
+    "--diagnostic-mask", "0",
+    "--diagnostic-stack-depth", "0",
+    "--diagnostic-first-tick", "0",
+    "--diagnostic-last-tick", "36000",
+    "--diagnostic-byte-limit", "1048576",
+    "--flush-startup-loading",
+    "--no-async-loading-thread"
+  ],
+  "continuation_ticks": 120,
+  "setup": {
+    "skip_intros": true,
+    "include_setup": true,
+    "native_fixed_seed": true,
+    "serial_particles": true,
+    "flush_startup_loading": true,
+    "no_async_loading_thread": true
+  },
+  "comparison": "Independent native unchanged history through B624 and 120 continuation ticks after prepublication cancellation.",
+  "observation": {
+    "normal_renderer": true,
+    "pixel_diagnostics": false,
+    "coherence_images": false
+  },
+  "scope": "Read-only A617 scene/body owner join on unchanged ordinary forward work; cancel preparation before A publication. No corrected traversal or G0 certification.",
+  "admission": "This profile is parked while G0 is RED. The active plan prohibits deployment before G0; running it requires an explicit exception and a separate read-only preflight decision.",
+  "contract": {
+    "version": 1,
+    "hypothesis": "The A617 indexed component maps to one ground child and an exact scene actor/flag row before any A publication.",
+    "decision": "Retain the first complete owner/scene row and stop if the join or cancellation fails.",
+    "required_event": "A617 complete inventory and completed B624 recovery",
+    "phase": "before",
+    "window": [617, 744],
+    "setup": {
+      "skip_intros": true,
+      "include_setup": true,
+      "native_fixed_seed": true,
+      "serial_particles": true,
+      "flush_startup_loading": true,
+      "no_async_loading_thread": true
+    },
+    "identities": ["game", "runtime", "framework", "observer", "replay", "state_policy", "source"],
+    "success": "Complete owner row, successful before-publication cancellation and independent 120-tick B continuation.",
+    "falsification": "Missing indexed owner join, changed scene/flag, cancellation failure or independent mismatch.",
+    "expected_injections": [{"kind": "cancel", "phase": "before", "recovery": "complete B and 120 independent ticks"}],
+    "stop_conditions": ["first unexpected failure", "timeout retains ownership for cleanup"],
+    "permitted_claims": ["A617 owner/scene/flag observation only; no G0 or corrected rollback qualification"],
+    "validator": "b_recovery",
+    "coverage": {"continuation_ticks": 120, "b_recovered": true}
+  },
+  "prerequisites": [
+    "explicit exception to the plan's no-deployment rule while G0 is RED",
+    "current full local suite and native build",
+    "exact mapped game/runtime/framework/observer/replay identities"
+  ],
+  "required_gates": ["G0"]
+}

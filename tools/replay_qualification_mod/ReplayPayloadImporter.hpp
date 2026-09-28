@@ -22,6 +22,7 @@ enum class ImportFailure : std::uint8_t
     PlaybackContextCopyFailed,
     DestroyFailed,
     InvalidMetadata,
+    IdentityMismatch,
 };
 
 struct ReplayMetadata
@@ -35,6 +36,7 @@ struct ReplayMetadata
     std::uint8_t left_character{0xff};
     std::uint8_t right_character{0xff};
     std::uint32_t state_reset_record_count{};
+    std::int32_t recorded_match_winner{-1}; // Offline oracle; never simulation input.
 };
 
 class ReplayPayloadImporter final
@@ -48,10 +50,19 @@ public:
     bool RequestPlayerProfiles() noexcept;
     bool PopulateFallbackProfiles() noexcept;
     bool RequestReadyPlayback() noexcept;
+    bool VerifyPlaybackRecording(void* replay_player, std::array<std::uint8_t, 32>& actual) noexcept;
+    const std::array<std::uint8_t, 32>& battle_identity() const noexcept { return battle_identity_; }
+    const std::array<std::uint8_t, 32>& recording_identity() const noexcept { return recording_identity_; }
+    std::string_view identity_phase() const noexcept { return identity_phase_; }
     void ReleasePlaybackContext() noexcept;
 
 private:
     void* playback_container_{};
+    std::array<std::uint8_t, 32> battle_identity_{};
+    std::array<std::uint8_t, 32> recording_identity_{};
+    std::uint32_t replay_version_{};
+    bool identity_valid_{};
+    std::string_view identity_phase_{"none"};
 };
 
 constexpr std::string_view import_failure_name(ImportFailure failure) noexcept
@@ -71,6 +82,7 @@ constexpr std::string_view import_failure_name(ImportFailure failure) noexcept
         return "playback_context_copy_failed";
     case ImportFailure::DestroyFailed: return "destroy_failed";
     case ImportFailure::InvalidMetadata: return "invalid_metadata";
+    case ImportFailure::IdentityMismatch: return "payload_identity_mismatch";
     }
     return "unknown";
 }

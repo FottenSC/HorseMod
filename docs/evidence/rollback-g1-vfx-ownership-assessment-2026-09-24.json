@@ -1,0 +1,9 @@
+{
+  "created_utc": "2026-09-24T06:46:46.936800+00:00",
+  "kind": "Astra high read-only architecture assessment",
+  "source": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\045ad48ead097db1699c5a2d95911230f9584c7b1c2d3646c0bb251c516aea72.txt",
+  "sha256": "045ad48ead097db1699c5a2d95911230f9584c7b1c2d3646c0bb251c516aea72",
+  "bytes": 5842,
+  "result": "Accept first122 as phase-scoped observed prefix; final full-process sidecar invalid; no synchronization/lifetime/enforcement proof",
+  "next_bounded_dependency": "native manager+0x388 registration/clear/destruction and PreparedManager::Write header publication; reflected delegate mutation routes; copied weak receiver resolution/ProcessEvent and callback reentrancy, with owner thread or shared lock/task barrier"
+}

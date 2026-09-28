@@ -1,0 +1,79 @@
+{
+  "result": "terminal pre-entry enforcement local PASS; G1 suspension/recovery still OPEN",
+  "sources_and_logs": {
+    "HorseMod/horselib/deterministic/ReplayComponentTickConsumer.hpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\8fdb0c1052fed5b807b5d90f66a4587b18c62eff6270365344022bcd8cc431aa.hpp",
+      "sha256": "8fdb0c1052fed5b807b5d90f66a4587b18c62eff6270365344022bcd8cc431aa",
+      "bytes": 1119
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplayTaskGroup.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\0a1cfad969dd3c6e9aa8f53d70512c06d5e3a4844372fd66d4febd4b1dcbf1d0.cpp",
+      "sha256": "0a1cfad969dd3c6e9aa8f53d70512c06d5e3a4844372fd66d4febd4b1dcbf1d0",
+      "bytes": 17350
+    },
+    "HorseMod/horselib/deterministic/Sc6ReplaySchedulerState.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\839a64f85928e1325203aaf478a60bf0237c8897c5ff455bfe3c34086636335f.cpp",
+      "sha256": "839a64f85928e1325203aaf478a60bf0237c8897c5ff455bfe3c34086636335f",
+      "bytes": 31697
+    },
+    "tools/replay_component_dispatch_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\7ede4fca643e70d905275c9b87ef660af65d8d49ee1dae88eee0680ec2e3bbc4.cpp",
+      "sha256": "7ede4fca643e70d905275c9b87ef660af65d8d49ee1dae88eee0680ec2e3bbc4",
+      "bytes": 5362
+    },
+    "tools/replay_scheduler_consumer_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\d30bbfc800a2c7720038e2e9abc424b819349b63a62cfbc76fc031a40927fd87.cpp",
+      "sha256": "d30bbfc800a2c7720038e2e9abc424b819349b63a62cfbc76fc031a40927fd87",
+      "bytes": 4532
+    },
+    "tools/native_candidate_regions_selftest.cpp": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\05bfa1523029892d78a0d17c2c402eaa60eaf2b2bbfae21eb0214f637a3a2816.cpp",
+      "sha256": "05bfa1523029892d78a0d17c2c402eaa60eaf2b2bbfae21eb0214f637a3a2816",
+      "bytes": 408523
+    },
+    "tools/deterministic_qualification/tests/test_replay_run.py": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\fb25f96467cd74a9fb5e79c58258592d93ab4df4422b982aef54325f528447e5.py",
+      "sha256": "fb25f96467cd74a9fb5e79c58258592d93ab4df4422b982aef54325f528447e5",
+      "bytes": 507554
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/component-dispatch-terminal-native-20260923.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\2bcd148778080bc2255359ad7a32c5c9f93516836cd1312b55b05404b0634117.log",
+      "sha256": "2bcd148778080bc2255359ad7a32c5c9f93516836cd1312b55b05404b0634117",
+      "bytes": 117
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/component-dispatch-terminal-build-20260923.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\30730e9b4047534d6fb9197fa9ce73a8d541f1e866f1c151f8f00b5b5bfa7dd9.log",
+      "sha256": "30730e9b4047534d6fb9197fa9ce73a8d541f1e866f1c151f8f00b5b5bfa7dd9",
+      "bytes": 335
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/component-task-native-build-20260923.log": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\ce372b18f3d1c169677ef51db991ab9e49d0cd6c5837df68687d804a7e0eed5e.log",
+      "sha256": "ce372b18f3d1c169677ef51db991ab9e49d0cd6c5837df68687d804a7e0eed5e",
+      "bytes": 335
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/build-stage.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\92129ca046cece6a7f64f0ab2079d692e38fbeb371fcbc52de4a56f465d72aff.json",
+      "sha256": "92129ca046cece6a7f64f0ab2079d692e38fbeb371fcbc52de4a56f465d72aff",
+      "bytes": 6239
+    },
+    "build_cmake_LessEqual421__Shipping__Win64/replay-tests/build-provenance.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\dc888d434f6b621af7e0b5de437d761dbaef062bba6b0af107cbf3254f1dbe9d.json",
+      "sha256": "dc888d434f6b621af7e0b5de437d761dbaef062bba6b0af107cbf3254f1dbe9d",
+      "bytes": 2373
+    },
+    "docs/evidence/rollback-g1-strict-task-hold-native-2026-09-23.json": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\b853c6d4024081d17ac2c6ff40dcd429bc64e5bd08555802122214a8bbb9f36e.json",
+      "sha256": "b853c6d4024081d17ac2c6ff40dcd429bc64e5bd08555802122214a8bbb9f36e",
+      "bytes": 177572
+    }
+  },
+  "prior_red": "docs/evidence/rollback-g1-task-ownership-checkpoint-2026-09-23.json",
+  "scope": [
+    "same Niagara admission predicate shared by scheduler and actual task dispatcher",
+    "known unsupported component fails before native payload timestamp/callback, completion, storage release or completed counter",
+    "real Windows fail-fast verified in owned local fixture process",
+    "shipped native constructor/event transfer and payload callback ordering tested",
+    "not a native graph completion/retirement or whole-game safe shutdown receipt",
+    "no hold, B recovery or G1 closure claimed"
+  ]
+}

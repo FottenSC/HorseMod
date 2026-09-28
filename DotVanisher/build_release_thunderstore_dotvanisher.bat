@@ -158,7 +158,7 @@ set "MANIFEST=%STAGE_DIR%\manifest.json"
 >>"%MANIFEST%" echo     "name": "DotVanisher",
 >>"%MANIFEST%" echo     "version_number": "%VERSION%",
 >>"%MANIFEST%" echo     "website_url": "https://github.com/FottenSC/HorseMod",
->>"%MANIFEST%" echo     "description": "Small SoulCalibur VI UE4SS mod that reduces false spectator disconnects during slow match loads.",
+>>"%MANIFEST%" echo     "description": "Bounded spectator connection recovery and host battle-end grace for Soulcalibur VI.",
 >>"%MANIFEST%" echo     "dependencies": ["%SHIMLOADER_DEP%"]
 >>"%MANIFEST%" echo }
 

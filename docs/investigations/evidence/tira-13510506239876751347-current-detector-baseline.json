@@ -1,0 +1,1193 @@
+{
+  "artifacts": {
+    "capture_harness_sha256": "0f55d55dd3ef509f983578e9b286a833a752b048545f4899121f3f6f58e06b01",
+    "config": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\rollback.ini",
+      "sha256": "8dc51120f7871e02848ff86e1e2fffc7a778cdee4366275c53a24fa83ce32579"
+    },
+    "config_fields": {
+      "config_version": "1",
+      "correction_probe": "false",
+      "enabled": "false",
+      "forced_depth7_qualification": "false",
+      "input_delay": "1",
+      "qualification_depth": "7",
+      "qualification_location": "2",
+      "rollback_window": "12",
+      "trace": "true"
+    },
+    "game_executable": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\SoulcaliburVI.exe",
+      "sha256": "f8904e4b04bca3b47bc52a683f6190365d2eb89ee8f44f8072759e9c5e04a553"
+    },
+    "generated_schema": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\generated\\deterministic_contract.json",
+      "sha256": "8262be45a992275fce6586ca33cf5deaf2910b18c2fecc84205b3e5fbd55594b"
+    },
+    "horsemod_dll": {
+      "path": "E:\\SteamLibrary\\steamapps\\common\\SoulcaliburVI\\SoulcaliburVI\\Binaries\\Win64\\ue4ss\\Mods\\HorseMod\\dlls\\main.dll",
+      "sha256": "0bd0781416ca3ed515720160720feccb460c6ece4fc3a98b6a22d7d6a504abb0"
+    },
+    "horsemod_dll_sha256": "0bd0781416ca3ed515720160720feccb460c6ece4fc3a98b6a22d7d6a504abb0",
+    "replay": {
+      "path": "E:\\myMods\\ReplayExample\\REPLAY_13510506239876751347.bin",
+      "sha256": "3c0fc5c34e1bf05d533fac5bcb7a677610e46a166702c93b7c1b4d3a749f0cca"
+    },
+    "replay_qualification_mod": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\HorseMod\\ReplayQualificationMod.dll",
+      "sha256": "cd8dd6ccd7e71d8d70f12cdb50525826f3f8bccd93a10ed80140570ba38f809e"
+    },
+    "runner_sha256": "d97e1a85561bc21f0b09655c93696a87981ff3d80d1758598fbce5a70552aa82",
+    "schema_sha256": "8262be45a992275fce6586ca33cf5deaf2910b18c2fecc84205b3e5fbd55594b",
+    "stock_outcome_control": {
+      "noncertifying_identity_mismatches": [
+        "HorseMod DLL",
+        "replay qualification mod",
+        "capture harness"
+      ],
+      "path": "E:\\myMods\\docs\\investigations\\evidence\\immutable-01d3f317-tira-rows\\tira-authored-13510506239876751347-stock-control.json",
+      "sha256": "60fab4c5ee963166248f50d2faa49666b15315f8c478715df9c0efc980ec56f9"
+    }
+  },
+  "case_id": "tira-authored-13510506239876751347",
+  "certifying": false,
+  "created_utc": "2026-09-01T23:10:16.035953+00:00",
+  "display_map_name": "Astral Chaos: Tide of the Damned",
+  "kind": "replay_entry_probe",
+  "reason": "native replay import, stock launch request, and bounded normal-play frame observation",
+  "renderer": "normal",
+  "report_schema": 2,
+  "result": "pass",
+  "row_id": "",
+  "runtime": {
+    "aggregate_owned_bytes": 299816216,
+    "authored_outcomes_required": true,
+    "batch_accounting_mismatches": 0,
+    "canonical_convergence": "exact",
+    "capacity_failures": 0,
+    "capacity_growth_events": 0,
+    "clean_exit": true,
+    "clean_exit_requested": true,
+    "consecutive_corrections": 0,
+    "correction_probes": [],
+    "corrections": 0,
+    "cursor_mismatches": 0,
+    "depth": 0,
+    "development_smoke": false,
+    "final_canonical": {
+      "frame": 13036,
+      "generation": 24,
+      "sha256": "e28f8893820322b44ab1f5156e2b17e36bb76d48b977513daed115d5334d6ce8"
+    },
+    "forced_depth7": null,
+    "frame_fencepost_observed": true,
+    "gameplay_rng_coverage": {
+      "if_draws": 34,
+      "known_callers": "0x1a001001001185",
+      "probability_state_mask_p0": "0x80014a00002669200911d0f0002008800000000034a00002669200911d0f",
+      "probability_state_mask_p1": "0x810c40000026692029111cf00124001840000467140000026692029111cf",
+      "probability_transition_batches": 43,
+      "resolved_hit_calls": 9,
+      "resolved_hit_sequence": "0x1b368cea5d5ba607",
+      "short25_p0": 4,
+      "short25_p1": 11,
+      "state19_at_tira_transition_p0": 0,
+      "state19_at_tira_transition_p1": 0,
+      "state19_final_p0": 1,
+      "state19_final_p1": 1,
+      "state19_initial_p0": 0,
+      "state19_initial_p1": 0,
+      "state19_initial_valid": true,
+      "state19_sequence_p0": "0xe41a8ccce08635f0",
+      "state19_sequence_p1": "0x916333184f0d2f87",
+      "state_changes_p0": 9580,
+      "state_changes_p1": 9441,
+      "tira_helper_attempts": 0,
+      "tira_helper_exact_draws": 0,
+      "tira_helper_last_chance": 0,
+      "tira_helper_last_enclosing_move": "0x0000",
+      "tira_helper_last_rejection_mask": "0x0",
+      "tira_helper_last_result": 0,
+      "tira_helper_no_change": 0,
+      "tira_helper_no_write": 0,
+      "tira_helper_signature_failures": 0,
+      "tira_helper_writes": 0,
+      "tira_last_target": "0x0000",
+      "tira_last_writer_move": "0x306f",
+      "tira_probability_batches": 0,
+      "tira_random_transitions": 0,
+      "tira_sequence": "0x0000000000000000",
+      "tira_slot_mask": "0x0",
+      "tira_stance_batches": 0,
+      "tira_targets": "0x0",
+      "tira_writer_calls": 11,
+      "tira_writer_sequence": "0x28ac21802c819ed5",
+      "tira_writer_slot_mask": "0x2",
+      "transition07_calls": 1512,
+      "transition07_sequence": "0x2640621961317427",
+      "unknown_callers": 0,
+      "weighted_draws": 31,
+      "xorshift_draws": 21403,
+      "xorshift_landing": [
+        "0xfac657e2",
+        "0x460fe872",
+        "0x632ea917"
+      ],
+      "xorshift_sequence": "0xd99e1b38979b2b8d"
+    },
+    "graceful_exit_observed": true,
+    "horsemod_version": "1.2.1",
+    "launch_requested": true,
+    "location": null,
+    "min_resume_tick_rate": 59.001,
+    "native_replay_import_ready": true,
+    "performance": {
+      "active_battle_elapsed_us": 1986110,
+      "active_battle_fps": 60.419,
+      "active_battle_frames": 120,
+      "active_battle_tick_rate": 60.419,
+      "capture_max_us": 0,
+      "capture_p99_us": 0,
+      "correction_max_us": 0,
+      "correction_p99_us": 0,
+      "independent_clocks": true,
+      "normal_render_elapsed_us": 99992146,
+      "normal_render_forward_ticks": 6000,
+      "normal_render_fps": 60.004,
+      "normal_render_frames": 6000,
+      "normal_render_owned_resim_ticks": 0,
+      "normal_render_tick_rate": 60.004
+    },
+    "presentation": {
+      "ephemeral_exactly_once": true,
+      "identity": {
+        "audio_events": 17622,
+        "audio_identity": "0x007f33d56d8d0918",
+        "batches": 13032,
+        "camera_batches": 13032,
+        "camera_identity": "0x1b63516ffb1c2e82",
+        "failures": 0,
+        "journal_committed": 0,
+        "order_events": 23629,
+        "order_identity": "0x7d4d62f17ac941a0"
+      },
+      "leaks": 0,
+      "ordered_audio_payload_ids": true,
+      "persistent_final_exact": true,
+      "required_activity": 0,
+      "terminal_coverage": "not_applicable"
+    },
+    "presentation_duplicate_failures": 0,
+    "presentation_owned_bytes": 5185536,
+    "presentation_publish_failures": 0,
+    "presentation_source_coverage": {
+      "audio": 4318,
+      "audio_blueprint": 2410,
+      "audio_direct": 1811,
+      "audio_remap": 1115,
+      "audio_source": 2410,
+      "audio_stop_all": 68,
+      "particle_spawn": 2,
+      "stage_barrier": 2,
+      "stage_dispatch": 0,
+      "stage_wall": 0
+    },
+    "process_absent_after_exit": true,
+    "reentry": false,
+    "replay_metadata": {
+      "left_character": 28,
+      "map": 4,
+      "right_character": 16,
+      "stage": 4,
+      "state_reset_records": 5
+    },
+    "reported_source_commit": "bdc8c43f12214546577bc76b004cb18e70b8c8c3",
+    "resume_tick_window": 120,
+    "round_transition_barriers": 4,
+    "run_id": "05b3258ed4b04842a414e74f6ed28d7f",
+    "seek_percentages": [],
+    "seeks": [],
+    "stage_terminal": null,
+    "stock_round_outcome": {
+      "match_winner": 1,
+      "round_winners": [
+        1,
+        0,
+        1,
+        0,
+        1
+      ],
+      "rounds": 5,
+      "source_commit": "bdc8c43f12214546577bc76b004cb18e70b8c8c3"
+    },
+    "temporary_mod_removed": true,
+    "timeline_accounting_failures": 0,
+    "watch_frames": 6000
+  },
+  "source": {
+    "build": {
+      "build_command": "cmake --build E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64 --config Shipping -j 4",
+      "cmake": "cmake version 4.3.1",
+      "compiler": {
+        "cmake_cxx_compiler": "E:/ProgramFiles/vsStudioCommunity/VC/Tools/MSVC/14.50.35717/bin/Hostx64/x64/cl.exe",
+        "cmake_generator": "Ninja",
+        "cmake_generator_platform": ""
+      },
+      "compiler_artifact": {
+        "banner": "usage: cl [ option... ] filename... [ /link linkoption... ]",
+        "path": "E:\\ProgramFiles\\vsStudioCommunity\\VC\\Tools\\MSVC\\14.50.35717\\bin\\Hostx64\\x64\\cl.exe",
+        "sha256": "194ddf4aafcb74452218a982309a97de30e0adb33edf4af02904ee107213e782",
+        "size": 682568
+      },
+      "configure_command": "cmake -S E:\\myMods -B E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64"
+    },
+    "commit": "bdc8c43f12214546577bc76b004cb18e70b8c8c3",
+    "deterministic_binary_patch": "diff --git a/HorseMod/HorseModService.PublicApiAndLifetime.inl b/HorseMod/HorseModService.PublicApiAndLifetime.inl\nindex 75a231ff..cf669a4d 100644\n--- a/HorseMod/HorseModService.PublicApiAndLifetime.inl\n+++ b/HorseMod/HorseModService.PublicApiAndLifetime.inl\n@@ -62,6 +62,22 @@\n         }\n     }\n public:\n+    bool GetQualificationClock(\n+        std::uint64_t* values, std::size_t count) const noexcept\n+    {\n+        if (values == nullptr || count < 5) return false;\n+        values[0] = 1;\n+        // Reserved for the qualification harness's independent viewport-frame\n+        // clock. HorseMod owns only simulation clocks; its optional DXGI\n+        // overlay may be deliberately disabled and is not a release gate.\n+        values[1] = 0;\n+        // Reserved for the harness's native battle-frame clock.\n+        values[2] = 0;\n+        values[3] = m_deterministic_hooks.owned_outer_tick_count();\n+        values[4] = ::GetTickCount64();\n+        return true;\n+    }\n+\n #if HORSE_ENABLE_GEKKONET\n     bool PrepareModuleUnload() noexcept\n     {\n@@ -79,13 +95,14 @@ public:\n         std::uint32_t location, std::uint32_t anchors,\n         std::uint32_t repeats_per_anchor) noexcept\n     {\n+        const auto arm_started_ms = ::GetTickCount64();\n         std::uint64_t rejection_mask{};\n         if (run_id.empty() || run_id.size() > 96\n             || std::any_of(run_id.begin(), run_id.end(), [](char value) {\n                 return !(std::isalnum(static_cast<unsigned char>(value))\n                     || value == '-' || value == '_' || value == '.');\n             })) rejection_mask |= 1ull << 0;\n-        if (location < 1 || location > 4) rejection_mask |= 1ull << 1;\n+        if (location < 1 || location > 6) rejection_mask |= 1ull << 1;\n         if (anchors == 0 || anchors > 40\n             || repeats_per_anchor == 0 || repeats_per_anchor > 15)\n             rejection_mask |= 1ull << 2;\n@@ -152,6 +169,9 @@ public:\n         qualification.grouped = true;\n         qualification.grouped_anchor_target = anchors;\n         qualification.grouped_repeats_per_anchor = repeats_per_anchor;\n+        qualification.tira_transition_baseline =\n+            m_replay_native_runtime.timeline_status()\n+                .observed_tira_random_transition_calls;\n         qualification.grouped_anchor_sequence_hash.fill(\n             1469598103934665603ull);\n         qualification.storage_begin =\n@@ -166,12 +186,13 @@ public:\n             qualification.reported = true;\n             return false;\n         }\n+        qualification.arm_elapsed_ms = ::GetTickCount64() - arm_started_ms;\n         Output::send<LogLevel::Default>(STR(\n             \"[HorseMod] qualification group armed run_id={} ordinal={} \"\n-            \"location={} anchors={} repeats={} depths=11,1,6\\n\"),\n+            \"location={} anchors={} repeats={} depths=11,1,6 arm_ms={}\\n\"),\n             RC::to_generic_string(std::string(run_id)),\n             qualification.cycle_ordinal, location, anchors,\n-            repeats_per_anchor);\n+            repeats_per_anchor, qualification.arm_elapsed_ms);\n         return true;\n     }\n #if HORSE_ENABLE_OBSERVER_PROBE\n@@ -260,7 +281,7 @@ public:\n             })) rejection_mask |= 1ull << 0;\n         if (depth != 1 && depth != 6 && depth != 7 && depth != 11)\n             rejection_mask |= 1ull << 1;\n-        if (location < 1 || location > 4) rejection_mask |= 1ull << 2;\n+        if (location < 1 || location > 6) rejection_mask |= 1ull << 2;\n         if (m_forced_qualification_run_id_count\n             >= m_forced_qualification_run_ids.size()) rejection_mask |= 1ull << 3;\n         if (m_deterministic_config.enabled || !m_deterministic_config.trace\n@@ -351,6 +372,9 @@ public:\n         qualification.run_id[run_id.size()] = '\\0';\n         qualification.depth = depth;\n         qualification.location = location;\n+        qualification.tira_transition_baseline =\n+            m_replay_native_runtime.timeline_status()\n+                .observed_tira_random_transition_calls;\n         qualification.cycle_ordinal = ++m_forced_qualification_cycle_ordinal;\n         qualification.lifecycle = 1;\n         qualification.runtime_armed = true;\n@@ -508,6 +532,7 @@ public:\n         values[47] = q.grouped_anchor_sequence_hash[row_index];\n         values[48] = q.grouped_failure_anchor;\n         values[49] = q.grouped_failure_repeat;\n+        if (count >= 51) values[50] = q.arm_elapsed_ms;\n         return status;\n     }\n \n@@ -1081,6 +1106,20 @@ public:\n             counts[44] = timeline.observed_tira_state19_writer_slot_mask;\n             counts[45] = timeline.observed_tira_last_state19_writer_move;\n         }\n+        if (count >= 56)\n+        {\n+            counts[46] = timeline.observed_tira_helper_attempts;\n+            counts[47] = timeline.observed_tira_helper_exact_draws;\n+            counts[48] = timeline.observed_tira_helper_writer_outcomes;\n+            counts[49] = timeline.observed_tira_helper_no_write_outcomes;\n+            counts[50] = timeline.observed_tira_helper_no_change_outcomes;\n+            counts[51] = timeline.observed_tira_helper_signature_failures;\n+            counts[52] = timeline.observed_tira_helper_last_enclosing_move;\n+            counts[53] = timeline.observed_tira_helper_last_chance;\n+            counts[54] = static_cast<std::uint64_t>(static_cast<std::int64_t>(\n+                timeline.observed_tira_helper_last_result));\n+            counts[55] = timeline.observed_tira_helper_last_rejection_mask;\n+        }\n         return timeline.canonical_frames != 0;\n     }\n \ndiff --git a/HorseMod/HorseModService.QualificationDiagnostics.inl b/HorseMod/HorseModService.QualificationDiagnostics.inl\nindex 2a0e97b2..294e9f39 100644\n--- a/HorseMod/HorseModService.QualificationDiagnostics.inl\n+++ b/HorseMod/HorseModService.QualificationDiagnostics.inl\n@@ -547,6 +547,17 @@\n                     timeline.observed_battle_audio_stop_all_calls\n                         > q.round_terminal_audio_stop_all_baseline;\n                 return q.round_terminal_source_stop_all;\n+            case 5:\n+                // Exact natural Tira helper-0x321B event boundary. The\n+                // baseline is captured when the request is armed, so an old\n+                // transition from replay setup cannot satisfy this location.\n+                return timeline.observed_tira_random_transition_calls\n+                    > q.tira_transition_baseline;\n+            case 6:\n+                // Same natural event trigger as location 5, but corrections\n+                // are subsequently metered at one depth per authored tick.\n+                return timeline.observed_tira_random_transition_calls\n+                    > q.tira_transition_baseline;\n             default: return false;\n             }\n         }();\n@@ -634,6 +645,7 @@\n         // This keeps route/lifecycle coverage without repeating process or\n         // replay entry setup for every depth.\n         if (q.grouped_anchors_completed != 0\n+            && q.location != 6\n             && q.grouped_last_anchor_generation\n                 == timeline.last_coordinate.generation\n             && timeline.last_coordinate.frame\n@@ -719,13 +731,6 @@\n             return;\n         }\n \n-        for (std::uint32_t repetition = 0;\n-             repetition < q.grouped_repeats_per_anchor; ++repetition)\n-            for (std::size_t depth_index = 0;\n-                 depth_index < kGroupedQualificationDepths.size();\n-                 ++depth_index)\n-                if (!execute(depth_index, repetition, true)) return;\n-\n         const auto mix = [](std::uint64_t hash,\n                             std::uint64_t value) noexcept {\n             for (std::size_t byte = 0; byte < sizeof(value); ++byte)\n@@ -735,8 +740,8 @@\n             }\n             return hash;\n         };\n-        for (auto& hash : q.grouped_anchor_sequence_hash)\n-        {\n+        const auto mix_anchor = [&](std::size_t depth_index) noexcept {\n+            auto& hash = q.grouped_anchor_sequence_hash[depth_index];\n             hash = mix(hash, timeline.last_coordinate.generation);\n             hash = mix(hash, timeline.last_coordinate.frame);\n             for (const auto value : expected.canonical_hash)\n@@ -744,8 +749,36 @@\n                 hash ^= std::to_integer<std::uint8_t>(value);\n                 hash *= 1099511628211ull;\n             }\n+        };\n+        if (q.location == 6)\n+        {\n+            // Production cadence: exactly one owned correction per authored\n+            // outer tick, cycling 11 -> 1 -> 6. This measures real scheduling\n+            // pressure separately from location 5's same-anchor stress.\n+            const auto depth_index = static_cast<std::size_t>(\n+                q.grouped_cadence_depth_index);\n+            if (!execute(depth_index, q.grouped_anchors_completed, true))\n+                return;\n+            mix_anchor(depth_index);\n+            q.grouped_cadence_depth_index = static_cast<std::uint32_t>(\n+                (depth_index + 1) % kGroupedQualificationDepths.size());\n+            if (q.grouped_cadence_depth_index == 0)\n+                ++q.grouped_anchors_completed;\n+        }\n+        else\n+        {\n+            for (std::uint32_t repetition = 0;\n+                 repetition < q.grouped_repeats_per_anchor; ++repetition)\n+                for (std::size_t depth_index = 0;\n+                     depth_index < kGroupedQualificationDepths.size();\n+                     ++depth_index)\n+                    if (!execute(depth_index, repetition, true)) return;\n+            for (std::size_t depth_index = 0;\n+                 depth_index < kGroupedQualificationDepths.size();\n+                 ++depth_index)\n+                mix_anchor(depth_index);\n+            ++q.grouped_anchors_completed;\n         }\n-        ++q.grouped_anchors_completed;\n         q.grouped_last_anchor_generation =\n             timeline.last_coordinate.generation;\n         q.grouped_last_anchor_frame = timeline.last_coordinate.frame;\n@@ -767,6 +800,12 @@\n         const bool presentation_journal_complete = presentation_commit.ok()\n             && q.pending_events_end == 0 && q.pending_payload_end == 0\n             && q.presentation_end.capacity_failures == 0;\n+        // The grouped correction window is terminal at this point. Do not\n+        // keep suppressing/capturing speculative presentation while the\n+        // harness measures the rest of its active-battle rate window. The\n+        // explicit cleanup request still resets and audits every other owned\n+        // subsystem, and observes this already-closed ownership boundary.\n+        m_replay_native_runtime.DisablePresentationOwnership();\n         const bool full_qualification = q.grouped_anchor_target == 40\n             && q.grouped_repeats_per_anchor == 15;\n         q.presentation_terminal_coverage = presentation_journal_complete\n@@ -781,7 +820,8 @@\n         for (std::size_t index = 0;\n              index < kGroupedQualificationDepths.size(); ++index)\n             performance_ok = performance_ok\n-                && q.GroupedP99(index) < 16'670'000;\n+                && q.GroupedP99(index) < 16'670'000\n+                && q.grouped_maximum_ns[index] < 33'340'000;\n         const bool capture_ok = q.capture_end.total_capture.p99_ns <= 500'000\n             && q.capture_end.total_capture.maximum_ns <= 1'000'000\n             && q.capture_end.scratch_capacity_growth_events == 0;\n@@ -886,6 +926,12 @@\n                     timeline.observed_battle_audio_stop_all_calls\n                         > qualification.round_terminal_audio_stop_all_baseline;\n                 return qualification.round_terminal_source_stop_all;\n+            case 5:\n+                return timeline.observed_tira_random_transition_calls\n+                    > qualification.tira_transition_baseline;\n+            case 6:\n+                return timeline.observed_tira_random_transition_calls\n+                    > qualification.tira_transition_baseline;\n             default: return false;\n             }\n         }();\ndiff --git a/HorseMod/HorseModService.SettingsAndRequests.inl b/HorseMod/HorseModService.SettingsAndRequests.inl\nindex 402011ea..8d5fc2e0 100644\n--- a/HorseMod/HorseModService.SettingsAndRequests.inl\n+++ b/HorseMod/HorseModService.SettingsAndRequests.inl\n@@ -704,7 +704,7 @@\n         std::array<std::uint64_t, 10> presentation_coverage{};\n         std::array<std::uint64_t, 9> presentation_identity{};\n         std::array<std::uint64_t, 54> health{};\n-        std::array<std::uint64_t, 46> gameplay_rng_coverage{};\n+        std::array<std::uint64_t, 56> gameplay_rng_coverage{};\n         std::uint64_t canonical_generation{};\n         std::uint64_t canonical_frame{};\n         Horse::Deterministic::CanonicalHash canonical_hash{};\n@@ -964,12 +964,14 @@\n         std::uint64_t elapsed_ms{};\n         std::uint64_t started_ms{};\n         std::uint64_t timing_drift_ms{};\n+        std::uint64_t arm_elapsed_ms{};\n         std::uint64_t cleanup_stale_state_mask{};\n         std::size_t pending_events_end{};\n         std::size_t pending_payload_end{};\n         std::size_t pending_events_cleanup{};\n         std::size_t pending_payload_cleanup{};\n         std::uint64_t round_terminal_audio_stop_all_baseline{};\n+        std::uint64_t tira_transition_baseline{};\n         std::uint64_t suppressed_stage_wall_calls{};\n         std::uint64_t suppressed_stage_barrier_calls{};\n         std::uint64_t semantic_stage_dispatch_calls{};\n@@ -1005,6 +1007,7 @@\n         std::uint32_t grouped_failure_depth{};\n         std::uint32_t grouped_failure_anchor{};\n         std::uint32_t grouped_failure_repeat{};\n+        std::uint32_t grouped_cadence_depth_index{};\n         std::uint64_t grouped_last_anchor_generation{};\n         std::uint64_t grouped_last_anchor_frame{};\n         std::array<std::uint32_t, 3> grouped_completed{};\ndiff --git a/HorseMod/dllmain.cpp b/HorseMod/dllmain.cpp\nindex 768175fd..79947b0e 100644\n--- a/HorseMod/dllmain.cpp\n+++ b/HorseMod/dllmain.cpp\n@@ -552,6 +552,13 @@ extern \"C\"\n             && mod->GetReplayGameplayRngCoverage(counts, count);\n     }\n \n+    HORSE_MOD_API bool horsemod_get_qualification_clock_v1(\n+        std::uint64_t* values, std::size_t count)\n+    {\n+        auto* mod = g_horse_mod_instance.load(std::memory_order_acquire);\n+        return mod != nullptr && mod->GetQualificationClock(values, count);\n+    }\n+\n     HORSE_MOD_API bool horsemod_request_qualification_stage_terminal(\n         std::uint32_t operation)\n     {\ndiff --git a/HorseMod/horselib/deterministic/DeterministicHookSet.FrameAndStage.inl b/HorseMod/horselib/deterministic/DeterministicHookSet.FrameAndStage.inl\nindex 87248d67..3153b498 100644\n--- a/HorseMod/horselib/deterministic/DeterministicHookSet.FrameAndStage.inl\n+++ b/HorseMod/horselib/deterministic/DeterministicHookSet.FrameAndStage.inl\n@@ -215,10 +215,12 @@ std::int16_t __fastcall DeterministicHookSet::MoveVmExecuteBankSlotDetour(\n     std::uint16_t character_id{};\n     std::uint16_t active_move{};\n     std::uint32_t frame_before{};\n-    const bool candidate = observation != nullptr && chara != nullptr\n-        && argument_count == 2 && arguments != nullptr\n+    const bool helper_seen = observation != nullptr && arguments != nullptr\n+        && argument_count > 0\n         && SafeRead(reinterpret_cast<std::uintptr_t>(arguments), packed_move)\n-        && packed_move == tira_stance_helper_packed_move\n+        && packed_move == tira_stance_helper_packed_move;\n+    const bool candidate = helper_seen && chara != nullptr\n+        && argument_count == 2\n         && SafeRead(reinterpret_cast<std::uintptr_t>(arguments) + 2, chance)\n         && SafeRead(reinterpret_cast<std::uintptr_t>(chara) + 0x24c,\n             character_id)\n@@ -230,10 +232,17 @@ std::int16_t __fastcall DeterministicHookSet::MoveVmExecuteBankSlotDetour(\n         ? observation->gameplay_xorshift_draws : 0;\n \n     const auto prior_helper = tira_stance_helper;\n+    if (helper_seen) ++observation->tira_helper_attempts;\n     if (candidate)\n     {\n-        tira_stance_helper = {chara, observation, draws_before, active_move,\n-            chance, frame_before, true};\n+        tira_stance_helper = {};\n+        tira_stance_helper.owner = chara;\n+        tira_stance_helper.observation = observation;\n+        tira_stance_helper.draws_before = draws_before;\n+        tira_stance_helper.active_move = active_move;\n+        tira_stance_helper.chance = chance;\n+        tira_stance_helper.frame = frame_before;\n+        tira_stance_helper.active = true;\n     }\n     const std::int16_t result = original != nullptr\n         ? original(chara, argument_count, arguments) : 0;\n@@ -245,8 +254,37 @@ std::int16_t __fastcall DeterministicHookSet::MoveVmExecuteBankSlotDetour(\n         const bool exact_frame = SafeRead(\n             batch->frame_counter_address, frame_after)\n             && frame_after == frame_before;\n+        std::uint32_t rejection_mask{};\n+        if (!exact_draw) rejection_mask |= 1u << 0;\n+        if (!exact_frame) rejection_mask |= 1u << 1;\n+        if (!tira_stance_helper.writer_seen) rejection_mask |= 1u << 2;\n+        else if (tira_stance_helper.state_before\n+                == tira_stance_helper.state_after)\n+            rejection_mask |= 1u << 3;\n+        if (exact_draw) ++observation->tira_helper_exact_draws;\n+        if (tira_stance_helper.writer_seen)\n+        {\n+            ++observation->tira_helper_writer_outcomes;\n+            if (tira_stance_helper.state_before\n+                == tira_stance_helper.state_after)\n+                ++observation->tira_helper_no_change_outcomes;\n+        }\n+        else\n+            ++observation->tira_helper_no_write_outcomes;\n         if (!exact_draw || !exact_frame)\n+        {\n+            ++observation->tira_helper_signature_failures;\n             ++observation->movevm_transition_07_signature_failures;\n+        }\n+        observation->tira_helper_last_enclosing_move = active_move;\n+        observation->tira_helper_last_chance = chance;\n+        observation->tira_helper_last_result = result;\n+        observation->tira_helper_last_rejection_mask = rejection_mask;\n+    }\n+    else if (helper_seen)\n+    {\n+        ++observation->tira_helper_signature_failures;\n+        observation->tira_helper_last_rejection_mask = 1u << 4;\n     }\n     tira_stance_helper = prior_helper;\n     callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);\n@@ -292,7 +330,7 @@ std::int16_t __fastcall DeterministicHookSet::MoveVmWriteCharaStateShortDetour(\n \n     const std::int16_t result = original != nullptr\n         ? original(chara, argument_count, arguments) : 0;\n-    if (candidate && original != nullptr && authored_value != state_before)\n+    if (candidate && original != nullptr)\n     {\n         std::uint8_t fighter_slot{};\n         if (active_move == 0 || authored_value > 1\n@@ -305,6 +343,26 @@ std::int16_t __fastcall DeterministicHookSet::MoveVmWriteCharaStateShortDetour(\n         {\n             const auto fighter_mask = static_cast<std::uint8_t>(\n                 1u << fighter_slot);\n+            const bool helper_owned = IsTiraStanceHelperWriterMatch(\n+                tira_stance_helper.active,\n+                tira_stance_helper.owner == chara,\n+                tira_stance_helper.observation == observation,\n+                active_move, tira_stance_helper.active_move,\n+                tira_stance_helper.frame, frame,\n+                tira_stance_helper.draws_before,\n+                observation->gameplay_xorshift_draws);\n+            if (helper_owned)\n+            {\n+                tira_stance_helper.writer_seen = true;\n+                tira_stance_helper.state_before = state_before;\n+                tira_stance_helper.state_after = authored_value;\n+            }\n+            if (authored_value == state_before)\n+            {\n+                callbacks_in_flight_.fetch_sub(1, std::memory_order_acq_rel);\n+                return result;\n+            }\n+\n             ++observation->tira_state19_writer_calls;\n             observation->tira_state19_writer_slot_mask |= fighter_mask;\n             observation->tira_last_state19_writer_move = active_move;\n@@ -327,14 +385,6 @@ std::int16_t __fastcall DeterministicHookSet::MoveVmWriteCharaStateShortDetour(\n             append_writer(&fighter_mask, sizeof(fighter_mask));\n             observation->tira_state19_writer_sequence_hash = writer_hash;\n \n-            const bool helper_owned = IsTiraStanceHelperWriterMatch(\n-                tira_stance_helper.active,\n-                tira_stance_helper.owner == chara,\n-                tira_stance_helper.observation == observation,\n-                active_move, tira_stance_helper.active_move,\n-                tira_stance_helper.frame, frame,\n-                tira_stance_helper.draws_before,\n-                observation->gameplay_xorshift_draws);\n             if (helper_owned)\n             {\n                 ObserveTiraRandomStanceChange(chara,\n@@ -824,6 +874,22 @@ void DeterministicHookSet::CopyObservedGameplayIdentity(\n         observation.tira_state19_writer_slot_mask;\n     output.tira_last_state19_writer_move =\n         observation.tira_last_state19_writer_move;\n+    output.tira_helper_attempts = observation.tira_helper_attempts;\n+    output.tira_helper_exact_draws = observation.tira_helper_exact_draws;\n+    output.tira_helper_writer_outcomes =\n+        observation.tira_helper_writer_outcomes;\n+    output.tira_helper_no_write_outcomes =\n+        observation.tira_helper_no_write_outcomes;\n+    output.tira_helper_no_change_outcomes =\n+        observation.tira_helper_no_change_outcomes;\n+    output.tira_helper_signature_failures =\n+        observation.tira_helper_signature_failures;\n+    output.tira_helper_last_enclosing_move =\n+        observation.tira_helper_last_enclosing_move;\n+    output.tira_helper_last_chance = observation.tira_helper_last_chance;\n+    output.tira_helper_last_result = observation.tira_helper_last_result;\n+    output.tira_helper_last_rejection_mask =\n+        observation.tira_helper_last_rejection_mask;\n     output.tira_random_transition_calls =\n         observation.tira_random_transition_calls;\n     output.tira_random_transition_sequence_hash =\n@@ -876,6 +942,22 @@ bool DeterministicHookSet::OwnedGameplayIdentityMatches(\n             == expected.tira_state19_writer_slot_mask\n         && output.tira_last_state19_writer_move\n             == expected.tira_last_state19_writer_move\n+        && output.tira_helper_attempts == expected.tira_helper_attempts\n+        && output.tira_helper_exact_draws == expected.tira_helper_exact_draws\n+        && output.tira_helper_writer_outcomes\n+            == expected.tira_helper_writer_outcomes\n+        && output.tira_helper_no_write_outcomes\n+            == expected.tira_helper_no_write_outcomes\n+        && output.tira_helper_no_change_outcomes\n+            == expected.tira_helper_no_change_outcomes\n+        && output.tira_helper_signature_failures == 0\n+        && expected.tira_helper_signature_failures == 0\n+        && output.tira_helper_last_enclosing_move\n+            == expected.tira_helper_last_enclosing_move\n+        && output.tira_helper_last_chance == expected.tira_helper_last_chance\n+        && output.tira_helper_last_result == expected.tira_helper_last_result\n+        && output.tira_helper_last_rejection_mask\n+            == expected.tira_helper_last_rejection_mask\n         && output.tira_random_transition_calls\n             == expected.tira_random_transition_calls\n         && output.tira_random_transition_sequence_hash\n@@ -908,8 +990,11 @@ Status DeterministicHookSet::ExecuteOwnedNativeTick(\n     {\n         ExecuteQualificationStageTerminalIfRequested(request, output);\n         if (output.failure == FailureCode::None)\n+        {\n+            owned_outer_tick_count_.fetch_add(1, std::memory_order_relaxed);\n             original(reinterpret_cast<void*>(request.battle_manager),\n                 request.envelope->delta_seconds);\n+        }\n         if (!CaptureCameraPublicationSignature(\n                 image_base_, observation.camera_publication,\n                 observation.camera_publication_hash))\ndiff --git a/HorseMod/horselib/deterministic/DeterministicHookSet.cpp b/HorseMod/horselib/deterministic/DeterministicHookSet.cpp\nindex c7b3f0b4..7002e229 100644\n--- a/HorseMod/horselib/deterministic/DeterministicHookSet.cpp\n+++ b/HorseMod/horselib/deterministic/DeterministicHookSet.cpp\n@@ -94,6 +94,9 @@ struct TiraStanceHelperContext\n     std::uint16_t active_move{};\n     std::uint16_t chance{};\n     std::uint32_t frame{};\n+    std::uint16_t state_before{};\n+    std::uint16_t state_after{};\n+    bool writer_seen{};\n     bool active{};\n };\n \ndiff --git a/HorseMod/horselib/deterministic/DeterministicHookSet.hpp b/HorseMod/horselib/deterministic/DeterministicHookSet.hpp\nindex afeb6b54..83093495 100644\n--- a/HorseMod/horselib/deterministic/DeterministicHookSet.hpp\n+++ b/HorseMod/horselib/deterministic/DeterministicHookSet.hpp\n@@ -103,6 +103,16 @@ struct OuterTickObservation\n     std::uint64_t tira_state19_writer_sequence_hash{};\n     std::uint8_t tira_state19_writer_slot_mask{};\n     std::uint16_t tira_last_state19_writer_move{};\n+    std::uint32_t tira_helper_attempts{};\n+    std::uint32_t tira_helper_exact_draws{};\n+    std::uint32_t tira_helper_writer_outcomes{};\n+    std::uint32_t tira_helper_no_write_outcomes{};\n+    std::uint32_t tira_helper_no_change_outcomes{};\n+    std::uint32_t tira_helper_signature_failures{};\n+    std::uint16_t tira_helper_last_enclosing_move{};\n+    std::uint16_t tira_helper_last_chance{};\n+    std::int16_t tira_helper_last_result{};\n+    std::uint32_t tira_helper_last_rejection_mask{};\n     std::uint32_t tira_random_transition_calls{};\n     std::uint64_t tira_random_transition_sequence_hash{};\n     std::uint16_t tira_random_transition_source_mask{};\n@@ -216,6 +226,9 @@ struct OuterTickObservation\n     bool authoritative_input_aborted_before_consume{};\n     bool fp_before_valid{};\n     bool fp_after_valid{};\n+    // Owned correction replay re-enters the native outer-tick detour. This\n+    // marker lets performance qualification count authored forward ticks\n+    // without falsely treating resimulation work as additional TPS.\n };\n \n using FrameFencepostCallback = void (*)(\n@@ -315,6 +328,16 @@ struct OwnedBatchReplayResult\n     std::uint64_t tira_state19_writer_sequence_hash{};\n     std::uint8_t tira_state19_writer_slot_mask{};\n     std::uint16_t tira_last_state19_writer_move{};\n+    std::uint32_t tira_helper_attempts{};\n+    std::uint32_t tira_helper_exact_draws{};\n+    std::uint32_t tira_helper_writer_outcomes{};\n+    std::uint32_t tira_helper_no_write_outcomes{};\n+    std::uint32_t tira_helper_no_change_outcomes{};\n+    std::uint32_t tira_helper_signature_failures{};\n+    std::uint16_t tira_helper_last_enclosing_move{};\n+    std::uint16_t tira_helper_last_chance{};\n+    std::int16_t tira_helper_last_result{};\n+    std::uint32_t tira_helper_last_rejection_mask{};\n     std::uint32_t tira_random_transition_calls{};\n     std::uint64_t tira_random_transition_sequence_hash{};\n     std::uint16_t tira_random_transition_source_mask{};\n@@ -400,6 +423,10 @@ public:\n     Status ExecuteOwnedBatch(\n         const OwnedBatchReplayRequest& request,\n         OwnedBatchReplayResult& output) noexcept;\n+    [[nodiscard]] std::uint64_t owned_outer_tick_count() const noexcept\n+    {\n+        return owned_outer_tick_count_.load(std::memory_order_acquire);\n+    }\n     Status BindStageBreakPresentationIdentity(\n         std::uint64_t generation,\n         std::span<const StageBreakActorRef> actors,\n@@ -740,6 +767,7 @@ private:\n         maximum_battle_audio_handlers> observed_battle_audio_handlers_;\n     static std::atomic<bool> battle_audio_handler_overflow_;\n     static thread_local OuterTickCaptureContext* active_outer_capture_;\n+    std::atomic<std::uint64_t> owned_outer_tick_count_{};\n \n     struct BattleCharaCueSourceContext\n     {\ndiff --git a/HorseMod/horselib/deterministic/NativeBatchTimeline.hpp b/HorseMod/horselib/deterministic/NativeBatchTimeline.hpp\nindex 0cc1c4f5..21bceef2 100644\n--- a/HorseMod/horselib/deterministic/NativeBatchTimeline.hpp\n+++ b/HorseMod/horselib/deterministic/NativeBatchTimeline.hpp\n@@ -184,6 +184,16 @@ struct NativeBatchEnvelope\n     std::uint64_t tira_state19_writer_sequence_hash{};\n     std::uint8_t tira_state19_writer_slot_mask{};\n     std::uint16_t tira_last_state19_writer_move{};\n+    std::uint32_t tira_helper_attempts{};\n+    std::uint32_t tira_helper_exact_draws{};\n+    std::uint32_t tira_helper_writer_outcomes{};\n+    std::uint32_t tira_helper_no_write_outcomes{};\n+    std::uint32_t tira_helper_no_change_outcomes{};\n+    std::uint32_t tira_helper_signature_failures{};\n+    std::uint16_t tira_helper_last_enclosing_move{};\n+    std::uint16_t tira_helper_last_chance{};\n+    std::int16_t tira_helper_last_result{};\n+    std::uint32_t tira_helper_last_rejection_mask{};\n     std::uint32_t tira_random_transition_calls{};\n     std::uint64_t tira_random_transition_sequence_hash{};\n     std::uint16_t tira_random_transition_source_mask{};\ndiff --git a/HorseMod/horselib/deterministic/PresentationJournal.cpp b/HorseMod/horselib/deterministic/PresentationJournal.cpp\nindex 314cd2d1..ae648d0e 100644\n--- a/HorseMod/horselib/deterministic/PresentationJournal.cpp\n+++ b/HorseMod/horselib/deterministic/PresentationJournal.cpp\n@@ -57,15 +57,9 @@ Status PresentationJournal::RecordInternal(\n         ++statistics_.duplicates;\n         return Status::success();\n     }\n-    Slot* free_slot{};\n-    for (std::size_t index = 0; index < maximum_events_; ++index)\n+    for (std::size_t index = 0; index < pending_count_; ++index)\n     {\n         auto& slot = slots_[index];\n-        if (!slot.occupied)\n-        {\n-            if (free_slot == nullptr) free_slot = &slot;\n-            continue;\n-        }\n         const EventKey existing = Key(slot.event);\n         if (existing == key)\n         {\n@@ -78,16 +72,17 @@ Status PresentationJournal::RecordInternal(\n             return Status::success();\n         }\n     }\n-    if (free_slot == nullptr\n+    if (pending_count_ == maximum_events_\n         || payload_bytes_ + event.payload_size > maximum_payload_bytes_)\n     {\n         ++statistics_.capacity_failures;\n         return Status::failure(FailureCode::CapacityExceeded);\n     }\n+    auto& free_slot = slots_[pending_count_];\n     payload_bytes_ += event.payload_size;\n-    free_slot->event = std::move(event);\n-    free_slot->occupied = true;\n-    free_slot->presented = presented;\n+    free_slot.event = std::move(event);\n+    free_slot.occupied = true;\n+    free_slot.presented = presented;\n     ++pending_count_;\n     ++statistics_.recorded;\n     if (presented) ++statistics_.speculative_presented;\n@@ -102,7 +97,7 @@ Status PresentationJournal::ReplaceFrom(FrameCoordinate coordinate,\n \n     std::size_t retained_count{};\n     std::size_t retained_payload{};\n-    for (std::size_t index = 0; index < maximum_events_; ++index)\n+    for (std::size_t index = 0; index < pending_count_; ++index)\n     {\n         const auto& slot = slots_[index];\n         if (!slot.occupied) continue;\n@@ -127,7 +122,7 @@ Status PresentationJournal::ReplaceFrom(FrameCoordinate coordinate,\n         const EventKey key = Key(event);\n         bool duplicate{};\n         for (std::size_t slot_index = 0;\n-             slot_index < maximum_events_; ++slot_index)\n+             slot_index < pending_count_; ++slot_index)\n         {\n             const auto& slot = slots_[slot_index];\n             if (!slot.occupied\n@@ -159,7 +154,7 @@ Status PresentationJournal::ReplaceFrom(FrameCoordinate coordinate,\n         replacement_presented_[index] = false;\n         const auto key = Key(replacement[index]);\n         for (std::size_t slot_index = 0;\n-             slot_index < maximum_events_; ++slot_index)\n+             slot_index < pending_count_; ++slot_index)\n         {\n             const auto& slot = slots_[slot_index];\n             if (slot.occupied && slot.presented && Key(slot.event) == key)\n@@ -183,16 +178,18 @@ Status PresentationJournal::ReplaceFrom(FrameCoordinate coordinate,\n \n void PresentationJournal::DiscardFrom(FrameCoordinate coordinate) noexcept\n {\n-    for (std::size_t index = 0; index < maximum_events_; ++index)\n+    std::size_t index{};\n+    while (index < pending_count_)\n     {\n         auto& slot = slots_[index];\n-        if (slot.occupied\n-            && slot.event.coordinate.generation == coordinate.generation\n+        if (slot.event.coordinate.generation == coordinate.generation\n             && slot.event.coordinate.frame >= coordinate.frame)\n         {\n-            ClearSlot(slot);\n+            ClearSlot(index);\n             ++statistics_.discarded;\n+            continue;\n         }\n+        ++index;\n     }\n }\n \n@@ -202,12 +199,11 @@ Status PresentationJournal::CommitThrough(\n {\n     for (;;)\n     {\n-        Slot* next{};\n+        std::size_t next_index = pending_count_;\n         EventKey next_key{};\n-        for (std::size_t index = 0; index < maximum_events_; ++index)\n+        for (std::size_t index = 0; index < pending_count_; ++index)\n         {\n             auto& slot = slots_[index];\n-            if (!slot.occupied) continue;\n             const auto coordinate = slot.event.coordinate;\n             if (coordinate.generation > confirmed.generation\n                 || (coordinate.generation == confirmed.generation\n@@ -217,62 +213,73 @@ Status PresentationJournal::CommitThrough(\n             }\n             const EventKey key{coordinate, slot.event.source_ordinal,\n                 slot.event.kind, slot.event.identity};\n-            if (next == nullptr || key < next_key)\n+            if (next_index == pending_count_ || key < next_key)\n             {\n-                next = &slot;\n+                next_index = index;\n                 next_key = key;\n             }\n         }\n-        if (next == nullptr) return Status::success();\n+        if (next_index == pending_count_) return Status::success();\n+        auto& next = slots_[next_index];\n \n-        auto* watermark = EnsureWatermark(next->event.coordinate.generation);\n+        auto* watermark = EnsureWatermark(next.event.coordinate.generation);\n         if (watermark == nullptr)\n         {\n             ++statistics_.capacity_failures;\n             return Status::failure(FailureCode::CapacityExceeded);\n         }\n-        const Status published = next->presented\n-            ? Status::success() : sink.Publish(next->event);\n+        const Status published = next.presented\n+            ? Status::success() : sink.Publish(next.event);\n         if (!published.ok())\n         {\n             ++statistics_.publish_failures;\n             if (statistics_.first_publish_failure == FailureCode::None)\n             {\n                 statistics_.first_publish_failure = published.code;\n-                statistics_.first_failed_event = next->event;\n+                statistics_.first_failed_event = next.event;\n             }\n             statistics_.last_publish_failure = published.code;\n-            statistics_.last_failed_event = next->event;\n+            statistics_.last_failed_event = next.event;\n             return published;\n         }\n-        if (next->event.coordinate.frame > watermark->frame)\n+        if (next.event.coordinate.frame > watermark->frame)\n         {\n-            watermark->frame = next->event.coordinate.frame;\n-            watermark->source_ordinal = next->event.source_ordinal;\n+            watermark->frame = next.event.coordinate.frame;\n+            watermark->source_ordinal = next.event.source_ordinal;\n         }\n         else\n         {\n             watermark->source_ordinal = (std::max)(\n-                watermark->source_ordinal, next->event.source_ordinal);\n+                watermark->source_ordinal, next.event.source_ordinal);\n         }\n-        ClearSlot(*next);\n+        ClearSlot(next_index);\n         ++statistics_.committed;\n     }\n }\n \n void PresentationJournal::InvalidateGeneration(std::uint64_t generation) noexcept\n {\n-    for (std::size_t index = 0; index < maximum_events_; ++index)\n+    std::size_t index{};\n+    while (index < pending_count_)\n     {\n         auto& slot = slots_[index];\n-        if (slot.occupied && slot.event.coordinate.generation == generation)\n+        if (slot.event.coordinate.generation == generation)\n         {\n-            ClearSlot(slot);\n+            ClearSlot(index);\n             ++statistics_.discarded;\n+            continue;\n         }\n+        ++index;\n+    }\n+    for (std::size_t watermark_index = 0;\n+         watermark_index < watermark_count_; ++watermark_index)\n+    {\n+        if (watermarks_[watermark_index].generation != generation) continue;\n+        --watermark_count_;\n+        watermarks_[watermark_index] = watermarks_[watermark_count_];\n+        watermarks_[watermark_count_] = {};\n+        break;\n     }\n-    if (auto* watermark = FindWatermark(generation); watermark != nullptr)\n-        *watermark = {};\n }\n \n std::size_t PresentationJournal::pending_count() const noexcept\n@@ -306,9 +313,8 @@ Status PresentationJournal::ResetStatistics() noexcept\n PresentationJournal::Watermark* PresentationJournal::FindWatermark(\n     std::uint64_t generation) noexcept\n {\n-    for (std::size_t index = 0; index < maximum_events_; ++index)\n-        if (watermarks_[index].occupied\n-            && watermarks_[index].generation == generation)\n+    for (std::size_t index = 0; index < watermark_count_; ++index)\n+        if (watermarks_[index].generation == generation)\n             return &watermarks_[index];\n     return nullptr;\n }\n@@ -316,9 +322,8 @@ PresentationJournal::Watermark* PresentationJournal::FindWatermark(\n const PresentationJournal::Watermark* PresentationJournal::FindWatermark(\n     std::uint64_t generation) const noexcept\n {\n-    for (std::size_t index = 0; index < maximum_events_; ++index)\n-        if (watermarks_[index].occupied\n-            && watermarks_[index].generation == generation)\n+    for (std::size_t index = 0; index < watermark_count_; ++index)\n+        if (watermarks_[index].generation == generation)\n             return &watermarks_[index];\n     return nullptr;\n }\n@@ -328,15 +333,10 @@ PresentationJournal::Watermark* PresentationJournal::EnsureWatermark(\n {\n     if (auto* existing = FindWatermark(generation); existing != nullptr)\n         return existing;\n-    for (std::size_t index = 0; index < maximum_events_; ++index)\n-    {\n-        if (!watermarks_[index].occupied)\n-        {\n-            watermarks_[index] = {true, generation, 0, 0};\n-            return &watermarks_[index];\n-        }\n-    }\n-    return nullptr;\n+    if (watermark_count_ == maximum_events_) return nullptr;\n+    auto& watermark = watermarks_[watermark_count_++];\n+    watermark = {true, generation, 0, 0};\n+    return &watermark;\n }\n \n bool PresentationJournal::IsCommitted(const PresentationEvent& event) const noexcept\n@@ -361,10 +361,13 @@ bool PresentationJournal::Valid(const PresentationEvent& event) noexcept\n         && event.payload_size <= Schema::maximum_presentation_payload;\n }\n \n-void PresentationJournal::ClearSlot(Slot& slot) noexcept\n+void PresentationJournal::ClearSlot(std::size_t index) noexcept\n {\n+    auto& slot = slots_[index];\n     payload_bytes_ -= slot.event.payload_size;\n-    slot = {};\n     --pending_count_;\n+    if (index != pending_count_)\n+        slot = std::move(slots_[pending_count_]);\n+    slots_[pending_count_] = {};\n }\n }\ndiff --git a/HorseMod/horselib/deterministic/PresentationJournal.hpp b/HorseMod/horselib/deterministic/PresentationJournal.hpp\nindex 23bc1ea0..4b9876c0 100644\n--- a/HorseMod/horselib/deterministic/PresentationJournal.hpp\n+++ b/HorseMod/horselib/deterministic/PresentationJournal.hpp\n@@ -92,12 +92,17 @@ private:\n     [[nodiscard]] static EventKey Key(const PresentationEvent& event) noexcept;\n     [[nodiscard]] static bool Valid(const PresentationEvent& event) noexcept;\n     Status RecordInternal(PresentationEvent event, bool presented) noexcept;\n-    void ClearSlot(Slot& slot) noexcept;\n+    // Occupied journal slots are kept in [0, pending_count_). Removal swaps\n+    // the final occupied slot into the hole. Event ordering is derived from\n+    // EventKey, never physical slot order, so this preserves semantics while\n+    // keeping the hot-path work proportional to pending events.\n+    void ClearSlot(std::size_t index) noexcept;\n \n     std::size_t maximum_events_{};\n     std::size_t maximum_payload_bytes_{};\n     std::size_t payload_bytes_{};\n     std::size_t pending_count_{};\n+    std::size_t watermark_count_{};\n     std::unique_ptr<Slot[]> slots_;\n     std::unique_ptr<Watermark[]> watermarks_;\n     std::unique_ptr<bool[]> replacement_presented_;\ndiff --git a/HorseMod/horselib/deterministic/Sc6ReplayRuntime.Observation.inl b/HorseMod/horselib/deterministic/Sc6ReplayRuntime.Observation.inl\nindex 521da92d..167e1c79 100644\n--- a/HorseMod/horselib/deterministic/Sc6ReplayRuntime.Observation.inl\n+++ b/HorseMod/horselib/deterministic/Sc6ReplayRuntime.Observation.inl\n@@ -1383,6 +1383,22 @@ void Sc6ReplayRuntime::FillObservedGameplayEnvelope(\n         observation.tira_state19_writer_slot_mask;\n     envelope.tira_last_state19_writer_move =\n         observation.tira_last_state19_writer_move;\n+    envelope.tira_helper_attempts = observation.tira_helper_attempts;\n+    envelope.tira_helper_exact_draws = observation.tira_helper_exact_draws;\n+    envelope.tira_helper_writer_outcomes =\n+        observation.tira_helper_writer_outcomes;\n+    envelope.tira_helper_no_write_outcomes =\n+        observation.tira_helper_no_write_outcomes;\n+    envelope.tira_helper_no_change_outcomes =\n+        observation.tira_helper_no_change_outcomes;\n+    envelope.tira_helper_signature_failures =\n+        observation.tira_helper_signature_failures;\n+    envelope.tira_helper_last_enclosing_move =\n+        observation.tira_helper_last_enclosing_move;\n+    envelope.tira_helper_last_chance = observation.tira_helper_last_chance;\n+    envelope.tira_helper_last_result = observation.tira_helper_last_result;\n+    envelope.tira_helper_last_rejection_mask =\n+        observation.tira_helper_last_rejection_mask;\n     envelope.tira_random_transition_calls =\n         observation.tira_random_transition_calls;\n     envelope.tira_random_transition_sequence_hash =\ndiff --git a/HorseMod/horselib/deterministic/Sc6ReplayRuntime.PresentationAndSeek.inl b/HorseMod/horselib/deterministic/Sc6ReplayRuntime.PresentationAndSeek.inl\nindex 24f9c043..9e940f41 100644\n--- a/HorseMod/horselib/deterministic/Sc6ReplayRuntime.PresentationAndSeek.inl\n+++ b/HorseMod/horselib/deterministic/Sc6ReplayRuntime.PresentationAndSeek.inl\n@@ -83,6 +83,29 @@ Status Sc6ReplayRuntime::AccumulateObservedGameplayIdentity(\n     }\n     timeline_status_.observed_tira_state19_writer_calls +=\n         observation.tira_state19_writer_calls;\n+    timeline_status_.observed_tira_helper_attempts +=\n+        observation.tira_helper_attempts;\n+    timeline_status_.observed_tira_helper_exact_draws +=\n+        observation.tira_helper_exact_draws;\n+    timeline_status_.observed_tira_helper_writer_outcomes +=\n+        observation.tira_helper_writer_outcomes;\n+    timeline_status_.observed_tira_helper_no_write_outcomes +=\n+        observation.tira_helper_no_write_outcomes;\n+    timeline_status_.observed_tira_helper_no_change_outcomes +=\n+        observation.tira_helper_no_change_outcomes;\n+    timeline_status_.observed_tira_helper_signature_failures +=\n+        observation.tira_helper_signature_failures;\n+    if (observation.tira_helper_attempts != 0)\n+    {\n+        timeline_status_.observed_tira_helper_last_enclosing_move =\n+            observation.tira_helper_last_enclosing_move;\n+        timeline_status_.observed_tira_helper_last_chance =\n+            observation.tira_helper_last_chance;\n+        timeline_status_.observed_tira_helper_last_result =\n+            observation.tira_helper_last_result;\n+        timeline_status_.observed_tira_helper_last_rejection_mask =\n+            observation.tira_helper_last_rejection_mask;\n+    }\n     if (observation.tira_state19_writer_calls != 0)\n     {\n         AppendFnv64(timeline_status_.observed_tira_state19_writer_sequence_hash,\n@@ -360,6 +383,59 @@ void Sc6ReplayRuntime::ObserveReplayExit() noexcept\n         next_replay_history_capture_required_;\n }\n \n+void Sc6ReplayRuntime::ResetQualificationStateRetainingStorage() noexcept\n+{\n+    // Runtime re-arm is not a replay/process exit. Clear every logical owner\n+    // and identity exactly as an exit does, but retain the already bounded,\n+    // prewarmed checkpoint slots and vector capacities. Releasing those slots\n+    // here discarded roughly 300 MiB and forced a visible allocation hitch on\n+    // every depth/location-only change.\n+    input_timeline_.Clear();\n+    batch_timeline_.Clear();\n+    canonical_timeline_.Clear();\n+    archived_last_canonical_.reset();\n+    archived_canonical_frames_ = 0;\n+    archived_presentation_identity_ = {};\n+    forced_qualification_snapshots_.Clear();\n+    correction_undo_scratch_ = {};\n+    correction_verified_scratch_ = {};\n+    correction_canonical_capture_scratch_ = {};\n+    timeline_canonical_capture_scratch_ = {};\n+    checkpoint_capture_.InvalidateHistory();\n+    presentation_controller_.EndGeneration();\n+    diagnostic_snapshot_scratch_ = {};\n+    if (diagnostic_image_a_ != nullptr) *diagnostic_image_a_ = {};\n+    if (diagnostic_image_b_ != nullptr) *diagnostic_image_b_ = {};\n+    for (auto& snapshot : corrected_replay_capture_.replacement_landing)\n+        snapshot = {};\n+    for (auto& snapshot : corrected_replay_capture_.replacement_batch_entry)\n+        snapshot = {};\n+    corrected_replay_capture_.Clear();\n+    timeline_status_ = {};\n+    timeline_manager_ = 0;\n+    timeline_input_log_ = 0;\n+    timeline_thread_id_ = 0;\n+    pending_batch_id_ = 0;\n+    pending_batch_entry_ = {};\n+    pending_camera_source_frame_ = {};\n+    pending_batch_coordinates_.clear();\n+    last_movevm_short25_ = {};\n+    last_movevm_state_shorts_ = {};\n+    pending_movevm_state_short_change_masks_ = {};\n+    pending_movevm_short25_change_mask_ = 0;\n+    pending_movevm_short25_before_ = {};\n+    pending_movevm_short25_after_ = {};\n+    last_movevm_short25_valid_ = false;\n+    resume_target_ = {};\n+    resume_source_end_ = {};\n+    resume_validation_active_ = false;\n+    resume_catchup_pending_ = false;\n+    generation_rebaseline_pending_ = false;\n+    continuing_session_rebaseline_ = false;\n+    replay_history_capture_required_ =\n+        next_replay_history_capture_required_;\n+}\n+\n Status Sc6ReplayRuntime::ResetQualificationCycle(\n     std::uint64_t& stale_state_mask) noexcept\n {\n@@ -376,7 +452,7 @@ Status Sc6ReplayRuntime::ResetQualificationCycle(\n \n     SetForcedDepth7QualificationEnabled(false);\n     DisablePresentationOwnership();\n-    ObserveReplayExit();\n+    ResetQualificationStateRetainingStorage();\n \n     if (input_timeline_.size() != 0) stale_state_mask |= 1ull << 4;\n     if (batch_timeline_.batch_count() != 0) stale_state_mask |= 1ull << 5;\n@@ -679,6 +755,22 @@ void Sc6ReplayRuntime::ApplyCorrectedPresentationObservation(\n         observation.tira_state19_writer_slot_mask;\n     envelope.tira_last_state19_writer_move =\n         observation.tira_last_state19_writer_move;\n+    envelope.tira_helper_attempts = observation.tira_helper_attempts;\n+    envelope.tira_helper_exact_draws = observation.tira_helper_exact_draws;\n+    envelope.tira_helper_writer_outcomes =\n+        observation.tira_helper_writer_outcomes;\n+    envelope.tira_helper_no_write_outcomes =\n+        observation.tira_helper_no_write_outcomes;\n+    envelope.tira_helper_no_change_outcomes =\n+        observation.tira_helper_no_change_outcomes;\n+    envelope.tira_helper_signature_failures =\n+        observation.tira_helper_signature_failures;\n+    envelope.tira_helper_last_enclosing_move =\n+        observation.tira_helper_last_enclosing_move;\n+    envelope.tira_helper_last_chance = observation.tira_helper_last_chance;\n+    envelope.tira_helper_last_result = observation.tira_helper_last_result;\n+    envelope.tira_helper_last_rejection_mask =\n+        observation.tira_helper_last_rejection_mask;\n     envelope.tira_random_transition_calls =\n         observation.tira_random_transition_calls;\n     envelope.tira_random_transition_sequence_hash =\ndiff --git a/HorseMod/horselib/deterministic/Sc6ReplayRuntime.cpp b/HorseMod/horselib/deterministic/Sc6ReplayRuntime.cpp\nindex 5c408fd7..87019e0b 100644\n--- a/HorseMod/horselib/deterministic/Sc6ReplayRuntime.cpp\n+++ b/HorseMod/horselib/deterministic/Sc6ReplayRuntime.cpp\n@@ -38,7 +38,7 @@ struct ReplaySessionCoverage\n     std::array<std::uint64_t, 10> presentation{};\n     std::uint64_t audio_terminal_calls{};\n     std::array<std::uint64_t, 3> accounting{};\n-    std::array<std::uint64_t, 46> gameplay_rng{};\n+    std::array<std::uint64_t, 56> gameplay_rng{};\n };\n \n ReplaySessionCoverage CaptureReplaySessionCoverage(\n@@ -107,7 +107,18 @@ ReplaySessionCoverage CaptureReplaySessionCoverage(\n         status.observed_tira_state19_writer_calls,\n         status.observed_tira_state19_writer_sequence_hash,\n         status.observed_tira_state19_writer_slot_mask,\n-        status.observed_tira_last_state19_writer_move};\n+        status.observed_tira_last_state19_writer_move,\n+        status.observed_tira_helper_attempts,\n+        status.observed_tira_helper_exact_draws,\n+        status.observed_tira_helper_writer_outcomes,\n+        status.observed_tira_helper_no_write_outcomes,\n+        status.observed_tira_helper_no_change_outcomes,\n+        status.observed_tira_helper_signature_failures,\n+        status.observed_tira_helper_last_enclosing_move,\n+        status.observed_tira_helper_last_chance,\n+        static_cast<std::uint64_t>(static_cast<std::int64_t>(\n+            status.observed_tira_helper_last_result)),\n+        status.observed_tira_helper_last_rejection_mask};\n     return coverage;\n }\n \n@@ -180,6 +191,20 @@ void RestoreReplaySessionCoverage(ReplayTimelineStatus& status,\n         coverage.gameplay_rng[44]);\n     status.observed_tira_last_state19_writer_move =\n         static_cast<std::uint16_t>(coverage.gameplay_rng[45]);\n+    status.observed_tira_helper_attempts = coverage.gameplay_rng[46];\n+    status.observed_tira_helper_exact_draws = coverage.gameplay_rng[47];\n+    status.observed_tira_helper_writer_outcomes = coverage.gameplay_rng[48];\n+    status.observed_tira_helper_no_write_outcomes = coverage.gameplay_rng[49];\n+    status.observed_tira_helper_no_change_outcomes = coverage.gameplay_rng[50];\n+    status.observed_tira_helper_signature_failures = coverage.gameplay_rng[51];\n+    status.observed_tira_helper_last_enclosing_move =\n+        static_cast<std::uint16_t>(coverage.gameplay_rng[52]);\n+    status.observed_tira_helper_last_chance =\n+        static_cast<std::uint16_t>(coverage.gameplay_rng[53]);\n+    status.observed_tira_helper_last_result =\n+        static_cast<std::int16_t>(coverage.gameplay_rng[54]);\n+    status.observed_tira_helper_last_rejection_mask =\n+        static_cast<std::uint32_t>(coverage.gameplay_rng[55]);\n }\n \n OwnedCorrectionResult::WindNodeScheduleDiagnostic WindScheduleDiagnostic(\ndiff --git a/HorseMod/horselib/deterministic/Sc6ReplayRuntime.hpp b/HorseMod/horselib/deterministic/Sc6ReplayRuntime.hpp\nindex 0e4b83ce..1cd2c145 100644\n--- a/HorseMod/horselib/deterministic/Sc6ReplayRuntime.hpp\n+++ b/HorseMod/horselib/deterministic/Sc6ReplayRuntime.hpp\n@@ -97,6 +97,16 @@ struct ReplayTimelineStatus\n     std::uint64_t observed_tira_state19_writer_sequence_hash{};\n     std::uint8_t observed_tira_state19_writer_slot_mask{};\n     std::uint16_t observed_tira_last_state19_writer_move{};\n+    std::uint64_t observed_tira_helper_attempts{};\n+    std::uint64_t observed_tira_helper_exact_draws{};\n+    std::uint64_t observed_tira_helper_writer_outcomes{};\n+    std::uint64_t observed_tira_helper_no_write_outcomes{};\n+    std::uint64_t observed_tira_helper_no_change_outcomes{};\n+    std::uint64_t observed_tira_helper_signature_failures{};\n+    std::uint16_t observed_tira_helper_last_enclosing_move{};\n+    std::uint16_t observed_tira_helper_last_chance{};\n+    std::int16_t observed_tira_helper_last_result{};\n+    std::uint32_t observed_tira_helper_last_rejection_mask{};\n     std::uint64_t observed_tira_random_transition_calls{};\n     std::uint64_t observed_tira_random_transition_sequence_hash{};\n     std::uint64_t observed_tira_probability_transition_batches{};\n@@ -575,6 +585,7 @@ private:\n         const OuterTickObservation& observation) noexcept;\n     Status CapturePendingCameraSource() noexcept;\n     void RebaselineAfterIdentityDrift() noexcept;\n+    void ResetQualificationStateRetainingStorage() noexcept;\n     static void* ResolveReplayPlayer(void* user) noexcept;\n     static void* ResolveBattleManager(void* user) noexcept;\n     static void* ResolveFighterOne(void* user) noexcept;\ndiff --git a/docs/investigations/deterministic-tira-qualification-manifest.json b/docs/investigations/deterministic-tira-qualification-manifest.json\nindex fe622d41..84a22759 100644\n--- a/docs/investigations/deterministic-tira-qualification-manifest.json\n+++ b/docs/investigations/deterministic-tira-qualification-manifest.json\n@@ -1,5 +1,7 @@\n {\n-  \"schema_version\": 1,\n+  \"schema_version\": 2,\n+  \"certification_ready\": false,\n+  \"missing_required_role\": \"helper_321b_success\",\n   \"cases\": [\n     {\n       \"case_id\": \"tira-authored-13510506239876751347\",\n@@ -8,6 +10,7 @@\n       \"replay_metadata_stage\": 4,\n       \"replay_metadata_map\": 4,\n       \"contains_tira\": true,\n+      \"role\": \"deterministic_state19_only\",\n       \"stage_package_root\": \"/Game/Stage/STG004\",\n       \"native_display_name\": \"Astral Chaos: Tide of the Damned\"\n     },\n@@ -18,6 +21,7 @@\n       \"replay_metadata_stage\": 4,\n       \"replay_metadata_map\": 4,\n       \"contains_tira\": true,\n+      \"role\": \"deterministic_state19_only\",\n       \"stage_package_root\": \"/Game/Stage/STG004\",\n       \"native_display_name\": \"Astral Chaos: Tide of the Damned\"\n     },\n@@ -28,6 +32,7 @@\n       \"replay_metadata_stage\": 4,\n       \"replay_metadata_map\": 4,\n       \"contains_tira\": false,\n+      \"role\": \"non_tira_control\",\n       \"stage_package_root\": \"/Game/Stage/STG004\",\n       \"native_display_name\": \"Astral Chaos: Tide of the Damned\"\n     }\ndiff --git a/tools/deterministic_qualification/offline_campaign.py b/tools/deterministic_qualification/offline_campaign.py\nindex ff5cf80f..ae751c41 100644\n--- a/tools/deterministic_qualification/offline_campaign.py\n+++ b/tools/deterministic_qualification/offline_campaign.py\n@@ -301,9 +301,11 @@ def _compose_persistent_row(\n                 \"fresh_process_lifecycle_report\": baseline_artifact,\n             },\n             \"performance\": {\n-                \"normal_render_fps\": rate[\"normal_render_tick_rate\"],\n+                \"normal_render_fps\": rate.get(\n+                    \"normal_render_fps\", rate[\"normal_render_tick_rate\"]),\n                 \"normal_render_tick_rate\": rate[\"normal_render_tick_rate\"],\n-                \"active_battle_fps\": rate[\"active_battle_tick_rate\"],\n+                \"active_battle_fps\": rate.get(\n+                    \"active_battle_fps\", rate[\"active_battle_tick_rate\"]),\n                 \"active_battle_tick_rate\": rate[\"active_battle_tick_rate\"],\n                 \"capture_p99_us\": cycle[\"capture_p99_us\"],\n                 \"capture_max_us\": cycle[\"capture_max_us\"],\ndiff --git a/tools/deterministic_qualification/replay_entry.py b/tools/deterministic_qualification/replay_entry.py\nindex 4d93d8b0..3889815b 100644\n--- a/tools/deterministic_qualification/replay_entry.py\n+++ b/tools/deterministic_qualification/replay_entry.py\n@@ -140,7 +140,7 @@ def create_request(\n                 raise RuntimeError(\"qualification cycle run ID is invalid\")\n             if cycle_run_id in seen:\n                 raise RuntimeError(\"qualification cycle run IDs must be unique\")\n-            if depth not in (1, 6, 11) or location not in (1, 2, 3, 4):\n+            if depth not in (1, 6, 11) or location not in (1, 2, 3, 4, 5, 6):\n                 raise RuntimeError(\"qualification cycle depth/location is invalid\")\n             seen.add(cycle_run_id)\n         for index in range(0, len(qualification_cycles), 3):\n@@ -154,7 +154,7 @@ def create_request(\n                 or stock_round_outcome_control or require_authored_outcomes):\n             raise RuntimeError(\n                 \"persistent qualification cycles cannot combine with other replay modes\")\n-    version = 11 if qualification_cycles else 9\n+    version = 12 if qualification_cycles else 9\n     seek_line = (\n         \"seek_percentages=\" + \",\".join(map(str, seek_percentages)) + \"\\n\"\n         f\"min_resume_tick_rate_milli={round(min_resume_tick_rate * 1000)}\\n\"\ndiff --git a/tools/deterministic_qualification/runner.py b/tools/deterministic_qualification/runner.py\nindex 25474b75..f4ba6acc 100644\n--- a/tools/deterministic_qualification/runner.py\n+++ b/tools/deterministic_qualification/runner.py\n@@ -507,7 +507,11 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:\n                     args.log, args.timeout, guard, log_start\n                 )\n                 minimum_rate_milli = round(args.min_resume_tick_rate * 1000)\n-                if (normal_render_rate.tick_rate_milli < minimum_rate_milli\n+                if (not normal_render_rate.independent_clocks\n+                        or normal_render_rate.fps_milli < minimum_rate_milli\n+                        or normal_render_rate.tick_rate_milli < minimum_rate_milli\n+                        or normal_render_rate.active_fps_milli\n+                            < minimum_rate_milli\n                         or normal_render_rate.active_tick_rate_milli\n                             < minimum_rate_milli):\n                     raise RuntimeError(\n@@ -553,6 +557,10 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:\n                             or gameplay_rng_coverage.tira_slot_mask == 0\n                             or gameplay_rng_coverage.tira_writer_calls == 0\n                             or gameplay_rng_coverage.tira_writer_sequence == 0\n+                            or gameplay_rng_coverage.tira_helper_attempts == 0\n+                            or gameplay_rng_coverage.tira_helper_exact_draws == 0\n+                            or gameplay_rng_coverage.tira_helper_writes == 0\n+                            or gameplay_rng_coverage.tira_helper_signature_failures != 0\n                             or gameplay_rng_coverage.tira_writer_slot_mask == 0\n                             or not gameplay_rng_coverage.state19_initial_valid):\n                         raise RuntimeError(\n@@ -819,12 +827,24 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:\n                 ),\n                 \"normal_render_fps\": (\n                     None if normal_render_rate is None else\n-                    normal_render_rate.tick_rate_milli / 1000.0\n+                    normal_render_rate.fps_milli / 1000.0\n                 ),\n                 \"normal_render_tick_rate\": (\n                     None if normal_render_rate is None else\n                     normal_render_rate.tick_rate_milli / 1000.0\n                 ),\n+                \"independent_clocks\": (\n+                    None if normal_render_rate is None else\n+                    normal_render_rate.independent_clocks\n+                ),\n+                \"normal_render_forward_ticks\": (\n+                    None if normal_render_rate is None else\n+                    normal_render_rate.forward_ticks\n+                ),\n+                \"normal_render_owned_resim_ticks\": (\n+                    None if normal_render_rate is None else\n+                    normal_render_rate.owned_ticks\n+                ),\n                 \"active_battle_frames\": (\n                     None if normal_render_rate is None else\n                     normal_render_rate.active_frames\n@@ -835,7 +855,7 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:\n                 ),\n                 \"active_battle_fps\": (\n                     None if normal_render_rate is None else\n-                    normal_render_rate.active_tick_rate_milli / 1000.0\n+                    normal_render_rate.active_fps_milli / 1000.0\n                 ),\n                 \"active_battle_tick_rate\": (\n                     None if normal_render_rate is None else\n@@ -940,6 +960,26 @@ def _run_replay_entry_once(args: argparse.Namespace) -> int:\n                     f\"0x{gameplay_rng_coverage.tira_writer_slot_mask:x}\",\n                 \"tira_last_writer_move\":\n                     f\"0x{gameplay_rng_coverage.tira_last_writer_move:04x}\",\n+                \"tira_helper_attempts\":\n+                    gameplay_rng_coverage.tira_helper_attempts,\n+                \"tira_helper_exact_draws\":\n+                    gameplay_rng_coverage.tira_helper_exact_draws,\n+                \"tira_helper_writes\":\n+                    gameplay_rng_coverage.tira_helper_writes,\n+                \"tira_helper_no_write\":\n+                    gameplay_rng_coverage.tira_helper_no_write,\n+                \"tira_helper_no_change\":\n+                    gameplay_rng_coverage.tira_helper_no_change,\n+                \"tira_helper_signature_failures\":\n+                    gameplay_rng_coverage.tira_helper_signature_failures,\n+                \"tira_helper_last_enclosing_move\":\n+                    f\"0x{gameplay_rng_coverage.tira_helper_last_enclosing_move:04x}\",\n+                \"tira_helper_last_chance\":\n+                    gameplay_rng_coverage.tira_helper_last_chance,\n+                \"tira_helper_last_result\":\n+                    gameplay_rng_coverage.tira_helper_last_result,\n+                \"tira_helper_last_rejection_mask\":\n+                    f\"0x{gameplay_rng_coverage.tira_helper_last_rejection_mask:x}\",\n                 \"tira_sequence\":\n                     f\"0x{gameplay_rng_coverage.tira_sequence:016x}\",\n                 \"tira_stance_batches\": gameplay_rng_coverage.tira_stance_batches,\n@@ -1247,9 +1287,22 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:\n     schema = required_file(args.schema, \"generated schema\")\n     executable = required_file(args.game_executable, \"SoulcaliburVI executable\")\n     require_disarmed(config)\n-    if args.certifying and (args.anchors != 40 or args.repeats != 15):\n+    event_locked = (args.cycle in (\n+        [[11, 5], [1, 5], [6, 5]],\n+        [[11, 6], [1, 6], [6, 6]],\n+        [(11, 5), (1, 5), (6, 5)],\n+        [(11, 6), (1, 6), (6, 6)],\n+    ))\n+    event_shape = ((args.cycle and args.cycle[0][1] == 5\n+                    and args.anchors == 1 and args.repeats == 15)\n+                   or (args.cycle and args.cycle[0][1] == 6\n+                       and args.anchors == 15 and args.repeats == 1))\n+    if (args.certifying\n+            and (args.anchors != 40 or args.repeats != 15)\n+            and not (event_locked and event_shape)):\n         raise RuntimeError(\n-            \"certifying qualification requires exactly 40 anchors and 15 repeats\")\n+            \"certifying qualification requires 40x15, Tira same-event \"\n+            \"stress 1x15, or Tira production cadence 15x1\")\n     identity = source_identity(ROOT)\n     if identity[\"dirty\"] and (args.certifying or not args.allow_dirty):\n         raise RuntimeError(\"qualification campaign requires immutable source or --allow-dirty\")\n@@ -1291,7 +1344,8 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:\n                         log_start = capture_log_offset(args.log)\n                         args._failure_log_start = log_start\n                         parent_run_id = create_request(\n-                            replay, 120, (), args.min_resume_tick_rate, 120,\n+                            replay, 120, (), args.min_resume_tick_rate,\n+                            args.performance_window,\n                             stock_round_outcome_control=False,\n                             qualification_cycles=entry_specs,\n                             qualification_anchors=args.anchors,\n@@ -1314,6 +1368,17 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:\n                         rate = wait_for_normal_render_rate_evidence(\n                             args.log, args.timeout, guard, log_start,\n                             source_bound=replay_entry_index == 1)\n+                        minimum_rate_milli = round(\n+                            args.min_resume_tick_rate * 1000)\n+                        if (not rate.independent_clocks\n+                                or min(rate.fps_milli,\n+                                       rate.tick_rate_milli,\n+                                       rate.active_fps_milli,\n+                                       rate.active_tick_rate_milli)\n+                                    < minimum_rate_milli):\n+                            raise RuntimeError(\n+                                \"persistent qualification independent \"\n+                                \"FPS/TPS canary failed\")\n                         metadata = wait_for_replay_metadata_evidence(\n                             args.log, args.timeout, guard, log_start,\n                             source_bound=replay_entry_index == 1)\n@@ -1358,6 +1423,8 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:\n                                     or cycle.get(\"capacity_growth\") != 0\n                                     or cycle.get(\"duplicates\") != 0\n                                     or cycle.get(\"publish_failures\") != 0\n+                                    or cycle.get(\"cycle_p99_us\", 10**9) >= 16_670\n+                                    or cycle.get(\"cycle_max_us\", 10**9) >= 33_340\n                                     or cycle.get(\"pending\") != \"0/0\"\n                                     or cycle.get(\"terminal_coverage\") != 1\n                                     or not activity_valid\n@@ -1370,6 +1437,8 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:\n                             cycle[\"replay_entry\"] = replay_entry_index\n                             cycles.append(cycle)\n                         for index in range(0, len(entry_cycles), 3):\n+                            if entry_cycles[index].get(\"location\") == 6:\n+                                continue\n                             hashes = {\n                                 cycle.get(\"anchor_hash\")\n                                 for cycle in entry_cycles[index:index + 3]\n@@ -1430,6 +1499,7 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:\n         \"depth_order\": [depth for _, depth, _ in cycle_specs],\n         \"qualification_anchors\": args.anchors,\n         \"qualification_repeats_per_anchor\": args.repeats,\n+        \"qualification_performance_window\": args.performance_window,\n         \"cycles\": cycles,\n         \"runtime\": {\n             \"process_launches\": 1,\n@@ -1437,8 +1507,14 @@ def run_replay_qualification_campaign(args: argparse.Namespace) -> int:\n             \"replay_entries\": len(parent_run_ids),\n             \"normal_render_tick_rate\": min(\n                 item.tick_rate_milli for item in rates) / 1000.0,\n+            \"normal_render_fps\": min(\n+                item.fps_milli for item in rates) / 1000.0,\n             \"active_battle_tick_rate\": min(\n                 item.active_tick_rate_milli for item in rates) / 1000.0,\n+            \"active_battle_fps\": min(\n+                item.active_fps_milli for item in rates) / 1000.0,\n+            \"independent_performance_clocks\": all(\n+                item.independent_clocks for item in rates),\n             \"native_stage\": metadata.stage,\n             \"native_map\": metadata.map,\n             \"native_left_character\": metadata.left_character,\n@@ -1646,6 +1722,9 @@ def build_parser() -> argparse.ArgumentParser:\n     qualification_campaign.add_argument(\"--timeout\", type=float, default=600.0)\n     qualification_campaign.add_argument(\"--min-resume-tick-rate\", type=float,\n                                         default=58.0)\n+    qualification_campaign.add_argument(\"--performance-window\", type=int,\n+        default=600, choices=range(120, 3601), metavar=\"FRAMES\",\n+        help=\"post-arm normal-render FPS/TPS recovery window\")\n     qualification_campaign.add_argument(\"--display-map-name\", required=True)\n     qualification_campaign.add_argument(\"--stage-package-root\", required=True)\n     qualification_campaign.add_argument(\"--case-id\", default=\"\")\ndiff --git a/tools/deterministic_qualification/tests/test_replay_entry_request.py b/tools/deterministic_qualification/tests/test_replay_entry_request.py\nindex 1100b68d..c40c94dd 100644\n--- a/tools/deterministic_qualification/tests/test_replay_entry_request.py\n+++ b/tools/deterministic_qualification/tests/test_replay_entry_request.py\n@@ -173,7 +173,7 @@ def test_persistent_cycles_use_grouped_version_and_unique_runtime_ids(\n     request = (tmp_path / \"HorseMod\" / \"Qualification\"\n                / \"replay_request.txt\").read_text(encoding=\"utf-8\")\n \n-    assert request.startswith(\"version=11\\n\")\n+    assert request.startswith(\"version=12\\n\")\n     assert \"stock_round_outcome_control=false\\n\" in request\n     assert \"qualification_cycles=run11:11:1,run1:1:1,run6:6:1\\n\" in request\n     assert \"qualification_anchors=2\\n\" in request\ndiff --git a/tools/deterministic_qualification/tests/test_tira_campaign.py b/tools/deterministic_qualification/tests/test_tira_campaign.py\nindex 19615853..d5f44088 100644\n--- a/tools/deterministic_qualification/tests/test_tira_campaign.py\n+++ b/tools/deterministic_qualification/tests/test_tira_campaign.py\n@@ -7,12 +7,17 @@ from tools.deterministic_qualification.configuration import (\n \n \n def _cases():\n+    roles = (\n+        \"helper_321b_success\", \"deterministic_state19_only\",\n+        \"non_tira_control\",\n+    )\n     return [\n         {\n             \"case_id\": f\"case-{index}\",\n             \"native_display_name\": \"Astral Chaos: Tide of the Damned\",\n             \"stage_package_root\": \"/Game/Stage/STG004\",\n             \"contains_tira\": index < 2,\n+            \"role\": roles[index],\n             \"replay_sha256\": \"replay\",\n             \"replay_metadata_stage\": 4,\n             \"replay_metadata_map\": 4,\n@@ -21,8 +26,10 @@ def _cases():\n     ]\n \n \n-def _report(case_id: str, transition: bool):\n+def _report(case_id: str, transition: bool, role: str):\n     expected_config = expected_fields(enabled=False, trace=True)\n+    deterministic_writer = role == \"deterministic_state19_only\"\n+    writer = transition or deterministic_writer\n     coverage = {\n         \"xorshift_draws\": 10,\n         \"known_callers\": 1,\n@@ -37,9 +44,9 @@ def _report(case_id: str, transition: bool):\n         \"tira_probability_batches\": 1 if transition else 0,\n         \"tira_targets\": 1 if transition else 0,\n         \"tira_last_target\": \"0x0205\" if transition else \"0x0000\",\n-        \"tira_writer_calls\": 1 if transition else 0,\n-        \"tira_writer_sequence\": \"0x77\" if transition else \"0x0\",\n-        \"tira_writer_slot_mask\": \"0x2\" if transition else \"0x0\",\n+        \"tira_writer_calls\": 1 if writer else 0,\n+        \"tira_writer_sequence\": \"0x77\" if writer else \"0x0\",\n+        \"tira_writer_slot_mask\": \"0x2\" if writer else \"0x0\",\n         # A later deterministic stance write is valid and must not erase the\n         # already observed helper-owned random transition.\n         \"tira_last_writer_move\": \"0x306f\" if transition else \"0x0000\",\n@@ -55,6 +62,16 @@ def _report(case_id: str, transition: bool):\n         \"state19_at_tira_transition_p0\": 0,\n         \"state19_at_tira_transition_p1\": 1 if transition else 0,\n         \"state19_initial_valid\": True,\n+        \"tira_helper_attempts\": 1 if transition else 0,\n+        \"tira_helper_exact_draws\": 1 if transition else 0,\n+        \"tira_helper_writes\": 1 if transition else 0,\n+        \"tira_helper_no_write\": 0,\n+        \"tira_helper_no_change\": 0,\n+        \"tira_helper_signature_failures\": 0,\n+        \"tira_helper_last_enclosing_move\": \"0x0165\" if transition else \"0x0000\",\n+        \"tira_helper_last_chance\": 80 if transition else 0,\n+        \"tira_helper_last_result\": 1 if transition else 0,\n+        \"tira_helper_last_rejection_mask\": \"0x0\",\n     }\n     return {\n         \"case_id\": case_id,\n@@ -88,6 +105,13 @@ def _report(case_id: str, transition: bool):\n                 \"persistent_final_exact\": True,\n                 \"identity\": {\"audio_identity\": \"0x11\", \"camera_identity\": \"0x22\"},\n             },\n+            \"performance\": {\n+                \"independent_clocks\": True,\n+                \"normal_render_fps\": 60.0,\n+                \"normal_render_tick_rate\": 60.0,\n+                \"active_battle_fps\": 60.0,\n+                \"active_battle_tick_rate\": 60.0,\n+            },\n         },\n     }\n \n@@ -96,18 +120,18 @@ def test_evaluate_tira_reports_requires_and_accepts_exact_repeat_transition():\n     cases = _cases()\n     reports = []\n     for index, case in enumerate(cases):\n-        report = _report(case[\"case_id\"], index < 2)\n+        report = _report(case[\"case_id\"], index == 0, case[\"role\"])\n         reports.extend((report, deepcopy(report)))\n     result = evaluate_tira_reports(cases, reports, \"dll\", \"schema\", \"runner\")\n     assert result[\"certifying\"] is True\n-    assert result[\"transition_runs\"] == 4\n+    assert result[\"transition_runs\"] == 2\n \n \n def test_evaluate_tira_reports_rejects_repeat_rng_sequence_mismatch():\n     cases = _cases()\n     reports = []\n     for index, case in enumerate(cases):\n-        report = _report(case[\"case_id\"], index < 2)\n+        report = _report(case[\"case_id\"], index == 0, case[\"role\"])\n         repeated = deepcopy(report)\n         reports.extend((report, repeated))\n     reports[1][\"runtime\"][\"gameplay_rng_coverage\"][\"tira_sequence\"] = \"0x99\"\n@@ -120,7 +144,7 @@ def test_evaluate_tira_reports_rejects_repeat_presentation_mismatch():\n     cases = _cases()\n     reports = []\n     for index, case in enumerate(cases):\n-        report = _report(case[\"case_id\"], index < 2)\n+        report = _report(case[\"case_id\"], index == 0, case[\"role\"])\n         reports.extend((report, deepcopy(report)))\n     reports[1][\"runtime\"][\"presentation\"][\"identity\"][\"audio_identity\"] = \"0x99\"\n     result = evaluate_tira_reports(cases, reports, \"dll\", \"schema\", \"runner\")\ndiff --git a/tools/deterministic_qualification/tests/test_trace_parser.py b/tools/deterministic_qualification/tests/test_trace_parser.py\nindex 10934c0e..45caba76 100644\n--- a/tools/deterministic_qualification/tests/test_trace_parser.py\n+++ b/tools/deterministic_qualification/tests/test_trace_parser.py\n@@ -234,6 +234,24 @@ def test_normal_render_rate_parser_supports_explicit_request_local_window() -> N\n     assert evidence.active_tick_rate_milli == 58794\n \n \n+def test_normal_render_rate_parser_keeps_viewport_and_forward_tick_clocks_distinct() -> None:\n+    text = (\n+        \"[HorseMod] ctor v2.0 source=\" + \"c\" * 40 + \"\\n\"\n+        \"[ReplayQualification] normal-render battle rate \"\n+        \"viewport_frames=601 native_ticks=600 owned_ticks=45 elapsed_us=10000000 \"\n+        \"fps_milli=60100 tick_rate_milli=60000\\n\"\n+        \"[ReplayQualification] normal-render active battle rate \"\n+        \"viewport_frames=121 native_ticks=120 owned_ticks=45 elapsed_us=2000000 \"\n+        \"fps_milli=60500 tick_rate_milli=60000\\n\"\n+    )\n+    evidence = parse_normal_render_rate_evidence(text)\n+    assert evidence is not None\n+    assert evidence.independent_clocks is True\n+    assert evidence.fps_milli == 60100\n+    assert evidence.tick_rate_milli == 60000\n+    assert evidence.active_owned_ticks == 45\n+\n+\n def test_forced_qualification_parser_prefers_terminal_failure() -> None:\n     text = (\n         \"[HorseMod] ctor v2.0 source=\" + \"b\" * 40 + \"\\n\"\ndiff --git a/tools/deterministic_qualification/tira_campaign.py b/tools/deterministic_qualification/tira_campaign.py\nindex 4c970602..e992a023 100644\n--- a/tools/deterministic_qualification/tira_campaign.py\n+++ b/tools/deterministic_qualification/tira_campaign.py\n@@ -19,17 +19,26 @@ from .report import write_report\n def _load_cases(path: Path) -> list[dict[str, Any]]:\n     document = json.loads(path.read_text(encoding=\"utf-8\"))\n     cases = document.get(\"cases\")\n-    if document.get(\"schema_version\") != 1 or not isinstance(cases, list):\n-        raise RuntimeError(\"Tira manifest must be schema v1\")\n-    if len(cases) != 3:\n-        raise RuntimeError(\"Tira manifest must contain exactly three authored replays\")\n+    if document.get(\"schema_version\") != 2 or not isinstance(cases, list):\n+        raise RuntimeError(\"Tira manifest must be schema v2\")\n+    if len(cases) < 3:\n+        raise RuntimeError(\"Tira manifest must contain positive and control replays\")\n     required = {\n         \"case_id\", \"replay\", \"stage_package_root\", \"native_display_name\",\n         \"contains_tira\", \"replay_sha256\", \"replay_metadata_stage\",\n-        \"replay_metadata_map\",\n+        \"replay_metadata_map\", \"role\",\n     }\n     if any(not isinstance(case, dict) or not required <= set(case) for case in cases):\n         raise RuntimeError(\"Tira manifest case is incomplete\")\n+    roles = {case[\"role\"] for case in cases}\n+    required_roles = {\n+        \"helper_321b_success\", \"deterministic_state19_only\",\n+        \"non_tira_control\",\n+    }\n+    if not required_roles <= roles:\n+        raise RuntimeError(\n+            \"Tira manifest needs a current-build helper success replay, \"\n+            \"a deterministic state19 control, and a non-Tira control\")\n     return cases\n \n \n@@ -67,6 +76,11 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A\n         \"state19_final_p0\", \"state19_final_p1\", \"xorshift_landing\",\n         \"state19_at_tira_transition_p0\", \"state19_at_tira_transition_p1\",\n         \"state19_initial_valid\",\n+        \"tira_helper_attempts\", \"tira_helper_exact_draws\",\n+        \"tira_helper_writes\", \"tira_helper_no_write\",\n+        \"tira_helper_no_change\", \"tira_helper_signature_failures\",\n+        \"tira_helper_last_enclosing_move\", \"tira_helper_last_chance\",\n+        \"tira_helper_last_result\", \"tira_helper_last_rejection_mask\",\n     )\n     for case in cases:\n         case_failures: list[str] = []\n@@ -78,6 +92,7 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A\n             artifacts = report.get(\"artifacts\", {})\n             coverage = runtime.get(\"gameplay_rng_coverage\")\n             presentation = runtime.get(\"presentation\", {})\n+            performance = runtime.get(\"performance\", {})\n             if (report.get(\"result\") != \"pass\" or report.get(\"certifying\") is not True):\n                 case_failures.append(\"report is not a certifying pass\")\n             if report.get(\"renderer\") != \"normal\":\n@@ -120,6 +135,13 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A\n                 case_failures.append(\"authored round/final winner proof missing\")\n             if runtime.get(\"final_canonical\") is None:\n                 case_failures.append(\"final canonical proof missing\")\n+            if (performance.get(\"independent_clocks\") is not True\n+                    or performance.get(\"normal_render_fps\", 0) <= 59.0\n+                    or performance.get(\"normal_render_tick_rate\", 0) <= 59.0\n+                    or performance.get(\"active_battle_fps\", 0) <= 59.0\n+                    or performance.get(\"active_battle_tick_rate\", 0) <= 59.0):\n+                case_failures.append(\n+                    \"independent active-battle FPS/TPS budget failed\")\n             if (runtime.get(\"capacity_failures\") != 0\n                     or runtime.get(\"capacity_growth_events\") != 0\n                     or runtime.get(\"timeline_accounting_failures\") != 0\n@@ -135,7 +157,7 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A\n                 if _int_field(coverage, \"unknown_callers\") != 0:\n                     case_failures.append(\"unknown gameplay RNG caller observed\")\n                 transition = (\n-                    case[\"contains_tira\"]\n+                    case[\"role\"] == \"helper_321b_success\"\n                     and _int_field(coverage, \"if_draws\") > 0\n                     and _int_field(coverage, \"xorshift_draws\") > 0\n                     and _int_field(coverage, \"tira_probability_batches\") > 0\n@@ -146,6 +168,11 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A\n                     and _int_field(coverage, \"tira_writer_calls\") > 0\n                     and _int_field(coverage, \"tira_writer_sequence\") > 0\n                     and _int_field(coverage, \"tira_writer_slot_mask\") > 0\n+                    and _int_field(coverage, \"tira_helper_attempts\") > 0\n+                    and _int_field(coverage, \"tira_helper_exact_draws\") > 0\n+                    and _int_field(coverage, \"tira_helper_writes\") > 0\n+                    and _int_field(\n+                        coverage, \"tira_helper_signature_failures\") == 0\n                 )\n                 if transition:\n                     transition_runs += 1\n@@ -168,9 +195,20 @@ def evaluate_tira_reports(cases: list[dict[str, Any]], reports: list[dict[str, A\n                             or _int_field(coverage, \"tira_sequence\") == 0):\n                         case_failures.append(\n                             \"ordered Tira RNG/transition identity is empty\")\n-                elif case[\"contains_tira\"]:\n+                elif case[\"role\"] == \"helper_321b_success\":\n                     case_failures.append(\n                         \"authored Tira replay did not execute the exact random transition\")\n+                elif case[\"role\"] == \"deterministic_state19_only\":\n+                    if (not case[\"contains_tira\"]\n+                            or _int_field(coverage, \"tira_writer_calls\") == 0\n+                            or _int_field(coverage, \"tira_random_transitions\") != 0):\n+                        case_failures.append(\n+                            \"deterministic state19 control did not remain distinct\")\n+                elif case[\"role\"] == \"non_tira_control\":\n+                    if (case[\"contains_tira\"]\n+                            or _int_field(coverage, \"tira_random_transitions\") != 0\n+                            or _int_field(coverage, \"tira_helper_attempts\") != 0):\n+                        case_failures.append(\"non-Tira control observed Tira helper activity\")\n             except RuntimeError as error:\n                 case_failures.append(str(error))\n         if len(pair) == 2:\n@@ -218,6 +256,7 @@ def run_tira_campaign(args: Any, root: Path) -> int:\n         raise RuntimeError(\"Tira certification requires frozen deterministic sources\")\n     args.output_dir.mkdir(parents=True, exist_ok=True)\n     reports: list[dict[str, Any]] = []\n+    event_restore_reports: list[dict[str, Any]] = []\n     try:\n         for case in cases:\n             replay_path = root / case[\"replay\"]\n@@ -259,11 +298,70 @@ def run_tira_campaign(args: Any, root: Path) -> int:\n                     \"--display-map-name\", case[\"native_display_name\"],\n                     \"--stage-package-root\", case[\"stage_package_root\"],\n                 ]\n-                if case[\"contains_tira\"]:\n+                if case[\"role\"] == \"helper_321b_success\":\n                     command.append(\"--require-tira-probability-transition\")\n                 with armed_baseline(args.config):\n                     subprocess.run(command, cwd=root, check=True)\n                 reports.append(json.loads(report_path.read_text(encoding=\"utf-8\")))\n+            if case[\"role\"] == \"helper_321b_success\":\n+                for suffix, location, anchors, repeats in (\n+                    (\"event-restores\", 5, 1, 15),\n+                    (\"production-cadence\", 6, 15, 1),\n+                ):\n+                    event_path = args.output_dir / (\n+                        f\"{case['case_id']}-{suffix}.json\")\n+                    event_command = [\n+                        sys.executable,\n+                        str(root / \"tools\" / \"deterministic_qualification.py\"),\n+                        \"replay-qualification-campaign\", \"--replay\",\n+                        str(replay_path), \"--dll\", str(args.dll),\n+                        \"--replay-mod\", str(args.replay_mod), \"--config\",\n+                        str(args.config), \"--schema\", str(args.schema), \"--log\",\n+                        str(args.log), \"--game-executable\",\n+                        str(args.game_executable), \"--report\", str(event_path),\n+                        \"--timeout\", str(args.timeout), \"--certifying\",\n+                        \"--anchors\", str(anchors), \"--repeats\", str(repeats),\n+                        \"--cycle\", \"11\", str(location), \"--cycle\", \"1\",\n+                        str(location), \"--cycle\", \"6\", str(location),\n+                        \"--case-id\", case[\"case_id\"], \"--display-map-name\",\n+                        case[\"native_display_name\"], \"--stage-package-root\",\n+                        case[\"stage_package_root\"], \"--min-resume-tick-rate\",\n+                        \"59.001\",\n+                    ]\n+                    disarm_diagnostics(args.config)\n+                    subprocess.run(event_command, cwd=root, check=True)\n+                    event_report = json.loads(\n+                        event_path.read_text(encoding=\"utf-8\"))\n+                    runtime = event_report.get(\"runtime\", {})\n+                    cycles = event_report.get(\"cycles\", [])\n+                    expected = anchors * repeats\n+                    valid_cycles = (\n+                        len(cycles) == 3\n+                        and [cycle.get(\"depth\") for cycle in cycles]\n+                            == [11, 1, 6]\n+                        and all(cycle.get(\"location\") == location\n+                                and cycle.get(\"completed\")\n+                                    == f\"{expected}/{expected}\"\n+                                and cycle.get(\"failure\") == 0\n+                                for cycle in cycles)\n+                    )\n+                    if (event_report.get(\"certifying\") is not True\n+                            or event_report.get(\"result\") != \"pass\"\n+                            or event_report.get(\"depth_order\") != [11, 1, 6]\n+                            or event_report.get(\"qualification_anchors\") != anchors\n+                            or event_report.get(\n+                                \"qualification_repeats_per_anchor\") != repeats\n+                            or runtime.get(\n+                                \"independent_performance_clocks\") is not True\n+                            or min(runtime.get(\"normal_render_fps\", 0),\n+                                   runtime.get(\"normal_render_tick_rate\", 0),\n+                                   runtime.get(\"active_battle_fps\", 0),\n+                                   runtime.get(\"active_battle_tick_rate\", 0))\n+                                <= 59.0\n+                            or not valid_cycles):\n+                        raise RuntimeError(\n+                            f\"Tira {suffix} 11/1/6 restore gate failed\")\n+                    event_restore_reports.append(event_report)\n     finally:\n         disarm_diagnostics(args.config)\n         if list_game_processes():\n@@ -293,7 +391,24 @@ def run_tira_campaign(args: Any, root: Path) -> int:\n             }\n             for case in cases for repeat in range(2)\n         ],\n+        \"event_restore_reports\": [\n+            {\n+                \"path\": str((args.output_dir / f\"{case['case_id']}-{suffix}.json\").resolve()),\n+                \"sha256\": sha256_file(\n+                    args.output_dir / f\"{case['case_id']}-{suffix}.json\"),\n+                \"replay_sha256\": case[\"replay_sha256\"],\n+            }\n+            for case in cases if case[\"role\"] == \"helper_321b_success\"\n+            for suffix in (\"event-restores\", \"production-cadence\")\n+        ],\n     }\n+    evaluation[\"event_restore_runs\"] = len(event_restore_reports)\n+    if len(event_restore_reports) != 2 * sum(\n+            case[\"role\"] == \"helper_321b_success\" for case in cases):\n+        evaluation[\"certifying\"] = False\n+        evaluation[\"result\"] = \"fail\"\n+        evaluation[\"failures\"].append(\n+            \"exact-event repeated-restore evidence is incomplete\")\n     evaluation[\"source\"] = source_identity(root)\n     write_report(args.report, evaluation)\n     if not evaluation[\"certifying\"]:\ndiff --git a/tools/deterministic_qualification/trace_parser.py b/tools/deterministic_qualification/trace_parser.py\nindex 6b800e3f..ce75301b 100644\n--- a/tools/deterministic_qualification/trace_parser.py\n+++ b/tools/deterministic_qualification/trace_parser.py\n@@ -46,11 +46,25 @@ REPLAY_SEEK_PATTERN = re.compile(\n     r\"resume_tick_rate_milli=(?P<rate>\\d+) index=(?P<index>\\d+)\"\n )\n NORMAL_RENDER_RATE_PATTERN = re.compile(\n+    r\"\\[ReplayQualification\\] normal-render battle rate \"\n+    r\"(?:viewport_frames|presents)=(?P<frames>\\d+) \"\n+    r\"(?:native_ticks|forward_ticks)=(?P<ticks>\\d+) \"\n+    r\"owned_ticks=(?P<owned>\\d+) elapsed_us=(?P<elapsed>\\d+) \"\n+    r\"fps_milli=(?P<fps>\\d+) tick_rate_milli=(?P<rate>\\d+)\"\n+)\n+NORMAL_RENDER_ACTIVE_RATE_PATTERN = re.compile(\n+    r\"\\[ReplayQualification\\] normal-render active battle rate \"\n+    r\"(?:viewport_frames|presents)=(?P<frames>\\d+) \"\n+    r\"(?:native_ticks|forward_ticks)=(?P<ticks>\\d+) \"\n+    r\"owned_ticks=(?P<owned>\\d+) elapsed_us=(?P<elapsed>\\d+) \"\n+    r\"fps_milli=(?P<fps>\\d+) tick_rate_milli=(?P<rate>\\d+)\"\n+)\n+LEGACY_NORMAL_RENDER_RATE_PATTERN = re.compile(\n     r\"\\[ReplayQualification\\] normal-render battle rate \"\n     r\"frames=(?P<frames>\\d+) elapsed_us=(?P<elapsed>\\d+) \"\n     r\"tick_rate_milli=(?P<rate>\\d+)\"\n )\n-NORMAL_RENDER_ACTIVE_RATE_PATTERN = re.compile(\n+LEGACY_NORMAL_RENDER_ACTIVE_RATE_PATTERN = re.compile(\n     r\"\\[ReplayQualification\\] normal-render active battle rate \"\n     r\"frames=(?P<frames>\\d+) elapsed_us=(?P<elapsed>\\d+) \"\n     r\"tick_rate_milli=(?P<rate>\\d+)\"\n@@ -122,6 +136,16 @@ GAMEPLAY_RNG_COVERAGE_PATTERN = re.compile(\n     r\"tira_writer_sequence=0x(?P<tira_writer_sequence>[0-9a-f]{16}) \"\n     r\"tira_writer_slot_mask=0x(?P<tira_writer_slot_mask>[0-9a-f]+) \"\n     r\"tira_last_writer_move=0x(?P<tira_last_writer_move>[0-9a-f]{4})\"\n+    r\"(?: tira_helper_attempts=(?P<tira_helper_attempts>\\d+) \"\n+    r\"tira_helper_exact_draws=(?P<tira_helper_exact_draws>\\d+) \"\n+    r\"tira_helper_writes=(?P<tira_helper_writes>\\d+) \"\n+    r\"tira_helper_no_write=(?P<tira_helper_no_write>\\d+) \"\n+    r\"tira_helper_no_change=(?P<tira_helper_no_change>\\d+) \"\n+    r\"tira_helper_signature_failures=(?P<tira_helper_failures>\\d+) \"\n+    r\"tira_helper_last_enclosing_move=0x(?P<tira_helper_move>[0-9a-f]{4}) \"\n+    r\"tira_helper_last_chance=(?P<tira_helper_chance>\\d+) \"\n+    r\"tira_helper_last_result=(?P<tira_helper_result>-?\\d+) \"\n+    r\"tira_helper_last_rejection_mask=0x(?P<tira_helper_rejection>[0-9a-f]+))?\"\n )\n STOCK_ROUND_OUTCOME_PATTERN = re.compile(\n     r\"\\[ReplayQualification\\] (?:stock round outcome qualification passed|ordered round outcomes verified) \"\n@@ -217,6 +241,13 @@ class NormalRenderRateEvidence:\n     active_frames: int\n     active_elapsed_us: int\n     active_tick_rate_milli: int\n+    fps_milli: int = 0\n+    active_fps_milli: int = 0\n+    forward_ticks: int = 0\n+    active_forward_ticks: int = 0\n+    owned_ticks: int = 0\n+    active_owned_ticks: int = 0\n+    independent_clocks: bool = False\n \n \n @dataclass(frozen=True)\n@@ -307,6 +338,16 @@ class GameplayRngCoverageEvidence:\n     tira_writer_sequence: int\n     tira_writer_slot_mask: int\n     tira_last_writer_move: int\n+    tira_helper_attempts: int = 0\n+    tira_helper_exact_draws: int = 0\n+    tira_helper_writes: int = 0\n+    tira_helper_no_write: int = 0\n+    tira_helper_no_change: int = 0\n+    tira_helper_signature_failures: int = 0\n+    tira_helper_last_enclosing_move: int = 0\n+    tira_helper_last_chance: int = 0\n+    tira_helper_last_result: int = 0\n+    tira_helper_last_rejection_mask: int = 0\n \n \n @dataclass(frozen=True)\n@@ -486,6 +527,12 @@ def parse_normal_render_rate_evidence(\n     current_boot = text[source_matches[-1].start():] if source_matches else text\n     overall_matches = list(NORMAL_RENDER_RATE_PATTERN.finditer(current_boot))\n     active_matches = list(NORMAL_RENDER_ACTIVE_RATE_PATTERN.finditer(current_boot))\n+    independent = bool(overall_matches and active_matches)\n+    if not independent:\n+        overall_matches = list(\n+            LEGACY_NORMAL_RENDER_RATE_PATTERN.finditer(current_boot))\n+        active_matches = list(\n+            LEGACY_NORMAL_RENDER_ACTIVE_RATE_PATTERN.finditer(current_boot))\n     if not overall_matches or not active_matches:\n         return None\n     overall = overall_matches[-1]\n@@ -497,6 +544,17 @@ def parse_normal_render_rate_evidence(\n         active_frames=int(active.group(\"frames\")),\n         active_elapsed_us=int(active.group(\"elapsed\")),\n         active_tick_rate_milli=int(active.group(\"rate\")),\n+        fps_milli=(int(overall.group(\"fps\")) if independent\n+                   else int(overall.group(\"rate\"))),\n+        active_fps_milli=(int(active.group(\"fps\")) if independent\n+                          else int(active.group(\"rate\"))),\n+        forward_ticks=(int(overall.group(\"ticks\")) if independent\n+                       else int(overall.group(\"frames\"))),\n+        active_forward_ticks=(int(active.group(\"ticks\")) if independent\n+                              else int(active.group(\"frames\"))),\n+        owned_ticks=int(overall.group(\"owned\")) if independent else 0,\n+        active_owned_ticks=int(active.group(\"owned\")) if independent else 0,\n+        independent_clocks=independent,\n     )\n \n \n@@ -873,6 +931,20 @@ def parse_gameplay_rng_coverage_evidence(\n         tira_writer_sequence=int(match.group(\"tira_writer_sequence\"), 16),\n         tira_writer_slot_mask=int(match.group(\"tira_writer_slot_mask\"), 16),\n         tira_last_writer_move=int(match.group(\"tira_last_writer_move\"), 16),\n+        tira_helper_attempts=int(match.group(\"tira_helper_attempts\") or 0),\n+        tira_helper_exact_draws=int(\n+            match.group(\"tira_helper_exact_draws\") or 0),\n+        tira_helper_writes=int(match.group(\"tira_helper_writes\") or 0),\n+        tira_helper_no_write=int(match.group(\"tira_helper_no_write\") or 0),\n+        tira_helper_no_change=int(match.group(\"tira_helper_no_change\") or 0),\n+        tira_helper_signature_failures=int(\n+            match.group(\"tira_helper_failures\") or 0),\n+        tira_helper_last_enclosing_move=int(\n+            match.group(\"tira_helper_move\") or \"0\", 16),\n+        tira_helper_last_chance=int(match.group(\"tira_helper_chance\") or 0),\n+        tira_helper_last_result=int(match.group(\"tira_helper_result\") or 0),\n+        tira_helper_last_rejection_mask=int(\n+            match.group(\"tira_helper_rejection\") or \"0\", 16),\n     )\n \n \ndiff --git a/tools/replay_qualification_mod/ReplayQualificationMod.cpp b/tools/replay_qualification_mod/ReplayQualificationMod.cpp\nindex 8d4eb00f..7bc07257 100644\n--- a/tools/replay_qualification_mod/ReplayQualificationMod.cpp\n+++ b/tools/replay_qualification_mod/ReplayQualificationMod.cpp\n@@ -102,6 +102,7 @@ using GetReplayPresentationIdentityFn = bool (*)(std::uint64_t*, std::size_t);\n using GetReplayQualificationHealthFn = bool (*)(std::uint64_t*, std::size_t);\n using ResetReplayQualificationHealthFn = bool (*)();\n using GetReplayGameplayRngCoverageFn = bool (*)(std::uint64_t*, std::size_t);\n+using GetQualificationClockFn = bool (*)(std::uint64_t*, std::size_t);\n using RequestStageTerminalFn = bool (*)(std::uint32_t);\n using GetStageTerminalStatusFn = std::uint32_t (*)(std::uint32_t*);\n using GetForcedQualificationStatusFn = std::uint32_t (*)();\n@@ -701,6 +702,10 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)\n             return false;\n         }\n     }\n+    // v12 keeps the v11 field set and adds the independent-clock/Tira-event\n+    // runtime semantics. Normalize only after parsing so older harnesses\n+    // remain readable while new producers bind evidence to the new contract.\n+    if (fields[\"version\"] == \"12\") fields[\"version\"] = \"11\";\n     if (!stream.eof() || !ValidRunId(fields[\"run_id\"])\n         || (fields[\"version\"] != \"2\" && fields[\"version\"] != \"3\"\n             && fields[\"version\"] != \"4\" && fields[\"version\"] != \"5\"\n@@ -879,7 +884,7 @@ bool ReadRequest(const std::filesystem::path& path, Request& output)\n                 const auto location = std::stoul(std::string(\n                     token.substr(second + 1)));\n                 if ((depth != 1 && depth != 6 && depth != 11)\n-                    || location < 1 || location > 4) return false;\n+                    || location < 1 || location > 6) return false;\n                 if (std::any_of(qualification_cycles.begin(),\n                         qualification_cycles.end(), [&](const auto& cycle) {\n                             return cycle.run_id == cycle_id;\n@@ -1128,6 +1133,10 @@ public:\n         {\n             (void)RC::Unreal::Hook::UnregisterCallback(engine_tick_id_);\n         }\n+        if (viewport_tick_id_ != RC::Unreal::Hook::ERROR_ID)\n+        {\n+            (void)RC::Unreal::Hook::UnregisterCallback(viewport_tick_id_);\n+        }\n     }\n \n     void on_unreal_init() override\n@@ -1148,6 +1157,23 @@ public:\n         options.bReadonly = true;\n         options.OwnerModName = STR(\"ReplayQualificationMod\");\n         options.HookName = STR(\"ReplayEntry\");\n+        viewport_tick_id_ =\n+            RC::Unreal::Hook::RegisterGameViewportClientTickPostCallback(\n+                [](RC::Unreal::Hook::TCallbackIterationData<void>&,\n+                   RC::Unreal::UGameViewportClient*, float) {\n+                    ReplayQualificationMod* self =\n+                        s_instance_.load(std::memory_order_acquire);\n+                    if (self != nullptr)\n+                        self->viewport_frame_count_.fetch_add(\n+                            1, std::memory_order_relaxed);\n+                }, options);\n+        if (viewport_tick_id_ == RC::Unreal::Hook::ERROR_ID)\n+        {\n+            bound_ = false;\n+            Output::send<LogLevel::Error>(STR(\n+                \"[ReplayQualification] viewport-frame clock unavailable\\n\"));\n+            return;\n+        }\n         engine_tick_id_ = RC::Unreal::Hook::RegisterEngineTickPostCallback(\n             [](RC::Unreal::Hook::TCallbackIterationData<void>&,\n                RC::Unreal::UEngine*, float, bool) {\n@@ -1161,6 +1187,23 @@ public:\n     }\n \n private:\n+    bool ReadQualificationClock(\n+        std::array<std::uint64_t, 5>& clock) const noexcept\n+    {\n+        if (qualification_clock_ == nullptr\n+            || !qualification_clock_(clock.data(), clock.size()))\n+            return false;\n+        std::uint32_t native_battle_frame{};\n+        if (!ReadLuxBattleFrame(native_battle_frame)) return false;\n+        clock[1] = viewport_frame_count_.load(std::memory_order_acquire);\n+        // The native battle frame is the authored simulation clock. Unlike\n+        // HorseMod's outer-tick detour it exists in the rollback-disabled\n+        // stock oracle too, so stock and deterministic runs use the same TPS\n+        // definition without coupling it to diagnostic hook installation.\n+        clock[2] = native_battle_frame;\n+        return true;\n+    }\n+\n     void TickGameThread()\n     {\n         if (!bound_) return;\n@@ -1380,6 +1423,9 @@ private:\n         battle_active_rate_start_frame_ = 0;\n         battle_active_rate_round_ = 0;\n         battle_active_rate_logged_ = false;\n+        qualification_clock_ = nullptr;\n+        battle_clock_start_ = {};\n+        active_clock_start_ = {};\n         seek_index_ = 0;\n         seek_requested_ = false;\n         requested_seek_target_ = 0;\n@@ -1410,6 +1456,7 @@ private:\n             ? 1 : request_.stage_terminal;\n         qualification_cycle_index_ = 0;\n         qualification_cycle_armed_ = false;\n+        qualification_performance_window_started_ = false;\n         qualification_group_run_id_.clear();\n         arm_qualification_group_ = nullptr;\n         get_qualification_group_row_report_ = nullptr;\n@@ -1532,7 +1579,56 @@ private:\n         return false;\n     }\n \n-    bool PollQualificationCycles()\n+    bool LogFinalQualificationRates()\n+    {\n+        std::array<std::uint64_t, 5> clock{};\n+        if (!ReadQualificationClock(clock)\n+            || clock[1] < battle_clock_start_[1]\n+            || clock[2] < battle_clock_start_[2]\n+            || clock[3] < battle_clock_start_[3]\n+            || clock[1] < active_clock_start_[1]\n+            || clock[2] < active_clock_start_[2]\n+            || clock[3] < active_clock_start_[3])\n+        {\n+            Fail(\"horsemod_final_qualification_clock_invalid\");\n+            return false;\n+        }\n+        const auto now = std::chrono::steady_clock::now();\n+        const auto log_window = [&](const TCHAR* label,\n+                                    const auto& start,\n+                                    const auto& started_at) noexcept {\n+            const auto elapsed_us = static_cast<std::uint64_t>(\n+                std::chrono::duration_cast<std::chrono::microseconds>(\n+                    now - started_at).count());\n+            const auto viewport_frames = clock[1] - start[1];\n+            const auto ticks = clock[2] - start[2];\n+            const auto owned = clock[3] - start[3];\n+            const auto fps_milli = elapsed_us == 0 ? 0\n+                : viewport_frames * 1'000'000'000ull / elapsed_us;\n+            const auto tick_rate_milli = elapsed_us == 0 ? 0\n+                : ticks * 1'000'000'000ull / elapsed_us;\n+            Output::send<LogLevel::Default>(STR(\n+                \"[ReplayQualification] normal-render {} rate \"\n+                \"viewport_frames={} native_ticks={} owned_ticks={} \"\n+                \"elapsed_us={} fps_milli={} tick_rate_milli={}\\n\"), label,\n+                viewport_frames,\n+                ticks, owned, elapsed_us, fps_milli, tick_rate_milli);\n+            return fps_milli >= request_.min_resume_tick_rate_milli\n+                && tick_rate_milli >= request_.min_resume_tick_rate_milli;\n+        };\n+        const bool overall = log_window(STR(\"battle\"), battle_clock_start_,\n+            battle_rate_started_at_);\n+        const bool active = log_window(STR(\"active battle\"),\n+            active_clock_start_, battle_active_rate_started_at_);\n+        if (!overall || !active)\n+        {\n+            Fail(\"normal_render_qualification_rate_below_minimum\");\n+            return false;\n+        }\n+        return true;\n+    }\n+\n+    bool PollQualificationCycles(bool allow_completion = true)\n     {\n         if (request_.qualification_cycles.empty()) return false;\n         if (qualification_cycle_index_ >= request_.qualification_cycles.size())\n@@ -1576,21 +1672,52 @@ private:\n                 return true;\n             }\n             qualification_cycle_armed_ = true;\n+            if (!ReadQualificationClock(battle_clock_start_))\n+            {\n+                Fail(\"horsemod_qualification_clock_unavailable_after_arm\");\n+                return true;\n+            }\n+            active_clock_start_ = battle_clock_start_;\n+            battle_rate_started_at_ = std::chrono::steady_clock::now();\n+            battle_active_rate_started_at_ = battle_rate_started_at_;\n+            qualification_performance_window_started_ = true;\n             return true;\n         }\n-        std::array<std::uint64_t, 50> first_report{};\n+        std::array<std::uint64_t, 51> first_report{};\n         const auto status = get_qualification_group_row_report_(\n             qualification_group_run_id_.data(),\n             qualification_group_run_id_.size(), 0, first_report.data(),\n             first_report.size());\n         if (status == 0) return true;\n         if (status != 3 && status != 4) return true;\n+        if (!allow_completion) return true;\n+        if (!qualification_performance_window_started_)\n+        {\n+            Fail(\"horsemod_qualification_performance_window_missing\");\n+            return true;\n+        }\n+        std::array<std::uint64_t, 5> performance_clock{};\n+        if (!ReadQualificationClock(performance_clock)\n+            || performance_clock[1] < battle_clock_start_[1]\n+            || performance_clock[2] < battle_clock_start_[2])\n+        {\n+            Fail(\"horsemod_qualification_performance_clock_invalid\");\n+            return true;\n+        }\n+        // A terminal native group can finish in a few authored frames. Keep\n+        // its real restore cost inside a fixed 120-frame normal-render window\n+        // and measure recovery instead of judging a partial interval.\n+        if (performance_clock[1] - battle_clock_start_[1]\n+                < request_.resume_tick_window\n+            || performance_clock[2] - battle_clock_start_[2]\n+                < request_.resume_tick_window)\n+            return true;\n         PROCESS_MEMORY_COUNTERS_EX memory{};\n         memory.cb = sizeof(memory);\n         const bool memory_valid = K32GetProcessMemoryInfo(\n             GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(\n                 &memory), sizeof(memory)) != FALSE;\n-        std::array<std::array<std::uint64_t, 50>, 3> reports{};\n+        std::array<std::array<std::uint64_t, 51>, 3> reports{};\n         bool reports_valid = true;\n         for (std::uint32_t row = 0; row < 3; ++row)\n         {\n@@ -1614,7 +1741,7 @@ private:\n                 \"working_set_bytes={} private_bytes={} \"\n                 \"presentation_activity={}/{}/{} terminal_coverage={} \"\n                 \"anchors={}/{} repeats={} anchor_hash=0x{:016x} \"\n-                \"failure_anchor={} failure_repeat={}\\n\"),\n+                \"failure_anchor={} failure_repeat={} arm_ms={}\\n\"),\n                 RC::to_generic_string(cycle.run_id), report[4], report[2],\n                 report[3], status, report[5], report[6], report[7], report[8],\n                 report[9], report[10], report[11], report[12],\n@@ -1625,7 +1752,7 @@ private:\n                 memory_valid ? memory.WorkingSetSize : 0,\n                 memory_valid ? memory.PrivateUsage : 0, report[40],\n                 report[41], report[42], report[43], report[44], report[45],\n-                report[46], report[47], report[48], report[49]);\n+                report[46], report[47], report[48], report[49], report[50]);\n         }\n         const bool anchor_identity_valid = reports[0][47] != 0\n             && reports[0][47] == reports[1][47]\n@@ -1634,7 +1761,7 @@ private:\n             qualification_group_run_id_.data(),\n             qualification_group_run_id_.size());\n         qualification_cycle_armed_ = false;\n-        std::array<std::uint64_t, 50> cleanup{};\n+        std::array<std::uint64_t, 51> cleanup{};\n         const auto cleanup_status = get_qualification_group_row_report_(\n             qualification_group_run_id_.data(),\n             qualification_group_run_id_.size(), 0, cleanup.data(),\n@@ -1678,6 +1805,7 @@ private:\n         qualification_cycle_index_ += 3;\n         if (qualification_cycle_index_ == request_.qualification_cycles.size())\n         {\n+            if (!LogFinalQualificationRates()) return true;\n             WriteResult(\"launch_requested\", \"qualification_groups_passed\");\n             // Persistent qualification owns multiple independent replay\n             // entries without restarting SC6.  Reuse the navigator's proven\n@@ -1842,6 +1970,20 @@ private:\n                 }\n             }\n             battle_scene_observed_ = true;\n+            qualification_clock_ = ResolveHorseModExport<\n+                GetQualificationClockFn>(\n+                    \"horsemod_get_qualification_clock_v1\");\n+            if (qualification_clock_ == nullptr)\n+            {\n+                Fail(\"horsemod_qualification_clock_unavailable\");\n+                return;\n+            }\n+            if (!ReadQualificationClock(battle_clock_start_))\n+            {\n+                Fail(\"horsemod_qualification_clock_unavailable\");\n+                return;\n+            }\n+            active_clock_start_ = battle_clock_start_;\n             observed_battle_frame_ = frame;\n             initial_battle_frame_ = round_state_frame <= frame + 1\n                 ? frame - (round_state_frame - 1) : frame;\n@@ -1872,22 +2014,38 @@ private:\n                 std::chrono::duration_cast<std::chrono::microseconds>(\n                     std::chrono::steady_clock::now()\n                         - battle_rate_started_at_).count());\n-            const auto measured_frames = static_cast<std::uint64_t>(\n-                frame - observed_battle_frame_);\n+            std::array<std::uint64_t, 5> clock{};\n+            if (!ReadQualificationClock(clock)\n+                || clock[1] < battle_clock_start_[1]\n+                || clock[2] < battle_clock_start_[2]\n+                || clock[3] < battle_clock_start_[3])\n+            {\n+                Fail(\"horsemod_qualification_clock_invalid\");\n+                return;\n+            }\n+            const auto measured_frames = clock[1] - battle_clock_start_[1];\n+            const auto measured_ticks = clock[2] - battle_clock_start_[2];\n+            const auto owned_ticks = clock[3] - battle_clock_start_[3];\n+            const auto fps_milli = elapsed_us == 0 ? 0\n+                : measured_frames * 1'000'000'000ull / elapsed_us;\n             const auto tick_rate_milli = elapsed_us == 0 ? 0\n-                : measured_frames * 1'000'000'000ull\n-                    / elapsed_us;\n+                : measured_ticks * 1'000'000'000ull / elapsed_us;\n             Output::send<LogLevel::Default>(STR(\n                 \"[ReplayQualification] normal-render battle rate \"\n-                \"frames={} elapsed_us={} tick_rate_milli={}\\n\"),\n-                measured_frames, elapsed_us, tick_rate_milli);\n+                \"viewport_frames={} native_ticks={} owned_ticks={} elapsed_us={} \"\n+                \"fps_milli={} tick_rate_milli={}\\n\"),\n+                measured_frames, measured_ticks, owned_ticks, elapsed_us,\n+                fps_milli, tick_rate_milli);\n             battle_rate_logged_ = true;\n-            if (tick_rate_milli < request_.min_resume_tick_rate_milli)\n+            if (fps_milli < request_.min_resume_tick_rate_milli\n+                || tick_rate_milli < request_.min_resume_tick_rate_milli)\n             {\n                 Output::send<LogLevel::Error>(STR(\n                     \"[ReplayQualification] normal-render battle rate failed \"\n-                    \"frames={} elapsed_us={} tick_rate_milli={} minimum={}\\n\"),\n-                    measured_frames, elapsed_us, tick_rate_milli,\n+                    \"viewport_frames={} native_ticks={} elapsed_us={} fps_milli={} \"\n+                    \"tick_rate_milli={} minimum={}\\n\"),\n+                    measured_frames, measured_ticks, elapsed_us, fps_milli,\n+                    tick_rate_milli,\n                     request_.min_resume_tick_rate_milli);\n                 Fail(\"normal_render_battle_rate_below_minimum\");\n                 return;\n@@ -1907,29 +2065,52 @@ private:\n                 battle_active_rate_started_at_ = now;\n                 battle_active_rate_start_frame_ = frame;\n                 battle_active_rate_round_ = native_round;\n+                if (!ReadQualificationClock(active_clock_start_))\n+                {\n+                    Fail(\"horsemod_active_qualification_clock_reset_failed\");\n+                    return;\n+                }\n             }\n             else if (frame - battle_active_rate_start_frame_\n-                >= request_.resume_tick_window)\n+                >= (request_.qualification_cycles.empty()\n+                    ? request_.resume_tick_window : request_.watch_frames))\n             {\n-                const auto measured_frames = static_cast<std::uint64_t>(\n-                    frame - battle_active_rate_start_frame_);\n                 const auto elapsed_us = static_cast<std::uint64_t>(\n                     std::chrono::duration_cast<std::chrono::microseconds>(\n                         now - battle_active_rate_started_at_).count());\n-                const auto tick_rate_milli = elapsed_us == 0 ? 0\n+                std::array<std::uint64_t, 5> clock{};\n+                if (!ReadQualificationClock(clock)\n+                    || clock[1] < active_clock_start_[1]\n+                    || clock[2] < active_clock_start_[2]\n+                    || clock[3] < active_clock_start_[3])\n+                {\n+                    Fail(\"horsemod_active_qualification_clock_invalid\");\n+                    return;\n+                }\n+                const auto measured_frames = clock[1] - active_clock_start_[1];\n+                const auto measured_ticks = clock[2] - active_clock_start_[2];\n+                const auto owned_ticks = clock[3] - active_clock_start_[3];\n+                const auto fps_milli = elapsed_us == 0 ? 0\n                     : measured_frames * 1'000'000'000ull / elapsed_us;\n+                const auto tick_rate_milli = elapsed_us == 0 ? 0\n+                    : measured_ticks * 1'000'000'000ull / elapsed_us;\n                 Output::send<LogLevel::Default>(STR(\n                     \"[ReplayQualification] normal-render active battle rate \"\n-                    \"frames={} elapsed_us={} tick_rate_milli={}\\n\"),\n-                    measured_frames, elapsed_us, tick_rate_milli);\n+                    \"viewport_frames={} native_ticks={} owned_ticks={} elapsed_us={} \"\n+                    \"fps_milli={} tick_rate_milli={}\\n\"),\n+                    measured_frames, measured_ticks, owned_ticks, elapsed_us,\n+                    fps_milli, tick_rate_milli);\n                 battle_active_rate_logged_ = true;\n-                if (tick_rate_milli < request_.min_resume_tick_rate_milli)\n+                if (fps_milli < request_.min_resume_tick_rate_milli\n+                    || tick_rate_milli < request_.min_resume_tick_rate_milli)\n                 {\n                     Output::send<LogLevel::Error>(STR(\n                         \"[ReplayQualification] normal-render active battle \"\n-                        \"rate failed frames={} elapsed_us={} \"\n-                        \"tick_rate_milli={} minimum={}\\n\"),\n-                        measured_frames, elapsed_us, tick_rate_milli,\n+                        \"rate failed viewport_frames={} native_ticks={} \"\n+                        \"elapsed_us={} fps_milli={} tick_rate_milli={} \"\n+                        \"minimum={}\\n\"),\n+                        measured_frames, measured_ticks, elapsed_us,\n+                        fps_milli, tick_rate_milli,\n                         request_.min_resume_tick_rate_milli);\n                     Fail(\"normal_render_active_battle_rate_below_minimum\");\n                     return;\n@@ -2087,7 +2268,7 @@ private:\n             health[18], health[12], health[19], health[13], health[20]);\n         const auto get_rng_coverage =\n             ResolveHorseModGameplayRngCoverageApi();\n-        std::array<std::uint64_t, 46> rng_coverage{};\n+        std::array<std::uint64_t, 56> rng_coverage{};\n         if (get_rng_coverage == nullptr\n             || !get_rng_coverage(rng_coverage.data(), rng_coverage.size()))\n         {\n@@ -2115,7 +2296,13 @@ private:\n             \"tira_last_target=0x{:04x} resolved_hit_calls={} \"\n             \"resolved_hit_sequence=0x{:016x} tira_writer_calls={} \"\n             \"tira_writer_sequence=0x{:016x} tira_writer_slot_mask=0x{:x} \"\n-            \"tira_last_writer_move=0x{:04x}\\n\"),\n+            \"tira_last_writer_move=0x{:04x} tira_helper_attempts={} \"\n+            \"tira_helper_exact_draws={} tira_helper_writes={} \"\n+            \"tira_helper_no_write={} tira_helper_no_change={} \"\n+            \"tira_helper_signature_failures={} \"\n+            \"tira_helper_last_enclosing_move=0x{:04x} \"\n+            \"tira_helper_last_chance={} tira_helper_last_result={} \"\n+            \"tira_helper_last_rejection_mask=0x{:x}\\n\"),\n             rng_coverage[0], rng_coverage[1], rng_coverage[2],\n             rng_coverage[3], rng_coverage[4], rng_coverage[5],\n             rng_coverage[6], rng_coverage[7], rng_coverage[8],\n@@ -2131,7 +2318,10 @@ private:\n             rng_coverage[36], rng_coverage[37], rng_coverage[38],\n             rng_coverage[39], rng_coverage[40], rng_coverage[41],\n             rng_coverage[42], rng_coverage[43], rng_coverage[44],\n-            rng_coverage[45]);\n+            rng_coverage[45], rng_coverage[46], rng_coverage[47],\n+            rng_coverage[48], rng_coverage[49], rng_coverage[50],\n+            rng_coverage[51], rng_coverage[52], rng_coverage[53],\n+            static_cast<std::int64_t>(rng_coverage[54]), rng_coverage[55]);\n         const auto get_canonical = ResolveHorseModCanonicalStateApi();\n         std::uint64_t canonical_generation{}, canonical_frame{};\n         std::array<std::byte, 32> canonical_hash{};\n@@ -2627,6 +2817,12 @@ private:\n     std::uint32_t battle_active_rate_start_frame_{};\n     std::int32_t battle_active_rate_round_{};\n     bool battle_active_rate_logged_{};\n+    GetQualificationClockFn qualification_clock_{};\n+    std::array<std::uint64_t, 5> battle_clock_start_{};\n+    std::array<std::uint64_t, 5> active_clock_start_{};\n+    RC::Unreal::Hook::GlobalCallbackId viewport_tick_id_{\n+        RC::Unreal::Hook::ERROR_ID};\n+    std::atomic<std::uint64_t> viewport_frame_count_{};\n     std::size_t seek_index_{};\n     bool seek_requested_{};\n     std::uint64_t requested_seek_target_{};\n@@ -2651,6 +2847,7 @@ private:\n     DisarmReplayQualificationCycleFn disarm_qualification_cycle_{};\n     std::size_t qualification_cycle_index_{};\n     bool qualification_cycle_armed_{};\n+    bool qualification_performance_window_started_{};\n     std::string qualification_group_run_id_{};\n     ArmOnlineQualificationFn arm_online_{};\n     GetOnlineQualificationStatusFn get_online_status_{};\n",
+    "deterministic_binary_patch_bytes": 117627,
+    "deterministic_binary_patch_sha256": "f20924824b9180ce3385aeedec76fe69dfcdac9efee7aa8b257bd6b10a2b2684",
+    "dirty": true,
+    "status_porcelain_v2": [
+      "1 .M N... 100644 100644 100644 75a231ff082cdd6fb140fe09ae109ac88ad017b1 75a231ff082cdd6fb140fe09ae109ac88ad017b1 HorseMod/HorseModService.PublicApiAndLifetime.inl",
+      "1 .M N... 100644 100644 100644 2a0e97b234ee478aa44965d9ff6ddc5e89a54f97 2a0e97b234ee478aa44965d9ff6ddc5e89a54f97 HorseMod/HorseModService.QualificationDiagnostics.inl",
+      "1 .M N... 100644 100644 100644 402011eac047d7b5909da010a155df2a08e42e6f 402011eac047d7b5909da010a155df2a08e42e6f HorseMod/HorseModService.SettingsAndRequests.inl",
+      "1 .M N... 100644 100644 100644 768175fdb3c10bd6798f8c293bccf7e99a60f914 768175fdb3c10bd6798f8c293bccf7e99a60f914 HorseMod/dllmain.cpp",
+      "1 .M N... 100644 100644 100644 87248d6779acde8e60e98ba6448cba62fa685a1a 87248d6779acde8e60e98ba6448cba62fa685a1a HorseMod/horselib/deterministic/DeterministicHookSet.FrameAndStage.inl",
+      "1 .M N... 100644 100644 100644 c7b3f0b48d9901fd9adb76ebd57289d6eea382bb c7b3f0b48d9901fd9adb76ebd57289d6eea382bb HorseMod/horselib/deterministic/DeterministicHookSet.cpp",
+      "1 .M N... 100644 100644 100644 afeb6b5447048b03ef4d2b838208475722d7cd3e afeb6b5447048b03ef4d2b838208475722d7cd3e HorseMod/horselib/deterministic/DeterministicHookSet.hpp",
+      "1 .M N... 100644 100644 100644 0cc1c4f5c477fcbade82c1d3eff23d578e100d44 0cc1c4f5c477fcbade82c1d3eff23d578e100d44 HorseMod/horselib/deterministic/NativeBatchTimeline.hpp",
+      "1 .M N... 100644 100644 100644 314cd2d150e449ae660c93e36d46d2879ee88940 314cd2d150e449ae660c93e36d46d2879ee88940 HorseMod/horselib/deterministic/PresentationJournal.cpp",
+      "1 .M N... 100644 100644 100644 23bc1ea043d7a659e77a61e293f7e6d84fb1f958 23bc1ea043d7a659e77a61e293f7e6d84fb1f958 HorseMod/horselib/deterministic/PresentationJournal.hpp",
+      "1 .M N... 100644 100644 100644 521da92d494ffe7f01f497345862335d622de270 521da92d494ffe7f01f497345862335d622de270 HorseMod/horselib/deterministic/Sc6ReplayRuntime.Observation.inl",
+      "1 .M N... 100644 100644 100644 24f9c0439a4e76701ee43fb5e6f0c64448d514ce 24f9c0439a4e76701ee43fb5e6f0c64448d514ce HorseMod/horselib/deterministic/Sc6ReplayRuntime.PresentationAndSeek.inl",
+      "1 .M N... 100644 100644 100644 5c408fd7785ae3d74f303f83b10835f4d670677f 5c408fd7785ae3d74f303f83b10835f4d670677f HorseMod/horselib/deterministic/Sc6ReplayRuntime.cpp",
+      "1 .M N... 100644 100644 100644 0e4b83ceba530d2a4098f4f905edffa84c30cad6 0e4b83ceba530d2a4098f4f905edffa84c30cad6 HorseMod/horselib/deterministic/Sc6ReplayRuntime.hpp",
+      "1 .M N... 100644 100644 100644 fe622d41f81fde2ef3199eb92df8daf244cd6d66 fe622d41f81fde2ef3199eb92df8daf244cd6d66 docs/investigations/deterministic-tira-qualification-manifest.json",
+      "1 .M N... 100644 100644 100644 ff5cf80f32566cb2160188e7e56b5154995c2a15 ff5cf80f32566cb2160188e7e56b5154995c2a15 tools/deterministic_qualification/offline_campaign.py",
+      "1 .M N... 100644 100644 100644 4d93d8b0632fc64b347de8429f1aaa514ac20a2e 4d93d8b0632fc64b347de8429f1aaa514ac20a2e tools/deterministic_qualification/replay_entry.py",
+      "1 .M N... 100644 100644 100644 25474b75d9e8fc845677af8daf4ef7236f5933c3 25474b75d9e8fc845677af8daf4ef7236f5933c3 tools/deterministic_qualification/runner.py",
+      "1 .M N... 100644 100644 100644 1100b68dd748ca067af66ac035716761cba678ef 1100b68dd748ca067af66ac035716761cba678ef tools/deterministic_qualification/tests/test_replay_entry_request.py",
+      "1 .M N... 100644 100644 100644 19615853667726932c81cec6d213615f62634a87 19615853667726932c81cec6d213615f62634a87 tools/deterministic_qualification/tests/test_tira_campaign.py",
+      "1 .M N... 100644 100644 100644 10934c0eebfdb4a3a53320ed3168b6069c3b6387 10934c0eebfdb4a3a53320ed3168b6069c3b6387 tools/deterministic_qualification/tests/test_trace_parser.py",
+      "1 .M N... 100644 100644 100644 4c970602d63ddc3c3242c29551fbceee93a42bfe 4c970602d63ddc3c3242c29551fbceee93a42bfe tools/deterministic_qualification/tira_campaign.py",
+      "1 .M N... 100644 100644 100644 6b800e3f91e0e24cfd149486b251662873d46faf 6b800e3f91e0e24cfd149486b251662873d46faf tools/deterministic_qualification/trace_parser.py",
+      "1 .M N... 100644 100644 100644 8d4eb00f06508b6175cec380c281e7e44676c990 8d4eb00f06508b6175cec380c281e7e44676c990 tools/replay_qualification_mod/ReplayQualificationMod.cpp"
+    ],
+    "submodules": [
+      "f21698d85367c8d97585cf7610897316c873681c third_party/GekkoNet (v20260629200724-02c447c-6-gf21698d)",
+      " 6b3fd8a175f1e164eb1bd1be6f766f48b980f7c0 tools/BlueprintToCpp (heads/codex/pre-rollback-rewrite-snapshot-20260823)",
+      " 75f3878b7a348cbda3927048b142a0a6923e79c0 tools/BlueprintToCpp/CUE4Parse (v1.2.2-719-g75f3878b)",
+      " 414689d5cff4286a7898487a46dc5e48005d38da tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl (v2.1.0)",
+      " 0d98dba29d66e93259db7daa53a9327df767a415 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/benchmark (v1.6.1)",
+      " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/catch2 (v2.13.7)",
+      " d7982f2b2524feeb322f424b29cf43df30b5d5b7 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm (v2.2.0)",
+      " 0d98dba29d66e93259db7daa53a9327df767a415 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm/external/benchmark (v1.6.1)",
+      " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/rtm/external/catch2 (v2.13.7)",
+      " 54b3985e8ccc5efb5f24dabf0b4b802a996366e6 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/sjson-cpp (v0.9.0)",
+      " c4e3767e265808590986d5db6ca1b5532a7f3d13 tools/BlueprintToCpp/CUE4Parse/CUE4Parse-Natives/ACL/external/acl/external/sjson-cpp/external/catch2 (v2.13.7)"
+    ],
+    "tracked_inputs": [
+      {
+        "path": "CMakeLists.txt",
+        "sha256": "0ee3de61f39d1362738ce9a1973c4522ceccf2807936fbcce2fbc89f3489464a",
+        "size": 5011
+      },
+      {
+        "path": "HorseMod/CMakeLists.txt",
+        "sha256": "79ea35b7fed4d4090d007bfd927835ca2bc78712bb3c97df144c09bfae1c2422",
+        "size": 20275
+      },
+      {
+        "path": "HorseMod/HorseModService.KHitAudit.inl",
+        "sha256": "73c896ed486d496cad0c6d116422c66618bf517a9afdc7b79cb22c950df1087d",
+        "size": 51795
+      },
+      {
+        "path": "HorseMod/HorseModService.LabbingAndGeneral.inl",
+        "sha256": "298878f3099b4cbdcb9e9407be299351c8d13e55d090c5798ee5b886a326436f",
+        "size": 26622
+      },
+      {
+        "path": "HorseMod/HorseModService.OnlineCallbacks.inl",
+        "sha256": "11bd41cff7f0a5c8f40eb8f9da6504daaf943f130b32a729761e09903d712919",
+        "size": 63683
+      },
+      {
+        "path": "HorseMod/HorseModService.OnlineOwnership.inl",
+        "sha256": "2fb06798ff5c6197724e1b8edb5357e1855e515029a6c3a6cbc1c0309174d536",
+        "size": 51207
+      },
+      {
+        "path": "HorseMod/HorseModService.PresenceAndOverlay.inl",
+        "sha256": "e5d0024e4764e806315e756199a181a76d146014667b3b06d68d04627e9ff65e",
+        "size": 51927
+      },
+      {
+        "path": "HorseMod/HorseModService.PublicApiAndLifetime.inl",
+        "sha256": "509b9b72d00fc868c10cc623b5b4d445df277ad966ecfc43c84d46ac00f85922",
+        "size": 87256
+      },
+      {
+        "path": "HorseMod/HorseModService.QualificationDiagnostics.inl",
+        "sha256": "cd3c510c2e5e7ae622bbd879648046a0f95d0e7b68b420c5b052875a51406bc3",
+        "size": 86103
+      },
+      {
+        "path": "HorseMod/HorseModService.RuntimeControls.inl",
+        "sha256": "e1e5c90a62090b84bc83683c35be7b5cd5e7ce5b2716185d1a9f96314ac2fcc5",
+        "size": 53972
+      },
+      {
+        "path": "HorseMod/HorseModService.SettingsAndRequests.inl",
+        "sha256": "a02f98ea097275750898da52433522571550ceb8e2100a1860b9943cda105a6e",
+        "size": 55436
+      },
+      {
+        "path": "HorseMod/HorseModService.TypesAndState.inl",
+        "sha256": "a1c660bb88faca819540dda8827792dd6faec8c10fc0fa07b13680ff9039ca66",
+        "size": 49628
+      },
+      {
+        "path": "HorseMod/HorseModService.UiTabs.inl",
+        "sha256": "4af4d8cbb9a0849bc5ecabab9b3503d1ada2ee0abee10469b79b473e00e4b87c",
+        "size": 58474
+      },
+      {
+        "path": "HorseMod/OnlineQualificationService.inl",
+        "sha256": "9796d7a3d6b5bce1e70974ea252c8c1e2e9c39e632c6f45b295a7a58794e2694",
+        "size": 19063
+      },
+      {
+        "path": "HorseMod/dllmain.cpp",
+        "sha256": "87a8d17ccaea4e54b240fd5b7a4cd1ec2edafcbe00935d70d40e5409e8741bea",
+        "size": 28179
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/AudioPresentation.cpp",
+        "sha256": "4f3342cd6e3052bb0ceef557477390367e7ad3b58567316df8a3874bc3b5efaf",
+        "size": 7775
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/AudioPresentation.hpp",
+        "sha256": "439a9554543b2f9172761a01d5e2a47975100c1f324a973d2bdc6922c9555658",
+        "size": 14604
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/AuthoritativeInputGate.hpp",
+        "sha256": "09bdfe232abeb92c913341ba5217b1456627a0962716b86b396451669f2420b4",
+        "size": 2787
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/BattleAudioSelectorState.cpp",
+        "sha256": "2e5efa4b85b776960d68e2d4263ed615cac21f80d3de3bb355548613ae9583c3",
+        "size": 6552
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/BattleAudioSelectorState.hpp",
+        "sha256": "4838fb424721ca77d91fc8dd15150580453fa8e9c85166038c1a64facfc4e347",
+        "size": 2090
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CallbackTopology.cpp",
+        "sha256": "342d9122d442be31238e3cd938c4ada45013643b7d7471c2af782140ca072802",
+        "size": 7276
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CallbackTopology.hpp",
+        "sha256": "1cc96f59f06b9b7bf2dfaeb9ae7c6ed45cb49a068376996c9cad780956dc6e62",
+        "size": 1619
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CandidateCheckpoint.cpp",
+        "sha256": "af46fdcb35d2f3cad7e904f368bb2a8e4cf73539622e2730e8d1c13370593caf",
+        "size": 44067
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CandidateCheckpoint.hpp",
+        "sha256": "2eb9716401c4996a45cedeabac5730c8adbc5358ad7dab8b2cb875ec955e4c54",
+        "size": 2789
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CandidateGameStateAdapter.cpp",
+        "sha256": "ebbc7d0746cf654e9d19c18b2fa2c7ac74222966ae29e9b501d52a2599dceaa6",
+        "size": 31992
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CandidateGameStateAdapter.hpp",
+        "sha256": "2180073f9e7ff39774cab3ea59a532135eb23fc5bd419890b69a9f83bae83f70",
+        "size": 9939
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CanonicalHashTimeline.cpp",
+        "sha256": "26259f9ed9827d381b6e2e893828a3bec6ea6c2093cf11722342dcc10959bf60",
+        "size": 4556
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CanonicalHashTimeline.hpp",
+        "sha256": "d9bc546a84bd10ed9451043d5901be4a07fbb0cc2e843c8094b1d93568e0ffdc",
+        "size": 1959
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CharaAnimationState.cpp",
+        "sha256": "8451badf13d5d2bbe75067fe87285c7dd0fd632cc6c70e701912a7173ad61af5",
+        "size": 24367
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/CharaAnimationState.hpp",
+        "sha256": "f110e66a17f4f7fcd0c33e4b6f1da1ada8c84de2af0ed091f553978467d61cb1",
+        "size": 5727
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Config.cpp",
+        "sha256": "c6a9a32e3adc72889339f02ed149401d9cdc861df790ec500f7aac73983c1a4f",
+        "size": 4118
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Config.hpp",
+        "sha256": "d2a736c48af1f8ee443160e27d17ff6a1b6ec93d6534158c239ccc38930a560f",
+        "size": 1204
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/DeterministicHookSet.Audio.inl",
+        "sha256": "2513f1944166a15ddbda9ec16c6a0700e33d830f6bbe80f752a603a100077764",
+        "size": 55890
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/DeterministicHookSet.FrameAndStage.inl",
+        "sha256": "850854d025e78aad52dbc62c432010645325dfd9b8af1a69cfe9adb27a9f945e",
+        "size": 70007
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/DeterministicHookSet.LifecycleAndJournal.inl",
+        "sha256": "fd4a88dc219ba71fe6af612ce3d11d707e53dc1c9ebcaf0deef38ce9271d1f84",
+        "size": 64675
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/DeterministicHookSet.PresentationTerminals.inl",
+        "sha256": "cbdc937b5ff2435f3e4675f166cf058f461049c0c5239f7b8d6a50526c3c6301",
+        "size": 56762
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/DeterministicHookSet.cpp",
+        "sha256": "9876a27900c7378f4c61d5ada847b660c8b180f364ecfa2033a2536f4619abca",
+        "size": 51607
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/DeterministicHookSet.hpp",
+        "sha256": "119d4768619134289159c6ea074fbb3d0f05339bc090fbf4f29df0e4d358bf56",
+        "size": 42731
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/FloatingPointEnvironment.cpp",
+        "sha256": "900ac867fd069b5106a52858a02daa0713bc774db7e18e71585e15f1ab9cf620",
+        "size": 2424
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/FloatingPointEnvironment.hpp",
+        "sha256": "8aa548aa0b633f2e99f106334264c0cbb480b950615587ed0b11a73f39016c42",
+        "size": 1446
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/GekkoRollbackSession.cpp",
+        "sha256": "94ebb25d87c1eaf030c1703840e577ea32702833f275d311b615061921d1bbf8",
+        "size": 12412
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/GekkoRollbackSession.hpp",
+        "sha256": "e3591d792f51d38159324e682eb96ec0fa9cd76c1f0808a437a66fbfc09cd67f",
+        "size": 3288
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/HgCpuCoverageProbe.cpp",
+        "sha256": "3760ebc6275b907dcef279f3955f2be33e4987f09859d3beb3d9a2262871b307",
+        "size": 6194
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/HgCpuCoverageProbe.hpp",
+        "sha256": "7c40e9027a3f15b74313c36ebab3fdace334f0d4eddc8cf2df38090630113b99",
+        "size": 2279
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/HgCpuRuntimeDiagnostics.cpp",
+        "sha256": "77f899ec860ba9795d65482bd93677c3d8131e9b5ef8a8d720f39f95dddced54",
+        "size": 7203
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/HgCpuRuntimeDiagnostics.hpp",
+        "sha256": "76515ead4989a832b565ebaa2d7d5cd2c2213626526af17e141f5fd87bdc1250",
+        "size": 1569
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/HgCpuStream.cpp",
+        "sha256": "c216af0bf6a9e66e80e100e9cccac8596f77c57014da6a58fc4c7cbe98725c3b",
+        "size": 7668
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/HgCpuStream.hpp",
+        "sha256": "1102a3ca1583387bcf2c27ff14ac61f240f387a6380ad739c5d4d39d3866d827",
+        "size": 2849
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/InputTimeline.cpp",
+        "sha256": "e668751f8db9a431b39da180986ae266052cf887203f0d2234d7ce3509be6605",
+        "size": 4771
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/InputTimeline.hpp",
+        "sha256": "9fa58aa43e105d81506cdb8193e69814e3b3b4d306db7ccf24628d4810b599df",
+        "size": 1461
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Interfaces.hpp",
+        "sha256": "eeb7c8a75f43870d1322d19d88a308372137827d35a708e2131838b5625a5123",
+        "size": 4142
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/LocalImageChecksum.hpp",
+        "sha256": "85a6b204203c40e0668268a55115622b5ac0d4664ea04f2699b010abb483bd31",
+        "size": 2395
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/MotionBankSnapshot.cpp",
+        "sha256": "02258b1ce2a0bc372e0af96380e37e0b5ef1cb2bbcb82302feb9d3ebf35c02a2",
+        "size": 10923
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/MotionBankSnapshot.hpp",
+        "sha256": "d932b7d53b14eaa1c04a77073753ce43b664e45cb54977c246be0cec28f09e67",
+        "size": 2259
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/MoveDispatchState.cpp",
+        "sha256": "61626f70e4fc30a0507520596a5796c763598aa1488e5de4e0fbe141b8a883ed",
+        "size": 18887
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/MoveDispatchState.hpp",
+        "sha256": "c3e832fa18ef913568333a15e2a0f60b08814d164667573491e2fc1cd5ef9474",
+        "size": 4446
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativeAudioPresentationController.cpp",
+        "sha256": "2d1dc051ba93ee8edc3fb3e1a1c1457891819e9d19be5e4dbcb7fdc3ffdef805",
+        "size": 4938
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativeAudioPresentationController.hpp",
+        "sha256": "471a4ab4b159fcbf4b059ee608b45de7cd774a293fca8756fde0f0d60727ded2",
+        "size": 1333
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativeBatchTimeline.cpp",
+        "sha256": "796ac67c6f5fe701213fadbf8b9f53e6c7e343a5cf7714e5f814aeaabe810fad",
+        "size": 18449
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativeBatchTimeline.hpp",
+        "sha256": "3dc9df973f020c2dd417e3c271873b77cffecb6de13112aa4b13039990c260f7",
+        "size": 14031
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativeCandidateRegions.cpp",
+        "sha256": "cb8177ca7d6074780f6ec6caa53ddb1e347c9a7a7a812d650ab980ffec1fca84",
+        "size": 125458
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativeCandidateRegions.hpp",
+        "sha256": "48b70e85d56ab5992cac2c7bacceec20d9b80ce81e79591aede5f4ec3d9aec4c",
+        "size": 19438
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativePresentationJournal.cpp",
+        "sha256": "e84c53ad43000daad5c59d3d5447b44a2c5f1a9f035510f79209d0b3dc75ca17",
+        "size": 10361
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativePresentationJournal.hpp",
+        "sha256": "4b39d528acf1397c67ba203049af04e44fa226ea9b23269f386c6d4db94a04c4",
+        "size": 652
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativeReplayMaterializer.cpp",
+        "sha256": "ac7f5be2a145bb584d59605c9b1419918d741c0899114af4c4ed9942536142de",
+        "size": 5256
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/NativeReplayMaterializer.hpp",
+        "sha256": "981027b969dbe670c8283b2fd83695212bacaafb34370824b58172aadf6d16b9",
+        "size": 1925
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/OnlineContractTypes.hpp",
+        "sha256": "cc8b9f97d8d8e6f259f2320e9a667c5887c783bae7053d64212025e1532fd827",
+        "size": 1551
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/OnlineCoordinator.cpp",
+        "sha256": "46f8d02345106fd012d1c7231be52b73cd0d4dd7d01cac54efd0b8c66222303f",
+        "size": 42031
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/OnlineCoordinator.hpp",
+        "sha256": "cd63814b855e3b89faf990c5b72823dd6339598a2ae0e42f0a90bf5a9bfc058e",
+        "size": 7196
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/OnlineLifecycle.hpp",
+        "sha256": "41f38ed5f201974e679aefa5395e964e9d23ddea4eca792cb7731b99b3eb8f63",
+        "size": 3322
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/OnlineQualificationMetrics.hpp",
+        "sha256": "55e8e3fa99243e67f5506be7d04235e564ff1382ec20e5e5ec6367c15b1021fa",
+        "size": 3079
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ParticlePresentation.cpp",
+        "sha256": "6fa30f546885d388b65a1d9650f2a477808558ee7467123e77ac976392f510f1",
+        "size": 6401
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ParticlePresentation.hpp",
+        "sha256": "b9d451b8c79bd69eb12a35f8ce0f76751627f9119330d6b9f647d33f8ac208cd",
+        "size": 1530
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/PresentationJournal.cpp",
+        "sha256": "1ec9e16dd9744a8af6abdf5dbb67cccd2533abc5333e24b539b40ac623433d9e",
+        "size": 12116
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/PresentationJournal.hpp",
+        "sha256": "fdbc24e9b64af8f0566392a16d091e9b30353f61278653e6ecacfa344e26ae5a",
+        "size": 4084
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ProductionOnlineAllowlist.cpp",
+        "sha256": "1255e566c1431e161295f91a586393ba69b8202114de74660784968dbaff36b0",
+        "size": 4124
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ProductionOnlineAllowlist.hpp",
+        "sha256": "a010f8c22128a394c1a684f1cff0d3b8bb40c1e9db177dfa8c2b65b024ba60e8",
+        "size": 2029
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ProductionReleaseLoader.cpp",
+        "sha256": "d91ce662c385fb834e8f29960c01a53418e510f88d1b54258a038578c8c2cd14",
+        "size": 12417
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ProductionReleaseLoader.hpp",
+        "sha256": "7566c423c667aa82411d60f20a015666d2471f169a1baab54c752d78b9e59ec6",
+        "size": 742
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ReplayCoordinator.cpp",
+        "sha256": "470b3a645d596bc81083a8fa7ab3ef27c3ea507889c11a5ab7085f39e48295d1",
+        "size": 7626
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ReplayCoordinator.hpp",
+        "sha256": "ad6c2fcc1c5a2ef6a5d24e1bb9aa87e4e1e24e096df1cae614c1fae235449071",
+        "size": 2181
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ReplaySeekPlanner.cpp",
+        "sha256": "92dbc4e74e0f30ef51b8b45290507e31fa1e4370edf4e253c593d44aae558c52",
+        "size": 7313
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/ReplaySeekPlanner.hpp",
+        "sha256": "8f6d60dbe7aa60e5da4c620ebd4362347debe2fc7e82652e83735390875d4777",
+        "size": 1267
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6CandidateCheckpointCapture.cpp",
+        "sha256": "583f4c831e3225dd49f5d2dcfb66ad7915c39247dcf5c18571cdab6de9859ed2",
+        "size": 43965
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6CandidateCheckpointCapture.hpp",
+        "sha256": "9100789f851ff57032ad96251e651dcd4671c6d7e2386db9e315550cd76023ee",
+        "size": 10243
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6HookLayout.hpp",
+        "sha256": "322515ed226ab706d470219b45a467a5c4b1c2e5649c0246f68bc89a6311dba7",
+        "size": 1908
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6OnlineContractObserver.cpp",
+        "sha256": "e404c9e014c1789b8657dce295522b8eaefacda3348d3e6f0373c71f75f19264",
+        "size": 23720
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6OnlineContractObserver.hpp",
+        "sha256": "f899588ba72f59c89f2afe7b4c7aff188c3a53391686d81ebdd26b8eeac7f233",
+        "size": 3823
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6OnlineObserverProbe.cpp",
+        "sha256": "18cc2466a38d3b22835c037cde527b105844ca4e95696cac5178ab321966877a",
+        "size": 7487
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6OnlineObserverProbe.hpp",
+        "sha256": "7f298bbad83700dbbd18142ae2dc6df61fe16a54f6ab7575924f43bebabc215a",
+        "size": 3698
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6PresentationSink.cpp",
+        "sha256": "ea58f941260a50019475774dbfab1cb1a6e77655252fe4b49fa834547843c6e7",
+        "size": 1182
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6PresentationSink.hpp",
+        "sha256": "edf0ff6fcb4c53af8a628015c81544050b7d185f3139c36d1a4f7a535957f906",
+        "size": 467
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6ReplayNativeBridge.cpp",
+        "sha256": "d46d856b364b506d897c803e71af7a72314c998269f5358c58cf85d231779d0b",
+        "size": 10344
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6ReplayNativeBridge.hpp",
+        "sha256": "d08c16c7b255467ed5c7af022aaa6cdb6566785d09053617181af12bbab22502",
+        "size": 1914
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.Correction.inl",
+        "sha256": "156ef854acc93aea41941b3374ad780879963b200c34392192ef6efc4ad2a9a9",
+        "size": 42989
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.Observation.inl",
+        "sha256": "8618ebaa2d3ca06b6bf441fe6e2320acbd7816b637d79df613e2f1a83dd9f2c7",
+        "size": 68066
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.PresentationAndSeek.inl",
+        "sha256": "8a38ef044a46617b7ce4da4d8274aa9bb7b67b792257b78f8c52d1c6bf40d6aa",
+        "size": 68909
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.cpp",
+        "sha256": "10e37bc4ce59f2d95e8f4b921e5357381cec2f1a273ff2aea9f3546f52527199",
+        "size": 15717
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6ReplayRuntime.hpp",
+        "sha256": "2491c6a30f4c3a157209e39f977551f54d6b7c0609d37fd7a6566c05927ead9d",
+        "size": 33798
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6StageCatalog.cpp",
+        "sha256": "36ba7136138abd82131ab6f4367f8d59e5612c6e0d0f4196a0e929329e85fdcf",
+        "size": 472
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Sc6StageCatalog.hpp",
+        "sha256": "bdb3218212e3ced5f2eafd45bffe67904a54389ae72225315dd1037ee147ebab",
+        "size": 1142
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Schema.hpp",
+        "sha256": "39acaa8aa96e1d5f3f0ee82f07c16fa25502d497c468d2d5ee87e02f59e92eae",
+        "size": 22520
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/SecondaryEventState.cpp",
+        "sha256": "2120e095984a6773ddc19dd2d4e1879bc834493fdf4799a1d47334747893ca82",
+        "size": 10269
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/SecondaryEventState.hpp",
+        "sha256": "5d3e63e15ee2e060a96b46578f83d29fe8c3dc739627bc86d0d469596d951b29",
+        "size": 2406
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/SimulationSession.cpp",
+        "sha256": "dbb1d3bfb2ec7ce1b9a72739ea711c720e8fff6c10274d828d3acf79d6f6a20e",
+        "size": 8982
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/SimulationSession.hpp",
+        "sha256": "0aaf0a372ac4296951799bea9ff12ea932326286bdfc5cf167501453d445f7ff",
+        "size": 1746
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/SnapshotStore.cpp",
+        "sha256": "65302b284e4fde88999137a197d5fed4da73022deb23e9a54a9b6f66181d82ce",
+        "size": 17497
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/SnapshotStore.hpp",
+        "sha256": "c56cf91742e971f8cc5e6f50d3cd7d5e5aaed919b4e801c7e5ea2b1a81850d02",
+        "size": 3282
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StageBreakListenerDiagnostics.cpp",
+        "sha256": "fa1cf9fd3c2dc5a6b008e23b1791dbd0bf882d8cdefd7761471ba318562bbb9f",
+        "size": 19157
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StageBreakListenerDiagnostics.hpp",
+        "sha256": "9ac86b2df3bd6b9c0eb5da8fd589d5adc19f77fc8d66dd396e153e2dbc02ee94",
+        "size": 6418
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StageBreakPresentationIdentity.cpp",
+        "sha256": "2a99efcb7c4dc81c5475b86c69bc3721d69670182303e38bf2d161fbbeb5ebd9",
+        "size": 14823
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StageBreakPresentationIdentity.hpp",
+        "sha256": "74b2aac17c7fdbb4682ee5584798ecad713ee4fbb931f8642ca47995bebf7eae",
+        "size": 3404
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StagePresentation.cpp",
+        "sha256": "cf031b6882d9722ac19b85a9b4900c51e46f65cfe642eb067dea45be5992c43d",
+        "size": 7598
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StagePresentation.hpp",
+        "sha256": "c07537bfde2e52a5dae57c48781af516c82d99ab3b53fde1b57054fad143ca6b",
+        "size": 1333
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StageWindGraphTransaction.cpp",
+        "sha256": "f315f979eba893e754c095817506038cd101433fdf75eface0a27cd6efecd95c",
+        "size": 10525
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StageWindGraphTransaction.hpp",
+        "sha256": "495c3866c204decae95a958db22953c0baf3c48dd5ff90c4d970858668fe2080",
+        "size": 885
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StageWindTopology.cpp",
+        "sha256": "bfd4c4201784468dd9af1eeed880a219612849d0a08cbcbb2861612d93ebc473",
+        "size": 16669
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/StageWindTopology.hpp",
+        "sha256": "922d7d3094bc1b413b07de8b06d57bb48e9e8622c820c3a404060b2d29d7e287",
+        "size": 8572
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/SteamP2PTransport.cpp",
+        "sha256": "a85b264f278c78b02e4793de7b68969960aee65d802cd1482fd36dc6c41bb4c4",
+        "size": 25435
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/SteamP2PTransport.hpp",
+        "sha256": "2670e8c78e9d8d2ec69c4b0a539b8e4e1f8fefa56478c595ac5f286bd16426f0",
+        "size": 6525
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/Types.hpp",
+        "sha256": "3f760f0a78aa702217e9c45ae7b35157b8efb95801f763d512ec78f0c140eb0b",
+        "size": 10788
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/UcrtRandBroker.cpp",
+        "sha256": "ddf2d44ced0b810deed17fb83f30ea8e5d759ad53b55959b9590e0dc1f770395",
+        "size": 4937
+      },
+      {
+        "path": "HorseMod/horselib/deterministic/UcrtRandBroker.hpp",
+        "sha256": "e8c08cec4288726d7e686cdde3260eeeb1160899682fdd39e4aecd95f89c88af",
+        "size": 1978
+      },
+      {
+        "path": "HorseMod/rollback.ini.example",
+        "sha256": "6c014794b0511992033d90574ab7e92bde00b0f324867eae22c136f927b8c029",
+        "size": 76
+      },
+      {
+        "path": "docs/investigations/deterministic-production-candidate-manifest.json",
+        "sha256": "c0cba1c615ae02e4e754421565f83bf35be655f1eb37e2904f82a878e8a948fe",
+        "size": 3026
+      },
+      {
+        "path": "docs/investigations/deterministic-production-region-manifest.json",
+        "sha256": "242b33289b6bce0bc54ef742b1b4490bb97f2ee54ad7a605a73921b17cd55e1e",
+        "size": 11111
+      },
+      {
+        "path": "docs/investigations/deterministic-tira-qualification-manifest.json",
+        "sha256": "06b80ceaab3d6c5bba52015c2c3bf3ec4ba2feb36b24a2522446271784488ea6",
+        "size": 1563
+      },
+      {
+        "path": "tools/deterministic_core_selftest.cpp",
+        "sha256": "8059c0ec0f9d61659127620fc0b131f6310980430e172e9429737c7be3946064",
+        "size": 88126
+      },
+      {
+        "path": "tools/deterministic_iteration.py",
+        "sha256": "5975e2cfa406d416269960a2e766fd64194a3f1cddbd4bd195e2e8ec07b87f7c",
+        "size": 3119
+      },
+      {
+        "path": "tools/deterministic_qualification.py",
+        "sha256": "7722d89b24cd3ff1c377bbbc96dd711a36afb93e819f986d24cd1dfe04997702",
+        "size": 110
+      },
+      {
+        "path": "tools/deterministic_qualification/__init__.py",
+        "sha256": "17b7b701f8753af2779a08a65245389862295ffcb90c9f7fe700c6da3a27e312",
+        "size": 79
+      },
+      {
+        "path": "tools/deterministic_qualification/artifacts.py",
+        "sha256": "baf8f2967e3961901c414cf97de9223be10a39a1634151f0de110de14cc40487",
+        "size": 12083
+      },
+      {
+        "path": "tools/deterministic_qualification/configuration.py",
+        "sha256": "06509d24cb7e62704cab35cda17307298d905ccbf69506d9f18cf3c036c27365",
+        "size": 5631
+      },
+      {
+        "path": "tools/deterministic_qualification/impairment.py",
+        "sha256": "50a5970d89c932f6a16d9e99c7d7347769d2ba46621da76353b9c57819e9e65d",
+        "size": 5043
+      },
+      {
+        "path": "tools/deterministic_qualification/observer_pair.py",
+        "sha256": "3a07fe37480a25a0fd738160d396303a0289376640b5ef6eb6593d73ecbb3e51",
+        "size": 17204
+      },
+      {
+        "path": "tools/deterministic_qualification/offline_campaign.py",
+        "sha256": "4900c120727856b381069ffd62bc2e0bc3dcc9500434e0f6bc8f8916846ed073",
+        "size": 32456
+      },
+      {
+        "path": "tools/deterministic_qualification/offline_capture.py",
+        "sha256": "a55733f4f328d84cfe6a81430d20ef1393cb39d6a6010f92c2358c88ea559810",
+        "size": 8017
+      },
+      {
+        "path": "tools/deterministic_qualification/offline_matrix.py",
+        "sha256": "cfdf4912625d02f4ce7c5595230bfaf463252b200df4149cbf5f1beaa1ae1b8e",
+        "size": 13624
+      },
+      {
+        "path": "tools/deterministic_qualification/offline_spec.py",
+        "sha256": "12dc961bbfe041eb3b9f5074f7d109002f6f55828087ced6d9a4fe3242132e56",
+        "size": 3063
+      },
+      {
+        "path": "tools/deterministic_qualification/paired_online.py",
+        "sha256": "308ec595c70f2722da46ac03d773e351e93a2663cddfc23f01764c33f1193361",
+        "size": 46457
+      },
+      {
+        "path": "tools/deterministic_qualification/process_control.py",
+        "sha256": "ea31173201387609be6e5b822c904c78aed9ad5037e7d72f137cb168154676f1",
+        "size": 6126
+      },
+      {
+        "path": "tools/deterministic_qualification/process_memory.py",
+        "sha256": "a8f84399744ef394c08cf359f64f96c693917e23005b8a505fe56bbb88390c60",
+        "size": 2245
+      },
+      {
+        "path": "tools/deterministic_qualification/release_publish.py",
+        "sha256": "a69008ee6b957c38e0fde5298d26fbb0101821552971fb129fefc39eba30975d",
+        "size": 18948
+      },
+      {
+        "path": "tools/deterministic_qualification/replay_entry.py",
+        "sha256": "412f2e0d53026a96b8e9f957139ffc37dd6024541c5a465c3a726262b827ba38",
+        "size": 11273
+      },
+      {
+        "path": "tools/deterministic_qualification/report.py",
+        "sha256": "4d4572fb3a0e521817c2adaab7d27e918b940eb11372b3770380be9e8b09700e",
+        "size": 408
+      },
+      {
+        "path": "tools/deterministic_qualification/runner.py",
+        "sha256": "97c146ae2c171d9c0edb0517b38bb41a8946ce52122a537e57713d7907d8048f",
+        "size": 100608
+      },
+      {
+        "path": "tools/deterministic_qualification/sandboxie_pair.py",
+        "sha256": "cdb25acc83b0d047629429aba522f384e3fbdaf52dca6ab6414dc9f668b979c6",
+        "size": 3927
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_configuration.py",
+        "sha256": "0140c15278430457b799f821195f06f0e36dfa7fb92b72617134caf97adf263f",
+        "size": 3008
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_impairment.py",
+        "sha256": "e77125f37b3511c756bdef01f15392ba285085b5844366b5c57d86464044abdd",
+        "size": 1419
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_observer_pair.py",
+        "sha256": "40cf71ea6f60d028cf69a8b5a52161de175f6151967cad10c2dea4a4f12b5ed6",
+        "size": 3719
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_offline_matrix.py",
+        "sha256": "ba675238c07b8f7bf3625a7b586b5e6dcd79e1a33be588b060d66adcaffcf8cd",
+        "size": 3091
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_offline_resume.py",
+        "sha256": "157d1f77ce61e158a8490ba4111220634d7ad6a04a5b828aaf1256b7dab71b40",
+        "size": 12604
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_paired_online_cycles.py",
+        "sha256": "15343cf2c885632c080c25574b836659a5e82b18b785e39a8e6bfdb223371fe9",
+        "size": 5866
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_process_memory.py",
+        "sha256": "c70d56fe53e6de963a3172a77e214f1199e41783b08c6b2c1e1df237d840fc2e",
+        "size": 886
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_release_publish.py",
+        "sha256": "54533a481f6824614aa4d305974cf265868b88e5f3319d5bf5f7d84742da583c",
+        "size": 2514
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_replay_entry_request.py",
+        "sha256": "7b4e911cb37d36d6ec35de3568a3393e24bcf39a33941c342524d03eb01a8133",
+        "size": 7256
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_runner.py",
+        "sha256": "d0960540452c3f28846fa99d3e1e2e28f63c0b82756251ce9284cb7d429f132c",
+        "size": 15365
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_sandboxie_pair.py",
+        "sha256": "c9838f425d1dc2c0413b787f2cb1d2f58de00742e1e53d6aa76ddb62f42ba21b",
+        "size": 2018
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_tira_campaign.py",
+        "sha256": "0eada4696b69910bb9895e772c3d72e0387df60443a7ce44d8a51f16ecd1083a",
+        "size": 6221
+      },
+      {
+        "path": "tools/deterministic_qualification/tests/test_trace_parser.py",
+        "sha256": "02c9b657aeb75aae2724d5f58433fc4a4ccafb0cdb9fc38ff9d7ee8a5b856d46",
+        "size": 16430
+      },
+      {
+        "path": "tools/deterministic_qualification/tira_campaign.py",
+        "sha256": "7699e037a38624b2429c8f191968b9a8306807b059cf33241d029ee456e33366",
+        "size": 23100
+      },
+      {
+        "path": "tools/deterministic_qualification/trace_parser.py",
+        "sha256": "38a2f46149fff910a48ef110f5f6ae1f3424f51071d52ccd10e8d0d43e36f57e",
+        "size": 42034
+      },
+      {
+        "path": "tools/deterministic_schema_exporter.cpp",
+        "sha256": "ab55af76165a0f3010e7890582b7145b0ed1b8550179819a32c831a58c06a9e6",
+        "size": 6826
+      },
+      {
+        "path": "tools/gekko_rollback_session_selftest.cpp",
+        "sha256": "1e06229ca791b24a27573547cbe4b7d9293f2acde1d26db49fd7398e28b0b000",
+        "size": 14010
+      },
+      {
+        "path": "tools/generate_compiled_release_identities.py",
+        "sha256": "097bb1512af037668e2cd28b8ee5a75294f38bfc352d9c103fc125999b4dcad6",
+        "size": 1735
+      },
+      {
+        "path": "tools/generate_production_candidate_manifest.py",
+        "sha256": "6867aaea32825bd2074a0412173eeaae84cdc7f4b2dbf8f5eaac9c30aea0feb3",
+        "size": 3326
+      },
+      {
+        "path": "tools/generate_production_regions.py",
+        "sha256": "c9fa3d3221a3fa667e9546123b1335b89bdd7a4daeba780eb8b1ba3ec80ed88f",
+        "size": 2475
+      },
+      {
+        "path": "tools/native_candidate_regions_selftest.cpp",
+        "sha256": "30822336a4aa64e57704213b8cd06d0711ce2f32f6c19e31f619128526ca0e2d",
+        "size": 133815
+      },
+      {
+        "path": "tools/online_coordinator_selftest.cpp",
+        "sha256": "0331547b7c589414ca72b96a81e21f4ee96d588fdb8ecbe8c7b2e9bc96ae43e8",
+        "size": 30665
+      },
+      {
+        "path": "tools/production_release_loader_selftest.cpp",
+        "sha256": "f8a81717876a1a382f6838a308c07e216b57df8555a291ae08cc9f1e5eff95fa",
+        "size": 6370
+      },
+      {
+        "path": "tools/replay_qualification_mod/OnlineRoomAutomation.cpp",
+        "sha256": "4fa5223931289dce54e47e3fe04f388e956645ab8516a44d7d4649c793ae681a",
+        "size": 27764
+      },
+      {
+        "path": "tools/replay_qualification_mod/OnlineRoomAutomation.hpp",
+        "sha256": "71956bcdad47cebf6c5134b0ad4c45e298174d1bb84652d736b81ff6415857d8",
+        "size": 1080
+      },
+      {
+        "path": "tools/replay_qualification_mod/ReplayPayloadImporter.cpp",
+        "sha256": "4a8ae7e1018c028a9392112fd84f16721bedb4d08be6327aab7c4b07ba7afddc",
+        "size": 15059
+      },
+      {
+        "path": "tools/replay_qualification_mod/ReplayPayloadImporter.hpp",
+        "sha256": "92591ea769191e2cf56ceba867bd09589e3e84100f00c76ff2a19e7312a41734",
+        "size": 2326
+      },
+      {
+        "path": "tools/replay_qualification_mod/ReplayQualificationMod.cpp",
+        "sha256": "151d5582543fc99050712c56dc32b93a5192c64464bdaf20d468e6df6fc7bfc2",
+        "size": 127693
+      },
+      {
+        "path": "tools/replay_qualification_mod/ReplaySceneNavigator.cpp",
+        "sha256": "b1387c7e21332e254ec4e0f94d7c4f7aef03d03aac4ac3a7e22c7f9cb53837fd",
+        "size": 17486
+      },
+      {
+        "path": "tools/replay_qualification_mod/ReplaySceneNavigator.hpp",
+        "sha256": "def7ba2cf5aacae193a6ee09fbdf4037252e778149c606fba18ea4c85ec9d393",
+        "size": 591
+      },
+      {
+        "path": "tools/sc6_online_contract_observer_selftest.cpp",
+        "sha256": "e1cd2f15508ec2b4d47f0be5b3968435313a89247d77a93bfb9fc96d0406198e",
+        "size": 4473
+      },
+      {
+        "path": "tools/sc6_online_observer_probe_selftest.cpp",
+        "sha256": "d6400b0c535347490c7591d1aa6b970b4800b8215666386081403b13958784ec",
+        "size": 3804
+      },
+      {
+        "path": "tools/steam_p2p_transport_selftest.cpp",
+        "sha256": "4a6da0bfd5fcf318ad5c04a01da73d129ac5e639e2af0e98f4d9468a61deb846",
+        "size": 11527
+      }
+    ],
+    "untracked_inputs": []
+  },
+  "stage_package_root": "/Game/Stage/STG004"
+}

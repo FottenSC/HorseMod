@@ -1,0 +1,45 @@
+
+void FUN_142167c50(longlong param_1,undefined8 param_2,undefined4 param_3,undefined4 param_4,
+                  undefined8 param_5)
+
+{
+  uint uVar1;
+  ulonglong uVar2;
+  ulonglong uVar3;
+  ulonglong uVar4;
+  
+  *(undefined4 *)(param_1 + 0x20) = param_3;
+  *(undefined4 *)(param_1 + 0x24) = param_4;
+  uVar4 = 0;
+  *(undefined4 *)(param_1 + 0x28) = 0;
+  *(undefined4 *)(param_1 + 0x2c) = 2;
+  *(undefined8 *)(param_1 + 0x30) = param_2;
+  *(undefined1 *)(param_1 + 0x38) = 1;
+  FUN_142167d10(*(undefined8 *)(param_1 + 8));
+  FUN_14215ee30(param_1,param_5);
+  uVar2 = uVar4;
+  uVar3 = uVar4;
+  if (0 < *(int *)(param_1 + 0x18)) {
+    do {
+      PrepareTickTaskLevelForFrame
+                (*(FTickTaskLevel_Partial **)(uVar3 + *(longlong *)(param_1 + 0x10)),
+                 (FTickContext_Partial *)(param_1 + 0x20));
+      uVar1 = (int)uVar2 + 1;
+      uVar2 = (ulonglong)uVar1;
+      uVar3 = uVar3 + 8;
+    } while ((int)uVar1 < *(int *)(param_1 + 0x18));
+  }
+  uVar2 = uVar4;
+  if (0 < *(int *)(param_1 + 0x18)) {
+    do {
+      QueueTickTaskLevelForFrame
+                (*(FTickTaskLevel_Partial **)(uVar4 + *(longlong *)(param_1 + 0x10)));
+      uVar1 = (int)uVar2 + 1;
+      uVar4 = uVar4 + 8;
+      uVar2 = (ulonglong)uVar1;
+    } while ((int)uVar1 < *(int *)(param_1 + 0x18));
+  }
+  return;
+}
+
+

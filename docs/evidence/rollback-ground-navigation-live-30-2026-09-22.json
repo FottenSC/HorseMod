@@ -1,0 +1,79 @@
+{
+  "result": "pass",
+  "independent_controls": {
+    "0": {
+      "run_id": "replay-23561409cef64f76bc1f0d8b1b238468",
+      "reuse": null
+    },
+    "1": {
+      "run_id": "replay-8a02eb09747a47a584c6b1679810abc7",
+      "reuse": null
+    },
+    "2": {
+      "run_id": "replay-946521f6d53e4d228c71f177beabc5a5",
+      "reuse": null
+    },
+    "3": {
+      "run_id": "replay-2a14651fa98343ae957c7ed29663ee16",
+      "reuse": null
+    }
+  },
+  "continuation_ticks": 120,
+  "native_callbacks_compared": 2300,
+  "acceptance_results": {
+    "observer_validity": "pass",
+    "simulation": "pass"
+  },
+  "retained_evidence": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\manifests\\7d97a04e3b03d84002a90491c9a59fb1e0d520c7947ab7222c8cca42d55cfead.json",
+    "sha256": "7d97a04e3b03d84002a90491c9a59fb1e0d520c7947ab7222c8cca42d55cfead",
+    "bytes": 57183,
+    "summary": {
+      "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\summaries\\fc0924d3ec7e894b6aa6a0d0f6056981f31c0d005ed353f6c2b84604f73e580f.md",
+      "sha256": "fc0924d3ec7e894b6aa6a0d0f6056981f31c0d005ed353f6c2b84604f73e580f",
+      "bytes": 518
+    }
+  },
+  "build_identities": {
+    "runtime": "d47b1682b8b79c42fb021048ff30eac0543bb62b9fe3bf1baed708e2ce6bdf69",
+    "observer": "9fc1cbe0beaf947293bab4f0a0dc82f87df4aedb17008236787ca5f1ab78d007",
+    "framework": "978062983a0ecd42366922edccbf64bf35c5a2e7122c95cc75d29f50d836d9c6"
+  },
+  "candidate": {
+    "result": "pass",
+    "cycles": 30,
+    "first_T": 217,
+    "last_T": 246,
+    "resimulated_ticks": 210,
+    "peak_bytes": 906368544,
+    "scope": "native transaction receipts; independent comparison required"
+  },
+  "stage_receipt": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\3989d8932df0bc3b0f477daa8564637133d6708e96a8418fcabaf3255f0e10ff.json",
+    "sha256": "3989d8932df0bc3b0f477daa8564637133d6708e96a8418fcabaf3255f0e10ff",
+    "bytes": 37729
+  },
+  "console": {
+    "path": "E:\\myMods\\build_cmake_LessEqual421__Shipping__Win64\\replay-tests\\evidence\\objects\\61ab0e28fe40b1aac3d1ba10f81d12f710d1348dda41521b583646edc34c05dd.log",
+    "sha256": "61ab0e28fe40b1aac3d1ba10f81d12f710d1348dda41521b583646edc34c05dd",
+    "bytes": 662
+  },
+  "cost_summary_us": {
+    "capture_us": {
+      "median": 83515.5,
+      "p95": 100160,
+      "max": 104451
+    },
+    "correction_us": {
+      "median": 299104.5,
+      "p95": 1052813,
+      "max": 1068516
+    },
+    "preceding_forward_us": {
+      "median": 30691.5,
+      "p95": 34416,
+      "max": 38193
+    }
+  },
+  "scope": "30 consecutive eligible seven-tick corrections plus120 independent continuation; normal rendering enabled but coherence unmeasured. Recovery,epoch/reset,full ownership and performance unqualified. A617 publication and G1 remain open."
+}

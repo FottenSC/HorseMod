@@ -678,7 +678,6 @@
     std::pair<int32_t, int32_t> m_battle_terminate_hook_ids{};
     StringType m_battle_terminate_hook_path{
         STR("/Script/LuxorGame.LuxBattleGameMode:TerminateBattle")};
-
     // Last status for the Labbing tab's Copy/Paste pose JSON buttons.
     // ImGui-only state; UI thread reads + writes the same fields, no
     // atomics needed.  Empty string means "no message yet".
@@ -720,114 +719,6 @@
     std::uint64_t m_replay_qualification_batch_accounting_mismatch_baseline{};
     std::uint64_t m_replay_qualification_round_transition_barrier_baseline{};
     Horse::Deterministic::DeterministicHookSet m_deterministic_hooks{};
-#if HORSE_ENABLE_OBSERVER_PROBE
-    Horse::Deterministic::Sc6OnlineObserverReadOnlyAccess
-        m_online_observer_access{};
-    Horse::Deterministic::Sc6OnlineObserverProbe m_online_observer_probe{
-        m_online_observer_access};
-#endif
-#if HORSE_ENABLE_GEKKONET
-    Horse::Deterministic::SteamP2PTransport
-        m_online_qualification_transport{};
-    Horse::Deterministic::SteamP2PTransport m_online_production_transport{};
-    Horse::Fn m_online_get_stage_id{};
-    Horse::GlobalPtr m_online_session_hub{};
-    Horse::Fn m_online_request_battle_end_to_lobby{};
-    Horse::Deterministic::Sc6OnlineSessionObserver
-        m_sc6_online_session_observer{};
-    Horse::Deterministic::Sc6OnlineSessionIdentity
-        m_online_latched_session_identity{};
-    bool m_online_latched_session_valid{};
-    std::uint32_t m_online_session_observation_stage_mask{};
-    std::uint32_t m_online_session_observation_state_mask{};
-    bool m_online_lobby_observation_failure_logged{};
-    std::uint32_t m_online_content_observation_stage_mask{};
-    Horse::Deterministic::OnlineContentContract
-        m_online_latched_content_identity{};
-    bool m_online_latched_content_valid{};
-    Horse::Deterministic::SteamLobbyObserver m_steam_lobby_observer{};
-    Horse::Deterministic::Sc6BattleSyncObserver m_battle_sync_observer{};
-    Horse::Deterministic::ProductionOnlineAllowlist m_online_allowlist{};
-    QualificationOnlineAllowlist m_online_qualification_allowlist{};
-    QualificationOnlineCoordinator m_online_qualification_coordinator{
-        m_online_qualification_transport, m_online_qualification_allowlist};
-    ProductionOnlineCoordinator m_online_production_coordinator{
-        m_online_production_transport, m_online_allowlist};
-    OnlineCoordinatorRouter m_online_coordinator{
-        m_online_qualification_coordinator, m_online_production_coordinator};
-    Horse::Deterministic::OnlineLifecycle m_online_lifecycle{};
-    Horse::Deterministic::OnlineSceneExitGate m_online_scene_exit_gate{};
-    Horse::Deterministic::GekkoRollbackSession m_online_gekko{};
-    Horse::Deterministic::FrameCoordinate m_online_baseline_coordinate{};
-    Horse::Deterministic::FrameCoordinate m_online_pending_coordinate{};
-    std::int32_t m_online_next_gekko_frame{};
-    std::uint8_t m_online_local_player_slot{};
-    bool m_online_current_advance_pending{};
-    std::atomic<bool> m_online_qualification_requested{};
-    std::atomic<bool> m_online_production_requested{};
-    std::atomic<bool> m_online_production_reentry_pending{};
-    // Low dword: current status. High dword: retained per-run status mask.
-    // Keeping both in one atomic prevents bridge polling from observing a
-    // terminal status before its immediately preceding history transition.
-    std::atomic<std::uint64_t> m_online_qualification_status_state{};
-    Horse::Deterministic::CanonicalHash m_online_executable_identity{};
-    Horse::Deterministic::CanonicalHash m_online_build_identity{};
-    Horse::Deterministic::CanonicalHash m_online_loaded_map_identity{};
-    std::uint64_t m_online_prefix_next_frame{};
-    bool m_online_prefix_catchup{};
-    bool m_online_takeover_ready{};
-    bool m_online_identities_ready{};
-    bool m_online_authentication_logged{};
-    bool m_online_owned_storage_prepared{};
-    std::string m_online_run_id{};
-    bool m_online_release_manifest_failure_logged{};
-    std::int32_t m_online_next_confirmed_hash_frame{29};
-    Horse::Deterministic::FrameCoordinate m_online_last_observed_coordinate{};
-    Horse::Deterministic::FrameCoordinate m_online_round_completed_coordinate{};
-    Horse::Deterministic::FrameCoordinate
-        m_online_pending_presentation_commit{};
-    bool m_online_round_transition_pending{};
-    std::array<Horse::Deterministic::PlayerInput, 2>
-        m_online_last_owned_inputs{};
-    bool m_online_last_owned_inputs_valid{};
-    std::array<Horse::Deterministic::PlayerInput, 2>
-        m_online_round_hold_inputs{};
-    bool m_online_round_hold_inputs_valid{};
-    std::uint64_t m_online_corrections{};
-    std::uint32_t m_online_max_correction_depth{};
-    std::uint32_t m_online_rounds{};
-    std::uint64_t m_online_first_owned_generation{};
-    std::uint64_t m_online_confirmed_hashes{};
-    std::uint64_t m_online_verified_audio_batches{};
-    std::uint64_t m_online_verified_camera_batches{};
-    std::uint64_t m_online_audio_sequence_mismatches{};
-    std::uint64_t m_online_camera_publication_mismatches{};
-    std::uint64_t m_online_presentation_failures{};
-    std::array<std::uint8_t, 3> m_online_correction_stimulus_depths{};
-    std::size_t m_online_correction_stimulus_count{};
-    std::size_t m_online_correction_stimulus_next{};
-    std::int32_t m_online_correction_stimulus_trigger_frame{-1};
-    bool m_online_correction_stimulus_armed{};
-    std::uint32_t m_online_correction_stimulus_min_round{1};
-    OnlineQualificationFault m_online_qualification_fault{
-        OnlineQualificationFault::None};
-    bool m_online_qualification_fault_triggered{};
-    std::uint64_t m_online_qualification_fault_started_ms{};
-    std::uint32_t m_online_event_mask{};
-    std::uint32_t m_online_preownership_failure_cleanup_delay{};
-    Horse::Deterministic::FailureCode m_online_root_failure{
-        Horse::Deterministic::FailureCode::None};
-    Horse::Deterministic::OnlineLifecyclePhase m_online_root_lifecycle_phase{
-        Horse::Deterministic::OnlineLifecyclePhase::ClearForStock};
-    Horse::Deterministic::OnlineState m_online_root_coordinator_state{
-        Horse::Deterministic::OnlineState::Disabled};
-    Horse::Deterministic::FrameCoordinate m_online_root_failure_coordinate{};
-    bool m_online_root_owned_simulation{};
-    Horse::Deterministic::OnlineQualificationMetrics
-        m_online_qualification_metrics{};
-    Horse::Deterministic::DeterministicOwnedStorageStatus
-        m_online_pre_match_storage{};
-#endif
 
     // Configured backends can target Persistent for active hit/hurt trails.
     // The *_once backends stay Foreground so inactive boxes in broad view
@@ -875,6 +766,7 @@
     bool m_logged_pcm_resolve  = false;
     bool m_logged_pcm_fallback = false;
     Horse::Deterministic::Config m_deterministic_config{};
+    Horse::Deterministic::NativeReplaySessionEntry m_native_replay_session_entry;
     Horse::Deterministic::FailureCode m_deterministic_failure{
         Horse::Deterministic::FailureCode::None};
     std::unique_ptr<Horse::Deterministic::HgCpuRuntimeDiagnostics>
@@ -1111,6 +1003,7 @@
     std::uint64_t m_seek_pending_sequence{};
     std::uint32_t m_seek_defer_count{};
     bool m_seek_request_active{};
+    bool m_replay_source_trace_historical{};
     std::atomic_bool m_resume_divergence_logged{};
     std::atomic<std::uint64_t> m_seek_completed_target{};
     std::atomic<std::uint64_t> m_seek_completed_source{};

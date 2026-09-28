@@ -1,9 +1,13 @@
 #pragma once
 
+#include "TutorialConsumer.hpp"
+#include "InputProducer.hpp"
+
 #include "Types.hpp"
 #include "AudioPresentation.hpp"
 #include "BattleAudioSelectorState.hpp"
 #include "NativeCandidateRegions.hpp"
+#include "ReplaySourceState.hpp"
 
 #include <limits>
 #include <optional>
@@ -150,8 +154,31 @@ struct ParticleSpawnJournalEntry
 struct NativeBatchEnvelope
 {
     std::uint64_t batch_id{};
+    // Includes native manager invocations omitted by the legacy state-2
+    // timeline. A gap must not masquerade as an empty producer interval.
+    std::uint64_t preceding_outer_batch_id{};
     FrameCoordinate entry_coordinate{};
     FrameCoordinate exit_coordinate{};
+    std::array<TutorialConsumerObservation,
+        maximum_tutorial_consumers_per_interval> consumers_before{};
+    std::uint8_t consumers_before_count{};
+    std::array<InputProducerObservation,
+        maximum_input_producers_per_interval> producers_before{};
+    std::uint8_t producers_before_count{};
+    ReplaySourceState replay_source_before{};
+    // Producer-owned input log at actual BattleManager entry. The preceding
+    // simulation fencepost predates the actor's cache/recorder transaction.
+    CanonicalInputDiagnostic input_before{};
+    bool input_before_valid{};
+    // A fencepost can precede native repeat/round/actor work. Only this
+    // completed-outer identity may be released back to the engine after seek.
+    ReplaySourceState replay_source_after{};
+    CanonicalHash completed_hash{};
+    CanonicalComponentFingerprint completed_components{};
+    CanonicalNativeFingerprint completed_native{};
+    CanonicalMoveDispatchDiagnostic completed_move_dispatch{};
+    std::array<std::uint32_t, 12> completed_input_scalars{};
+    bool completed_identity_valid{};
     float delta_seconds{};
     std::uint32_t native_frame_before{};
     std::uint32_t native_frame_after{};
@@ -327,6 +354,18 @@ public:
     Status ReplaceBatch(std::size_t batch_index,
         const NativeBatchEnvelope& expected,
         const NativeBatchEnvelope& replacement) noexcept;
+    // Replace a complete retained suffix by immutable batch IDs. Corrected
+    // scheduling intervals may emit different native coordinate geometry.
+    // All envelope and coordinate input spans must not alias this timeline.
+    [[nodiscard]] Status ValidateSuffixReplacement(
+        std::span<const NativeBatchEnvelope> expected,
+        std::span<const NativeBatchEnvelope> replacements,
+        std::span<const FrameCoordinate> coordinates) const noexcept;
+    // Same owner thread, unchanged inputs and no intervening timeline mutation
+    // after successful validation. Commit reuses the existing allocations.
+    void CommitValidatedSuffixReplacement(
+        std::span<const NativeBatchEnvelope> replacements,
+        std::span<const FrameCoordinate> coordinates) noexcept;
     [[nodiscard]] bool CanAppendBatch(
         std::size_t coordinate_count) const noexcept;
     void DiscardBefore(FrameCoordinate minimum) noexcept;
@@ -344,6 +383,11 @@ private:
     [[nodiscard]] bool Validate(
         const NativeBatchEnvelope& envelope,
         std::span<const FrameCoordinate> coordinates) const noexcept;
+    [[nodiscard]] static bool ValidateAfter(
+        const NativeBatchEnvelope& envelope,
+        std::span<const FrameCoordinate> coordinates,
+        const NativeBatchEnvelope* previous,
+        std::optional<FrameCoordinate> previous_coordinate) noexcept;
 
     std::size_t maximum_batches_{};
     std::size_t maximum_coordinates_{};
